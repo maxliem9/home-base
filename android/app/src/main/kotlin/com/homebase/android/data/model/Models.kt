@@ -65,5 +65,37 @@ data class UpdateShoppingItemRequest(
 @JsonClass(generateAdapter = true)
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
 
+@JsonClass(generateAdapter = true)
+data class NoteDto(
+    val id: String,
+    val title: String,
+    val content: String,
+    val tags: List<String> = emptyList(),
+    val visibility: String,
+    val createdBy: String,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateNoteRequest(
+    val title: String,
+    val content: String? = null,
+    val tags: List<String>? = null,
+    val visibility: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateNoteRequest(
+    val title: String? = null,
+    val content: String? = null,
+    val tags: List<String>? = null,
+    val visibility: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class NoteWsMessage(val type: String, val payload: NoteDto? = null)
+
 enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
+enum class NoteVisibility { PRIVATE, SHARED }
