@@ -1,22 +1,22 @@
 import { useState } from 'react'
-import { InboxView } from './components/InboxView'
+import { TodosView } from './components/TodosView'
 import { ShoppingView } from './components/ShoppingView'
 import { NotesView } from './components/NotesView'
 
-type Tab = 'inbox' | 'shopping' | 'notes'
+type Tab = 'todos' | 'shopping' | 'notes'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'inbox', label: 'Inbox' },
+  { id: 'todos', label: 'Aufgaben' },
   { id: 'shopping', label: 'Einkaufsliste' },
   { id: 'notes', label: 'Notizen' },
 ]
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('inbox')
+  const [tab, setTab] = useState<Tab>('todos')
 
   return (
     <div className="pb-16">
-      {tab === 'inbox' && <InboxView />}
+      {tab === 'todos' && <TodosView />}
       {tab === 'shopping' && <ShoppingView />}
       {tab === 'notes' && <NotesView />}
 
