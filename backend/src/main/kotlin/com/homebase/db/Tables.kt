@@ -25,3 +25,14 @@ object TodosTable : Table("todos") {
     val doneAt = timestamp("done_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
+
+object ShoppingItemsTable : Table("shopping_items") {
+    val id = uuid("id")
+    val name = text("name")
+    val category = varchar("category", 50).nullable()
+    val checked = bool("checked")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    val checkedAt = timestamp("checked_at").nullable()
+    override val primaryKey = PrimaryKey(id)
+}
