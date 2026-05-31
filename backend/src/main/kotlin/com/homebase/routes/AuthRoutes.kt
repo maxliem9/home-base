@@ -11,7 +11,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.security.MessageDigest
 import java.util.*
@@ -22,7 +22,7 @@ fun Route.authRoutes() {
         val config = call.application.environment.config
 
         val user = transaction {
-            UsersTable.select { UsersTable.username eq request.username }
+            UsersTable.selectAll().where { UsersTable.username eq request.username }
                 .singleOrNull()
         } ?: run {
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))

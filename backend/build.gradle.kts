@@ -1,9 +1,7 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-
 plugins {
-    kotlin("jvm") version "1.9.23"
-    kotlin("plugin.serialization") version "1.9.23"
-    id("io.ktor.plugin") version "2.3.10"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
+    id("io.ktor.plugin") version "3.1.3"
     application
 }
 
@@ -18,8 +16,8 @@ repositories {
     mavenCentral()
 }
 
-val ktorVersion = "2.3.10"
-val exposedVersion = "0.49.0"
+val ktorVersion = "3.1.3"
+val exposedVersion = "0.61.0"
 val flywayVersion = "10.11.0"
 
 dependencies {
@@ -48,11 +46,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.23")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.0")
+    testImplementation("com.h2database:h2:2.2.224")
+    testImplementation("io.mockk:mockk:1.13.10")
 }
 
-tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "21"
+java {
+    sourceCompatibility = JavaVersion.VERSION_24
+    targetCompatibility = JavaVersion.VERSION_24
 }
 
 ktor {
