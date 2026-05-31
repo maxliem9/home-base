@@ -59,7 +59,7 @@ fun Route.shoppingRoutes() {
         }
 
         put("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateShoppingItemRequest>()
             if (req.name?.isBlank() == true) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SHOPPING_ITEM", "name must not be blank"))
@@ -91,7 +91,7 @@ fun Route.shoppingRoutes() {
         }
 
         delete("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@delete
             val deletedItem = transaction {
                 val existing = ShoppingItemsTable.selectAll()
                     .where { ShoppingItemsTable.id eq id }

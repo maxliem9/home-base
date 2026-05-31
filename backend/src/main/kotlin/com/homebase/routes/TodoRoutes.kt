@@ -72,7 +72,7 @@ fun Route.todoRoutes() {
         }
 
         put("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTodoRequest>()
 
             val todo = transaction {
@@ -117,7 +117,7 @@ fun Route.todoRoutes() {
         }
 
         delete("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@delete
             val deletedTodo = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
                     ?: return@transaction null
@@ -162,7 +162,11 @@ private fun validateTodoInput(
     if (status == "PLANNED" && assignee.isNullOrBlank() && dueDate.isNullOrBlank()) {
         return ErrorResponse("INVALID_TODO", "PLANNED todos need an assignee or dueDate")
     }
-    dueDate?.let { LocalDate.parse(it) }
+    if (dueDate != null) {
+        runCatching { LocalDate.parse(dueDate) }.getOrElse {
+            return ErrorResponse("INVALID_DUE_DATE", "dueDate must be in YYYY-MM-DD format")
+        }
+    }
     return null
 }
 

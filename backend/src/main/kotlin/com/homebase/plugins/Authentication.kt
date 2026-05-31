@@ -17,6 +17,11 @@ fun Application.configureAuthentication(config: ApplicationConfig) {
     install(Authentication) {
         jwt("auth-jwt") {
             this.realm = realm
+            // Browsers can't set headers on a WebSocket handshake, so we also accept the JWT
+            // via a `?token=` query parameter as a fallback. The Authorization header always
+            // takes precedence. Tradeoff: query-string tokens can leak into access logs and
+            // browser history, which is acceptable for this private 2-user hub but should only
+            // be relied upon for the /ws/* upgrade endpoints.
             authHeader { call ->
                 call.request.parseAuthorizationHeader()
                     ?: call.request.queryParameters["token"]

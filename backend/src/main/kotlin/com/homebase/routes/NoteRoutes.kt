@@ -87,7 +87,7 @@ fun Route.noteRoutes() {
 
         put("/{id}") {
             val username = call.username()
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateNoteRequest>()
 
             if (req.title?.isBlank() == true) {
@@ -130,7 +130,7 @@ fun Route.noteRoutes() {
 
         delete("/{id}") {
             val username = call.username()
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@delete
 
             val deleted = transaction {
                 val existing = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()

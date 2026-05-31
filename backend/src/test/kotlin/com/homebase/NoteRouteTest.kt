@@ -139,6 +139,20 @@ class NoteRouteTest {
     }
 
     @Test
+    fun `PUT note with malformed id returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.put("/api/v1/notes/not-a-uuid") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"X"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `DELETE note removes it`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

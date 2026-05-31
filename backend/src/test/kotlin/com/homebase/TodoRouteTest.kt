@@ -163,6 +163,34 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `POST todo with malformed dueDate returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin","dueDate":"tomorrow"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `PUT todo with malformed id returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.put("/api/v1/todos/not-a-uuid") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"X"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `PUT todo to DONE sets doneAt timestamp`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
