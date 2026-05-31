@@ -108,6 +108,11 @@ class InboxViewModel(
                             )
                         }
                     }
+                    is TodoWebSocketClient.WsEvent.TodoDeleted -> {
+                        _uiState.update { state ->
+                            state.copy(todos = state.todos.filter { it.id != event.todo.id })
+                        }
+                    }
                 }
             }
         }

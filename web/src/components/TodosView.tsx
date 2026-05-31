@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { API_BASE, authFetch, withWsToken } from '../api'
 import { Todo, TodoStatus, TodoPriority } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/api/v1/ws/todos`
-const API_BASE = '/api/v1'
 
 const SEGMENTS: { id: TodoStatus; label: string }[] = [
   { id: 'INBOX', label: 'Inbox' },
@@ -25,7 +25,12 @@ interface PlanDraft {
   priority: '' | TodoPriority
 }
 
-export function TodosView() {
+interface TodosViewProps {
+  token: string
+  onLogout: () => void
+}
+
+export function TodosView({ token, onLogout }: TodosViewProps) {
   const [todos, setTodos] = useState<Todo[]>([])
   const [loading, setLoading] = useState(true)
   const [segment, setSegment] = useState<TodoStatus>('INBOX')
@@ -36,17 +41,21 @@ export function TodosView() {
 
   const fetchTodos = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/todos`)
+      const res = await authFetch(token, `${API_BASE}/todos`)
+      if (res.status === 401) {
+        onLogout()
+        return
+      }
       if (!res.ok) return
       setTodos(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onLogout, token])
 
   useEffect(() => { fetchTodos() }, [fetchTodos])
 
-  useWebSocket(WS_URL, (raw) => {
+  useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
@@ -67,7 +76,7 @@ export function TodosView() {
   })
 
   const patchTodo = async (id: string, body: Record<string, unknown>) => {
-    const res = await fetch(`${API_BASE}/todos/${id}`, {
+    const res = await authFetch(token, `${API_BASE}/todos/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -82,7 +91,7 @@ export function TodosView() {
     if (!newTitle.trim()) return
     setSubmitting(true)
     try {
-      const res = await fetch(`${API_BASE}/todos`, {
+      const res = await authFetch(token, `${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle.trim() }),
@@ -115,7 +124,7 @@ export function TodosView() {
 
   const deleteTodo = async (id: string) => {
     setTodos((prev) => prev.filter((t) => t.id !== id))
-    await fetch(`${API_BASE}/todos/${id}`, { method: 'DELETE' })
+    await authFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
   }
 
   const inbox = todos.filter((t) => t.status === 'INBOX')
@@ -140,7 +149,12 @@ export function TodosView() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 pt-3">
-        <h1 className="text-xl font-semibold text-gray-800">HomeBase — Aufgaben</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Aufgaben</h1>
+          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
+            Abmelden
+          </button>
+        </div>
         <div className="flex mt-3 -mb-px">
           {SEGMENTS.map(({ id, label }) => (
             <button

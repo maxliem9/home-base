@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
+import { API_BASE, authFetch, withWsToken } from '../api'
 import { ShoppingItem } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `ws://${window.location.host}/api/v1/ws/shopping`
-const API_BASE = '/api/v1'
 
-export function ShoppingView() {
+interface ShoppingViewProps {
+  token: string
+  onLogout: () => void
+}
+
+export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [items, setItems] = useState<ShoppingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -15,18 +20,22 @@ export function ShoppingView() {
 
   const fetchItems = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/shopping`)
+      const res = await authFetch(token, `${API_BASE}/shopping`)
+      if (res.status === 401) {
+        onLogout()
+        return
+      }
       if (!res.ok) return
       const data: ShoppingItem[] = await res.json()
       setItems(data)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onLogout, token])
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
-  useWebSocket(WS_URL, (raw) => {
+  useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (msg.type === 'SHOPPING_CREATED' && msg.payload) {
@@ -45,7 +54,7 @@ export function ShoppingView() {
     if (!newName.trim()) return
     setSubmitting(true)
     try {
-      await fetch(`${API_BASE}/shopping`, {
+      await authFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -64,7 +73,7 @@ export function ShoppingView() {
   const toggleChecked = async (item: ShoppingItem) => {
     // optimistic update; WS broadcast keeps the other client in sync
     setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, checked: !i.checked } : i))
-    await fetch(`${API_BASE}/shopping/${item.id}`, {
+    await authFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ checked: !item.checked }),
@@ -73,7 +82,7 @@ export function ShoppingView() {
 
   const handleDelete = async (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id))
-    await fetch(`${API_BASE}/shopping/${id}`, { method: 'DELETE' })
+    await authFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
   }
 
   // group by category, uncategorised last
@@ -89,7 +98,12 @@ export function ShoppingView() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
-        <h1 className="text-xl font-semibold text-gray-800">HomeBase — Einkaufsliste</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Einkaufsliste</h1>
+          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
+            Abmelden
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">

@@ -83,6 +83,20 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `POST todo with blank title returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"   "}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `PUT todo updates title and status`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
@@ -97,13 +111,55 @@ class TodoRouteTest {
         val updated = client.put("/api/v1/todos/$id") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"title":"Updated title","status":"PLANNED"}""")
+            setBody("""{"title":"Updated title","status":"PLANNED","assignee":"bob"}""")
         }
 
         assertEquals(HttpStatusCode.OK, updated.status)
         val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
         assertEquals("Updated title", body["title"]?.jsonPrimitive?.content)
         assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT todo to PLANNED without assignee or due date returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Original title"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val updated = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"PLANNED"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, updated.status)
+    }
+
+    @Test
+    fun `PUT todo with invalid status returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Original title"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val updated = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"LATER"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, updated.status)
     }
 
     @Test

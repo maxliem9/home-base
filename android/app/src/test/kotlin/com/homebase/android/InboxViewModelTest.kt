@@ -181,4 +181,18 @@ class InboxViewModelTest {
 
         assertEquals("New", vm.uiState.value.todos[0].title)
     }
+
+    @Test
+    fun `WS TodoDeleted event removes todo`() = runTest {
+        val original = todo(id = "1")
+        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        wsEvents.emit(TodoWebSocketClient.WsEvent.TodoDeleted(original))
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.todos.isEmpty())
+    }
 }

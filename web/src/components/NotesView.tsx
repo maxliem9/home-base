@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { API_BASE, authFetch, withWsToken } from '../api'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const WS_URL = import.meta.env.VITE_WS_URL_NOTES ?? `ws://${window.location.host}/api/v1/ws/notes`
-const API_BASE = '/api/v1'
 
 interface Draft {
   id?: string
@@ -26,7 +26,12 @@ const draftFromNote = (n: Note): Draft => ({
 const parseTags = (raw: string): string[] =>
   raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0)
 
-export function NotesView() {
+interface NotesViewProps {
+  token: string
+  onLogout: () => void
+}
+
+export function NotesView({ token, onLogout }: NotesViewProps) {
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -36,13 +41,17 @@ export function NotesView() {
   const fetchNotes = useCallback(async (q: string) => {
     try {
       const url = q.trim() ? `${API_BASE}/notes?q=${encodeURIComponent(q.trim())}` : `${API_BASE}/notes`
-      const res = await fetch(url)
+      const res = await authFetch(token, url)
+      if (res.status === 401) {
+        onLogout()
+        return
+      }
       if (!res.ok) return
       setNotes(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onLogout, token])
 
   // debounce search input
   const debounce = useRef<ReturnType<typeof setTimeout>>()
@@ -52,7 +61,7 @@ export function NotesView() {
     return () => clearTimeout(debounce.current)
   }, [query, fetchNotes])
 
-  useWebSocket(WS_URL, (raw) => {
+  useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
@@ -84,7 +93,7 @@ export function NotesView() {
         visibility: draft.visibility,
       })
       if (draft.id) {
-        const res = await fetch(`${API_BASE}/notes/${draft.id}`, {
+        const res = await authFetch(token, `${API_BASE}/notes/${draft.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body,
@@ -94,7 +103,7 @@ export function NotesView() {
           setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
         }
       } else {
-        const res = await fetch(`${API_BASE}/notes`, {
+        const res = await authFetch(token, `${API_BASE}/notes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
@@ -113,13 +122,18 @@ export function NotesView() {
   const handleDelete = async (id: string) => {
     setNotes((prev) => prev.filter((n) => n.id !== id))
     setDraft(null)
-    await fetch(`${API_BASE}/notes/${id}`, { method: 'DELETE' })
+    await authFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
-        <h1 className="text-xl font-semibold text-gray-800">HomeBase — Notizen</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Notizen</h1>
+          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
+            Abmelden
+          </button>
+        </div>
         <input
           type="search"
           placeholder="Suche in Titel, Inhalt, Tags…"

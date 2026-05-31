@@ -7,13 +7,21 @@ import kotlinx.coroutines.sync.withLock
 
 object WsSessionManager {
     private val mutex = Mutex()
-    private val sessions = mutableSetOf<DefaultWebSocketServerSession>()
+    private val sessionsByChannel = mutableMapOf<String, MutableSet<DefaultWebSocketServerSession>>()
 
-    suspend fun add(session: DefaultWebSocketServerSession) = mutex.withLock { sessions.add(session) }
-    suspend fun remove(session: DefaultWebSocketServerSession) = mutex.withLock { sessions.remove(session) }
+    suspend fun add(channel: String, session: DefaultWebSocketServerSession) = mutex.withLock {
+        sessionsByChannel.getOrPut(channel) { mutableSetOf() }.add(session)
+    }
 
-    suspend fun broadcast(text: String) {
-        val snapshot = mutex.withLock { sessions.toSet() }
+    suspend fun remove(channel: String, session: DefaultWebSocketServerSession) = mutex.withLock {
+        sessionsByChannel[channel]?.remove(session)
+        if (sessionsByChannel[channel]?.isEmpty() == true) {
+            sessionsByChannel.remove(channel)
+        }
+    }
+
+    suspend fun broadcast(channel: String, text: String) {
+        val snapshot = mutex.withLock { sessionsByChannel[channel].orEmpty().toSet() }
         for (session in snapshot) {
             runCatching { session.send(Frame.Text(text)) }
         }

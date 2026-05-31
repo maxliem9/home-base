@@ -83,6 +83,16 @@ class NoteRouteTest {
     }
 
     @Test
+    fun `POST note with blank title returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = createNote(token, """{"title":"   "}""")
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `POST note with invalid visibility returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

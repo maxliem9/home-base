@@ -22,6 +22,7 @@ import java.util.UUID
 
 private const val VISIBILITY_PRIVATE = "PRIVATE"
 private const val VISIBILITY_SHARED = "SHARED"
+private const val NOTES_WS_CHANNEL = "notes"
 private val VALID_VISIBILITIES = setOf(VISIBILITY_PRIVATE, VISIBILITY_SHARED)
 
 fun Route.noteRoutes() {
@@ -54,6 +55,10 @@ fun Route.noteRoutes() {
             val username = call.username()
             val req = call.receive<CreateNoteRequest>()
 
+            if (req.title.isBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_NOTE", "title must not be blank"))
+                return@post
+            }
             val visibility = req.visibility?.uppercase() ?: VISIBILITY_SHARED
             if (visibility !in VALID_VISIBILITIES) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_VISIBILITY", "visibility must be PRIVATE or SHARED"))
@@ -85,6 +90,10 @@ fun Route.noteRoutes() {
             val id = UUID.fromString(call.parameters["id"]!!)
             val req = call.receive<UpdateNoteRequest>()
 
+            if (req.title?.isBlank() == true) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_NOTE", "title must not be blank"))
+                return@put
+            }
             val newVisibility = req.visibility?.uppercase()
             if (newVisibility != null && newVisibility !in VALID_VISIBILITIES) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_VISIBILITY", "visibility must be PRIVATE or SHARED"))
@@ -136,20 +145,20 @@ fun Route.noteRoutes() {
             }
             // only notify the other client about notes it could actually see
             if (deleted.visibility == VISIBILITY_SHARED) {
-                WsSessionManager.broadcast(json.encodeToString(NoteWsMessage("NOTE_DELETED", deleted)))
+                WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage("NOTE_DELETED", deleted)))
             }
             call.respond(HttpStatusCode.NoContent)
         }
     }
 
     webSocket("/ws/notes") {
-        WsSessionManager.add(this)
+        WsSessionManager.add(NOTES_WS_CHANNEL, this)
         try {
             for (frame in incoming) {
                 if (frame is Frame.Close) break
             }
         } finally {
-            WsSessionManager.remove(this)
+            WsSessionManager.remove(NOTES_WS_CHANNEL, this)
         }
     }
 }
@@ -171,7 +180,7 @@ private fun ResultRow.isVisibleTo(username: String): Boolean =
  */
 private suspend fun broadcastCreate(json: Json, note: NoteDto) {
     if (note.visibility == VISIBILITY_SHARED) {
-        WsSessionManager.broadcast(json.encodeToString(NoteWsMessage("NOTE_CREATED", note)))
+        WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage("NOTE_CREATED", note)))
     }
 }
 
@@ -181,7 +190,7 @@ private suspend fun broadcastUpdate(json: Json, wasShared: Boolean, note: NoteDt
         wasShared -> "NOTE_DELETED"                                 // shared -> private: remove it
         else -> return                                              // private -> private: nothing to share
     }
-    WsSessionManager.broadcast(json.encodeToString(NoteWsMessage(type, note)))
+    WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage(type, note)))
 }
 
 private fun encodeTags(tags: List<String>?): String =

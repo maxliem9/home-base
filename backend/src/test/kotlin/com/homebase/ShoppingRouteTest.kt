@@ -62,6 +62,20 @@ class ShoppingRouteTest {
     }
 
     @Test
+    fun `POST shopping with blank name returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/shopping") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"   "}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `POST shopping with category stores it`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
