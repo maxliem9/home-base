@@ -226,6 +226,76 @@ class NoteRouteTest {
     }
 
     @Test
+    fun `other user cannot change visibility of a shared note`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+
+        val id = Json.parseToJsonElement(
+            createNote(alice, """{"title":"Geteilt","visibility":"SHARED"}""").bodyAsText()
+        ).jsonObject["id"]!!.jsonPrimitive.content
+
+        // bob may edit the shared note's content but not flip it to private
+        val response = client.put("/api/v1/notes/$id") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"visibility":"PRIVATE"}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, response.status)
+
+        // the note is still shared and visible to bob
+        val bobNotes = Json.parseToJsonElement(
+            client.get("/api/v1/notes") { bearerAuth(bob) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, bobNotes.size)
+        assertEquals("SHARED", bobNotes[0].jsonObject["visibility"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `other user can still edit content of a shared note`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+
+        val id = Json.parseToJsonElement(
+            createNote(alice, """{"title":"Geteilt","visibility":"SHARED"}""").bodyAsText()
+        ).jsonObject["id"]!!.jsonPrimitive.content
+
+        // re-sending the unchanged visibility alongside an edit is allowed
+        val response = client.put("/api/v1/notes/$id") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Von Bob","visibility":"SHARED"}""")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(
+            "Von Bob",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["title"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `owner can change visibility of own shared note`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = Json.parseToJsonElement(
+            createNote(token, """{"title":"Meins","visibility":"SHARED"}""").bodyAsText()
+        ).jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.put("/api/v1/notes/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"visibility":"PRIVATE"}""")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(
+            "PRIVATE",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["visibility"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
     fun `search filters notes by query across title content and tags`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

@@ -102,9 +102,19 @@ fun Route.noteRoutes() {
 
             val result = transaction {
                 val existing = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@transaction NoteUpdateResult.NotFound
                 // hide notes the caller cannot see (private notes of the other user)
-                if (!existing.isVisibleTo(username)) return@transaction null
+                if (!existing.isVisibleTo(username)) return@transaction NoteUpdateResult.NotFound
+
+                // Shared notes are editable by both users, but only the owner may change a note's
+                // visibility. Otherwise a user could flip the other user's shared note to private —
+                // silently handing it off and losing access to it themselves.
+                if (newVisibility != null &&
+                    newVisibility != existing[NotesTable.visibility] &&
+                    existing[NotesTable.createdBy] != username
+                ) {
+                    return@transaction NoteUpdateResult.Forbidden
+                }
 
                 val wasShared = existing[NotesTable.visibility] == VISIBILITY_SHARED
 
@@ -116,16 +126,22 @@ fun Route.noteRoutes() {
                     it[updatedAt] = Instant.now()
                 }
                 val updated = NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto()
-                wasShared to updated
+                NoteUpdateResult.Success(wasShared, updated)
             }
 
-            if (result == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Note not found"))
-                return@put
+            when (result) {
+                NoteUpdateResult.NotFound ->
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Note not found"))
+                NoteUpdateResult.Forbidden ->
+                    call.respond(
+                        HttpStatusCode.Forbidden,
+                        ErrorResponse("VISIBILITY_FORBIDDEN", "only the note's owner may change its visibility"),
+                    )
+                is NoteUpdateResult.Success -> {
+                    broadcastUpdate(json, result.wasShared, result.note)
+                    call.respond(result.note)
+                }
             }
-            val (wasShared, updated) = result
-            broadcastUpdate(json, wasShared, updated)
-            call.respond(updated)
         }
 
         delete("/{id}") {
@@ -161,6 +177,12 @@ fun Route.noteRoutes() {
             WsSessionManager.remove(NOTES_WS_CHANNEL, this)
         }
     }
+}
+
+private sealed interface NoteUpdateResult {
+    data object NotFound : NoteUpdateResult
+    data object Forbidden : NoteUpdateResult
+    data class Success(val wasShared: Boolean, val note: NoteDto) : NoteUpdateResult
 }
 
 private fun ApplicationCall.username(): String =
