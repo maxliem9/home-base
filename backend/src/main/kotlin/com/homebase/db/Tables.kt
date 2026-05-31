@@ -36,3 +36,16 @@ object ShoppingItemsTable : Table("shopping_items") {
     val checkedAt = timestamp("checked_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
+
+object NotesTable : Table("notes") {
+    val id = uuid("id")
+    val title = text("title")
+    val content = text("content")
+    // tags stored as a comma-separated string for portability (Postgres + H2 test DB)
+    val tags = text("tags")
+    val visibility = varchar("visibility", 10)
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}

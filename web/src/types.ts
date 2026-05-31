@@ -23,3 +23,16 @@ export interface ShoppingItem {
   createdAt: string
   checkedAt?: string
 }
+
+export type NoteVisibility = 'PRIVATE' | 'SHARED'
+
+export interface Note {
+  id: string
+  title: string
+  content: string
+  tags: string[]
+  visibility: NoteVisibility
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}

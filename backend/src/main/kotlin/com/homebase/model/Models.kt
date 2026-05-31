@@ -76,3 +76,34 @@ data class UpdateShoppingItemRequest(
 
 @Serializable
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
+
+@Serializable
+data class NoteDto(
+    val id: String,
+    val title: String,
+    val content: String,
+    val tags: List<String>,
+    val visibility: String,
+    val createdBy: String,
+    val createdAt: String,
+    val updatedAt: String
+)
+
+@Serializable
+data class CreateNoteRequest(
+    val title: String,
+    val content: String? = null,
+    val tags: List<String>? = null,
+    val visibility: String? = null
+)
+
+@Serializable
+data class UpdateNoteRequest(
+    val title: String? = null,
+    val content: String? = null,
+    val tags: List<String>? = null,
+    val visibility: String? = null
+)
+
+@Serializable
+data class NoteWsMessage(val type: String, val payload: NoteDto? = null)

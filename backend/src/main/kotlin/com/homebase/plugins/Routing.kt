@@ -2,6 +2,7 @@ package com.homebase.plugins
 
 import com.homebase.routes.authRoutes
 import com.homebase.routes.healthRoutes
+import com.homebase.routes.noteRoutes
 import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.todoRoutes
 import io.ktor.server.application.*
@@ -16,6 +17,7 @@ fun Application.configureRouting() {
             authenticate("auth-jwt") {
                 todoRoutes()
                 shoppingRoutes()
+                noteRoutes()
             }
         }
     }

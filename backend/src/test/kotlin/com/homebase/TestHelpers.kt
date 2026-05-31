@@ -1,5 +1,6 @@
 package com.homebase
 
+import com.homebase.db.NotesTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
@@ -34,7 +35,7 @@ fun ApplicationTestBuilder.configureTestApplication() {
             driver = "org.h2.Driver",
         )
         transaction {
-            SchemaUtils.create(UsersTable, TodosTable, ShoppingItemsTable)
+            SchemaUtils.create(UsersTable, TodosTable, ShoppingItemsTable, NotesTable)
             UsersTable.insert {
                 it[id] = UUID.fromString("00000000-0000-0000-0000-000000000001")
                 it[username] = "alice"

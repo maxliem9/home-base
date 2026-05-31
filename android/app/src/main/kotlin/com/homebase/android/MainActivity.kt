@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.*
@@ -19,6 +20,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homebase.android.ui.inbox.InboxScreen
 import com.homebase.android.ui.inbox.InboxViewModel
 import com.homebase.android.ui.login.LoginScreen
+import com.homebase.android.ui.notes.NotesScreen
+import com.homebase.android.ui.notes.NotesViewModel
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.HomeBaseTheme
@@ -28,7 +31,7 @@ class MainActivity : ComponentActivity() {
 
     private val container by lazy { (application as HomeBaseApplication).container }
 
-    private enum class Tab(val label: String) { INBOX("Inbox"), SHOPPING("Einkauf") }
+    private enum class Tab(val label: String) { INBOX("Inbox"), SHOPPING("Einkauf"), NOTES("Notizen") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +92,12 @@ class MainActivity : ComponentActivity() {
                         icon = { Icon(Icons.Filled.ShoppingCart, contentDescription = null) },
                         label = { Text(Tab.SHOPPING.label) },
                     )
+                    NavigationBarItem(
+                        selected = tab == Tab.NOTES,
+                        onClick = { tab = Tab.NOTES },
+                        icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                        label = { Text(Tab.NOTES.label) },
+                    )
                 }
             },
         ) { padding ->
@@ -111,6 +120,15 @@ class MainActivity : ComponentActivity() {
                         ShoppingScreen(viewModel = vm)
                     }
                 }
+                Tab.NOTES -> {
+                    val vm: NotesViewModel = viewModel(
+                        key = "notes-$token",
+                        factory = notesFactory(token),
+                    )
+                    Box(Modifier.padding(padding)) {
+                        NotesScreen(viewModel = vm)
+                    }
+                }
             }
         }
     }
@@ -126,6 +144,13 @@ class MainActivity : ComponentActivity() {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
             return ShoppingViewModel(container.shoppingRepository, token) as T
+        }
+    }
+
+    private fun notesFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return NotesViewModel(container.notesRepository, token) as T
         }
     }
 }

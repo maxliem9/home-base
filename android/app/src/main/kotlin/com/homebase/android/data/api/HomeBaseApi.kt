@@ -31,4 +31,16 @@ interface HomeBaseApi {
 
     @DELETE("shopping/{id}")
     suspend fun deleteShoppingItem(@Path("id") id: String)
+
+    @GET("notes")
+    suspend fun getNotes(@Query("q") query: String? = null): List<NoteDto>
+
+    @POST("notes")
+    suspend fun createNote(@Body request: CreateNoteRequest): NoteDto
+
+    @PUT("notes/{id}")
+    suspend fun updateNote(@Path("id") id: String, @Body request: UpdateNoteRequest): NoteDto
+
+    @DELETE("notes/{id}")
+    suspend fun deleteNote(@Path("id") id: String)
 }
