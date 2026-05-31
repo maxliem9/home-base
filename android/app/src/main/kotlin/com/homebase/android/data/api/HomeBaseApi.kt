@@ -19,4 +19,16 @@ interface HomeBaseApi {
 
     @DELETE("todos/{id}")
     suspend fun deleteTodo(@Path("id") id: String)
+
+    @GET("shopping")
+    suspend fun getShoppingItems(): List<ShoppingItemDto>
+
+    @POST("shopping")
+    suspend fun createShoppingItem(@Body request: CreateShoppingItemRequest): ShoppingItemDto
+
+    @PUT("shopping/{id}")
+    suspend fun updateShoppingItem(@Path("id") id: String, @Body request: UpdateShoppingItemRequest): ShoppingItemDto
+
+    @DELETE("shopping/{id}")
+    suspend fun deleteShoppingItem(@Path("id") id: String)
 }

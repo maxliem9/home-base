@@ -13,3 +13,13 @@ export interface Todo {
   createdAt: string
   doneAt?: string
 }
+
+export interface ShoppingItem {
+  id: string
+  name: string
+  category?: string
+  checked: boolean
+  createdBy: string
+  createdAt: string
+  checkedAt?: string
+}

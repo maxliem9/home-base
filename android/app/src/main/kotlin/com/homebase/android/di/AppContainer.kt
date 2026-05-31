@@ -5,8 +5,10 @@ import com.homebase.android.BuildConfig
 import com.homebase.android.data.api.AuthInterceptor
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AuthRepository
+import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.OkHttp
+import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -45,5 +47,10 @@ class AppContainer(context: Context) {
     val todoRepository = TodoRepository(
         api = api,
         wsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    val shoppingRepository = ShoppingRepository(
+        api = api,
+        wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }
