@@ -72,7 +72,7 @@ class TodoRepositoryTest {
 
     @Test
     fun `updateTodo delegates to api`() = runTest {
-        val updated = todo(status = "DONE")
+        val updated = todo().copy(status = "DONE")
         val request = UpdateTodoRequest(status = "DONE")
         coEvery { api.updateTodo("1", request) } returns updated
 

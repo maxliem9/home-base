@@ -6,9 +6,9 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -99,7 +99,7 @@ class ShoppingViewModelTest {
         vm.addItem("Brot", "   ")
         advanceUntilIdle()
 
-        verify { repository.createItem("Brot", null) }
+        coVerify { repository.createItem("Brot", null) }
     }
 
     @Test
@@ -112,7 +112,7 @@ class ShoppingViewModelTest {
         vm.addItem("   ", null)
         advanceUntilIdle()
 
-        verify(exactly = 0) { repository.createItem(any(), any()) }
+        coVerify(exactly = 0) { repository.createItem(any(), any()) }
         assertTrue(vm.uiState.value.items.isEmpty())
     }
 
