@@ -14,6 +14,7 @@ import io.ktor.websocket.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
@@ -48,7 +49,7 @@ fun Route.todoRoutes() {
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
-                TodosTable.select { TodosTable.id eq id }.single().toDto()
+                TodosTable.selectAll().where { TodosTable.id eq id }.single().toDto()
             }
 
             WsSessionManager.broadcast(json.encodeToString(WsMessage("TODO_CREATED", todo)))
@@ -56,12 +57,11 @@ fun Route.todoRoutes() {
         }
 
         put("/{id}") {
-            val principal = call.principal<JWTPrincipal>()!!
             val id = UUID.fromString(call.parameters["id"]!!)
             val req = call.receive<UpdateTodoRequest>()
 
             val todo = transaction {
-                val existing = TodosTable.select { TodosTable.id eq id }.singleOrNull()
+                TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
                     ?: return@transaction null
 
                 TodosTable.update({ TodosTable.id eq id }) {
@@ -75,7 +75,7 @@ fun Route.todoRoutes() {
                         if (v == "DONE") it[doneAt] = Instant.now()
                     }
                 }
-                TodosTable.select { TodosTable.id eq id }.single().toDto()
+                TodosTable.selectAll().where { TodosTable.id eq id }.single().toDto()
             }
 
             if (todo == null) {
