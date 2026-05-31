@@ -29,5 +29,10 @@ web/.vite/
 # macOS
 .DS_Store
 
+# Android
+android/local.properties
+android/.cxx/
+android/app/.cxx/
+
 # Docker
 docker-compose.override.yml
