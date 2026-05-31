@@ -6,9 +6,9 @@ import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.ui.inbox.InboxViewModel
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -93,7 +93,7 @@ class InboxViewModelTest {
         vm.createTodo("   ")
         advanceUntilIdle()
 
-        verify(exactly = 0) { repository.createTodo(any()) }
+        coVerify(exactly = 0) { repository.createTodo(any()) }
         assertTrue(vm.uiState.value.todos.isEmpty())
     }
 
