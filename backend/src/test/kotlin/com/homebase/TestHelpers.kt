@@ -3,13 +3,13 @@ package com.homebase
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import com.homebase.plugins.*
+import com.homebase.security.sha256
 import io.ktor.server.config.*
 import io.ktor.server.testing.*
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -54,9 +54,4 @@ fun ApplicationTestBuilder.configureTestApplication() {
         configureCORS()
         configureRouting()
     }
-}
-
-fun sha256(input: String): String {
-    val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
-    return bytes.joinToString("") { "%02x".format(it) }
 }

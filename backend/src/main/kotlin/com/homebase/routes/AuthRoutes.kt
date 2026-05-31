@@ -6,6 +6,7 @@ import com.homebase.model.ErrorResponse
 import com.homebase.model.LoginRequest
 import com.homebase.model.TokenResponse
 import com.homebase.db.UsersTable
+import com.homebase.security.sha256
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -13,7 +14,6 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
-import java.security.MessageDigest
 import java.util.*
 
 fun Route.authRoutes() {
@@ -48,9 +48,4 @@ fun Route.authRoutes() {
 
         call.respond(TokenResponse(token))
     }
-}
-
-private fun sha256(input: String): String {
-    val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
-    return bytes.joinToString("") { "%02x".format(it) }
 }
