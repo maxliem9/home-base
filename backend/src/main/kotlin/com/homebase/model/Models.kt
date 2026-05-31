@@ -49,3 +49,30 @@ data class UpdateTodoRequest(
 
 @Serializable
 data class WsMessage(val type: String, val payload: TodoDto? = null)
+
+@Serializable
+data class ShoppingItemDto(
+    val id: String,
+    val name: String,
+    val category: String? = null,
+    val checked: Boolean,
+    val createdBy: String,
+    val createdAt: String,
+    val checkedAt: String? = null
+)
+
+@Serializable
+data class CreateShoppingItemRequest(
+    val name: String,
+    val category: String? = null
+)
+
+@Serializable
+data class UpdateShoppingItemRequest(
+    val name: String? = null,
+    val category: String? = null,
+    val checked: Boolean? = null
+)
+
+@Serializable
+data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
