@@ -56,6 +56,9 @@ npm run dev
 
 ## Deployment auf Synology NAS
 
+> 📘 **Ausführliche Schritt-für-Schritt-Anleitung** (NAS, FRITZ!Box-Routing/DynDNS,
+> HTTPS-Zertifikat, Android-App): siehe [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ### Voraussetzungen
 
 - DSM 7.x mit Container Manager
