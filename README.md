@@ -130,3 +130,4 @@ openssl rand -hex 32
 - Gemeinsame Einkaufsliste mit Kategorien und Abhaken in Echtzeit
 - Notizen mit Suche, Tags und `PRIVATE`/`SHARED` Sichtbarkeit
 - Web-Login und Android-Login über dieselben fest konfigurierten Nutzer
+- Täglicher Telegram-Digest zur konfigurierten Uhrzeit (`DIGEST_TIME`): heute erledigte Todos, neue Inbox-Items, morgen fällige Todos

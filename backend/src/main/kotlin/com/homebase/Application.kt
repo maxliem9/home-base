@@ -17,4 +17,5 @@ fun Application.module() {
     configureStatusPages()
     configureCORS()
     configureRouting()
+    configureDigest()
 }
