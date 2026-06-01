@@ -19,6 +19,8 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.util.UUID
 
+private const val SHOPPING_WS_CHANNEL = "shopping"
+
 fun Route.shoppingRoutes() {
     val json = Json { ignoreUnknownKeys = true }
 
@@ -34,6 +36,10 @@ fun Route.shoppingRoutes() {
             val principal = call.principal<JWTPrincipal>()!!
             val username = principal.payload.getClaim("username").asString()
             val req = call.receive<CreateShoppingItemRequest>()
+            if (req.name.isBlank()) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SHOPPING_ITEM", "name must not be blank"))
+                return@post
+            }
 
             val item = transaction {
                 val id = UUID.randomUUID()
@@ -48,13 +54,17 @@ fun Route.shoppingRoutes() {
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
             }
 
-            WsSessionManager.broadcast(json.encodeToString(ShoppingWsMessage("SHOPPING_CREATED", item)))
+            WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, json.encodeToString(ShoppingWsMessage("SHOPPING_CREATED", item)))
             call.respond(HttpStatusCode.Created, item)
         }
 
         put("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateShoppingItemRequest>()
+            if (req.name?.isBlank() == true) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SHOPPING_ITEM", "name must not be blank"))
+                return@put
+            }
 
             val item = transaction {
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
@@ -76,12 +86,12 @@ fun Route.shoppingRoutes() {
                 return@put
             }
 
-            WsSessionManager.broadcast(json.encodeToString(ShoppingWsMessage("SHOPPING_UPDATED", item)))
+            WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, json.encodeToString(ShoppingWsMessage("SHOPPING_UPDATED", item)))
             call.respond(item)
         }
 
         delete("/{id}") {
-            val id = UUID.fromString(call.parameters["id"]!!)
+            val id = call.uuidParam() ?: return@delete
             val deletedItem = transaction {
                 val existing = ShoppingItemsTable.selectAll()
                     .where { ShoppingItemsTable.id eq id }
@@ -94,19 +104,19 @@ fun Route.shoppingRoutes() {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Shopping item not found"))
                 return@delete
             }
-            WsSessionManager.broadcast(json.encodeToString(ShoppingWsMessage("SHOPPING_DELETED", deletedItem)))
+            WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, json.encodeToString(ShoppingWsMessage("SHOPPING_DELETED", deletedItem)))
             call.respond(HttpStatusCode.NoContent)
         }
     }
 
     webSocket("/ws/shopping") {
-        WsSessionManager.add(this)
+        WsSessionManager.add(SHOPPING_WS_CHANNEL, this)
         try {
             for (frame in incoming) {
                 if (frame is Frame.Close) break
             }
         } finally {
-            WsSessionManager.remove(this)
+            WsSessionManager.remove(SHOPPING_WS_CHANNEL, this)
         }
     }
 }

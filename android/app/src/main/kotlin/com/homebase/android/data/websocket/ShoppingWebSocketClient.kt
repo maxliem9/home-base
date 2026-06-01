@@ -30,7 +30,10 @@ class ShoppingWebSocketClient(
             .replace("http://", "ws://")
             .trimEnd('/') + "/ws/shopping"
 
-        val request = Request.Builder().url(wsUrl).build()
+        val request = Request.Builder()
+            .url(wsUrl)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
 
         val listener = object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {

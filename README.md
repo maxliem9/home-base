@@ -1,6 +1,6 @@
 # HomeBase
 
-Privater Familien-Hub für 2 Nutzer — Echtzeit-Todo-Sync zwischen Web und Android.
+Privater Familien-Hub für 2 Nutzer — Echtzeit-Sync für Todos, Einkaufsliste und Notizen zwischen Web und Android.
 
 ## Stack
 
@@ -123,3 +123,10 @@ JWT-Secret generieren:
 ```bash
 openssl rand -hex 32
 ```
+
+## Funktionen
+
+- Inbox-Todos mit Status-Flow `INBOX` → `PLANNED` → `DONE`
+- Gemeinsame Einkaufsliste mit Kategorien und Abhaken in Echtzeit
+- Notizen mit Suche, Tags und `PRIVATE`/`SHARED` Sichtbarkeit
+- Web-Login und Android-Login über dieselben fest konfigurierten Nutzer

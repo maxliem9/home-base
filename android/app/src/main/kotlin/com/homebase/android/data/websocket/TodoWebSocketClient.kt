@@ -15,6 +15,7 @@ class TodoWebSocketClient(
     sealed class WsEvent {
         data class TodoCreated(val todo: TodoDto) : WsEvent()
         data class TodoUpdated(val todo: TodoDto) : WsEvent()
+        data class TodoDeleted(val todo: TodoDto) : WsEvent()
     }
 
     private val moshi = Moshi.Builder().build()
@@ -29,7 +30,10 @@ class TodoWebSocketClient(
             .replace("http://", "ws://")
             .trimEnd('/') + "/ws/todos"
 
-        val request = Request.Builder().url(wsUrl).build()
+        val request = Request.Builder()
+            .url(wsUrl)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
 
         val listener = object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -39,6 +43,7 @@ class TodoWebSocketClient(
                     val event = when (msg.type) {
                         "TODO_CREATED" -> msg.payload?.let { WsEvent.TodoCreated(it) }
                         "TODO_UPDATED" -> msg.payload?.let { WsEvent.TodoUpdated(it) }
+                        "TODO_DELETED" -> msg.payload?.let { WsEvent.TodoDeleted(it) }
                         else -> null
                     }
                     event?.let { eventChannel.trySend(it) }
