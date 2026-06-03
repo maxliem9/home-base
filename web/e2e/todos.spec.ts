@@ -50,7 +50,7 @@ test.describe('Todos', () => {
     await expect(page.getByText('Steuer machen')).toHaveCount(0)
 
     // ...but present under Geplant.
-    await page.getByRole('button', { name: /^Geplant/ }).click()
+    await page.getByRole('banner').getByRole('button', { name: /^Geplant/ }).click()
     await expect(page.getByText('Steuer machen')).toBeVisible()
     await expect(page.getByText('👤 bob')).toBeVisible()
   })
@@ -61,13 +61,13 @@ test.describe('Todos', () => {
     ])
     await openApp(page, mock)
 
-    await page.getByRole('button', { name: /^Geplant/ }).click()
+    await page.getByRole('banner').getByRole('button', { name: /^Geplant/ }).click()
     await page
       .locator('li', { hasText: 'Rechnung zahlen' })
       .getByRole('button', { name: 'Erledigt' })
       .click()
 
-    await page.getByRole('button', { name: /^Erledigt/ }).click()
+    await page.getByRole('banner').getByRole('button', { name: /^Erledigt/ }).click()
     const item = page.getByText('Rechnung zahlen')
     await expect(item).toBeVisible()
     await expect(item).toHaveClass(/line-through/)
