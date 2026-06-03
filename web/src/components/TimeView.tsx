@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
+import { t } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
@@ -56,8 +57,8 @@ function formatDayLabel(key: string): string {
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
   const isYesterday = dayKey(yesterday.toISOString()) === key
-  if (isToday) return 'Heute'
-  if (isYesterday) return 'Gestern'
+  if (isToday) return t.time.today
+  if (isYesterday) return t.time.yesterday
   return date.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' })
 }
 
@@ -179,13 +180,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Zeit</h1>
+          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.time.headerTitle}</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            Abmelden
+            {t.common.logout}
           </button>
         </div>
         <div className="mt-3 flex gap-1 text-sm">
-          {([['day', 'Tag'], ['week', 'Woche'], ['projects', 'Projekte']] as [SubView, string][]).map(([id, label]) => (
+          {([['day', t.time.subDay], ['week', t.time.subWeek], ['projects', t.time.subProjects]] as [SubView, string][]).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setView(id)}
@@ -210,7 +211,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
       <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">Lädt…</p>
+          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
         ) : view === 'day' ? (
           <DayView entries={entries} projectsById={projectsById} runningId={running?.id} onDelete={deleteEntry} />
         ) : view === 'week' ? (
@@ -226,13 +227,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
             onClick={() => setShowManual(true)}
             className="px-4 h-11 rounded-full bg-white border border-gray-300 text-gray-700 shadow-md hover:bg-gray-50 text-sm font-medium"
           >
-            Eintrag erfassen
+            {t.time.recordEntry}
           </button>
           <button
             onClick={() => setShowStart(true)}
             disabled={activeProjects.length === 0}
             className="w-14 h-14 rounded-full bg-indigo-600 text-white text-2xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
-            aria-label="Timer starten"
+            aria-label={t.time.startTimer}
           >
             ▶
           </button>
@@ -270,14 +271,14 @@ function RunningBanner({ entry, project, elapsed, onStop }: {
       <div className="max-w-xl mx-auto flex items-center gap-3">
         <span className="w-3 h-3 rounded-full bg-white animate-pulse" style={project ? { background: project.color } : undefined} />
         <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{project?.name ?? 'Projekt'}</p>
+          <p className="font-medium truncate">{project?.name ?? t.time.project}</p>
           {entry.description && <p className="text-indigo-100 text-sm truncate">{entry.description}</p>}
         </div>
         <span className="font-mono text-lg tabular-nums">{formatClock(elapsed)}</span>
         <button
           onClick={onStop}
           className="ml-1 w-10 h-10 rounded-full bg-white text-indigo-600 flex items-center justify-center hover:bg-indigo-50"
-          aria-label="Stoppen"
+          aria-label={t.time.stop}
         >
           ■
         </button>
@@ -312,8 +313,8 @@ function DayView({ entries, projectsById, runningId, onDelete }: {
   if (days.length === 0 && !runningId) {
     return (
       <div className="text-center mt-20">
-        <p className="text-gray-400 text-lg">Noch keine Zeiteinträge</p>
-        <p className="text-gray-300 text-sm mt-1">Starte einen Timer oder erfasse einen Eintrag</p>
+        <p className="text-gray-400 text-lg">{t.time.emptyTitle}</p>
+        <p className="text-gray-300 text-sm mt-1">{t.time.emptyHint}</p>
       </div>
     )
   }
@@ -336,7 +337,7 @@ function DayView({ entries, projectsById, runningId, onDelete }: {
                   <li key={e.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3">
                     <span className="w-3 h-3 rounded-full shrink-0" style={{ background: p?.color ?? '#9CA3AF' }} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-gray-800 truncate">{p?.name ?? 'Projekt'}</p>
+                      <p className="text-gray-800 truncate">{p?.name ?? t.time.project}</p>
                       <p className="text-gray-400 text-xs truncate">
                         {formatTime(e.startedAt)}–{e.stoppedAt ? formatTime(e.stoppedAt) : ''}
                         {e.description ? ` · ${e.description}` : ''}
@@ -346,7 +347,7 @@ function DayView({ entries, projectsById, runningId, onDelete }: {
                     <button
                       onClick={() => onDelete(e.id)}
                       className="text-gray-300 hover:text-red-500 transition px-1"
-                      aria-label="Löschen"
+                      aria-label={t.common.delete}
                     >
                       ✕
                     </button>
@@ -389,7 +390,7 @@ function WeekView({ entries, projects }: { entries: TimeEntry[]; projects: Proje
   const dayTotals = data.map((d) => Object.values(d).reduce((a, b) => a + b, 0))
   const maxTotal = Math.max(1, ...dayTotals)
   const weekTotal = dayTotals.reduce((a, b) => a + b, 0)
-  const labels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+  const labels = t.time.weekdays
 
   const usedProjectIds = useMemo(() => {
     const ids = new Set<string>()
@@ -401,7 +402,7 @@ function WeekView({ entries, projects }: { entries: TimeEntry[]; projects: Proje
     <div className="space-y-5">
       <div className="bg-white rounded-lg shadow-sm p-4">
         <div className="flex items-baseline justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-700">Diese Woche</h2>
+          <h2 className="text-sm font-semibold text-gray-700">{t.time.thisWeek}</h2>
           <span className="text-sm font-mono text-gray-500 tabular-nums">{formatDuration(weekTotal)}</span>
         </div>
         <div className="flex items-end justify-between gap-2 h-44">
@@ -432,14 +433,14 @@ function WeekView({ entries, projects }: { entries: TimeEntry[]; projects: Proje
 
       {usedProjectIds.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Legende</h3>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t.time.legend}</h3>
           <ul className="space-y-1">
             {usedProjectIds.map((pid) => {
               const secs = data.reduce((s, d) => s + (d[pid] ?? 0), 0)
               return (
                 <li key={pid} className="flex items-center gap-2 text-sm">
                   <span className="w-3 h-3 rounded-full" style={{ background: projectsById[pid]?.color ?? '#9CA3AF' }} />
-                  <span className="flex-1 text-gray-700">{projectsById[pid]?.name ?? 'Projekt'}</span>
+                  <span className="flex-1 text-gray-700">{projectsById[pid]?.name ?? t.time.project}</span>
                   <span className="font-mono text-gray-500 tabular-nums">{formatDuration(secs)}</span>
                 </li>
               )
@@ -495,10 +496,10 @@ function ProjectsManager({ token, projects, onChanged }: {
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-lg shadow-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Neues Projekt</h2>
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">{t.time.newProject}</h2>
         <input
           type="text"
-          placeholder="Projektname…"
+          placeholder={t.time.projectNamePlaceholder}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && create()}
@@ -511,7 +512,7 @@ function ProjectsManager({ token, projects, onChanged }: {
               onClick={() => setColor(c)}
               className={`w-7 h-7 rounded-full transition ${color === c ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
               style={{ background: c }}
-              aria-label={`Farbe ${c}`}
+              aria-label={`${t.time.colorLabel} ${c}`}
             />
           ))}
         </div>
@@ -520,14 +521,14 @@ function ProjectsManager({ token, projects, onChanged }: {
           disabled={submitting || !name.trim()}
           className="mt-3 w-full rounded-lg bg-indigo-600 text-white py-2 font-medium hover:bg-indigo-700 disabled:opacity-50"
         >
-          Anlegen
+          {t.time.create}
         </button>
       </div>
 
       <section>
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Aktiv</h2>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">{t.time.active}</h2>
         {active.length === 0 ? (
-          <p className="text-gray-400 text-sm px-1">Keine aktiven Projekte</p>
+          <p className="text-gray-400 text-sm px-1">{t.time.noActiveProjects}</p>
         ) : (
           <ul className="space-y-2">
             {active.map((p) => (
@@ -535,7 +536,7 @@ function ProjectsManager({ token, projects, onChanged }: {
                 <span className="w-4 h-4 rounded-full shrink-0" style={{ background: p.color }} />
                 <span className="flex-1 text-gray-800 truncate">{p.name}</span>
                 <button onClick={() => setArchived(p, true)} className="text-sm text-gray-400 hover:text-gray-700">
-                  Archivieren
+                  {t.time.archive}
                 </button>
               </li>
             ))}
@@ -545,14 +546,14 @@ function ProjectsManager({ token, projects, onChanged }: {
 
       {archived.length > 0 && (
         <section>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">Archiviert</h2>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">{t.time.archivedSection}</h2>
           <ul className="space-y-2">
             {archived.map((p) => (
               <li key={p.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3 opacity-60">
                 <span className="w-4 h-4 rounded-full shrink-0" style={{ background: p.color }} />
                 <span className="flex-1 text-gray-800 truncate line-through">{p.name}</span>
                 <button onClick={() => setArchived(p, false)} className="text-sm text-indigo-500 hover:text-indigo-700">
-                  Reaktivieren
+                  {t.time.reactivate}
                 </button>
               </li>
             ))}
@@ -594,23 +595,23 @@ function StartTimerModal({ projects, onStart, onClose }: {
   }
 
   return (
-    <ModalShell title="Timer starten">
-      <label className="block text-sm text-gray-500 mb-1">Projekt</label>
+    <ModalShell title={t.time.startTimer}>
+      <label className="block text-sm text-gray-500 mb-1">{t.time.project}</label>
       <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputClass}>
         {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       <input
         type="text"
-        placeholder="Beschreibung (optional)…"
+        placeholder={t.common.descriptionOptional}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
         className={`${inputClass} mt-2`}
       />
       <div className="flex justify-end gap-2 mt-4">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">Abbrechen</button>
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">{t.common.cancel}</button>
         <button onClick={submit} disabled={!projectId} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-          Start
+          {t.time.start}
         </button>
       </div>
     </ModalShell>
@@ -636,7 +637,7 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
     const startedAt = new Date(`${date}T${start}`)
     const stoppedAt = new Date(`${date}T${end}`)
     if (!(stoppedAt.getTime() > startedAt.getTime())) {
-      setError('Ende muss nach dem Start liegen')
+      setError(t.time.endAfterStart)
       return
     }
     submitRef.current = true
@@ -649,8 +650,8 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   }
 
   return (
-    <ModalShell title="Eintrag erfassen">
-      <label className="block text-sm text-gray-500 mb-1">Projekt</label>
+    <ModalShell title={t.time.recordEntry}>
+      <label className="block text-sm text-gray-500 mb-1">{t.time.project}</label>
       <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputClass}>
         {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
@@ -661,16 +662,16 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
       </div>
       <input
         type="text"
-        placeholder="Beschreibung (optional)…"
+        placeholder={t.common.descriptionOptional}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         className={`${inputClass} mt-2`}
       />
       {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
       <div className="flex justify-end gap-2 mt-4">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">Abbrechen</button>
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">{t.common.cancel}</button>
         <button onClick={submit} disabled={!projectId} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-          Speichern
+          {t.common.save}
         </button>
       </div>
     </ModalShell>

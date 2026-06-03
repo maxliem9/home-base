@@ -5,8 +5,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.homebase.android.R
 
 @Composable
 fun LoginScreen(
@@ -24,13 +26,13 @@ fun LoginScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("HomeBase", style = MaterialTheme.typography.headlineLarge)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(32.dp))
 
         OutlinedTextField(
             value = username,
             onValueChange = { username = it },
-            label = { Text("Username") },
+            label = { Text(stringResource(R.string.login_username)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -39,7 +41,7 @@ fun LoginScreen(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
+            label = { Text(stringResource(R.string.login_password)) },
             visualTransformation = PasswordVisualTransformation(),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -55,7 +57,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (isLoading) CircularProgressIndicator(Modifier.size(20.dp))
-            else Text("Sign in")
+            else Text(stringResource(R.string.login_submit))
         }
     }
 }

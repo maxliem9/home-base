@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
+import { t } from '../i18n'
 import { Recipe, RecipeCategory } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
@@ -7,12 +8,12 @@ const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
 
 const CATEGORIES: { id: RecipeCategory; label: string; icon: string }[] = [
-  { id: 'BREAKFAST', label: 'Frühstück', icon: '🥐' },
-  { id: 'LUNCH', label: 'Mittag', icon: '🍽️' },
-  { id: 'DINNER', label: 'Abend', icon: '🍝' },
-  { id: 'SNACK', label: 'Snack', icon: '🥨' },
-  { id: 'DESSERT', label: 'Dessert', icon: '🍰' },
-  { id: 'DRINK', label: 'Getränk', icon: '🍹' },
+  { id: 'BREAKFAST', label: t.recipes.categories.BREAKFAST, icon: '🥐' },
+  { id: 'LUNCH', label: t.recipes.categories.LUNCH, icon: '🍽️' },
+  { id: 'DINNER', label: t.recipes.categories.DINNER, icon: '🍝' },
+  { id: 'SNACK', label: t.recipes.categories.SNACK, icon: '🥨' },
+  { id: 'DESSERT', label: t.recipes.categories.DESSERT, icon: '🍰' },
+  { id: 'DRINK', label: t.recipes.categories.DRINK, icon: '🍹' },
 ]
 
 const categoryLabel = (c: RecipeCategory) => CATEGORIES.find((x) => x.id === c)?.label ?? c
@@ -169,13 +170,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Rezepte</h1>
+          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.recipes.headerTitle}</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            Abmelden
+            {t.common.logout}
           </button>
         </div>
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')} label="Alle" />
+          <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')} label={t.recipes.filterAll} />
           {CATEGORIES.map((c) => (
             <FilterChip
               key={c.id}
@@ -189,11 +190,11 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
 
       <main className="flex-1 px-4 py-4 max-w-2xl mx-auto w-full">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">Lädt…</p>
+          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
         ) : visible.length === 0 ? (
           <div className="text-center mt-20">
-            <p className="text-gray-400 text-lg">{filter === 'ALL' ? 'Noch keine Rezepte' : 'Keine Rezepte in dieser Kategorie'}</p>
-            {filter === 'ALL' && <p className="text-gray-300 text-sm mt-1">Erstelle ein Rezept mit +</p>}
+            <p className="text-gray-400 text-lg">{filter === 'ALL' ? t.recipes.emptyAll : t.recipes.emptyCategory}</p>
+            {filter === 'ALL' && <p className="text-gray-300 text-sm mt-1">{t.recipes.emptyHint}</p>}
           </div>
         ) : (
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -211,8 +212,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                  {totalTime(recipe) > 0 && <span>⏱️ {totalTime(recipe)} Min</span>}
-                  <span>🍽️ {recipe.servings} Port.</span>
+                  {totalTime(recipe) > 0 && <span>⏱️ {totalTime(recipe)} {t.recipes.minutesAbbr}</span>}
+                  <span>🍽️ {recipe.servings} {t.recipes.servingsAbbr}</span>
                 </div>
               </li>
             ))}
@@ -224,7 +225,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       <button
         onClick={() => setDraft(emptyDraft())}
         className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-        aria-label="Neues Rezept"
+        aria-label={t.recipes.newRecipe}
       >
         +
       </button>
@@ -293,17 +294,17 @@ function RecipeDetail({
         {recipe.description && <p className="text-sm text-gray-600 mt-3 whitespace-pre-wrap">{recipe.description}</p>}
 
         <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
-          {recipe.prepTimeMinutes != null && <span>Vorbereitung: {recipe.prepTimeMinutes} Min</span>}
-          {recipe.cookTimeMinutes != null && <span>Kochzeit: {recipe.cookTimeMinutes} Min</span>}
+          {recipe.prepTimeMinutes != null && <span>{t.recipes.prep}: {recipe.prepTimeMinutes} {t.recipes.minutesAbbr}</span>}
+          {recipe.cookTimeMinutes != null && <span>{t.recipes.cook}: {recipe.cookTimeMinutes} {t.recipes.minutesAbbr}</span>}
         </div>
 
         {/* Servings stepper — scales the amounts live */}
         <div className="flex items-center gap-3 mt-4 bg-gray-50 rounded-lg px-3 py-2">
-          <span className="text-sm text-gray-600 flex-1">Portionen</span>
+          <span className="text-sm text-gray-600 flex-1">{t.recipes.servings}</span>
           <button
             onClick={() => setServings((s) => Math.max(1, s - 1))}
             className="w-8 h-8 rounded-full bg-white border border-gray-300 text-lg leading-none hover:bg-gray-100"
-            aria-label="Weniger Portionen"
+            aria-label={t.recipes.lessServings}
           >
             −
           </button>
@@ -311,7 +312,7 @@ function RecipeDetail({
           <button
             onClick={() => setServings((s) => s + 1)}
             className="w-8 h-8 rounded-full bg-white border border-gray-300 text-lg leading-none hover:bg-gray-100"
-            aria-label="Mehr Portionen"
+            aria-label={t.recipes.moreServings}
           >
             +
           </button>
@@ -319,7 +320,7 @@ function RecipeDetail({
 
         {recipe.ingredients.length > 0 && (
           <div className="mt-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Zutaten</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">{t.recipes.ingredients}</h3>
             <ul className="space-y-1">
               {recipe.ingredients.map((ing) => (
                 <li key={ing.id} className="text-sm text-gray-700 flex justify-between gap-2">
@@ -337,7 +338,7 @@ function RecipeDetail({
 
         {recipe.steps.length > 0 && (
           <div className="mt-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Zubereitung</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">{t.recipes.preparation}</h3>
             <ol className="space-y-2">
               {recipe.steps.map((step) => (
                 <li key={step.id} className="text-sm text-gray-700 flex gap-2">
@@ -353,10 +354,10 @@ function RecipeDetail({
 
         <div className="flex justify-between items-center mt-6">
           <button onClick={onDelete} className="px-3 py-2 rounded-lg text-red-500 hover:bg-red-50">
-            Löschen
+            {t.common.delete}
           </button>
           <button onClick={onEdit} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
-            Bearbeiten
+            {t.recipes.edit}
           </button>
         </div>
       </div>
@@ -393,18 +394,18 @@ function RecipeEditor({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl max-h-[88vh] overflow-y-auto">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">{draft.id ? 'Rezept bearbeiten' : 'Neues Rezept'}</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-3">{draft.id ? t.recipes.editRecipe : t.recipes.newRecipe}</h2>
 
         <input
           autoFocus
           type="text"
-          placeholder="Titel…"
+          placeholder={t.common.titlePlaceholder}
           value={draft.title}
           onChange={(e) => setDraft({ ...draft, title: e.target.value })}
           className={inputCls}
         />
         <textarea
-          placeholder="Beschreibung (optional)…"
+          placeholder={t.common.descriptionOptional}
           value={draft.description}
           onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           rows={2}
@@ -413,7 +414,7 @@ function RecipeEditor({
 
         <div className="grid grid-cols-2 gap-2 mt-2">
           <label className="text-sm text-gray-600">
-            Kategorie
+            {t.recipes.category}
             <select
               value={draft.category}
               onChange={(e) => setDraft({ ...draft, category: e.target.value as RecipeCategory })}
@@ -425,7 +426,7 @@ function RecipeEditor({
             </select>
           </label>
           <label className="text-sm text-gray-600">
-            Portionen
+            {t.recipes.servings}
             <input
               type="number"
               min={1}
@@ -435,7 +436,7 @@ function RecipeEditor({
             />
           </label>
           <label className="text-sm text-gray-600">
-            Vorbereitung (Min)
+            {t.recipes.prepLabel}
             <input
               type="number"
               min={0}
@@ -445,7 +446,7 @@ function RecipeEditor({
             />
           </label>
           <label className="text-sm text-gray-600">
-            Kochzeit (Min)
+            {t.recipes.cookLabel}
             <input
               type="number"
               min={0}
@@ -459,29 +460,29 @@ function RecipeEditor({
         {/* Ingredients */}
         <div className="mt-4">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-gray-700">Zutaten</h3>
-            <button onClick={addIngredient} className="text-sm text-indigo-600 hover:text-indigo-800">+ Zutat</button>
+            <h3 className="text-sm font-semibold text-gray-700">{t.recipes.ingredients}</h3>
+            <button onClick={addIngredient} className="text-sm text-indigo-600 hover:text-indigo-800">{t.recipes.addIngredient}</button>
           </div>
           <div className="space-y-2">
             {draft.ingredients.map((ing, idx) => (
               <div key={idx} className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Zutat"
+                  placeholder={t.recipes.ingredientName}
                   value={ing.name}
                   onChange={(e) => setIngredient(idx, { name: e.target.value })}
                   className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <input
                   type="text"
-                  placeholder="Menge"
+                  placeholder={t.recipes.amount}
                   value={ing.amount}
                   onChange={(e) => setIngredient(idx, { amount: e.target.value })}
                   className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <input
                   type="text"
-                  placeholder="Einh."
+                  placeholder={t.recipes.unitAbbr}
                   value={ing.unit}
                   onChange={(e) => setIngredient(idx, { unit: e.target.value })}
                   className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -489,7 +490,7 @@ function RecipeEditor({
                 <button
                   onClick={() => removeIngredient(idx)}
                   className="text-gray-300 hover:text-red-500 px-1"
-                  aria-label="Zutat entfernen"
+                  aria-label={t.recipes.removeIngredient}
                 >
                   ✕
                 </button>
@@ -501,8 +502,8 @@ function RecipeEditor({
         {/* Steps */}
         <div className="mt-4">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="text-sm font-semibold text-gray-700">Zubereitung</h3>
-            <button onClick={addStep} className="text-sm text-indigo-600 hover:text-indigo-800">+ Schritt</button>
+            <h3 className="text-sm font-semibold text-gray-700">{t.recipes.preparation}</h3>
+            <button onClick={addStep} className="text-sm text-indigo-600 hover:text-indigo-800">{t.recipes.addStep}</button>
           </div>
           <div className="space-y-2">
             {draft.steps.map((step, idx) => (
@@ -511,7 +512,7 @@ function RecipeEditor({
                   {idx + 1}
                 </span>
                 <textarea
-                  placeholder="Schritt beschreiben…"
+                  placeholder={t.recipes.stepPlaceholder}
                   value={step}
                   onChange={(e) => setStep(idx, e.target.value)}
                   rows={2}
@@ -520,7 +521,7 @@ function RecipeEditor({
                 <button
                   onClick={() => removeStep(idx)}
                   className="text-gray-300 hover:text-red-500 px-1 mt-1"
-                  aria-label="Schritt entfernen"
+                  aria-label={t.recipes.removeStep}
                 >
                   ✕
                 </button>
@@ -531,14 +532,14 @@ function RecipeEditor({
 
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onCancel} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
-            Abbrechen
+            {t.common.cancel}
           </button>
           <button
             onClick={onSave}
             disabled={saving || !draft.title.trim()}
             className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            Speichern
+            {t.common.save}
           </button>
         </div>
       </div>
