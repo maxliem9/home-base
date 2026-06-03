@@ -3,7 +3,8 @@ import { API_BASE, authFetch, withWsToken } from '../api'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
-const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `ws://${window.location.host}/api/v1/ws/time`
+const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
+const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
 
 type SubView = 'day' | 'week' | 'projects'
 

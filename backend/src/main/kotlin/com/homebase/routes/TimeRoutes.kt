@@ -23,10 +23,12 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
 private const val TIME_WS_CHANNEL = "time"
 private val HEX_COLOR = Regex("^#[0-9A-Fa-f]{6}$")
+private val TIMER_START_LOCKS = ConcurrentHashMap<String, Any>()
 
 fun Route.timeRoutes() {
     val json = Json { ignoreUnknownKeys = true }
@@ -191,37 +193,40 @@ private fun Route.entryRoutes(json: Json) {
             val projectId = runCatching { UUID.fromString(req.projectId) }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
 
-            val result = transaction {
-                if (ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.empty()) {
-                    return@transaction null
-                }
-                val now = Instant.now()
-                // Stop any timer that is still running for this user.
-                val stopped = TimeEntriesTable.selectAll()
-                    .where { (TimeEntriesTable.userId eq username) and TimeEntriesTable.stoppedAt.isNull() }
-                    .singleOrNull()
-                val stoppedDto = stopped?.let { row ->
-                    val sid = row[TimeEntriesTable.id]
-                    TimeEntriesTable.update({ TimeEntriesTable.id eq sid }) {
-                        it[stoppedAt] = now
+            val startLock = TIMER_START_LOCKS.computeIfAbsent(username) { Any() }
+            val result = synchronized(startLock) {
+                transaction {
+                    if (ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.empty()) {
+                        return@transaction null
+                    }
+                    val now = Instant.now()
+                    // Stop any timer that is still running for this user.
+                    val stopped = TimeEntriesTable.selectAll()
+                        .where { (TimeEntriesTable.userId eq username) and TimeEntriesTable.stoppedAt.isNull() }
+                        .singleOrNull()
+                    val stoppedDto = stopped?.let { row ->
+                        val sid = row[TimeEntriesTable.id]
+                        TimeEntriesTable.update({ TimeEntriesTable.id eq sid }) {
+                            it[stoppedAt] = now
+                            it[updatedAt] = now
+                        }
+                        TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq sid }.single().toEntryDto()
+                    }
+
+                    val id = UUID.randomUUID()
+                    TimeEntriesTable.insert {
+                        it[TimeEntriesTable.id] = id
+                        it[TimeEntriesTable.projectId] = projectId
+                        it[userId] = username
+                        it[startedAt] = now
+                        it[stoppedAt] = null
+                        it[description] = req.description?.trim()?.takeIf { d -> d.isNotEmpty() }
+                        it[createdAt] = now
                         it[updatedAt] = now
                     }
-                    TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq sid }.single().toEntryDto()
+                    val startedDto = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.single().toEntryDto()
+                    stoppedDto to startedDto
                 }
-
-                val id = UUID.randomUUID()
-                TimeEntriesTable.insert {
-                    it[TimeEntriesTable.id] = id
-                    it[TimeEntriesTable.projectId] = projectId
-                    it[userId] = username
-                    it[startedAt] = now
-                    it[stoppedAt] = null
-                    it[description] = req.description?.trim()?.takeIf { d -> d.isNotEmpty() }
-                    it[createdAt] = now
-                    it[updatedAt] = now
-                }
-                val startedDto = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.single().toEntryDto()
-                stoppedDto to startedDto
             }
 
             if (result == null) {
