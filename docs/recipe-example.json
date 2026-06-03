@@ -1,0 +1,41 @@
+{
+  "title": "Pfannkuchen",
+  "description": "Klassisches Grundrezept fuer einfache Pfannkuchen.",
+  "servings": 2,
+  "prepTimeMinutes": 10,
+  "cookTimeMinutes": 15,
+  "category": "BREAKFAST",
+  "ingredients": [
+    {
+      "name": "Mehl",
+      "amount": 200,
+      "unit": "g"
+    },
+    {
+      "name": "Milch",
+      "amount": 500,
+      "unit": "ml"
+    },
+    {
+      "name": "Eier",
+      "amount": 2,
+      "unit": "Stueck"
+    },
+    {
+      "name": "Salz",
+      "amount": 1,
+      "unit": "Prise"
+    }
+  ],
+  "steps": [
+    {
+      "description": "Mehl, Milch, Eier und Salz zu einem glatten Teig verruehren."
+    },
+    {
+      "description": "Den Teig 10 Minuten ruhen lassen."
+    },
+    {
+      "description": "Etwas Fett in einer Pfanne erhitzen und den Teig portionsweise ausbacken."
+    }
+  ]
+}
