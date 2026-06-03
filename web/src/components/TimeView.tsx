@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
-import { clockTime, fmtClock, fmtDurationShort, usernameFromToken } from '../ui/format'
+import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -40,6 +40,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [showArchived, setShowArchived] = useState(false)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
+  const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
 
   const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
@@ -249,7 +250,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
                     <Card key={p.id} className={`hb-projcard${isRunning ? ' is-running' : ''}${p.archived ? ' is-archived' : ''}`}>
                       <div className="hb-projcard__head">
                         <span className="hb-pdot" style={{ background: p.color }} />
-                        <span className="hb-projcard__name">{p.name}</span>
+                        <button className="hb-projcard__name hb-projcard__namebtn" title={t.time.viewDetails} onClick={() => setDetailProject(p)}>{p.name}</button>
                         <div style={{ display: 'flex', gap: 2 }}>
                           <IconButton icon="edit" label={t.common.edit} onClick={() => setProjectDraft({ id: p.id, name: p.name, color: p.color })} />
                           <IconButton
@@ -260,7 +261,9 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
                           />
                         </div>
                       </div>
-                      <div className="hb-projcard__stat hb-mono">{fmtDurationShort(totalsByProject[p.id] ?? 0)}</div>
+                      <button className="hb-projcard__stat hb-projcard__statbtn hb-mono" onClick={() => setDetailProject(p)}>
+                        {fmtDurationShort(totalsByProject[p.id] ?? 0)}<span> {t.time.total} →</span>
+                      </button>
                       {!p.archived && (
                         isRunning ? (
                           <Button variant="secondary" size="sm" icon="stop" onClick={stopTimer}>{t.time.stop}</Button>
@@ -282,33 +285,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
               {recent.length === 0 ? (
                 <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
               ) : (
-                <div className="hb-list">
-                  {recent.map((e) => {
-                    const p = projectsById[e.projectId]
-                    const own = !me || e.userId === me
-                    return (
-                      <div key={e.id} className="hb-entry">
-                        <span className="hb-pdot" style={{ background: p?.color ?? 'var(--ink-3)' }} />
-                        <div className="hb-row__main">
-                          <div className="hb-row__title">{p?.name ?? t.time.project}</div>
-                          <div className="hb-row__meta">
-                            <span className="hb-mono">{clockTime(e.startedAt)}–{e.stoppedAt ? clockTime(e.stoppedAt) : ''}</span>
-                            {e.description && <><span className="dot-sep" />{e.description}</>}
-                          </div>
-                        </div>
-                        <div className="hb-row__right">
-                          <Avatar user={e.userId} size={22} />
-                          <span className="hb-mono hb-muted">{fmtDurationShort(e.durationSeconds ?? 0)}</span>
-                          {own ? (
-                            <IconButton icon="trash" label={t.common.delete} danger onClick={() => deleteEntry(e.id)} />
-                          ) : (
-                            <span className="hb-iconbtn" title={t.time.ownEntriesOnly} style={{ cursor: 'default' }}><Icon name="lock" size={16} stroke={2} /></span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} showProject />
               )}
             </Card>
           </div>
@@ -354,7 +331,220 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       {showManual && (
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
+
+      {detailProject && (
+        <ProjectDetail
+          project={detailProject}
+          entries={entries}
+          projectsById={projectsById}
+          me={me}
+          onDelete={deleteEntry}
+          onClose={() => setDetailProject(null)}
+        />
+      )}
     </div>
+  )
+}
+
+// Group stopped entries (already sorted newest-first) into day buckets with a
+// separator label and per-day total.
+function groupByDay(entries: TimeEntry[]) {
+  const groups: { key: string; label: string; seconds: number; entries: TimeEntry[] }[] = []
+  const map = new Map<string, (typeof groups)[number]>()
+  for (const e of entries) {
+    const iso = e.stoppedAt ?? e.startedAt
+    const d = new Date(iso)
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    let g = map.get(key)
+    if (!g) {
+      g = { key, label: dayGroupLabel(iso), seconds: 0, entries: [] }
+      map.set(key, g)
+      groups.push(g)
+    }
+    g.entries.push(e)
+    g.seconds += e.durationSeconds ?? 0
+  }
+  return groups
+}
+
+function EntryRow({ entry, project, me, onDelete, showProject }: {
+  entry: TimeEntry
+  project?: Project
+  me: string | null
+  onDelete: (id: string) => void
+  showProject: boolean
+}) {
+  const own = !me || entry.userId === me
+  const noDesc = <span className="hb-muted">{t.time.noDescription}</span>
+  return (
+    <div className="hb-row">
+      {showProject && <span className="hb-pdot" style={{ background: project?.color ?? 'var(--ink-3)' }} />}
+      <div className="hb-row__main">
+        <div className="hb-row__title">{showProject ? (project?.name ?? t.time.project) : (entry.description || noDesc)}</div>
+        <div className="hb-row__meta">
+          {showProject && (entry.description ? <span>{entry.description}</span> : noDesc)}
+          {showProject && <span className="dot-sep" />}
+          <span className="hb-mono">{clockTime(entry.startedAt)}–{entry.stoppedAt ? clockTime(entry.stoppedAt) : ''}</span>
+        </div>
+      </div>
+      <div className="hb-row__right">
+        <Avatar user={entry.userId} size={24} />
+        <span className="hb-mono" style={{ fontWeight: 600, minWidth: 64, textAlign: 'right' }}>{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
+        {own ? (
+          <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry.id)} />
+        ) : (
+          <span className="hb-iconbtn" title={t.time.ownEntriesOnly} style={{ cursor: 'default' }}><Icon name="lock" size={16} stroke={2} /></span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Reusable day-grouped entry list. `showProject` toggles whether the project
+// name (recent list) or the description (project detail) is the row title.
+function DayGroupedList({ entries, projectsById, me, onDelete, showProject }: {
+  entries: TimeEntry[]
+  projectsById: Record<string, Project>
+  me: string | null
+  onDelete: (id: string) => void
+  showProject: boolean
+}) {
+  const groups = groupByDay(entries)
+  return (
+    <div className="hb-list">
+      {groups.map((g) => (
+        <Fragment key={g.key}>
+          <div className="hb-daysep">
+            <span className="hb-daysep__label">{g.label}</span>
+            <span className="hb-daysep__line" />
+            <span className="hb-daysep__sum hb-mono">{fmtDurationShort(g.seconds)}</span>
+          </div>
+          {g.entries.map((e) => (
+            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} showProject={showProject} />
+          ))}
+        </Fragment>
+      ))}
+    </div>
+  )
+}
+
+interface WeekBucket {
+  key: string
+  label: string | null
+  range: string
+  seconds: number
+  count: number
+  byUser: Record<string, number>
+}
+
+function ProjectDetail({ project, entries, projectsById, me, onDelete, onClose }: {
+  project: Project
+  entries: TimeEntry[]
+  projectsById: Record<string, Project>
+  me: string | null
+  onDelete: (id: string) => void
+  onClose: () => void
+}) {
+  const projEntries = useMemo(
+    () =>
+      entries
+        .filter((e) => e.projectId === project.id && e.stoppedAt)
+        .sort((a, b) => (b.stoppedAt ?? '').localeCompare(a.stoppedAt ?? '')),
+    [entries, project.id],
+  )
+
+  const totalSeconds = projEntries.reduce((s, e) => s + (e.durationSeconds ?? 0), 0)
+
+  // per-user totals
+  const byUser: Record<string, number> = {}
+  for (const e of projEntries) byUser[e.userId] = (byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
+  const userIds = Object.keys(byUser)
+
+  // per-week summary (entries are newest-first → weeks newest-first)
+  const weekMap = new Map<string, WeekBucket>()
+  for (const e of projEntries) {
+    const k = weekKey(e.stoppedAt!)
+    let w = weekMap.get(k)
+    if (!w) {
+      const { label, range } = weekLabel(e.stoppedAt!)
+      w = { key: k, label, range, seconds: 0, count: 0, byUser: {} }
+      weekMap.set(k, w)
+    }
+    w.seconds += e.durationSeconds ?? 0
+    w.count += 1
+    w.byUser[e.userId] = (w.byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
+  }
+  const weeks = [...weekMap.values()]
+  const maxWeekSeconds = Math.max(...weeks.map((w) => w.seconds), 1)
+  const thisWeekSeconds = weekMap.get(weekKey(new Date().toISOString()))?.seconds ?? 0
+  const avgSeconds = projEntries.length ? totalSeconds / projEntries.length : 0
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      width={660}
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 11 }}>
+          <span className="hb-pdot" style={{ background: project.color, width: 14, height: 14 }} />
+          {project.name}
+        </span>
+      }
+    >
+      <div className="hb-detail-stats">
+        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(totalSeconds)}</span><span className="hb-fact__l">{t.time.detailTotal}</span></div>
+        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(thisWeekSeconds)}</span><span className="hb-fact__l">{t.time.thisWeek}</span></div>
+        <div className="hb-fact"><span className="hb-fact__v hb-mono">{projEntries.length}</span><span className="hb-fact__l">{t.time.detailEntries}</span></div>
+        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(avgSeconds)}</span><span className="hb-fact__l">{t.time.detailAvg}</span></div>
+      </div>
+
+      {userIds.length > 1 && (
+        <div className="hb-detail-users">
+          {userIds.map((uid) => (
+            <div key={uid} className="hb-detail-user">
+              <Avatar user={uid} size={26} />
+              <span className="hb-detail-user__name">{userMeta(uid)?.name ?? uid}</span>
+              <span className="hb-mono hb-detail-user__ms">{fmtDurationShort(byUser[uid])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {projEntries.length === 0 ? (
+        <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.detailEmptyHint} />
+      ) : (
+        <>
+          <div className="hb-sectionlabel hb-detail-h">{t.time.perWeek}</div>
+          <div className="hb-weeklist">
+            {weeks.map((w) => (
+              <div key={w.key} className="hb-weekrow">
+                <div className="hb-weekrow__head">
+                  <span className="hb-weekrow__label">{w.label ?? w.range}</span>
+                  {w.label && <span className="hb-weekrow__range">{w.range}</span>}
+                  <span className="hb-weekrow__ms hb-mono">{fmtDurationShort(w.seconds)}</span>
+                </div>
+                <div className="hb-weekbar">
+                  {userIds.map((uid) =>
+                    w.byUser[uid] ? (
+                      <span
+                        key={uid}
+                        className="hb-weekbar__seg"
+                        style={{ width: `${(w.byUser[uid] / maxWeekSeconds) * 100}%`, background: `oklch(0.62 0.1 ${userMeta(uid)?.hue ?? 150})` }}
+                        title={`${userMeta(uid)?.name ?? uid}: ${fmtDurationShort(w.byUser[uid])}`}
+                      />
+                    ) : null,
+                  )}
+                </div>
+                <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t.time.entryOne : t.time.entryMany}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
+          <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} showProject={false} />
+        </>
+      )}
+    </Modal>
   )
 }
 
