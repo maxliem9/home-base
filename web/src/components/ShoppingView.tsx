@@ -3,8 +3,11 @@ import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
 import { ShoppingItem } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { Icon } from '../ui/Icon'
+import { Avatar, Button, Card, Checkbox, EmptyState, IconButton, PageHead, TextInput } from '../ui/primitives'
 
-const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `ws://${window.location.host}/api/v1/ws/shopping`
+const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
+const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
 
 interface ShoppingViewProps {
   token: string
@@ -14,7 +17,6 @@ interface ShoppingViewProps {
 export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [items, setItems] = useState<ShoppingItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
   const [newName, setNewName] = useState('')
   const [newCategory, setNewCategory] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -27,8 +29,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         return
       }
       if (!res.ok) return
-      const data: ShoppingItem[] = await res.json()
-      setItems(data)
+      setItems(await res.json())
     } finally {
       setLoading(false)
     }
@@ -40,9 +41,9 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     try {
       const msg = JSON.parse(raw)
       if (msg.type === 'SHOPPING_CREATED' && msg.payload) {
-        setItems((prev) => prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev])
+        setItems((prev) => (prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
       } else if (msg.type === 'SHOPPING_UPDATED' && msg.payload) {
-        setItems((prev) => prev.map((i) => i.id === msg.payload.id ? msg.payload : i))
+        setItems((prev) => prev.map((i) => (i.id === msg.payload.id ? msg.payload : i)))
       } else if (msg.type === 'SHOPPING_DELETED' && msg.payload) {
         setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
       }
@@ -58,22 +59,17 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       await authFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName.trim(),
-          category: newCategory.trim() || undefined,
-        }),
+        body: JSON.stringify({ name: newName.trim(), category: newCategory.trim() || undefined }),
       })
       setNewName('')
       setNewCategory('')
-      setShowModal(false)
     } finally {
       setSubmitting(false)
     }
   }
 
   const toggleChecked = async (item: ShoppingItem) => {
-    // optimistic update; WS broadcast keeps the other client in sync
-    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, checked: !i.checked } : i))
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)))
     await authFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -86,6 +82,12 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     await authFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
   }
 
+  const clearChecked = async () => {
+    const checked = items.filter((i) => i.checked)
+    setItems((prev) => prev.filter((i) => !i.checked))
+    await Promise.all(checked.map((i) => authFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })))
+  }
+
   // group by category, uncategorised last
   const grouped = items.reduce<Record<string, ShoppingItem[]>>((acc, item) => {
     const key = item.category?.trim() || t.shopping.uncategorized
@@ -93,115 +95,70 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     return acc
   }, {})
   const categories = Object.keys(grouped).sort((a, b) =>
-    a === t.shopping.uncategorized ? 1 : b === t.shopping.uncategorized ? -1 : a.localeCompare(b)
+    a === t.shopping.uncategorized ? 1 : b === t.shopping.uncategorized ? -1 : a.localeCompare(b),
   )
 
+  const openCount = items.filter((i) => !i.checked).length
+  const anyChecked = items.some((i) => i.checked)
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white shadow-sm px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.shopping.headerTitle}</h1>
-          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            {t.common.logout}
-          </button>
+    <div className="hb-page">
+      <PageHead
+        eyebrow={`${openCount} ${t.shopping.open}`}
+        title={t.shopping.title}
+        actions={anyChecked ? <Button variant="ghost" size="sm" icon="trash" onClick={clearChecked}>{t.shopping.clearChecked}</Button> : undefined}
+      />
+
+      <div className="hb-shop-add">
+        <div className="hb-quickadd">
+          <Icon name="cart" size={18} stroke={2} style={{ color: 'var(--ink-3)' }} />
+          <input
+            value={newName}
+            placeholder={t.shopping.namePlaceholder}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          />
         </div>
-      </header>
+        <TextInput
+          value={newCategory}
+          onChange={setNewCategory}
+          placeholder={t.shopping.categoryPlaceholder}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          style={{ maxWidth: 220 }}
+        />
+        <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t.common.add}</Button>
+      </div>
 
-      <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
-        {loading ? (
-          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
-        ) : items.length === 0 ? (
-          <div className="text-center mt-20">
-            <p className="text-gray-400 text-lg">{t.shopping.emptyTitle}</p>
-            <p className="text-gray-300 text-sm mt-1">{t.shopping.emptyHint}</p>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {categories.map((category) => (
-              <section key={category}>
-                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">
-                  {category}
-                </h2>
-                <ul className="space-y-2">
-                  {grouped[category].map((item) => (
-                    <li
-                      key={item.id}
-                      className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.checked}
-                        onChange={() => toggleChecked(item)}
-                        className="w-5 h-5 rounded accent-indigo-600 cursor-pointer"
-                      />
-                      <span className={`flex-1 min-w-0 truncate ${
-                        item.checked ? 'text-gray-400 line-through' : 'text-gray-800'
-                      }`}>
-                        {item.name}
-                      </span>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="text-gray-300 hover:text-red-500 transition px-1"
-                        aria-label={t.common.delete}
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-        )}
-      </main>
-
-      {/* FAB */}
-      <button
-        onClick={() => setShowModal(true)}
-        className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-        aria-label={t.shopping.newItem}
-      >
-        +
-      </button>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">{t.shopping.newItem}</h2>
-            <input
-              autoFocus
-              type="text"
-              placeholder={t.shopping.namePlaceholder}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <input
-              type="text"
-              placeholder={t.shopping.categoryPlaceholder}
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 mt-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => { setShowModal(false); setNewName(''); setNewCategory('') }}
-                className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100"
-              >
-                {t.common.cancel}
-              </button>
-              <button
-                onClick={handleAdd}
-                disabled={submitting || !newName.trim()}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {t.common.add}
-              </button>
-            </div>
-          </div>
+      {loading ? (
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+      ) : items.length === 0 ? (
+        <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.emptyTitle} hint={t.shopping.emptyHint} /></Card>
+      ) : (
+        <div className="hb-shop-grid">
+          {categories.map((category) => (
+            <Card key={category} className="hb-card--pad">
+              <div className="hb-cardhead">
+                <h3>{category}</h3>
+                <span className="hb-badge hb-badge--neutral">{grouped[category].length}</span>
+              </div>
+              <div className="hb-list">
+                {grouped[category].map((item) => (
+                  <div key={item.id} className={`hb-row${item.checked ? ' hb-row--done' : ''}`}>
+                    <Checkbox checked={item.checked} onChange={() => toggleChecked(item)} />
+                    <div className="hb-row__main">
+                      <div className="hb-row__title">{item.name}</div>
+                    </div>
+                    <div className="hb-row__right">
+                      <Avatar user={item.createdBy} size={22} />
+                      <div className="hb-row__actions">
+                        <IconButton icon="trash" label={t.common.delete} danger onClick={() => handleDelete(item.id)} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
         </div>
       )}
     </div>

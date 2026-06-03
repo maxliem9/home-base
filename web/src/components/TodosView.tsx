@@ -3,21 +3,27 @@ import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
 import { Todo, TodoStatus, TodoPriority } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { Icon } from '../ui/Icon'
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  Field,
+  IconButton,
+  Modal,
+  PageHead,
+  PriorityDot,
+  SegmentedControl,
+  Select,
+  TextInput,
+} from '../ui/primitives'
+import { dueLabel } from '../ui/format'
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/api/v1/ws/todos`
-
-const SEGMENTS: { id: TodoStatus; label: string }[] = [
-  { id: 'INBOX', label: t.todos.segInbox },
-  { id: 'PLANNED', label: t.todos.segPlanned },
-  { id: 'DONE', label: t.todos.segDone },
-]
-
-const priorityClasses = (p: TodoPriority): string =>
-  p === 'HIGH'
-    ? 'bg-red-100 text-red-700'
-    : p === 'MEDIUM'
-      ? 'bg-yellow-100 text-yellow-700'
-      : 'bg-green-100 text-green-700'
+const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
+const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/todos`
 
 interface PlanDraft {
   id: string
@@ -35,7 +41,6 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const [todos, setTodos] = useState<Todo[]>([])
   const [loading, setLoading] = useState(true)
   const [segment, setSegment] = useState<TodoStatus>('INBOX')
-  const [showAdd, setShowAdd] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
@@ -61,15 +66,15 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
       if (msg.type === 'TODO_CREATED') {
-        setTodos((prev) => (prev.some((t) => t.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
+        setTodos((prev) => (prev.some((x) => x.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
       } else if (msg.type === 'TODO_UPDATED') {
         setTodos((prev) =>
-          prev.some((t) => t.id === msg.payload.id)
-            ? prev.map((t) => (t.id === msg.payload.id ? msg.payload : t))
+          prev.some((x) => x.id === msg.payload.id)
+            ? prev.map((x) => (x.id === msg.payload.id ? msg.payload : x))
             : [msg.payload, ...prev],
         )
       } else if (msg.type === 'TODO_DELETED') {
-        setTodos((prev) => prev.filter((t) => t.id !== msg.payload.id))
+        setTodos((prev) => prev.filter((x) => x.id !== msg.payload.id))
       }
     } catch {
       // ignore malformed frames
@@ -84,7 +89,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     })
     if (res.ok) {
       const updated: Todo = await res.json()
-      setTodos((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+      setTodos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
     }
   }
 
@@ -102,15 +107,21 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         setTodos((prev) => [created, ...prev])
       }
       setNewTitle('')
-      setShowAdd(false)
     } finally {
       setSubmitting(false)
     }
   }
 
+  const toggleDone = (todo: Todo) => {
+    if (todo.status === 'DONE') {
+      patchTodo(todo.id, { status: todo.dueDate || todo.assignee ? 'PLANNED' : 'INBOX' })
+    } else {
+      patchTodo(todo.id, { status: 'DONE' })
+    }
+  }
+
   const handlePlan = async () => {
     if (!plan) return
-    // PLANNED requires at least an assignee or a due date
     if (!plan.assignee.trim() && !plan.dueDate) return
     await patchTodo(plan.id, {
       status: 'PLANNED',
@@ -121,16 +132,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     setPlan(null)
   }
 
-  const completeTodo = (id: string) => patchTodo(id, { status: 'DONE' })
-
   const deleteTodo = async (id: string) => {
-    setTodos((prev) => prev.filter((t) => t.id !== id))
+    setTodos((prev) => prev.filter((x) => x.id !== id))
     await authFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
   }
 
-  const inbox = todos.filter((t) => t.status === 'INBOX')
+  const inbox = todos.filter((x) => x.status === 'INBOX')
   const planned = todos
-    .filter((t) => t.status === 'PLANNED')
+    .filter((x) => x.status === 'PLANNED')
     .sort((a, b) => {
       if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
       if (a.dueDate) return -1
@@ -138,194 +147,125 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       return 0
     })
   const done = todos
-    .filter((t) => t.status === 'DONE')
+    .filter((x) => x.status === 'DONE')
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
 
   const visible = segment === 'INBOX' ? inbox : segment === 'PLANNED' ? planned : done
-  const counts: Record<TodoStatus, number> = { INBOX: inbox.length, PLANNED: planned.length, DONE: done.length }
-
   const emptyText =
     segment === 'INBOX' ? t.todos.emptyInbox : segment === 'PLANNED' ? t.todos.emptyPlanned : t.todos.emptyDone
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white shadow-sm px-4 pt-3">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.todos.headerTitle}</h1>
-          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            {t.common.logout}
-          </button>
-        </div>
-        <div className="flex mt-3 -mb-px">
-          {SEGMENTS.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setSegment(id)}
-              className={`flex-1 pb-2 text-sm font-medium border-b-2 transition ${
-                segment === id
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              {label}
-              {counts[id] > 0 && <span className="ml-1 text-xs text-gray-400">({counts[id]})</span>}
-            </button>
-          ))}
-        </div>
-      </header>
+    <div className="hb-page">
+      <PageHead
+        eyebrow={`${inbox.length} ${t.todos.open}`}
+        title={t.todos.title}
+        actions={
+          <SegmentedControl
+            value={segment}
+            onChange={setSegment}
+            options={[
+              { value: 'INBOX', label: t.todos.segInbox, count: inbox.length },
+              { value: 'PLANNED', label: t.todos.segPlanned, count: planned.length },
+              { value: 'DONE', label: t.todos.segDone, count: done.length },
+            ]}
+          />
+        }
+      />
 
-      <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
+      <div className="hb-quickadd" style={{ marginBottom: 22 }}>
+        <Icon name="plus" size={18} stroke={2.2} style={{ color: 'var(--ink-3)' }} />
+        <input
+          value={newTitle}
+          placeholder={t.todos.quickAddPlaceholder}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+        />
+        <Button size="sm" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>{t.common.add}</Button>
+      </div>
+
+      <Card className="hb-card--pad">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
+          <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
         ) : visible.length === 0 ? (
-          <div className="text-center mt-20">
-            <p className="text-gray-400 text-lg">{emptyText}</p>
-            {segment === 'INBOX' && <p className="text-gray-300 text-sm mt-1">{t.todos.addHint}</p>}
-          </div>
+          <EmptyState
+            icon={segment === 'DONE' ? 'checkCircle' : 'inbox'}
+            title={emptyText}
+            hint={segment === 'INBOX' ? t.todos.addHint : undefined}
+          />
         ) : (
-          <ul className="space-y-2">
-            {visible.map((todo) => (
-              <li key={todo.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className={`font-medium truncate ${todo.status === 'DONE' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-                    {todo.title}
-                  </p>
-                  {todo.description && <p className="text-gray-500 text-sm mt-0.5 truncate">{todo.description}</p>}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400 mt-1">
-                    {todo.assignee && <span>👤 {todo.assignee}</span>}
-                    {todo.dueDate && <span>📅 {todo.dueDate}</span>}
-                    {todo.status === 'DONE' && todo.doneAt && <span>✅ {todo.doneAt.slice(0, 10)}</span>}
-                    {todo.status === 'INBOX' && <span>{t.common.by} {todo.createdBy}</span>}
+          <div className="hb-list">
+            {visible.map((todo) => {
+              const due = dueLabel(todo.dueDate)
+              return (
+                <div key={todo.id} className={`hb-row${todo.status === 'DONE' ? ' hb-row--done' : ''}`}>
+                  <Checkbox checked={todo.status === 'DONE'} onChange={() => toggleDone(todo)} />
+                  <div className="hb-row__main">
+                    <div className="hb-row__title">{todo.title}</div>
+                    <div className="hb-row__meta">
+                      {todo.assignee && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Avatar user={todo.assignee} size={18} />
+                          {todo.assignee}
+                        </span>
+                      )}
+                      {due && <Badge tone={due.tone}>{due.text}</Badge>}
+                      {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
+                      {todo.status === 'INBOX' && <span>{t.common.by} {todo.createdBy}</span>}
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  {todo.priority && (
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityClasses(todo.priority)}`}>
-                      {todo.priority}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1">
+                  <div className="hb-row__right">
                     {todo.status === 'INBOX' && (
-                      <button
+                      <Button
+                        variant="soft"
+                        size="sm"
+                        icon="calendar"
                         onClick={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
-                        className="text-xs px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50"
                       >
                         {t.todos.plan}
-                      </button>
+                      </Button>
                     )}
-                    {todo.status === 'PLANNED' && (
-                      <button
-                        onClick={() => completeTodo(todo.id)}
-                        className="text-xs px-2 py-1 rounded-md text-green-600 hover:bg-green-50"
-                      >
-                        {t.todos.markDone}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => deleteTodo(todo.id)}
-                      className="text-gray-300 hover:text-red-500 transition px-1"
-                      aria-label={t.common.delete}
-                    >
-                      ✕
-                    </button>
+                    <div className="hb-row__actions">
+                      <IconButton icon="trash" label={t.common.delete} danger onClick={() => deleteTodo(todo.id)} />
+                    </div>
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
+              )
+            })}
+          </div>
         )}
-      </main>
+      </Card>
 
-      {/* FAB — only meaningful in Inbox (new todos start there) */}
-      {segment === 'INBOX' && (
-        <button
-          onClick={() => setShowAdd(true)}
-          className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-          aria-label={t.todos.newTask}
-        >
-          +
-        </button>
-      )}
-
-      {/* Add-to-inbox modal */}
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">{t.todos.newTask}</h2>
-            <input
-              autoFocus
-              type="text"
-              placeholder={t.common.titlePlaceholder}
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => { setShowAdd(false); setNewTitle('') }} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
-                {t.common.cancel}
-              </button>
-              <button
-                onClick={handleAdd}
-                disabled={submitting || !newTitle.trim()}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {t.common.add}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Plan modal: INBOX → PLANNED (needs assignee or due date) */}
-      {plan && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-1">{t.todos.planTitle}</h2>
-            <p className="text-xs text-gray-400 mb-3">{t.todos.planHint}</p>
-            <label className="block text-sm text-gray-600 mb-1">{t.todos.assignee}</label>
-            <input
-              autoFocus
-              type="text"
-              placeholder={t.todos.assigneePlaceholder}
-              value={plan.assignee}
-              onChange={(e) => setPlan({ ...plan, assignee: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <label className="block text-sm text-gray-600 mb-1 mt-3">{t.todos.dueDate}</label>
-            <input
-              type="date"
-              value={plan.dueDate}
-              onChange={(e) => setPlan({ ...plan, dueDate: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <label className="block text-sm text-gray-600 mb-1 mt-3">{t.todos.priority}</label>
-            <select
-              value={plan.priority}
-              onChange={(e) => setPlan({ ...plan, priority: e.target.value as PlanDraft['priority'] })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">{t.todos.priorityNone}</option>
-              <option value="LOW">LOW</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="HIGH">HIGH</option>
-            </select>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setPlan(null)} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
-                {t.common.cancel}
-              </button>
-              <button
-                onClick={handlePlan}
-                disabled={!plan.assignee.trim() && !plan.dueDate}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {t.todos.plan}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={!!plan}
+        onClose={() => setPlan(null)}
+        title={t.todos.planTitle}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPlan(null)}>{t.common.cancel}</Button>
+            <Button onClick={handlePlan} disabled={!plan || (!plan.assignee.trim() && !plan.dueDate)}>{t.todos.plan}</Button>
+          </>
+        }
+      >
+        {plan && (
+          <>
+            <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t.todos.planHint}</p>
+            <Field label={t.todos.assignee}>
+              <TextInput autoFocus value={plan.assignee} onChange={(v) => setPlan({ ...plan, assignee: v })} placeholder={t.todos.assigneePlaceholder} />
+            </Field>
+            <Field label={t.todos.dueDate}>
+              <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
+            </Field>
+            <Field label={t.todos.priority}>
+              <Select value={plan.priority} onChange={(v) => setPlan({ ...plan, priority: v as PlanDraft['priority'] })}>
+                <option value="">{t.todos.priorityNone}</option>
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+              </Select>
+            </Field>
+          </>
+        )}
+      </Modal>
     </div>
   )
 }

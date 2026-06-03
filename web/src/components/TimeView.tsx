@@ -3,98 +3,47 @@ import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { Icon } from '../ui/Icon'
+import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
+import { clockTime, fmtClock, fmtDurationShort, usernameFromToken } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
 
-type SubView = 'day' | 'week' | 'projects'
+const COLOR_CHOICES = ['#B4654A', '#C98A3B', '#4F7A52', '#3F7C8C', '#6E5AA6', '#A6537A', '#7A8B57', '#64748B']
 
 interface TimeViewProps {
   token: string
   onLogout: () => void
 }
 
-// --- helpers ---------------------------------------------------------------
-
-function currentUsername(token: string): string | null {
-  try {
-    return JSON.parse(atob(token.split('.')[1])).username ?? null
-  } catch {
-    return null
-  }
-}
-
 function elapsedSeconds(startedAt: string, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - new Date(startedAt).getTime()) / 1000))
 }
 
-function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m`
-  return `${seconds}s`
-}
-
-function formatClock(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(h)}:${pad(m)}:${pad(s)}`
-}
-
-function dayKey(iso: string): string {
-  const d = new Date(iso)
+function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function formatDayLabel(key: string): string {
-  const [y, m, d] = key.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  const today = new Date()
-  const isToday = dayKey(today.toISOString()) === key
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  const isYesterday = dayKey(yesterday.toISOString()) === key
-  if (isToday) return t.time.today
-  if (isYesterday) return t.time.yesterday
-  return date.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' })
+interface ProjectDraft {
+  id?: string
+  name: string
+  color: string
 }
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
-}
-
-function startOfWeek(d: Date): Date {
-  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  const day = (date.getDay() + 6) % 7 // Monday = 0
-  date.setDate(date.getDate() - day)
-  return date
-}
-
-// --- component -------------------------------------------------------------
 
 export function TimeView({ token, onLogout }: TimeViewProps) {
-  const me = useMemo(() => currentUsername(token), [token])
+  const me = useMemo(() => usernameFromToken(token), [token])
   const [projects, setProjects] = useState<Project[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<SubView>('day')
   const [nowMs, setNowMs] = useState(() => Date.now())
-
-  const [showStart, setShowStart] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
+  const [desc, setDesc] = useState('')
 
-  const projectsById = useMemo(
-    () => Object.fromEntries(projects.map((p) => [p.id, p])),
-    [projects],
-  )
-
-  const running = useMemo(
-    () => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null,
-    [entries, me],
-  )
+  const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
+  const running = useMemo(() => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null, [entries, me])
 
   const fetchAll = useCallback(async () => {
     try {
@@ -115,7 +64,9 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // tick once a second while a timer is running so the live clock updates
+  // keep the hero description input in sync with the running entry
+  useEffect(() => { setDesc(running?.description ?? '') }, [running?.id])
+
   useEffect(() => {
     if (!running) return
     const id = setInterval(() => setNowMs(Date.now()), 1000)
@@ -127,37 +78,62 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       const msg = JSON.parse(raw)
       if (msg.project) {
         const p: Project = msg.project
-        if (msg.type === 'PROJECT_CREATED') {
-          setProjects((prev) => prev.some((x) => x.id === p.id) ? prev : [...prev, p])
-        } else if (msg.type === 'PROJECT_UPDATED') {
-          setProjects((prev) => prev.map((x) => x.id === p.id ? p : x))
-        }
+        if (msg.type === 'PROJECT_CREATED') setProjects((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]))
+        else if (msg.type === 'PROJECT_UPDATED') setProjects((prev) => prev.map((x) => (x.id === p.id ? p : x)))
       } else if (msg.entry) {
         const e: TimeEntry = msg.entry
-        if (msg.type === 'ENTRY_CREATED') {
-          setEntries((prev) => prev.some((x) => x.id === e.id) ? prev.map((x) => x.id === e.id ? e : x) : [e, ...prev])
-        } else if (msg.type === 'ENTRY_UPDATED') {
-          setEntries((prev) => prev.map((x) => x.id === e.id ? e : x))
-        } else if (msg.type === 'ENTRY_DELETED') {
-          setEntries((prev) => prev.filter((x) => x.id !== e.id))
-        }
+        if (msg.type === 'ENTRY_CREATED') setEntries((prev) => (prev.some((x) => x.id === e.id) ? prev.map((x) => (x.id === e.id ? e : x)) : [e, ...prev]))
+        else if (msg.type === 'ENTRY_UPDATED') setEntries((prev) => prev.map((x) => (x.id === e.id ? e : x)))
+        else if (msg.type === 'ENTRY_DELETED') setEntries((prev) => prev.filter((x) => x.id !== e.id))
       }
     } catch {
       // ignore malformed frames
     }
   })
 
-  const startTimer = async (projectId: string, description: string) => {
+  const startTimer = async (projectId: string, description = '') => {
     await authFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, description: description.trim() || undefined }),
     })
-    setShowStart(false)
   }
 
   const stopTimer = async () => {
     await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+  }
+
+  const saveDescription = async () => {
+    if (!running || desc === (running.description ?? '')) return
+    await authFetch(token, `${API_BASE}/time/entries/${running.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: desc }),
+    })
+  }
+
+  const deleteEntry = async (id: string) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id))
+    await authFetch(token, `${API_BASE}/time/entries/${id}`, { method: 'DELETE' })
+  }
+
+  const setArchived = async (p: Project, archived: boolean) => {
+    await authFetch(token, `${API_BASE}/time/projects/${p.id}/archive`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived }),
+    })
+  }
+
+  const saveProject = async (d: ProjectDraft) => {
+    if (!d.name.trim()) return
+    const body = JSON.stringify({ name: d.name.trim(), color: d.color })
+    if (d.id) {
+      await authFetch(token, `${API_BASE}/time/projects/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    } else {
+      await authFetch(token, `${API_BASE}/time/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    }
+    setProjectDraft(null)
   }
 
   const createManual = async (body: object) => {
@@ -169,452 +145,216 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     setShowManual(false)
   }
 
-  const deleteEntry = async (id: string) => {
-    setEntries((prev) => prev.filter((e) => e.id !== id))
-    await authFetch(token, `${API_BASE}/time/entries/${id}`, { method: 'DELETE' })
-  }
-
-  const activeProjects = projects.filter((p) => !p.archived)
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white shadow-sm px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.time.headerTitle}</h1>
-          <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            {t.common.logout}
-          </button>
-        </div>
-        <div className="mt-3 flex gap-1 text-sm">
-          {([['day', t.time.subDay], ['week', t.time.subWeek], ['projects', t.time.subProjects]] as [SubView, string][]).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setView(id)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                view === id ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-gray-100'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      {running && (
-        <RunningBanner
-          entry={running}
-          project={projectsById[running.projectId]}
-          elapsed={elapsedSeconds(running.startedAt, nowMs)}
-          onStop={stopTimer}
-        />
-      )}
-
-      <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
-        {loading ? (
-          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
-        ) : view === 'day' ? (
-          <DayView entries={entries} projectsById={projectsById} runningId={running?.id} onDelete={deleteEntry} />
-        ) : view === 'week' ? (
-          <WeekView entries={entries} projects={projects} />
-        ) : (
-          <ProjectsManager token={token} projects={projects} onChanged={fetchAll} />
-        )}
-      </main>
-
-      {view !== 'projects' && (
-        <div className="fixed bottom-20 right-6 flex flex-col gap-3 items-end">
-          <button
-            onClick={() => setShowManual(true)}
-            className="px-4 h-11 rounded-full bg-white border border-gray-300 text-gray-700 shadow-md hover:bg-gray-50 text-sm font-medium"
-          >
-            {t.time.recordEntry}
-          </button>
-          <button
-            onClick={() => setShowStart(true)}
-            disabled={activeProjects.length === 0}
-            className="w-14 h-14 rounded-full bg-indigo-600 text-white text-2xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center disabled:opacity-50"
-            aria-label={t.time.startTimer}
-          >
-            ▶
-          </button>
-        </div>
-      )}
-
-      {showStart && (
-        <StartTimerModal
-          projects={activeProjects}
-          onStart={startTimer}
-          onClose={() => setShowStart(false)}
-        />
-      )}
-      {showManual && (
-        <ManualEntryModal
-          projects={activeProjects}
-          onCreate={createManual}
-          onClose={() => setShowManual(false)}
-        />
-      )}
-    </div>
-  )
-}
-
-// --- running banner --------------------------------------------------------
-
-function RunningBanner({ entry, project, elapsed, onStop }: {
-  entry: TimeEntry
-  project?: Project
-  elapsed: number
-  onStop: () => void
-}) {
-  return (
-    <div className="bg-indigo-600 text-white px-4 py-3">
-      <div className="max-w-xl mx-auto flex items-center gap-3">
-        <span className="w-3 h-3 rounded-full bg-white animate-pulse" style={project ? { background: project.color } : undefined} />
-        <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{project?.name ?? t.time.project}</p>
-          {entry.description && <p className="text-indigo-100 text-sm truncate">{entry.description}</p>}
-        </div>
-        <span className="font-mono text-lg tabular-nums">{formatClock(elapsed)}</span>
-        <button
-          onClick={onStop}
-          className="ml-1 w-10 h-10 rounded-full bg-white text-indigo-600 flex items-center justify-center hover:bg-indigo-50"
-          aria-label={t.time.stop}
-        >
-          ■
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// --- day view --------------------------------------------------------------
-
-function DayView({ entries, projectsById, runningId, onDelete }: {
-  entries: TimeEntry[]
-  projectsById: Record<string, Project>
-  runningId?: string
-  onDelete: (id: string) => void
-}) {
-  // completed entries only, grouped by day, newest day first
-  const byDay = useMemo(() => {
-    const groups: Record<string, TimeEntry[]> = {}
-    for (const e of entries) {
-      if (!e.stoppedAt) continue
-      ;(groups[dayKey(e.startedAt)] ??= []).push(e)
-    }
-    for (const k of Object.keys(groups)) {
-      groups[k].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-    }
-    return groups
+  // total finished time per project
+  const totalsByProject = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const e of entries) if (e.stoppedAt && e.durationSeconds) m[e.projectId] = (m[e.projectId] ?? 0) + e.durationSeconds
+    return m
   }, [entries])
 
-  const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a))
+  const activeProjects = projects.filter((p) => !p.archived)
+  const archivedProjects = projects.filter((p) => p.archived)
+  const shownProjects = showArchived ? projects : activeProjects
 
-  if (days.length === 0 && !runningId) {
-    return (
-      <div className="text-center mt-20">
-        <p className="text-gray-400 text-lg">{t.time.emptyTitle}</p>
-        <p className="text-gray-300 text-sm mt-1">{t.time.emptyHint}</p>
-      </div>
-    )
-  }
+  const recent = useMemo(
+    () => entries.filter((e) => e.stoppedAt).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 40),
+    [entries],
+  )
+
+  const runningProject = running ? projectsById[running.projectId] : undefined
 
   return (
-    <div className="space-y-6">
-      {days.map((day) => {
-        const dayEntries = byDay[day]
-        const total = dayEntries.reduce((s, e) => s + (e.durationSeconds ?? 0), 0)
-        return (
-          <section key={day}>
-            <div className="flex items-baseline justify-between mb-2 px-1">
-              <h2 className="text-sm font-semibold text-gray-700">{formatDayLabel(day)}</h2>
-              <span className="text-sm font-mono text-gray-500 tabular-nums">{formatDuration(total)}</span>
+    <div className="hb-page">
+      <PageHead
+        eyebrow={running ? t.time.running : t.time.projectsLabel}
+        title={t.time.title}
+        actions={
+          <>
+            <Button variant="secondary" size="sm" icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
+            <Button icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
+          </>
+        }
+      />
+
+      {/* Timer hero */}
+      {running ? (
+        <Card className="hb-card--pad hb-timerhero is-running">
+          <div className="hb-timerhero__left">
+            <span className="hb-timerhero__live"><span className="hb-livedot" /> {t.time.running}</span>
+            <div className="hb-timerhero__proj">
+              <span className="hb-pdot" style={{ background: runningProject?.color ?? 'var(--ink-3)' }} />
+              {runningProject?.name ?? t.time.project}
             </div>
-            <ul className="space-y-2">
-              {dayEntries.map((e) => {
-                const p = projectsById[e.projectId]
-                return (
-                  <li key={e.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3">
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ background: p?.color ?? '#9CA3AF' }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-gray-800 truncate">{p?.name ?? t.time.project}</p>
-                      <p className="text-gray-400 text-xs truncate">
-                        {formatTime(e.startedAt)}–{e.stoppedAt ? formatTime(e.stoppedAt) : ''}
-                        {e.description ? ` · ${e.description}` : ''}
-                      </p>
-                    </div>
-                    <span className="font-mono text-sm text-gray-600 tabular-nums">{formatDuration(e.durationSeconds ?? 0)}</span>
-                    <button
-                      onClick={() => onDelete(e.id)}
-                      className="text-gray-300 hover:text-red-500 transition px-1"
-                      aria-label={t.common.delete}
-                    >
-                      ✕
+            <input
+              className="hb-timerhero__desc"
+              value={desc}
+              placeholder={t.time.descPlaceholder}
+              onChange={(e) => setDesc(e.target.value)}
+              onBlur={saveDescription}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            />
+          </div>
+          <div className="hb-timerhero__right">
+            <div className="hb-timerhero__clock hb-mono">{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</div>
+            <Button variant="secondary" icon="stop" onClick={stopTimer}>{t.time.stop}</Button>
+          </div>
+        </Card>
+      ) : (
+        <Card className="hb-card--pad hb-timerhero">
+          <div className="hb-timerhero__left">
+            <span className="hb-timerhero__live" style={{ color: 'var(--ink-3)' }}>{t.time.noTimer}</span>
+            {activeProjects.length === 0 ? (
+              <div className="hb-muted">{t.time.noProjectsHint}</div>
+            ) : (
+              <>
+                <div className="hb-muted">{t.time.startPrompt}</div>
+                <div className="hb-pickrow">
+                  {activeProjects.map((p) => (
+                    <button key={p.id} className="hb-pick" onClick={() => startTimer(p.id)}>
+                      <span className="hb-pdot" style={{ background: p.color }} />
+                      {p.name}
                     </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-        )
-      })}
-    </div>
-  )
-}
-
-// --- week view -------------------------------------------------------------
-
-function WeekView({ entries, projects }: { entries: TimeEntry[]; projects: Project[] }) {
-  const weekStart = useMemo(() => startOfWeek(new Date()), [])
-  const projectsById = useMemo(
-    () => Object.fromEntries(projects.map((p) => [p.id, p])),
-    [projects],
-  )
-
-  // [day index 0..6][projectId] = seconds
-  const data = useMemo(() => {
-    const days: Record<string, number>[] = Array.from({ length: 7 }, () => ({}))
-    const startMs = weekStart.getTime()
-    const endMs = startMs + 7 * 86400_000
-    for (const e of entries) {
-      if (!e.stoppedAt || !e.durationSeconds) continue
-      const t = new Date(e.startedAt).getTime()
-      if (t < startMs || t >= endMs) continue
-      const idx = Math.floor((t - startMs) / 86400_000)
-      const bucket = days[idx]
-      bucket[e.projectId] = (bucket[e.projectId] ?? 0) + e.durationSeconds
-    }
-    return days
-  }, [entries, weekStart])
-
-  const dayTotals = data.map((d) => Object.values(d).reduce((a, b) => a + b, 0))
-  const maxTotal = Math.max(1, ...dayTotals)
-  const weekTotal = dayTotals.reduce((a, b) => a + b, 0)
-  const labels = t.time.weekdays
-
-  const usedProjectIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const d of data) for (const id of Object.keys(d)) ids.add(id)
-    return [...ids]
-  }, [data])
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-lg shadow-sm p-4">
-        <div className="flex items-baseline justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-700">{t.time.thisWeek}</h2>
-          <span className="text-sm font-mono text-gray-500 tabular-nums">{formatDuration(weekTotal)}</span>
-        </div>
-        <div className="flex items-end justify-between gap-2 h-44">
-          {data.map((bucket, i) => {
-            const total = dayTotals[i]
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-                <div className="text-[10px] text-gray-400 font-mono tabular-nums h-3">
-                  {total > 0 ? `${(total / 3600).toFixed(1)}h` : ''}
-                </div>
-                <div
-                  className="w-full max-w-[28px] rounded-t overflow-hidden flex flex-col-reverse bg-gray-100"
-                  style={{ height: `${(total / maxTotal) * 100}%`, minHeight: total > 0 ? 4 : 0 }}
-                >
-                  {Object.entries(bucket).map(([pid, secs]) => (
-                    <div
-                      key={pid}
-                      style={{ height: `${(secs / total) * 100}%`, background: projectsById[pid]?.color ?? '#9CA3AF' }}
-                    />
                   ))}
                 </div>
-                <span className="text-xs text-gray-500">{labels[i]}</span>
+              </>
+            )}
+          </div>
+          <div className="hb-timerhero__right">
+            <div className="hb-timerhero__clock hb-mono" style={{ color: 'var(--ink-3)' }}>00:00:00</div>
+          </div>
+        </Card>
+      )}
+
+      {loading ? (
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+      ) : (
+        <div className="hb-zeit-grid">
+          {/* Projects */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="hb-sectionlabel">{t.time.projectsLabel}</div>
+              {archivedProjects.length > 0 && (
+                <button className="hb-link" onClick={() => setShowArchived((v) => !v)}>
+                  {showArchived ? t.time.hideArchived : t.time.showArchived}
+                </button>
+              )}
+            </div>
+            {shownProjects.length === 0 ? (
+              <Card className="hb-card--pad"><EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsHint} /></Card>
+            ) : (
+              <div className="hb-proj-grid">
+                {shownProjects.map((p) => {
+                  const isRunning = running?.projectId === p.id
+                  return (
+                    <Card key={p.id} className={`hb-projcard${isRunning ? ' is-running' : ''}${p.archived ? ' is-archived' : ''}`}>
+                      <div className="hb-projcard__head">
+                        <span className="hb-pdot" style={{ background: p.color }} />
+                        <span className="hb-projcard__name">{p.name}</span>
+                        <div style={{ display: 'flex', gap: 2 }}>
+                          <IconButton icon="edit" label={t.common.edit} onClick={() => setProjectDraft({ id: p.id, name: p.name, color: p.color })} />
+                          <IconButton
+                            icon="archive"
+                            label={p.archived ? t.time.reactivate : t.time.archive}
+                            active={p.archived}
+                            onClick={() => setArchived(p, !p.archived)}
+                          />
+                        </div>
+                      </div>
+                      <div className="hb-projcard__stat hb-mono">{fmtDurationShort(totalsByProject[p.id] ?? 0)}</div>
+                      {!p.archived && (
+                        isRunning ? (
+                          <Button variant="secondary" size="sm" icon="stop" onClick={stopTimer}>{t.time.stop}</Button>
+                        ) : (
+                          <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t.time.start}</Button>
+                        )
+                      )}
+                    </Card>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
-      </div>
+            )}
+          </div>
 
-      {usedProjectIds.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{t.time.legend}</h3>
-          <ul className="space-y-1">
-            {usedProjectIds.map((pid) => {
-              const secs = data.reduce((s, d) => s + (d[pid] ?? 0), 0)
-              return (
-                <li key={pid} className="flex items-center gap-2 text-sm">
-                  <span className="w-3 h-3 rounded-full" style={{ background: projectsById[pid]?.color ?? '#9CA3AF' }} />
-                  <span className="flex-1 text-gray-700">{projectsById[pid]?.name ?? t.time.project}</span>
-                  <span className="font-mono text-gray-500 tabular-nums">{formatDuration(secs)}</span>
-                </li>
-              )
-            })}
-          </ul>
+          {/* Recent entries */}
+          <div>
+            <div className="hb-sectionlabel">{t.time.recentEntries}</div>
+            <Card className="hb-card--pad">
+              {recent.length === 0 ? (
+                <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
+              ) : (
+                <div className="hb-list">
+                  {recent.map((e) => {
+                    const p = projectsById[e.projectId]
+                    const own = !me || e.userId === me
+                    return (
+                      <div key={e.id} className="hb-entry">
+                        <span className="hb-pdot" style={{ background: p?.color ?? 'var(--ink-3)' }} />
+                        <div className="hb-row__main">
+                          <div className="hb-row__title">{p?.name ?? t.time.project}</div>
+                          <div className="hb-row__meta">
+                            <span className="hb-mono">{clockTime(e.startedAt)}–{e.stoppedAt ? clockTime(e.stoppedAt) : ''}</span>
+                            {e.description && <><span className="dot-sep" />{e.description}</>}
+                          </div>
+                        </div>
+                        <div className="hb-row__right">
+                          <Avatar user={e.userId} size={22} />
+                          <span className="hb-mono hb-muted">{fmtDurationShort(e.durationSeconds ?? 0)}</span>
+                          {own ? (
+                            <IconButton icon="trash" label={t.common.delete} danger onClick={() => deleteEntry(e.id)} />
+                          ) : (
+                            <span className="hb-iconbtn" title={t.time.ownEntriesOnly} style={{ cursor: 'default' }}><Icon name="lock" size={16} stroke={2} /></span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
         </div>
       )}
-    </div>
-  )
-}
 
-// --- projects manager ------------------------------------------------------
-
-const COLOR_CHOICES = ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#8B5CF6', '#64748B']
-
-function ProjectsManager({ token, projects, onChanged }: {
-  token: string
-  projects: Project[]
-  onChanged: () => void
-}) {
-  const [name, setName] = useState('')
-  const [color, setColor] = useState(COLOR_CHOICES[0])
-  const [submitting, setSubmitting] = useState(false)
-
-  const create = async () => {
-    if (!name.trim()) return
-    setSubmitting(true)
-    try {
-      await authFetch(token, `${API_BASE}/time/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), color }),
-      })
-      setName('')
-      onChanged()
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const setArchived = async (p: Project, archived: boolean) => {
-    await authFetch(token, `${API_BASE}/time/projects/${p.id}/archive`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived }),
-    })
-    onChanged()
-  }
-
-  const active = projects.filter((p) => !p.archived)
-  const archived = projects.filter((p) => p.archived)
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-lg shadow-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">{t.time.newProject}</h2>
-        <input
-          type="text"
-          placeholder={t.time.projectNamePlaceholder}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && create()}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <div className="flex gap-2 mt-3 flex-wrap">
-          {COLOR_CHOICES.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-7 h-7 rounded-full transition ${color === c ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
-              style={{ background: c }}
-              aria-label={`${t.time.colorLabel} ${c}`}
-            />
-          ))}
-        </div>
-        <button
-          onClick={create}
-          disabled={submitting || !name.trim()}
-          className="mt-3 w-full rounded-lg bg-indigo-600 text-white py-2 font-medium hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {t.time.create}
-        </button>
-      </div>
-
-      <section>
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">{t.time.active}</h2>
-        {active.length === 0 ? (
-          <p className="text-gray-400 text-sm px-1">{t.time.noActiveProjects}</p>
-        ) : (
-          <ul className="space-y-2">
-            {active.map((p) => (
-              <li key={p.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3">
-                <span className="w-4 h-4 rounded-full shrink-0" style={{ background: p.color }} />
-                <span className="flex-1 text-gray-800 truncate">{p.name}</span>
-                <button onClick={() => setArchived(p, true)} className="text-sm text-gray-400 hover:text-gray-700">
-                  {t.time.archive}
-                </button>
-              </li>
-            ))}
-          </ul>
+      {/* Project create/edit modal */}
+      <Modal
+        open={!!projectDraft}
+        onClose={() => setProjectDraft(null)}
+        title={projectDraft?.id ? t.time.editProject : t.time.newProject}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setProjectDraft(null)}>{t.common.cancel}</Button>
+            <Button onClick={() => projectDraft && saveProject(projectDraft)} disabled={!projectDraft?.name.trim()}>
+              {projectDraft?.id ? t.common.save : t.time.create}
+            </Button>
+          </>
+        }
+      >
+        {projectDraft && (
+          <>
+            <Field label={t.time.project}>
+              <TextInput autoFocus value={projectDraft.name} onChange={(v) => setProjectDraft({ ...projectDraft, name: v })} placeholder={t.time.projectNamePlaceholder} />
+            </Field>
+            <Field label={t.time.color}>
+              <div className="hb-swatches">
+                {COLOR_CHOICES.map((c) => (
+                  <button
+                    key={c}
+                    className={`hb-swatch${projectDraft.color === c ? ' is-active' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => setProjectDraft({ ...projectDraft, color: c })}
+                    aria-label={`${t.time.colorLabel} ${c}`}
+                  />
+                ))}
+              </div>
+            </Field>
+          </>
         )}
-      </section>
+      </Modal>
 
-      {archived.length > 0 && (
-        <section>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1">{t.time.archivedSection}</h2>
-          <ul className="space-y-2">
-            {archived.map((p) => (
-              <li key={p.id} className="bg-white rounded-lg shadow-sm px-4 py-3 flex items-center gap-3 opacity-60">
-                <span className="w-4 h-4 rounded-full shrink-0" style={{ background: p.color }} />
-                <span className="flex-1 text-gray-800 truncate line-through">{p.name}</span>
-                <button onClick={() => setArchived(p, false)} className="text-sm text-indigo-500 hover:text-indigo-700">
-                  {t.time.reactivate}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {showManual && (
+        <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
     </div>
-  )
-}
-
-// --- modals ----------------------------------------------------------------
-
-function ModalShell({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500'
-
-function StartTimerModal({ projects, onStart, onClose }: {
-  projects: Project[]
-  onStart: (projectId: string, description: string) => void
-  onClose: () => void
-}) {
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
-  const [description, setDescription] = useState('')
-  const submitRef = useRef(false)
-
-  const submit = () => {
-    if (!projectId || submitRef.current) return
-    submitRef.current = true
-    onStart(projectId, description)
-  }
-
-  return (
-    <ModalShell title={t.time.startTimer}>
-      <label className="block text-sm text-gray-500 mb-1">{t.time.project}</label>
-      <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputClass}>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      <input
-        type="text"
-        placeholder={t.common.descriptionOptional}
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        className={`${inputClass} mt-2`}
-      />
-      <div className="flex justify-end gap-2 mt-4">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">{t.common.cancel}</button>
-        <button onClick={submit} disabled={!projectId} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-          {t.time.start}
-        </button>
-      </div>
-    </ModalShell>
   )
 }
 
@@ -623,7 +363,7 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   onCreate: (body: object) => void
   onClose: () => void
 }) {
-  const today = dayKey(new Date().toISOString())
+  const today = dayKey(new Date())
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
   const [date, setDate] = useState(today)
   const [start, setStart] = useState('09:00')
@@ -650,30 +390,33 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   }
 
   return (
-    <ModalShell title={t.time.recordEntry}>
-      <label className="block text-sm text-gray-500 mb-1">{t.time.project}</label>
-      <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputClass}>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inputClass} mt-2`} />
-      <div className="flex gap-2 mt-2">
-        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={inputClass} />
-        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={inputClass} />
+    <Modal
+      open
+      onClose={onClose}
+      title={t.time.recordEntry}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button onClick={submit} disabled={!projectId}>{t.common.save}</Button>
+        </>
+      }
+    >
+      <Field label={t.time.project}>
+        <Select value={projectId} onChange={setProjectId}>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+      </Field>
+      <Field label={t.time.date}>
+        <TextInput type="date" value={date} onChange={setDate} />
+      </Field>
+      <div className="hb-formgrid">
+        <Field label={t.time.from}><TextInput type="time" value={start} onChange={setStart} /></Field>
+        <Field label={t.time.to}><TextInput type="time" value={end} onChange={setEnd} /></Field>
       </div>
-      <input
-        type="text"
-        placeholder={t.common.descriptionOptional}
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        className={`${inputClass} mt-2`}
-      />
-      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
-      <div className="flex justify-end gap-2 mt-4">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">{t.common.cancel}</button>
-        <button onClick={submit} disabled={!projectId} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-          {t.common.save}
-        </button>
-      </div>
-    </ModalShell>
+      <Field label={t.common.descriptionOptional}>
+        <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
+      </Field>
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
+    </Modal>
   )
 }

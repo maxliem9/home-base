@@ -103,6 +103,7 @@ JWT_SECRET
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
 DIGEST_TIME         — z.B. "20:00"
+HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 
 ## Docker Services
 Produktion (docker-compose.yml):
