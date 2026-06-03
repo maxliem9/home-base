@@ -9,6 +9,9 @@ data class ErrorResponse(val code: String, val message: String)
 data class HealthResponse(val status: String)
 
 @Serializable
+data class AppConfigResponse(val householdName: String)
+
+@Serializable
 data class LoginRequest(val username: String, val password: String)
 
 @Serializable

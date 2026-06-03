@@ -1,0 +1,90 @@
+/* ============================================================
+   HomeBase — visual directions (data-look)
+   Three takes on "modern · crisp · earthy"
+     klar   — clean, flat, hairline structure (default)
+     kontur — structural / tool-like, mono labels, strong borders
+     erde   — earthy, deep-green sidebar, warmer surfaces, bolder
+   Defined AFTER themes so look tokens win on ties.
+   ============================================================ */
+
+/* ---------- KLAR (baseline crisp) ---------- */
+[data-look="klar"] {
+  --radius: 11px; --radius-sm: 8px; --radius-lg: 16px;
+}
+[data-look="klar"] .hb-pagehead h1 { letter-spacing: -0.028em; }
+
+/* ---------- KONTUR (structural / tool) ---------- */
+[data-look="kontur"] {
+  --radius: 6px; --radius-sm: 5px; --radius-lg: 9px;
+  --shadow-sm: none;
+  --shadow: 0 0 0 1px transparent;
+  --shadow-lg: 0 18px 50px oklch(0.28 0.04 150 / 0.22);
+  --disp-tracking: -0.02em;
+}
+[data-theme="light"][data-look="kontur"] { --line: oklch(0.83 0.02 130); --line-soft: oklch(0.88 0.016 130); }
+[data-theme="dark"][data-look="kontur"]  { --line: oklch(0.4 0.018 152); --line-soft: oklch(0.35 0.016 152); }
+
+[data-look="kontur"] .hb-card,
+[data-look="kontur"] .hb-stat { box-shadow: none; border-color: var(--line); }
+[data-look="kontur"] .hb-card--hover:hover { box-shadow: none; border-color: var(--accent); transform: none; }
+[data-look="kontur"] .hb-stat:hover { box-shadow: none; border-color: var(--accent); transform: none; }
+[data-look="kontur"] .hb-btn { box-shadow: none; }
+[data-look="kontur"] .hb-quickadd { box-shadow: none; }
+
+/* monospaced structural labels */
+[data-look="kontur"] .hb-pagehead__eyebrow,
+[data-look="kontur"] .hb-sectionlabel,
+[data-look="kontur"] .hb-brand__sub,
+[data-look="kontur"] .hb-timerhero__live,
+[data-look="kontur"] .hb-recipecard__ph {
+  font-family: var(--font-mono); letter-spacing: 0.02em; text-transform: uppercase;
+}
+[data-look="kontur"] .hb-stat__icon { border-radius: 5px; }
+[data-look="kontur"] .hb-brand__mark { border-radius: 6px; }
+[data-look="kontur"] .hb-avatar { border-radius: 6px; }
+[data-look="kontur"] .hb-navitem.is-active { box-shadow: inset 2px 0 0 var(--accent); border-radius: var(--radius-sm); }
+[data-look="kontur"] .hb-stat { border-top: 2px solid var(--accent); }
+[data-look="kontur"] .hb-seg { border: 1px solid var(--line); }
+[data-look="kontur"] .hb-badge { border-radius: 4px; }
+[data-look="kontur"] .hb-tagchip { border-radius: 5px; }
+[data-look="kontur"] .hb-check { border-radius: 4px; }
+
+/* ---------- ERDE (earthy, deep sidebar) ---------- */
+[data-look="erde"] {
+  --radius: 15px; --radius-sm: 11px; --radius-lg: 20px;
+  --disp-tracking: -0.02em;
+}
+[data-theme="light"][data-look="erde"] {
+  --paper: oklch(0.95 0.026 118);
+  --surface: oklch(0.985 0.013 118);
+  --surface-2: oklch(0.925 0.03 118);
+  --surface-3: oklch(0.89 0.038 118);
+  --line: oklch(0.86 0.026 120);
+  --line-soft: oklch(0.905 0.02 120);
+}
+[data-look="erde"] .hb-pagehead h1 { font-size: 42px; }
+[data-look="erde"] .hb-pagehead__eyebrow { color: var(--clay); font-weight: 600; }
+
+/* deep forest sidebar (light theme) */
+[data-theme="light"][data-look="erde"] .hb-sidebar {
+  background: oklch(0.31 0.05 152);
+  border-right-color: oklch(0.27 0.05 152);
+}
+[data-theme="light"][data-look="erde"] .hb-brand__name { color: oklch(0.97 0.02 120); }
+[data-theme="light"][data-look="erde"] .hb-brand__sub { color: oklch(0.78 0.04 130); }
+[data-theme="light"][data-look="erde"] .hb-brand__mark { background: oklch(0.97 0.02 120); color: oklch(0.31 0.05 152); }
+[data-theme="light"][data-look="erde"] .hb-navitem { color: oklch(0.84 0.03 130); }
+[data-theme="light"][data-look="erde"] .hb-navitem:hover { background: oklch(0.37 0.05 152); color: oklch(0.98 0.01 120); }
+[data-theme="light"][data-look="erde"] .hb-navitem.is-active { background: oklch(0.42 0.07 152); color: oklch(0.99 0.01 120); }
+[data-theme="light"][data-look="erde"] .hb-navitem.is-active svg { color: oklch(0.85 0.1 135); }
+[data-theme="light"][data-look="erde"] .hb-navitem__badge { background: oklch(0.42 0.06 152); color: oklch(0.95 0.02 120); }
+[data-theme="light"][data-look="erde"] .hb-navitem.is-active .hb-navitem__badge { background: oklch(0.85 0.1 135); color: oklch(0.3 0.06 152); }
+[data-theme="light"][data-look="erde"] .hb-side-foot { border-top-color: oklch(0.27 0.05 152); }
+[data-theme="light"][data-look="erde"] .hb-userchip__name { color: oklch(0.97 0.02 120); }
+[data-theme="light"][data-look="erde"] .hb-userchip__sub { color: oklch(0.74 0.04 130); }
+
+/* color-blocked accents */
+[data-look="erde"] .hb-stat__icon { background: var(--clay-soft); color: var(--clay); }
+[data-look="erde"] .hb-stat:nth-child(1) .hb-stat__icon { background: var(--accent-soft); color: var(--accent-ink); }
+[data-look="erde"] .hb-step__n { background: var(--clay-soft); color: var(--clay); }
+[data-look="erde"] .hb-timerhero.is-running { background: linear-gradient(110deg, var(--accent-soft) 0%, var(--surface) 72%); }
