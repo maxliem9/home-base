@@ -7,10 +7,12 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.repository.ShoppingRepository
+import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
+import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -59,5 +61,10 @@ class AppContainer(context: Context) {
     val notesRepository = NotesRepository(
         api = api,
         wsClient = NotesWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    val timeRepository = TimeRepository(
+        api = api,
+        wsClient = TimeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }

@@ -37,6 +37,28 @@ object ShoppingItemsTable : Table("shopping_items") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object ProjectsTable : Table("projects") {
+    val id = uuid("id")
+    val name = text("name")
+    val color = varchar("color", 7)
+    val archived = bool("archived")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object TimeEntriesTable : Table("time_entries") {
+    val id = uuid("id")
+    val projectId = uuid("project_id")
+    val userId = varchar("user_id", 50)
+    val startedAt = timestamp("started_at")
+    val stoppedAt = timestamp("stopped_at").nullable()
+    val description = text("description").nullable()
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object NotesTable : Table("notes") {
     val id = uuid("id")
     val title = text("title")

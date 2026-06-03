@@ -43,4 +43,42 @@ interface HomeBaseApi {
 
     @DELETE("notes/{id}")
     suspend fun deleteNote(@Path("id") id: String)
+
+    @GET("time/projects")
+    suspend fun getProjects(): List<ProjectDto>
+
+    @POST("time/projects")
+    suspend fun createProject(@Body request: CreateProjectRequest): ProjectDto
+
+    @PUT("time/projects/{id}")
+    suspend fun updateProject(@Path("id") id: String, @Body request: UpdateProjectRequest): ProjectDto
+
+    @PATCH("time/projects/{id}/archive")
+    suspend fun archiveProject(@Path("id") id: String, @Body request: ArchiveProjectRequest): ProjectDto
+
+    @GET("time/entries")
+    suspend fun getTimeEntries(
+        @Query("project_id") projectId: String? = null,
+        @Query("user_id") userId: String? = null,
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+    ): List<TimeEntryDto>
+
+    @POST("time/entries/start")
+    suspend fun startTimer(@Body request: StartTimerRequest): TimeEntryDto
+
+    @POST("time/entries/stop")
+    suspend fun stopTimer(): TimeEntryDto
+
+    @POST("time/entries")
+    suspend fun createTimeEntry(@Body request: CreateTimeEntryRequest): TimeEntryDto
+
+    @PUT("time/entries/{id}")
+    suspend fun updateTimeEntry(@Path("id") id: String, @Body request: UpdateTimeEntryRequest): TimeEntryDto
+
+    @DELETE("time/entries/{id}")
+    suspend fun deleteTimeEntry(@Path("id") id: String)
+
+    @GET("time/running")
+    suspend fun getRunningTimer(): TimeEntryDto
 }
