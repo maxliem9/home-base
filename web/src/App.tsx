@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { login } from './api'
+import { t } from './i18n'
 import { TodosView } from './components/TodosView'
 import { NotesView } from './components/NotesView'
 import { ShoppingView } from './components/ShoppingView'
@@ -9,11 +10,11 @@ import { RecipesView } from './components/RecipesView'
 type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'todos', label: 'Aufgaben' },
-  { id: 'shopping', label: 'Einkaufsliste' },
-  { id: 'notes', label: 'Notizen' },
-  { id: 'time', label: 'Zeit' },
-  { id: 'recipes', label: 'Rezepte' },
+  { id: 'todos', label: t.nav.todos },
+  { id: 'shopping', label: t.nav.shopping },
+  { id: 'notes', label: t.nav.notes },
+  { id: 'time', label: t.nav.time },
+  { id: 'recipes', label: t.nav.recipes },
 ]
 
 export default function App() {
@@ -71,7 +72,7 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
       const response = await login(username.trim(), password)
       onLogin(response.token)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Login fehlgeschlagen')
+      setError(e instanceof Error ? e.message : t.login.failed)
     } finally {
       setSubmitting(false)
     }
@@ -80,12 +81,12 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full max-w-sm p-5">
-        <h1 className="text-xl font-semibold text-gray-800">HomeBase</h1>
+        <h1 className="text-xl font-semibold text-gray-800">{t.login.title}</h1>
         <div className="mt-4 space-y-3">
           <input
             autoFocus
             type="text"
-            placeholder="Benutzername"
+            placeholder={t.login.username}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -93,7 +94,7 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
           />
           <input
             type="password"
-            placeholder="Passwort"
+            placeholder={t.login.password}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -105,7 +106,7 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
             disabled={submitting || !username.trim() || !password}
             className="w-full rounded-lg bg-indigo-600 text-white py-2 font-medium hover:bg-indigo-700 disabled:opacity-50"
           >
-            Anmelden
+            {t.login.submit}
           </button>
         </div>
       </div>

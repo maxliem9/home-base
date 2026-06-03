@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
+import { t } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
@@ -129,14 +130,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Notizen</h1>
+          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.notes.headerTitle}</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            Abmelden
+            {t.common.logout}
           </button>
         </div>
         <input
           type="search"
-          placeholder="Suche in Titel, Inhalt, Tags…"
+          placeholder={t.notes.searchPlaceholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -145,11 +146,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
       <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">Lädt…</p>
+          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
         ) : notes.length === 0 ? (
           <div className="text-center mt-20">
-            <p className="text-gray-400 text-lg">{query.trim() ? 'Keine Treffer' : 'Noch keine Notizen'}</p>
-            {!query.trim() && <p className="text-gray-300 text-sm mt-1">Erstelle eine Notiz mit +</p>}
+            <p className="text-gray-400 text-lg">{query.trim() ? t.notes.noResults : t.notes.empty}</p>
+            {!query.trim() && <p className="text-gray-300 text-sm mt-1">{t.notes.emptyHint}</p>}
           </div>
         ) : (
           <ul className="space-y-3">
@@ -161,7 +162,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               >
                 <div className="flex items-start gap-2">
                   <h2 className="flex-1 min-w-0 font-medium text-gray-800 truncate">{note.title}</h2>
-                  <span className="shrink-0 text-xs" title={note.visibility === 'PRIVATE' ? 'Privat' : 'Geteilt'}>
+                  <span className="shrink-0 text-xs" title={note.visibility === 'PRIVATE' ? t.notes.private : t.notes.shared}>
                     {note.visibility === 'PRIVATE' ? '🔒' : '👥'}
                   </span>
                 </div>
@@ -187,7 +188,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       <button
         onClick={() => setDraft(emptyDraft())}
         className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-        aria-label="Neue Notiz"
+        aria-label={t.notes.newNote}
       >
         +
       </button>
@@ -197,18 +198,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl max-h-[85vh] overflow-y-auto">
             <h2 className="text-lg font-semibold text-gray-800 mb-3">
-              {draft.id ? 'Notiz bearbeiten' : 'Neue Notiz'}
+              {draft.id ? t.notes.editNote : t.notes.newNote}
             </h2>
             <input
               autoFocus
               type="text"
-              placeholder="Titel…"
+              placeholder={t.common.titlePlaceholder}
               value={draft.title}
               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <textarea
-              placeholder="Inhalt (Markdown)…"
+              placeholder={t.notes.contentPlaceholder}
               value={draft.content}
               onChange={(e) => setDraft({ ...draft, content: e.target.value })}
               rows={8}
@@ -216,20 +217,20 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
             />
             <input
               type="text"
-              placeholder="Tags (kommagetrennt)…"
+              placeholder={t.notes.tagsPlaceholder}
               value={draft.tags}
               onChange={(e) => setDraft({ ...draft, tags: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 mt-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <div className="flex items-center gap-2 mt-3">
-              <span className="text-sm text-gray-600">Sichtbarkeit:</span>
+              <span className="text-sm text-gray-600">{t.notes.visibility}</span>
               <button
                 onClick={() =>
                   setDraft({ ...draft, visibility: draft.visibility === 'SHARED' ? 'PRIVATE' : 'SHARED' })
                 }
                 className="text-sm px-3 py-1 rounded-full border border-gray-300 hover:bg-gray-50"
               >
-                {draft.visibility === 'PRIVATE' ? '🔒 Privat' : '👥 Geteilt'}
+                {draft.visibility === 'PRIVATE' ? `🔒 ${t.notes.private}` : `👥 ${t.notes.shared}`}
               </button>
             </div>
             <div className="flex justify-between items-center mt-4">
@@ -238,7 +239,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   onClick={() => handleDelete(draft.id!)}
                   className="px-3 py-2 rounded-lg text-red-500 hover:bg-red-50"
                 >
-                  Löschen
+                  {t.common.delete}
                 </button>
               ) : (
                 <span />
@@ -248,14 +249,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   onClick={() => setDraft(null)}
                   className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100"
                 >
-                  Abbrechen
+                  {t.common.cancel}
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={saving || !draft.title.trim()}
                   className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  Speichern
+                  {t.common.save}
                 </button>
               </div>
             </div>

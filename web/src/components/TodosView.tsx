@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
+import { t } from '../i18n'
 import { Todo, TodoStatus, TodoPriority } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/api/v1/ws/todos`
 
 const SEGMENTS: { id: TodoStatus; label: string }[] = [
-  { id: 'INBOX', label: 'Inbox' },
-  { id: 'PLANNED', label: 'Geplant' },
-  { id: 'DONE', label: 'Erledigt' },
+  { id: 'INBOX', label: t.todos.segInbox },
+  { id: 'PLANNED', label: t.todos.segPlanned },
+  { id: 'DONE', label: t.todos.segDone },
 ]
 
 const priorityClasses = (p: TodoPriority): string =>
@@ -144,15 +145,15 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const counts: Record<TodoStatus, number> = { INBOX: inbox.length, PLANNED: planned.length, DONE: done.length }
 
   const emptyText =
-    segment === 'INBOX' ? 'Inbox ist leer' : segment === 'PLANNED' ? 'Nichts geplant' : 'Noch nichts erledigt'
+    segment === 'INBOX' ? t.todos.emptyInbox : segment === 'PLANNED' ? t.todos.emptyPlanned : t.todos.emptyDone
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 pt-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Aufgaben</h1>
+          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.todos.headerTitle}</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            Abmelden
+            {t.common.logout}
           </button>
         </div>
         <div className="flex mt-3 -mb-px">
@@ -175,11 +176,11 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
       <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">Lädt…</p>
+          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
         ) : visible.length === 0 ? (
           <div className="text-center mt-20">
             <p className="text-gray-400 text-lg">{emptyText}</p>
-            {segment === 'INBOX' && <p className="text-gray-300 text-sm mt-1">Füge eine Aufgabe hinzu</p>}
+            {segment === 'INBOX' && <p className="text-gray-300 text-sm mt-1">{t.todos.addHint}</p>}
           </div>
         ) : (
           <ul className="space-y-2">
@@ -194,7 +195,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                     {todo.assignee && <span>👤 {todo.assignee}</span>}
                     {todo.dueDate && <span>📅 {todo.dueDate}</span>}
                     {todo.status === 'DONE' && todo.doneAt && <span>✅ {todo.doneAt.slice(0, 10)}</span>}
-                    {todo.status === 'INBOX' && <span>von {todo.createdBy}</span>}
+                    {todo.status === 'INBOX' && <span>{t.common.by} {todo.createdBy}</span>}
                   </div>
                 </div>
 
@@ -210,7 +211,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         onClick={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
                         className="text-xs px-2 py-1 rounded-md text-indigo-600 hover:bg-indigo-50"
                       >
-                        Planen
+                        {t.todos.plan}
                       </button>
                     )}
                     {todo.status === 'PLANNED' && (
@@ -218,13 +219,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         onClick={() => completeTodo(todo.id)}
                         className="text-xs px-2 py-1 rounded-md text-green-600 hover:bg-green-50"
                       >
-                        Erledigt
+                        {t.todos.markDone}
                       </button>
                     )}
                     <button
                       onClick={() => deleteTodo(todo.id)}
                       className="text-gray-300 hover:text-red-500 transition px-1"
-                      aria-label="Löschen"
+                      aria-label={t.common.delete}
                     >
                       ✕
                     </button>
@@ -241,7 +242,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         <button
           onClick={() => setShowAdd(true)}
           className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-          aria-label="Neue Aufgabe"
+          aria-label={t.todos.newTask}
         >
           +
         </button>
@@ -251,11 +252,11 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">Neue Aufgabe</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">{t.todos.newTask}</h2>
             <input
               autoFocus
               type="text"
-              placeholder="Titel…"
+              placeholder={t.common.titlePlaceholder}
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
@@ -263,14 +264,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             />
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => { setShowAdd(false); setNewTitle('') }} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
-                Abbrechen
+                {t.common.cancel}
               </button>
               <button
                 onClick={handleAdd}
                 disabled={submitting || !newTitle.trim()}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                Hinzufügen
+                {t.common.add}
               </button>
             </div>
           </div>
@@ -281,45 +282,45 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       {plan && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-1">Aufgabe planen</h2>
-            <p className="text-xs text-gray-400 mb-3">Mindestens Zuständige:r oder Fälligkeit angeben.</p>
-            <label className="block text-sm text-gray-600 mb-1">Zuständig</label>
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">{t.todos.planTitle}</h2>
+            <p className="text-xs text-gray-400 mb-3">{t.todos.planHint}</p>
+            <label className="block text-sm text-gray-600 mb-1">{t.todos.assignee}</label>
             <input
               autoFocus
               type="text"
-              placeholder="z. B. alice"
+              placeholder={t.todos.assigneePlaceholder}
               value={plan.assignee}
               onChange={(e) => setPlan({ ...plan, assignee: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            <label className="block text-sm text-gray-600 mb-1 mt-3">Fällig am</label>
+            <label className="block text-sm text-gray-600 mb-1 mt-3">{t.todos.dueDate}</label>
             <input
               type="date"
               value={plan.dueDate}
               onChange={(e) => setPlan({ ...plan, dueDate: e.target.value })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            <label className="block text-sm text-gray-600 mb-1 mt-3">Priorität</label>
+            <label className="block text-sm text-gray-600 mb-1 mt-3">{t.todos.priority}</label>
             <select
               value={plan.priority}
               onChange={(e) => setPlan({ ...plan, priority: e.target.value as PlanDraft['priority'] })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="">—</option>
+              <option value="">{t.todos.priorityNone}</option>
               <option value="LOW">LOW</option>
               <option value="MEDIUM">MEDIUM</option>
               <option value="HIGH">HIGH</option>
             </select>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setPlan(null)} className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100">
-                Abbrechen
+                {t.common.cancel}
               </button>
               <button
                 onClick={handlePlan}
                 disabled={!plan.assignee.trim() && !plan.dueDate}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                Planen
+                {t.todos.plan}
               </button>
             </div>
           </div>

@@ -13,29 +13,42 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientInput
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeStepInput
 import kotlin.math.round
 
-// Category labels + icons used across the recipe screens.
-private val CATEGORIES = listOf(
-    "BREAKFAST" to ("🥐" to "Frühstück"),
-    "LUNCH" to ("🍽️" to "Mittag"),
-    "DINNER" to ("🍝" to "Abend"),
-    "SNACK" to ("🥨" to "Snack"),
-    "DESSERT" to ("🍰" to "Dessert"),
-    "DRINK" to ("🍹" to "Getränk"),
+// Category icons keyed by enum value. The human-readable labels live in
+// strings.xml and are resolved via the composable [categoryLabel] below.
+private val CATEGORY_ICONS = listOf(
+    "BREAKFAST" to "🥐",
+    "LUNCH" to "🍽️",
+    "DINNER" to "🍝",
+    "SNACK" to "🥨",
+    "DESSERT" to "🍰",
+    "DRINK" to "🍹",
 )
 
-private fun categoryLabel(c: String) = CATEGORIES.firstOrNull { it.first == c }?.second?.second ?: c
-private fun categoryIcon(c: String) = CATEGORIES.firstOrNull { it.first == c }?.second?.first ?: "🍴"
+private fun categoryIcon(c: String) = CATEGORY_ICONS.firstOrNull { it.first == c }?.second ?: "🍴"
+
+@Composable
+private fun categoryLabel(c: String): String = when (c) {
+    "BREAKFAST" -> stringResource(R.string.recipe_cat_breakfast)
+    "LUNCH" -> stringResource(R.string.recipe_cat_lunch)
+    "DINNER" -> stringResource(R.string.recipe_cat_dinner)
+    "SNACK" -> stringResource(R.string.recipe_cat_snack)
+    "DESSERT" -> stringResource(R.string.recipe_cat_dessert)
+    "DRINK" -> stringResource(R.string.recipe_cat_drink)
+    else -> c
+}
 private fun totalTime(r: RecipeDto) = (r.prepTimeMinutes ?: 0) + (r.cookTimeMinutes ?: 0)
 private fun fmtAmount(n: Double): String {
     val rounded = round(n * 100.0) / 100.0
@@ -100,7 +113,7 @@ private fun RecipeListScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Rezepte") },
+                    title = { Text(stringResource(R.string.recipe_title)) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -114,14 +127,14 @@ private fun RecipeListScreen(
                         FilterChip(
                             selected = uiState.categoryFilter == null,
                             onClick = { onSelectCategory(null) },
-                            label = { Text("Alle") },
+                            label = { Text(stringResource(R.string.recipe_filter_all)) },
                         )
                     }
-                    items(CATEGORIES) { (id, meta) ->
+                    items(CATEGORY_ICONS) { (id, icon) ->
                         FilterChip(
                             selected = uiState.categoryFilter == id,
                             onClick = { onSelectCategory(id) },
-                            label = { Text("${meta.first} ${meta.second}") },
+                            label = { Text("$icon ${categoryLabel(id)}") },
                         )
                     }
                 }
@@ -137,8 +150,8 @@ private fun RecipeListScreen(
             when {
                 uiState.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 uiState.recipes.isEmpty() -> Text(
-                    if (uiState.categoryFilter == null) "Noch keine Rezepte — nutze + zum Erstellen."
-                    else "Keine Rezepte in dieser Kategorie.",
+                    if (uiState.categoryFilter == null) stringResource(R.string.recipe_empty_all)
+                    else stringResource(R.string.recipe_empty_category),
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -157,8 +170,8 @@ private fun RecipeListScreen(
     uiState.error?.let { msg ->
         AlertDialog(
             onDismissRequest = onClearError,
-            confirmButton = { TextButton(onClick = onClearError) { Text("OK") } },
-            title = { Text("Fehler") },
+            confirmButton = { TextButton(onClick = onClearError) { Text(stringResource(R.string.action_ok)) } },
+            title = { Text(stringResource(R.string.error_title)) },
             text = { Text(msg) },
         )
     }
@@ -178,10 +191,13 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(2.dp))
+                val catLabel = categoryLabel(recipe.category)
+                val minAbbr = stringResource(R.string.recipe_minutes_abbr)
+                val servAbbr = stringResource(R.string.recipe_servings_abbr)
                 val info = buildList {
-                    add(categoryLabel(recipe.category))
-                    if (totalTime(recipe) > 0) add("⏱️ ${totalTime(recipe)} Min")
-                    add("🍽️ ${recipe.servings} Port.")
+                    add(catLabel)
+                    if (totalTime(recipe) > 0) add("⏱️ ${totalTime(recipe)} $minAbbr")
+                    add("🍽️ ${recipe.servings} $servAbbr")
                 }.joinToString("  ·  ")
                 Text(
                     info,
@@ -211,11 +227,11 @@ private fun RecipeDetailScreen(
                 title = { Text(recipe.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.recipe_back_cd))
                     }
                 },
                 actions = {
-                    TextButton(onClick = onEdit) { Text("Bearbeiten") }
+                    TextButton(onClick = onEdit) { Text(stringResource(R.string.recipe_edit)) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -241,9 +257,12 @@ private fun RecipeDetailScreen(
             }
 
             Spacer(Modifier.height(8.dp))
+            val prepLabel = stringResource(R.string.recipe_prep)
+            val cookLabel = stringResource(R.string.recipe_cook)
+            val minAbbr = stringResource(R.string.recipe_minutes_abbr)
             val times = buildList {
-                recipe.prepTimeMinutes?.let { add("Vorbereitung: $it Min") }
-                recipe.cookTimeMinutes?.let { add("Kochzeit: $it Min") }
+                recipe.prepTimeMinutes?.let { add("$prepLabel: $it $minAbbr") }
+                recipe.cookTimeMinutes?.let { add("$cookLabel: $it $minAbbr") }
             }
             if (times.isNotEmpty()) {
                 Text(times.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -252,7 +271,7 @@ private fun RecipeDetailScreen(
             // Servings stepper
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Portionen", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.recipe_servings), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                 OutlinedIconButton(onClick = { if (servings > 1) servings-- }) { Text("−") }
                 Text(
                     servings.toString(),
@@ -265,7 +284,7 @@ private fun RecipeDetailScreen(
 
             if (recipe.ingredients.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                Text("Zutaten", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.recipe_ingredients), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 recipe.ingredients.forEach { ing ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -283,7 +302,7 @@ private fun RecipeDetailScreen(
 
             if (recipe.steps.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                Text("Zubereitung", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.recipe_preparation), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
                 recipe.steps.forEach { step ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -304,7 +323,7 @@ private fun RecipeDetailScreen(
                 onClick = onDelete,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             ) {
-                Text("Rezept löschen")
+                Text(stringResource(R.string.recipe_delete))
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -343,10 +362,10 @@ private fun RecipeEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (recipe == null) "Neues Rezept" else "Rezept bearbeiten") },
+                title = { Text(stringResource(if (recipe == null) R.string.recipe_new else R.string.recipe_edit_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.recipe_back_cd))
                     }
                 },
                 actions = {
@@ -374,7 +393,7 @@ private fun RecipeEditorScreen(
                                 ),
                             )
                         },
-                    ) { Text("Speichern") }
+                    ) { Text(stringResource(R.string.action_save)) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -395,7 +414,7 @@ private fun RecipeEditorScreen(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Titel") },
+                label = { Text(stringResource(R.string.field_title)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -403,7 +422,7 @@ private fun RecipeEditorScreen(
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Beschreibung") },
+                label = { Text(stringResource(R.string.recipe_field_description)) },
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -415,14 +434,14 @@ private fun RecipeEditorScreen(
                     value = categoryLabel(category),
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Kategorie") },
+                    label = { Text(stringResource(R.string.recipe_category)) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryMenu) },
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                 )
                 ExposedDropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
-                    CATEGORIES.forEach { (id, meta) ->
+                    CATEGORY_ICONS.forEach { (id, icon) ->
                         DropdownMenuItem(
-                            text = { Text("${meta.first} ${meta.second}") },
+                            text = { Text("$icon ${categoryLabel(id)}") },
                             onClick = { category = id; categoryMenu = false },
                         )
                     }
@@ -434,7 +453,7 @@ private fun RecipeEditorScreen(
                 OutlinedTextField(
                     value = servings,
                     onValueChange = { servings = it.filter(Char::isDigit) },
-                    label = { Text("Portionen") },
+                    label = { Text(stringResource(R.string.recipe_servings)) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.weight(1f),
@@ -442,7 +461,7 @@ private fun RecipeEditorScreen(
                 OutlinedTextField(
                     value = prep,
                     onValueChange = { prep = it.filter(Char::isDigit) },
-                    label = { Text("Vorb. Min") },
+                    label = { Text(stringResource(R.string.recipe_prep_min)) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.weight(1f),
@@ -450,7 +469,7 @@ private fun RecipeEditorScreen(
                 OutlinedTextField(
                     value = cook,
                     onValueChange = { cook = it.filter(Char::isDigit) },
-                    label = { Text("Koch. Min") },
+                    label = { Text(stringResource(R.string.recipe_cook_min)) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.weight(1f),
@@ -460,15 +479,15 @@ private fun RecipeEditorScreen(
             // Ingredients
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Zutaten", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { ingredients = ingredients + IngredientDraft("", "", "") }) { Text("+ Zutat") }
+                Text(stringResource(R.string.recipe_ingredients), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { ingredients = ingredients + IngredientDraft("", "", "") }) { Text(stringResource(R.string.recipe_add_ingredient)) }
             }
             ingredients.forEachIndexed { idx, ing ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = ing.name,
                         onValueChange = { v -> ingredients = ingredients.mapIndexed { i, x -> if (i == idx) x.copy(name = v) else x } },
-                        label = { Text("Zutat") },
+                        label = { Text(stringResource(R.string.recipe_ingredient_name)) },
                         singleLine = true,
                         modifier = Modifier.weight(2f),
                     )
@@ -476,7 +495,7 @@ private fun RecipeEditorScreen(
                     OutlinedTextField(
                         value = ing.amount,
                         onValueChange = { v -> ingredients = ingredients.mapIndexed { i, x -> if (i == idx) x.copy(amount = v) else x } },
-                        label = { Text("Menge") },
+                        label = { Text(stringResource(R.string.recipe_amount)) },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.weight(1f),
@@ -485,7 +504,7 @@ private fun RecipeEditorScreen(
                     OutlinedTextField(
                         value = ing.unit,
                         onValueChange = { v -> ingredients = ingredients.mapIndexed { i, x -> if (i == idx) x.copy(unit = v) else x } },
-                        label = { Text("Einh.") },
+                        label = { Text(stringResource(R.string.recipe_unit_abbr)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -499,8 +518,8 @@ private fun RecipeEditorScreen(
             // Steps
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Zubereitung", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { steps = steps + "" }) { Text("+ Schritt") }
+                Text(stringResource(R.string.recipe_preparation), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { steps = steps + "" }) { Text(stringResource(R.string.recipe_add_step)) }
             }
             steps.forEachIndexed { idx, step ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -513,7 +532,7 @@ private fun RecipeEditorScreen(
                     OutlinedTextField(
                         value = step,
                         onValueChange = { v -> steps = steps.mapIndexed { i, x -> if (i == idx) v else x } },
-                        label = { Text("Schritt ${idx + 1}") },
+                        label = { Text(stringResource(R.string.recipe_step_n, idx + 1)) },
                         minLines = 1,
                         modifier = Modifier.weight(1f),
                     )

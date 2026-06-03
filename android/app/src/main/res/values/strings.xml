@@ -1,4 +1,108 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default (German) UI strings. Single source of truth for all user-facing text.
+  To add another language later, create res/values-<lang>/strings.xml (e.g.
+  res/values-en/strings.xml) with the same keys; Android then picks it up
+  automatically based on the device locale. An in-app language picker would
+  additionally need AppCompatDelegate.setApplicationLocales(...).
+-->
 <resources>
     <string name="app_name">HomeBase</string>
+
+    <!-- Shared actions / labels -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_add">Hinzufügen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_delete">Löschen</string>
+    <string name="error_title">Fehler</string>
+    <string name="field_title">Titel</string>
+
+    <!-- Login -->
+    <string name="login_username">Benutzername</string>
+    <string name="login_password">Passwort</string>
+    <string name="login_submit">Anmelden</string>
+
+    <!-- Inbox -->
+    <string name="inbox_title">Inbox</string>
+    <string name="inbox_add_todo_cd">Aufgabe hinzufügen</string>
+    <string name="inbox_empty">Inbox ist leer — füge mit + eine Aufgabe hinzu.</string>
+    <string name="inbox_mark_done_cd">Als erledigt markieren</string>
+    <string name="inbox_new_item">Neue Aufgabe</string>
+
+    <!-- Shopping -->
+    <string name="shopping_title">Einkaufsliste</string>
+    <string name="shopping_empty">Liste ist leer — nutze + zum Hinzufügen.</string>
+    <string name="shopping_uncategorized">Sonstiges</string>
+    <string name="shopping_new_item">Neuer Artikel</string>
+    <string name="shopping_field_item">Artikel</string>
+    <string name="shopping_field_category">Kategorie (optional)</string>
+
+    <!-- Notes -->
+    <string name="notes_title">Notizen</string>
+    <string name="notes_search">Suche in Titel, Inhalt, Tags…</string>
+    <string name="notes_empty">Noch keine Notizen — nutze + zum Erstellen.</string>
+    <string name="notes_no_results">Keine Treffer.</string>
+    <string name="notes_new">Neue Notiz</string>
+    <string name="notes_edit">Notiz bearbeiten</string>
+    <string name="notes_field_content">Inhalt (Markdown)</string>
+    <string name="notes_field_tags">Tags (kommagetrennt)</string>
+    <string name="notes_visibility">Sichtbarkeit:</string>
+    <string name="notes_private">🔒 Privat</string>
+    <string name="notes_shared">👥 Geteilt</string>
+
+    <!-- Time tracking -->
+    <string name="time_title">Zeit</string>
+    <string name="time_add_project_cd">Projekt hinzufügen</string>
+    <string name="time_entry">Eintrag</string>
+    <string name="time_quickstart">Schnell-Start</string>
+    <string name="time_no_projects">Noch keine Projekte — oben rechts mit + anlegen.</string>
+    <string name="time_today">Heute</string>
+    <string name="time_no_entries_today">Keine Einträge heute.</string>
+    <string name="time_project">Projekt</string>
+    <string name="time_start_timer_cd">Timer starten</string>
+    <string name="time_record_entry">Eintrag erfassen</string>
+    <string name="time_field_date">Datum (JJJJ-MM-TT)</string>
+    <string name="time_field_start">Start (HH:mm)</string>
+    <string name="time_field_end">Ende (HH:mm)</string>
+    <string name="time_field_description">Beschreibung (optional)</string>
+    <string name="time_invalid_times">Ungültige Zeiten — Ende muss nach Start liegen</string>
+    <string name="time_select_project">Projekt wählen</string>
+    <string name="time_new_project">Neues Projekt</string>
+    <string name="time_project_name">Name</string>
+    <string name="time_create">Anlegen</string>
+
+    <!-- Recipes -->
+    <string name="recipe_title">Rezepte</string>
+    <string name="recipe_filter_all">Alle</string>
+    <string name="recipe_empty_all">Noch keine Rezepte — nutze + zum Erstellen.</string>
+    <string name="recipe_empty_category">Keine Rezepte in dieser Kategorie.</string>
+    <string name="recipe_minutes_abbr">Min</string>
+    <string name="recipe_servings_abbr">Port.</string>
+    <string name="recipe_back_cd">Zurück</string>
+    <string name="recipe_edit">Bearbeiten</string>
+    <string name="recipe_prep">Vorbereitung</string>
+    <string name="recipe_cook">Kochzeit</string>
+    <string name="recipe_servings">Portionen</string>
+    <string name="recipe_ingredients">Zutaten</string>
+    <string name="recipe_preparation">Zubereitung</string>
+    <string name="recipe_delete">Rezept löschen</string>
+    <string name="recipe_new">Neues Rezept</string>
+    <string name="recipe_edit_title">Rezept bearbeiten</string>
+    <string name="recipe_field_description">Beschreibung</string>
+    <string name="recipe_category">Kategorie</string>
+    <string name="recipe_prep_min">Vorb. Min</string>
+    <string name="recipe_cook_min">Koch. Min</string>
+    <string name="recipe_add_ingredient">+ Zutat</string>
+    <string name="recipe_ingredient_name">Zutat</string>
+    <string name="recipe_amount">Menge</string>
+    <string name="recipe_unit_abbr">Einh.</string>
+    <string name="recipe_add_step">+ Schritt</string>
+    <string name="recipe_step_n">Schritt %1$d</string>
+    <string name="recipe_cat_breakfast">Frühstück</string>
+    <string name="recipe_cat_lunch">Mittag</string>
+    <string name="recipe_cat_dinner">Abend</string>
+    <string name="recipe_cat_snack">Snack</string>
+    <string name="recipe_cat_dessert">Dessert</string>
+    <string name="recipe_cat_drink">Getränk</string>
 </resources>

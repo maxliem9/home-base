@@ -10,9 +10,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.NoteDto
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -26,7 +28,7 @@ fun NotesScreen(viewModel: NotesViewModel) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Notizen") },
+                    title = { Text(stringResource(R.string.notes_title)) },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -35,7 +37,7 @@ fun NotesScreen(viewModel: NotesViewModel) {
                 OutlinedTextField(
                     value = uiState.query,
                     onValueChange = viewModel::onQueryChange,
-                    placeholder = { Text("Suche in Titel, Inhalt, Tags…") },
+                    placeholder = { Text(stringResource(R.string.notes_search)) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier
@@ -58,8 +60,8 @@ fun NotesScreen(viewModel: NotesViewModel) {
             when {
                 uiState.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 uiState.notes.isEmpty() -> Text(
-                    if (uiState.query.isBlank()) "Noch keine Notizen — nutze + zum Erstellen."
-                    else "Keine Treffer.",
+                    if (uiState.query.isBlank()) stringResource(R.string.notes_empty)
+                    else stringResource(R.string.notes_no_results),
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -78,8 +80,8 @@ fun NotesScreen(viewModel: NotesViewModel) {
     uiState.error?.let { msg ->
         AlertDialog(
             onDismissRequest = viewModel::clearError,
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("OK") } },
-            title = { Text("Fehler") },
+            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.action_ok)) } },
+            title = { Text(stringResource(R.string.error_title)) },
             text = { Text(msg) },
         )
     }
@@ -166,13 +168,13 @@ private fun NoteEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (note == null) "Neue Notiz" else "Notiz bearbeiten") },
+        title = { Text(stringResource(if (note == null) R.string.notes_new else R.string.notes_edit)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Titel") },
+                    label = { Text(stringResource(R.string.field_title)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -180,7 +182,7 @@ private fun NoteEditorDialog(
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("Inhalt (Markdown)") },
+                    label = { Text(stringResource(R.string.notes_field_content)) },
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -188,18 +190,18 @@ private fun NoteEditorDialog(
                 OutlinedTextField(
                     value = tags,
                     onValueChange = { tags = it },
-                    label = { Text("Tags (kommagetrennt)") },
+                    label = { Text(stringResource(R.string.notes_field_tags)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Sichtbarkeit:", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.notes_visibility), style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.width(8.dp))
                     FilterChip(
                         selected = visibility == "SHARED",
                         onClick = { visibility = if (visibility == "SHARED") "PRIVATE" else "SHARED" },
-                        label = { Text(if (visibility == "PRIVATE") "🔒 Privat" else "👥 Geteilt") },
+                        label = { Text(stringResource(if (visibility == "PRIVATE") R.string.notes_private else R.string.notes_shared)) },
                     )
                 }
             }
@@ -213,16 +215,16 @@ private fun NoteEditorDialog(
                     }
                 },
                 enabled = title.isNotBlank(),
-            ) { Text("Speichern") }
+            ) { Text(stringResource(R.string.action_save)) }
         },
         dismissButton = {
             Row {
                 if (onDelete != null) {
                     TextButton(onClick = onDelete) {
-                        Text("Löschen", color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
-                TextButton(onClick = onDismiss) { Text("Abbrechen") }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
             }
         },
     )

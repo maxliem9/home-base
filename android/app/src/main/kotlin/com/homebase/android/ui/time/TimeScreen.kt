@@ -15,10 +15,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
 import kotlinx.coroutines.delay
@@ -67,7 +69,7 @@ fun TimeScreen(viewModel: TimeViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Zeit") },
+                title = { Text(stringResource(R.string.time_title)) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -75,7 +77,7 @@ fun TimeScreen(viewModel: TimeViewModel) {
                 ),
                 actions = {
                     IconButton(onClick = { showAddProject = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Projekt hinzufügen")
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.time_add_project_cd))
                     }
                 },
             )
@@ -83,7 +85,7 @@ fun TimeScreen(viewModel: TimeViewModel) {
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showManual = true },
-                text = { Text("Eintrag") },
+                text = { Text(stringResource(R.string.time_entry)) },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
             )
         },
@@ -109,12 +111,12 @@ fun TimeScreen(viewModel: TimeViewModel) {
                         }
 
                         item(key = "quickstart") {
-                            Text("Schnell-Start", style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.time_quickstart), style = MaterialTheme.typography.titleSmall)
                         }
                         if (uiState.activeProjects.isEmpty()) {
                             item(key = "no-projects") {
                                 Text(
-                                    "Noch keine Projekte — oben rechts mit + anlegen.",
+                                    stringResource(R.string.time_no_projects),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.outline,
                                 )
@@ -130,14 +132,14 @@ fun TimeScreen(viewModel: TimeViewModel) {
                                 Modifier.fillMaxWidth().padding(top = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text("Heute", style = MaterialTheme.typography.titleSmall)
+                                Text(stringResource(R.string.time_today), style = MaterialTheme.typography.titleSmall)
                                 Text(formatDuration(todayTotal), style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Monospace)
                             }
                         }
                         if (todayEntries.isEmpty()) {
                             item(key = "today-empty") {
                                 Text(
-                                    "Keine Einträge heute.",
+                                    stringResource(R.string.time_no_entries_today),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.outline,
                                 )
@@ -160,8 +162,8 @@ fun TimeScreen(viewModel: TimeViewModel) {
     uiState.error?.let { msg ->
         AlertDialog(
             onDismissRequest = viewModel::clearError,
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("OK") } },
-            title = { Text("Fehler") },
+            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.action_ok)) } },
+            title = { Text(stringResource(R.string.error_title)) },
             text = { Text(msg) },
         )
     }
@@ -205,7 +207,7 @@ private fun RunningCard(entry: TimeEntryDto, project: ProjectDto?, onStop: () ->
         ) {
             Box(Modifier.size(12.dp).clip(CircleShape).background(parseColor(project?.color ?: "#4F46E5")))
             Column(Modifier.weight(1f)) {
-                Text(project?.name ?: "Projekt", style = MaterialTheme.typography.titleMedium)
+                Text(project?.name ?: stringResource(R.string.time_project), style = MaterialTheme.typography.titleMedium)
                 entry.description?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -228,7 +230,7 @@ private fun ProjectStartRow(project: ProjectDto, onStart: () -> Unit) {
         headlineContent = { Text(project.name) },
         trailingContent = {
             IconButton(onClick = onStart) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Timer starten")
+                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.time_start_timer_cd))
             }
         },
     )
@@ -246,13 +248,13 @@ private fun EntryRow(entry: TimeEntryDto, project: ProjectDto?, onDelete: () -> 
         leadingContent = {
             Box(Modifier.size(12.dp).clip(CircleShape).background(parseColor(project?.color ?: "#9CA3AF")))
         },
-        headlineContent = { Text(project?.name ?: "Projekt") },
+        headlineContent = { Text(project?.name ?: stringResource(R.string.time_project)) },
         supportingContent = { Text(range) },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(formatDuration(entry.durationSeconds ?: 0L), fontFamily = FontFamily.Monospace)
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Löschen")
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
                 }
             }
         },
@@ -273,20 +275,21 @@ private fun ManualEntrySheet(
     var end by remember { mutableStateOf("10:00") }
     var description by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    val invalidTimesMsg = stringResource(R.string.time_invalid_times)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Eintrag erfassen", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.time_record_entry), style = MaterialTheme.typography.titleLarge)
 
             ProjectDropdown(projects = projects, selectedId = projectId, onSelect = { projectId = it })
 
             OutlinedTextField(
                 value = date,
                 onValueChange = { date = it },
-                label = { Text("Datum (JJJJ-MM-TT)") },
+                label = { Text(stringResource(R.string.time_field_date)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -294,14 +297,14 @@ private fun ManualEntrySheet(
                 OutlinedTextField(
                     value = start,
                     onValueChange = { start = it },
-                    label = { Text("Start (HH:mm)") },
+                    label = { Text(stringResource(R.string.time_field_start)) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
                 OutlinedTextField(
                     value = end,
                     onValueChange = { end = it },
-                    label = { Text("Ende (HH:mm)") },
+                    label = { Text(stringResource(R.string.time_field_end)) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -309,7 +312,7 @@ private fun ManualEntrySheet(
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Beschreibung (optional)") },
+                label = { Text(stringResource(R.string.time_field_description)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -319,14 +322,14 @@ private fun ManualEntrySheet(
                 onClick = {
                     val result = buildEntryTimestamps(date, start, end)
                     if (result == null) {
-                        error = "Ungültige Zeiten — Ende muss nach Start liegen"
+                        error = invalidTimesMsg
                     } else {
                         onSubmit(projectId, result.first, result.second, description)
                     }
                 },
                 enabled = projectId.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Speichern") }
+            ) { Text(stringResource(R.string.action_save)) }
         }
     }
 }
@@ -338,10 +341,10 @@ private fun ProjectDropdown(projects: List<ProjectDto>, selectedId: String, onSe
     val selected = projects.firstOrNull { it.id == selectedId }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selected?.name ?: "Projekt wählen",
+            value = selected?.name ?: stringResource(R.string.time_select_project),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Projekt") },
+            label = { Text(stringResource(R.string.time_project)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
@@ -363,13 +366,13 @@ private fun AddProjectDialog(onConfirm: (String, String) -> Unit, onDismiss: () 
     var color by remember { mutableStateOf(colors.first()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Neues Projekt") },
+        title = { Text(stringResource(R.string.time_new_project)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.time_project_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -392,10 +395,10 @@ private fun AddProjectDialog(onConfirm: (String, String) -> Unit, onDismiss: () 
         },
         confirmButton = {
             TextButton(onClick = { if (name.isNotBlank()) onConfirm(name, color) }, enabled = name.isNotBlank()) {
-                Text("Anlegen")
+                Text(stringResource(R.string.time_create))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 

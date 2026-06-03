@@ -11,9 +11,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.TodoDto
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -25,7 +27,7 @@ fun InboxScreen(viewModel: InboxViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Inbox") },
+                title = { Text(stringResource(R.string.inbox_title)) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -34,7 +36,7 @@ fun InboxScreen(viewModel: InboxViewModel) {
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add todo")
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.inbox_add_todo_cd))
             }
         },
     ) { padding ->
@@ -46,7 +48,7 @@ fun InboxScreen(viewModel: InboxViewModel) {
             when {
                 uiState.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 uiState.todos.isEmpty() -> Text(
-                    "Nothing in the inbox — use + to add one.",
+                    stringResource(R.string.inbox_empty),
                     modifier = Modifier.align(Alignment.Center),
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -68,8 +70,8 @@ fun InboxScreen(viewModel: InboxViewModel) {
     uiState.error?.let { msg ->
         AlertDialog(
             onDismissRequest = viewModel::clearError,
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("OK") } },
-            title = { Text("Error") },
+            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.action_ok)) } },
+            title = { Text(stringResource(R.string.error_title)) },
             text = { Text(msg) },
         )
     }
@@ -110,11 +112,11 @@ private fun TodoItem(
             Row {
                 if (!isDone) {
                     IconButton(onClick = onMarkDone) {
-                        Icon(Icons.Default.Check, contentDescription = "Mark done")
+                        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.inbox_mark_done_cd))
                     }
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
                 }
             }
         },
@@ -127,12 +129,12 @@ private fun AddTodoDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var title by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New inbox item") },
+        title = { Text(stringResource(R.string.inbox_new_item)) },
         text = {
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
+                label = { Text(stringResource(R.string.field_title)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -141,8 +143,8 @@ private fun AddTodoDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
             TextButton(
                 onClick = { if (title.isNotBlank()) onConfirm(title) },
                 enabled = title.isNotBlank(),
-            ) { Text("Add") }
+            ) { Text(stringResource(R.string.action_add)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

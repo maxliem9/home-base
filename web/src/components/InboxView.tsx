@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
+import { t } from '../i18n'
 import { Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
@@ -72,20 +73,20 @@ export function InboxView({ token, onLogout }: InboxViewProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-gray-800 truncate">HomeBase — Inbox</h1>
+          <h1 className="text-xl font-semibold text-gray-800 truncate">{t.inbox.headerTitle}</h1>
           <button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-800">
-            Abmelden
+            {t.common.logout}
           </button>
         </div>
       </header>
 
       <main className="flex-1 px-4 py-4 max-w-xl mx-auto w-full">
         {loading ? (
-          <p className="text-gray-400 text-center mt-10">Lädt…</p>
+          <p className="text-gray-400 text-center mt-10">{t.common.loading}</p>
         ) : todos.length === 0 ? (
           <div className="text-center mt-20">
-            <p className="text-gray-400 text-lg">Inbox ist leer</p>
-            <p className="text-gray-300 text-sm mt-1">Füge eine Aufgabe hinzu</p>
+            <p className="text-gray-400 text-lg">{t.inbox.empty}</p>
+            <p className="text-gray-300 text-sm mt-1">{t.inbox.emptyHint}</p>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -99,7 +100,7 @@ export function InboxView({ token, onLogout }: InboxViewProps) {
                   {todo.description && (
                     <p className="text-gray-500 text-sm mt-0.5 truncate">{todo.description}</p>
                   )}
-                  <p className="text-gray-400 text-xs mt-1">von {todo.createdBy}</p>
+                  <p className="text-gray-400 text-xs mt-1">{t.common.by} {todo.createdBy}</p>
                 </div>
                 {todo.priority && (
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -120,7 +121,7 @@ export function InboxView({ token, onLogout }: InboxViewProps) {
       <button
         onClick={() => setShowModal(true)}
         className="fixed bottom-20 right-6 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center"
-        aria-label="Neue Aufgabe"
+        aria-label={t.inbox.newTask}
       >
         +
       </button>
@@ -129,11 +130,11 @@ export function InboxView({ token, onLogout }: InboxViewProps) {
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">Neue Aufgabe</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">{t.inbox.newTask}</h2>
             <input
               autoFocus
               type="text"
-              placeholder="Titel…"
+              placeholder={t.common.titlePlaceholder}
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
@@ -144,14 +145,14 @@ export function InboxView({ token, onLogout }: InboxViewProps) {
                 onClick={() => { setShowModal(false); setNewTitle('') }}
                 className="px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100"
               >
-                Abbrechen
+                {t.common.cancel}
               </button>
               <button
                 onClick={handleAdd}
                 disabled={submitting || !newTitle.trim()}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                Hinzufügen
+                {t.common.add}
               </button>
             </div>
           </div>
