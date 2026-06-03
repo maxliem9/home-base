@@ -3,7 +3,8 @@ import { API_BASE, authFetch, withWsToken } from '../api'
 import { Recipe, RecipeCategory } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
-const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `ws://${window.location.host}/api/v1/ws/recipes`
+const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
+const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
 
 const CATEGORIES: { id: RecipeCategory; label: string; icon: string }[] = [
   { id: 'BREAKFAST', label: 'Frühstück', icon: '🥐' },

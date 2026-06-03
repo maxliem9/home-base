@@ -101,6 +101,21 @@ class RecipeRouteTest {
     }
 
     @Test
+    fun `POST recipe with negative numeric fields returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val negativePrep = createRecipe(token, """{"title":"X","category":"DINNER","prepTimeMinutes":-1}""")
+        assertEquals(HttpStatusCode.BadRequest, negativePrep.status)
+
+        val negativeAmount = createRecipe(
+            token,
+            """{"title":"X","category":"DINNER","ingredients":[{"name":"Mehl","amount":-2}]}"""
+        )
+        assertEquals(HttpStatusCode.BadRequest, negativeAmount.status)
+    }
+
+    @Test
     fun `GET detail scales ingredient amounts by servings`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
@@ -117,6 +132,18 @@ class RecipeRouteTest {
             .map { it.jsonObject }
             .first { it["name"]?.jsonPrimitive?.content == "Mehl" }
         assertEquals(400.0, mehl["amount"]?.jsonPrimitive?.double)
+    }
+
+    @Test
+    fun `GET detail with invalid servings returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = Json.parseToJsonElement(createRecipe(token, sampleRecipe).bodyAsText())
+            .jsonObject["id"]!!.jsonPrimitive.content
+
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/recipes/$id?servings=0") { bearerAuth(token) }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/recipes/$id?servings=abc") { bearerAuth(token) }.status)
     }
 
     @Test

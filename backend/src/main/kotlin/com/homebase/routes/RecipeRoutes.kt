@@ -49,7 +49,12 @@ fun Route.recipeRoutes() {
         // Detail incl. ingredients + steps. Optional ?servings=N scales ingredient amounts.
         get("/{id}") {
             val id = call.uuidParam() ?: return@get
-            val targetServings = call.request.queryParameters["servings"]?.toIntOrNull()
+            val servingsParam = call.request.queryParameters["servings"]
+            val targetServings = servingsParam?.toIntOrNull()
+            if (servingsParam != null && (targetServings == null || targetServings < 1)) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
+                return@get
+            }
             val recipe = transaction {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
             }
@@ -64,7 +69,14 @@ fun Route.recipeRoutes() {
             val username = call.username()
             val req = call.receive<CreateRecipeRequest>()
 
-            val validation = validate(req.title, req.category, req.servings)
+            val validation = validate(
+                title = req.title,
+                category = req.category,
+                servings = req.servings,
+                prepTimeMinutes = req.prepTimeMinutes,
+                cookTimeMinutes = req.cookTimeMinutes,
+                ingredients = req.ingredients
+            )
             if (validation != null) {
                 call.respond(HttpStatusCode.BadRequest, validation)
                 return@post
@@ -98,16 +110,16 @@ fun Route.recipeRoutes() {
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateRecipeRequest>()
 
-            if (req.title != null && req.title.isBlank()) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "title must not be blank"))
-                return@put
-            }
-            if (req.category != null && req.category.uppercase() !in VALID_CATEGORIES) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "unknown category"))
-                return@put
-            }
-            if (req.servings != null && req.servings < 1) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
+            val validation = validate(
+                title = req.title,
+                category = req.category,
+                servings = req.servings,
+                prepTimeMinutes = req.prepTimeMinutes,
+                cookTimeMinutes = req.cookTimeMinutes,
+                ingredients = req.ingredients
+            )
+            if (validation != null) {
+                call.respond(HttpStatusCode.BadRequest, validation)
                 return@put
             }
 
@@ -180,10 +192,21 @@ fun Route.recipeRoutes() {
 private fun ApplicationCall.username(): String =
     principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
-private fun validate(title: String, category: String, servings: Int?): ErrorResponse? = when {
-    title.isBlank() -> ErrorResponse("INVALID_RECIPE", "title must not be blank")
-    category.uppercase() !in VALID_CATEGORIES -> ErrorResponse("INVALID_CATEGORY", "unknown category")
+private fun validate(
+    title: String? = null,
+    category: String? = null,
+    servings: Int? = null,
+    prepTimeMinutes: Int? = null,
+    cookTimeMinutes: Int? = null,
+    ingredients: List<IngredientInput>? = null
+): ErrorResponse? = when {
+    title != null && title.isBlank() -> ErrorResponse("INVALID_RECIPE", "title must not be blank")
+    category != null && category.uppercase() !in VALID_CATEGORIES -> ErrorResponse("INVALID_CATEGORY", "unknown category")
     servings != null && servings < 1 -> ErrorResponse("INVALID_RECIPE", "servings must be >= 1")
+    prepTimeMinutes != null && prepTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "prepTimeMinutes must be >= 0")
+    cookTimeMinutes != null && cookTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "cookTimeMinutes must be >= 0")
+    ingredients?.any { it.amount != null && it.amount < 0.0 } == true ->
+        ErrorResponse("INVALID_INGREDIENT", "ingredient amount must be >= 0")
     else -> null
 }
 

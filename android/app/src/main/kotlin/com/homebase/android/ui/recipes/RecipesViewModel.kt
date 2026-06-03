@@ -95,10 +95,13 @@ class RecipesViewModel(
 
     private fun upsert(recipe: RecipeDto) {
         _uiState.update { state ->
-            val recipes = if (state.recipes.any { it.id == recipe.id }) {
-                state.recipes.map { if (it.id == recipe.id) recipe else it }
-            } else {
-                listOf(recipe) + state.recipes
+            val matchesFilter = state.categoryFilter == null || recipe.category == state.categoryFilter
+            val exists = state.recipes.any { it.id == recipe.id }
+            val recipes = when {
+                exists && matchesFilter -> state.recipes.map { if (it.id == recipe.id) recipe else it }
+                exists -> state.recipes.filter { it.id != recipe.id }
+                matchesFilter -> listOf(recipe) + state.recipes
+                else -> state.recipes
             }
             state.copy(recipes = recipes)
         }
