@@ -68,6 +68,20 @@ created_by, created_at, done_at?
 - Sendet täglich zur konfigurierten Uhrzeit (DIGEST_TIME)
 - Inhalt: heute erledigte Todos, neue Inbox-Items, morgen fällige Todos
 
+## Zeiterfassung-Domänenmodell
+Project: id, name, color (Hex), archived, created_by, created_at
+TimeEntry: id, project_id, user_id, started_at, stopped_at?,
+description?, created_at, updated_at
+- duration = stopped_at - started_at (nur wenn stopped_at gesetzt)
+- Pro Nutzer höchstens ein laufender Timer (stopped_at IS NULL);
+  ein neuer Start stoppt den laufenden automatisch. DB-Garantie über
+  partiellen Unique-Index, Anwendungslogik stoppt aktiv.
+- Beide Nutzer sehen alle Einträge aller Projekte.
+- Endpunkte unter /api/v1/time/ (projects, entries, entries/start,
+  entries/stop, running). WebSocket: /api/v1/ws/time (Channel "time").
+- created_by / user_id werden — wie im restlichen Projekt — als
+  username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
+
 ## Umgebungsvariablen (.env)
 DB_URL              — jdbc:postgresql://db:5432/homebase
 DB_USER

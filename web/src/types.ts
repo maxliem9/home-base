@@ -24,6 +24,27 @@ export interface ShoppingItem {
   checkedAt?: string
 }
 
+export interface Project {
+  id: string
+  name: string
+  color: string
+  archived: boolean
+  createdBy: string
+  createdAt: string
+}
+
+export interface TimeEntry {
+  id: string
+  projectId: string
+  userId: string
+  startedAt: string
+  stoppedAt?: string
+  description?: string
+  durationSeconds?: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type NoteVisibility = 'PRIVATE' | 'SHARED'
 
 export interface Note {

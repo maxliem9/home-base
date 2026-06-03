@@ -96,6 +96,75 @@ data class UpdateNoteRequest(
 @JsonClass(generateAdapter = true)
 data class NoteWsMessage(val type: String, val payload: NoteDto? = null)
 
+@JsonClass(generateAdapter = true)
+data class ProjectDto(
+    val id: String,
+    val name: String,
+    val color: String,
+    val archived: Boolean,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateProjectRequest(
+    val name: String,
+    val color: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateProjectRequest(
+    val name: String? = null,
+    val color: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ArchiveProjectRequest(
+    val archived: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class TimeEntryDto(
+    val id: String,
+    val projectId: String,
+    val userId: String,
+    val startedAt: String,
+    val stoppedAt: String? = null,
+    val description: String? = null,
+    val durationSeconds: Long? = null,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class StartTimerRequest(
+    val projectId: String,
+    val description: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateTimeEntryRequest(
+    val projectId: String,
+    val startedAt: String,
+    val stoppedAt: String,
+    val description: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateTimeEntryRequest(
+    val projectId: String? = null,
+    val startedAt: String? = null,
+    val stoppedAt: String? = null,
+    val description: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class TimeWsMessage(
+    val type: String,
+    val entry: TimeEntryDto? = null,
+    val project: ProjectDto? = null,
+)
+
 enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
 enum class NoteVisibility { PRIVATE, SHARED }

@@ -107,3 +107,73 @@ data class UpdateNoteRequest(
 
 @Serializable
 data class NoteWsMessage(val type: String, val payload: NoteDto? = null)
+
+@Serializable
+data class ProjectDto(
+    val id: String,
+    val name: String,
+    val color: String,
+    val archived: Boolean,
+    val createdBy: String,
+    val createdAt: String
+)
+
+@Serializable
+data class CreateProjectRequest(
+    val name: String,
+    val color: String
+)
+
+@Serializable
+data class UpdateProjectRequest(
+    val name: String? = null,
+    val color: String? = null
+)
+
+@Serializable
+data class ArchiveProjectRequest(
+    val archived: Boolean? = null
+)
+
+@Serializable
+data class TimeEntryDto(
+    val id: String,
+    val projectId: String,
+    val userId: String,
+    val startedAt: String,
+    val stoppedAt: String? = null,
+    val description: String? = null,
+    // seconds between started_at and stopped_at; null while the timer is still running
+    val durationSeconds: Long? = null,
+    val createdAt: String,
+    val updatedAt: String
+)
+
+@Serializable
+data class StartTimerRequest(
+    val projectId: String,
+    val description: String? = null
+)
+
+@Serializable
+data class CreateTimeEntryRequest(
+    val projectId: String,
+    val startedAt: String,
+    val stoppedAt: String,
+    val description: String? = null
+)
+
+@Serializable
+data class UpdateTimeEntryRequest(
+    val projectId: String? = null,
+    val startedAt: String? = null,
+    val stoppedAt: String? = null,
+    val description: String? = null
+)
+
+@Serializable
+data class TimeWsMessage(
+    val type: String,
+    val entry: TimeEntryDto? = null,
+    val project: ProjectDto? = null
+)
