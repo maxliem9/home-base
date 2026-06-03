@@ -177,3 +177,75 @@ data class TimeWsMessage(
     val entry: TimeEntryDto? = null,
     val project: ProjectDto? = null
 )
+
+@Serializable
+data class IngredientDto(
+    val id: String,
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null,
+    val sortOrder: Int
+)
+
+@Serializable
+data class RecipeStepDto(
+    val id: String,
+    val stepNumber: Int,
+    val description: String
+)
+
+@Serializable
+data class RecipeDto(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val servings: Int,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientDto> = emptyList(),
+    val steps: List<RecipeStepDto> = emptyList(),
+    val createdBy: String,
+    val createdAt: String,
+    val updatedAt: String
+)
+
+@Serializable
+data class IngredientInput(
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null
+)
+
+@Serializable
+data class RecipeStepInput(
+    val description: String
+)
+
+@Serializable
+data class CreateRecipeRequest(
+    val title: String,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientInput> = emptyList(),
+    val steps: List<RecipeStepInput> = emptyList()
+)
+
+@Serializable
+data class UpdateRecipeRequest(
+    val title: String? = null,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String? = null,
+    // when provided, fully replaces the existing ingredients / steps
+    val ingredients: List<IngredientInput>? = null,
+    val steps: List<RecipeStepInput>? = null
+)
+
+@Serializable
+data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)

@@ -1,5 +1,6 @@
 package com.homebase.db
 
+import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestamp
 import org.jetbrains.exposed.sql.javatime.date
@@ -69,5 +70,37 @@ object NotesTable : Table("notes") {
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object RecipesTable : Table("recipes") {
+    val id = uuid("id")
+    val title = text("title")
+    val description = text("description").nullable()
+    val servings = integer("servings")
+    val prepTimeMinutes = integer("prep_time_minutes").nullable()
+    val cookTimeMinutes = integer("cook_time_minutes").nullable()
+    val category = varchar("category", 20)
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object IngredientsTable : Table("ingredients") {
+    val id = uuid("id")
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
+    val name = text("name")
+    val amount = decimal("amount", 12, 3).nullable()
+    val unit = varchar("unit", 50).nullable()
+    val sortOrder = integer("sort_order")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object RecipeStepsTable : Table("recipe_steps") {
+    val id = uuid("id")
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
+    val stepNumber = integer("step_number")
+    val description = text("description")
     override val primaryKey = PrimaryKey(id)
 }

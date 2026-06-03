@@ -6,11 +6,13 @@ import com.homebase.android.data.api.AuthInterceptor
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.NotesRepository
+import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
+import com.homebase.android.data.websocket.RecipeWebSocketClient
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
@@ -66,5 +68,10 @@ class AppContainer(context: Context) {
     val timeRepository = TimeRepository(
         api = api,
         wsClient = TimeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    val recipesRepository = RecipesRepository(
+        api = api,
+        wsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }

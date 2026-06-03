@@ -81,4 +81,19 @@ interface HomeBaseApi {
 
     @GET("time/running")
     suspend fun getRunningTimer(): TimeEntryDto
+
+    @GET("recipes")
+    suspend fun getRecipes(@Query("category") category: String? = null): List<RecipeDto>
+
+    @GET("recipes/{id}")
+    suspend fun getRecipe(@Path("id") id: String, @Query("servings") servings: Int? = null): RecipeDto
+
+    @POST("recipes")
+    suspend fun createRecipe(@Body request: CreateRecipeRequest): RecipeDto
+
+    @PUT("recipes/{id}")
+    suspend fun updateRecipe(@Path("id") id: String, @Body request: UpdateRecipeRequest): RecipeDto
+
+    @DELETE("recipes/{id}")
+    suspend fun deleteRecipe(@Path("id") id: String)
 }

@@ -3,6 +3,7 @@ package com.homebase.plugins
 import com.homebase.routes.authRoutes
 import com.homebase.routes.healthRoutes
 import com.homebase.routes.noteRoutes
+import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
@@ -20,6 +21,7 @@ fun Application.configureRouting() {
                 shoppingRoutes()
                 noteRoutes()
                 timeRoutes()
+                recipeRoutes()
             }
         }
     }

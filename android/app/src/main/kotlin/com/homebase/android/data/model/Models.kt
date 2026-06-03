@@ -165,6 +165,78 @@ data class TimeWsMessage(
     val project: ProjectDto? = null,
 )
 
+@JsonClass(generateAdapter = true)
+data class IngredientDto(
+    val id: String,
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null,
+    val sortOrder: Int,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecipeStepDto(
+    val id: String,
+    val stepNumber: Int,
+    val description: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecipeDto(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val servings: Int,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientDto> = emptyList(),
+    val steps: List<RecipeStepDto> = emptyList(),
+    val createdBy: String,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class IngredientInput(
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecipeStepInput(
+    val description: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateRecipeRequest(
+    val title: String,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientInput> = emptyList(),
+    val steps: List<RecipeStepInput> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateRecipeRequest(
+    val title: String? = null,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String? = null,
+    val ingredients: List<IngredientInput>? = null,
+    val steps: List<RecipeStepInput>? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
+
 enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
 enum class NoteVisibility { PRIVATE, SHARED }
+enum class RecipeCategory { BREAKFAST, LUNCH, DINNER, SNACK, DESSERT, DRINK }

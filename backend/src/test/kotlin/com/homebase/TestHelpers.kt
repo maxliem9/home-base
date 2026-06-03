@@ -1,7 +1,10 @@
 package com.homebase
 
+import com.homebase.db.IngredientsTable
 import com.homebase.db.NotesTable
 import com.homebase.db.ProjectsTable
+import com.homebase.db.RecipeStepsTable
+import com.homebase.db.RecipesTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.db.TodosTable
@@ -37,7 +40,11 @@ fun ApplicationTestBuilder.configureTestApplication() {
             driver = "org.h2.Driver",
         )
         transaction {
-            SchemaUtils.create(UsersTable, TodosTable, ShoppingItemsTable, NotesTable, ProjectsTable, TimeEntriesTable)
+            SchemaUtils.create(
+                UsersTable, TodosTable, ShoppingItemsTable, NotesTable,
+                ProjectsTable, TimeEntriesTable,
+                RecipesTable, IngredientsTable, RecipeStepsTable,
+            )
             UsersTable.insert {
                 it[id] = UUID.fromString("00000000-0000-0000-0000-000000000001")
                 it[username] = "alice"

@@ -4,14 +4,16 @@ import { TodosView } from './components/TodosView'
 import { NotesView } from './components/NotesView'
 import { ShoppingView } from './components/ShoppingView'
 import { TimeView } from './components/TimeView'
+import { RecipesView } from './components/RecipesView'
 
-type Tab = 'todos' | 'shopping' | 'notes' | 'time'
+type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'todos', label: 'Aufgaben' },
   { id: 'shopping', label: 'Einkaufsliste' },
   { id: 'notes', label: 'Notizen' },
   { id: 'time', label: 'Zeit' },
+  { id: 'recipes', label: 'Rezepte' },
 ]
 
 export default function App() {
@@ -36,6 +38,7 @@ export default function App() {
       {tab === 'shopping' && <ShoppingView token={token} onLogout={logout} />}
       {tab === 'notes' && <NotesView token={token} onLogout={logout} />}
       {tab === 'time' && <TimeView token={token} onLogout={logout} />}
+      {tab === 'recipes' && <RecipesView token={token} onLogout={logout} />}
 
       <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex z-40">
         {TABS.map(({ id, label }) => (

@@ -45,6 +45,37 @@ export interface TimeEntry {
   updatedAt: string
 }
 
+export type RecipeCategory = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
+
+export interface Ingredient {
+  id: string
+  name: string
+  amount?: number
+  unit?: string
+  sortOrder: number
+}
+
+export interface RecipeStep {
+  id: string
+  stepNumber: number
+  description: string
+}
+
+export interface Recipe {
+  id: string
+  title: string
+  description?: string
+  servings: number
+  prepTimeMinutes?: number
+  cookTimeMinutes?: number
+  category: RecipeCategory
+  ingredients: Ingredient[]
+  steps: RecipeStep[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type NoteVisibility = 'PRIVATE' | 'SHARED'
 
 export interface Note {
