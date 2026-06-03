@@ -44,6 +44,19 @@ Felder: id, title, description?, status, assignee?,
 due_date?, priority (LOW|MEDIUM|HIGH)?,
 created_by, created_at, done_at?
 
+## Rezepte-Domänenmodell
+Recipe mit eingebetteten Ingredients + RecipeSteps (1:n, werden
+immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
+- Recipe: id, title, description?, servings, prep_time_minutes?,
+  cook_time_minutes?, category (BREAKFAST|LUNCH|DINNER|SNACK|DESSERT|DRINK),
+  created_by, created_at, updated_at
+- Ingredient: id, recipe_id, name, amount?, unit?, sort_order
+- RecipeStep: id, recipe_id, step_number, description
+- Endpunkte unter /api/v1/recipes (Liste filterbar via ?category=)
+- Portionierung: GET /api/v1/recipes/{id}?servings=N skaliert
+  alle Ingredient-Mengen (Faktor N / servings)
+- WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
+
 ## Web-Konventionen
 - React 18 + TypeScript + Vite + Tailwind CSS
 - Startseite: Inbox-View (alle INBOX-Todos beider Nutzer)

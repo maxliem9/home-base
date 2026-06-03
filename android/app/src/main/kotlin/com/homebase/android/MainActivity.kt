@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,8 @@ import com.homebase.android.ui.inbox.InboxViewModel
 import com.homebase.android.ui.login.LoginScreen
 import com.homebase.android.ui.notes.NotesScreen
 import com.homebase.android.ui.notes.NotesViewModel
+import com.homebase.android.ui.recipes.RecipesScreen
+import com.homebase.android.ui.recipes.RecipesViewModel
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.HomeBaseTheme
@@ -35,7 +38,13 @@ class MainActivity : ComponentActivity() {
 
     private val container by lazy { (application as HomeBaseApplication).container }
 
-    private enum class Tab(val label: String) { INBOX("Inbox"), SHOPPING("Einkauf"), NOTES("Notizen"), TIME("Zeit") }
+    private enum class Tab(val label: String) {
+        INBOX("Inbox"),
+        SHOPPING("Einkauf"),
+        NOTES("Notizen"),
+        TIME("Zeit"),
+        RECIPES("Rezepte"),
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +117,12 @@ class MainActivity : ComponentActivity() {
                         icon = { Icon(Icons.Filled.DateRange, contentDescription = null) },
                         label = { Text(Tab.TIME.label) },
                     )
+                    NavigationBarItem(
+                        selected = tab == Tab.RECIPES,
+                        onClick = { tab = Tab.RECIPES },
+                        icon = { Icon(Icons.Filled.Star, contentDescription = null) },
+                        label = { Text(Tab.RECIPES.label) },
+                    )
                 }
             },
         ) { padding ->
@@ -148,6 +163,15 @@ class MainActivity : ComponentActivity() {
                         TimeScreen(viewModel = vm)
                     }
                 }
+                Tab.RECIPES -> {
+                    val vm: RecipesViewModel = viewModel(
+                        key = "recipes-$token",
+                        factory = recipesFactory(token),
+                    )
+                    Box(Modifier.padding(padding)) {
+                        RecipesScreen(viewModel = vm)
+                    }
+                }
             }
         }
     }
@@ -186,4 +210,11 @@ class MainActivity : ComponentActivity() {
         val decoded = String(android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
         JSONObject(decoded).optString("username").takeIf { it.isNotEmpty() }
     }.getOrNull()
+
+    private fun recipesFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return RecipesViewModel(container.recipesRepository, token) as T
+        }
+    }
 }
