@@ -40,17 +40,15 @@ private val CATEGORY_ICONS = listOf(
 private fun categoryIcon(c: String) = CATEGORY_ICONS.firstOrNull { it.first == c }?.second ?: "🍴"
 
 @Composable
-private fun categoryLabel(c: String): String = stringResource(
-    when (c) {
-        "BREAKFAST" -> R.string.recipe_cat_breakfast
-        "LUNCH" -> R.string.recipe_cat_lunch
-        "DINNER" -> R.string.recipe_cat_dinner
-        "SNACK" -> R.string.recipe_cat_snack
-        "DESSERT" -> R.string.recipe_cat_dessert
-        "DRINK" -> R.string.recipe_cat_drink
-        else -> return c
-    },
-)
+private fun categoryLabel(c: String): String = when (c) {
+    "BREAKFAST" -> stringResource(R.string.recipe_cat_breakfast)
+    "LUNCH" -> stringResource(R.string.recipe_cat_lunch)
+    "DINNER" -> stringResource(R.string.recipe_cat_dinner)
+    "SNACK" -> stringResource(R.string.recipe_cat_snack)
+    "DESSERT" -> stringResource(R.string.recipe_cat_dessert)
+    "DRINK" -> stringResource(R.string.recipe_cat_drink)
+    else -> c
+}
 private fun totalTime(r: RecipeDto) = (r.prepTimeMinutes ?: 0) + (r.cookTimeMinutes ?: 0)
 private fun fmtAmount(n: Double): String {
     val rounded = round(n * 100.0) / 100.0
