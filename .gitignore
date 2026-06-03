@@ -22,10 +22,10 @@ web/.vite/
 *.tsbuildinfo
 
 # Playwright
-web/test-results/
-web/playwright-report/
-web/blob-report/
-web/.playwright/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
 
 # IntelliJ IDEA
 .idea/
