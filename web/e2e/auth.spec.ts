@@ -6,7 +6,7 @@ test.describe('Authentication', () => {
     await new MockApi().install(page)
     await page.goto('/')
 
-    await expect(page.getByRole('heading', { name: 'HomeBase' })).toBeVisible()
+    await expect(page.getByText('HomeBase', { exact: true })).toBeVisible()
     await expect(page.getByPlaceholder('Benutzername')).toBeVisible()
     await expect(page.getByPlaceholder('Passwort')).toBeVisible()
   })
@@ -33,7 +33,7 @@ test.describe('Authentication', () => {
     await page.getByPlaceholder('Passwort').fill('secret')
     await page.getByRole('button', { name: 'Anmelden' }).click()
 
-    await expect(page.getByRole('heading', { name: 'HomeBase — Aufgaben' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
     // Token persisted for subsequent reloads.
     await expect.poll(() => page.evaluate(() => localStorage.getItem('homebase_token'))).not.toBeNull()
   })
@@ -58,7 +58,8 @@ test.describe('Authentication', () => {
     await page.addInitScript(() => localStorage.setItem('homebase_token', 'test-jwt-token'))
     await page.goto('/')
 
-    await page.getByRole('button', { name: 'Abmelden' }).click()
+    // Logout lives in the sidebar user chip; its title is the only stable label.
+    await page.getByTitle('Abmelden').click()
 
     await expect(page.getByPlaceholder('Benutzername')).toBeVisible()
     expect(await page.evaluate(() => localStorage.getItem('homebase_token'))).toBeNull()

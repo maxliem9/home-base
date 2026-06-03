@@ -6,7 +6,7 @@ async function openApp(page: Page, mock: MockApi) {
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'HomeBase — Aufgaben' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
 
 test.describe('Todos', () => {
@@ -26,11 +26,10 @@ test.describe('Todos', () => {
     await expect(page.getByText('Inbox ist leer')).toBeVisible()
   })
 
-  test('adds a new todo via the FAB', async ({ page }) => {
+  test('adds a new todo via the quick-add field', async ({ page }) => {
     await openApp(page, new MockApi([]))
 
-    await page.getByRole('button', { name: 'Neue Aufgabe' }).click()
-    await page.getByPlaceholder('Titel…').fill('Pflanzen gießen')
+    await page.getByPlaceholder('Aufgabe hinzufügen …').fill('Pflanzen gießen')
     await page.getByRole('button', { name: 'Hinzufügen' }).click()
 
     await expect(page.getByText('Pflanzen gießen')).toBeVisible()
@@ -42,17 +41,18 @@ test.describe('Todos', () => {
     await openApp(page, mock)
 
     await page.getByRole('button', { name: 'Planen' }).click()
-    const dialog = page.locator('.fixed.inset-0')
-    await dialog.getByPlaceholder('z. B. alice').fill('bob')
+    const dialog = page.locator('.hb-modal')
+    await dialog.getByPlaceholder('z. B. max').fill('bob')
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
     // No longer in the Inbox segment...
     await expect(page.getByText('Steuer machen')).toHaveCount(0)
 
     // ...but present under Geplant.
-    await page.getByRole('banner').getByRole('button', { name: /^Geplant/ }).click()
-    await expect(page.getByText('Steuer machen')).toBeVisible()
-    await expect(page.getByText('👤 bob')).toBeVisible()
+    await page.getByRole('tab', { name: /^Geplant/ }).click()
+    const row = page.locator('.hb-row', { hasText: 'Steuer machen' })
+    await expect(row).toBeVisible()
+    await expect(row.getByText('bob')).toBeVisible()
   })
 
   test('completes a planned todo so it appears under Erledigt', async ({ page }) => {
@@ -61,16 +61,13 @@ test.describe('Todos', () => {
     ])
     await openApp(page, mock)
 
-    await page.getByRole('banner').getByRole('button', { name: /^Geplant/ }).click()
-    await page
-      .locator('li', { hasText: 'Rechnung zahlen' })
-      .getByRole('button', { name: 'Erledigt' })
-      .click()
+    await page.getByRole('tab', { name: /^Geplant/ }).click()
+    // Completing a todo is the row checkbox in the redesign.
+    await page.locator('.hb-row', { hasText: 'Rechnung zahlen' }).getByRole('checkbox').click()
 
-    await page.getByRole('banner').getByRole('button', { name: /^Erledigt/ }).click()
-    const item = page.getByText('Rechnung zahlen')
-    await expect(item).toBeVisible()
-    await expect(item).toHaveClass(/line-through/)
+    await page.getByRole('tab', { name: /^Erledigt/ }).click()
+    const doneRow = page.locator('.hb-row--done', { hasText: 'Rechnung zahlen' })
+    await expect(doneRow).toBeVisible()
   })
 
   test('deletes a todo from the inbox', async ({ page }) => {
@@ -81,7 +78,7 @@ test.describe('Todos', () => {
     await openApp(page, mock)
 
     await page
-      .locator('li', { hasText: 'Löschen' })
+      .locator('.hb-row', { hasText: 'Löschen' })
       .getByRole('button', { name: 'Löschen' })
       .click()
 
@@ -89,12 +86,11 @@ test.describe('Todos', () => {
     await expect(page.getByText('Behalten')).toBeVisible()
   })
 
-  test('cancelling the add dialog does not create a todo', async ({ page }) => {
+  test('typing in quick-add without submitting does not create a todo', async ({ page }) => {
     await openApp(page, new MockApi([]))
 
-    await page.getByRole('button', { name: 'Neue Aufgabe' }).click()
-    await page.getByPlaceholder('Titel…').fill('Verworfen')
-    await page.getByRole('button', { name: 'Abbrechen' }).click()
+    // Type a title but never press Add/Enter — nothing should be created.
+    await page.getByPlaceholder('Aufgabe hinzufügen …').fill('Verworfen')
 
     await expect(page.getByText('Verworfen')).toHaveCount(0)
     await expect(page.getByText('Inbox ist leer')).toBeVisible()
@@ -106,12 +102,12 @@ test.describe('Navigation', () => {
     await openApp(page, new MockApi([]))
 
     await page.getByRole('button', { name: 'Einkaufsliste' }).click()
-    await expect(page.getByRole('button', { name: 'Abmelden' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Einkaufsliste' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Rezepte' }).click()
-    await expect(page.getByRole('button', { name: 'Abmelden' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Rezepte' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Aufgaben' }).click()
-    await expect(page.getByRole('heading', { name: 'HomeBase — Aufgaben' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
   })
 })
