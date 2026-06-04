@@ -9,35 +9,46 @@ async function openApp(page: Page, mock: MockApi) {
   await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
 
+// The redesign shows todos per list tab, so most tests seed a default list.
+const HAUSHALT = list({ id: 'l1', name: 'Haushalt' })
+
 test.describe('Todos', () => {
-  test('renders inbox items from the backend', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Milch kaufen' }),
-      todo({ id: 't2', title: 'Spülmaschine ausräumen' }),
-    ])
+  test('renders todos from the active list', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        todo({ id: 't1', title: 'Milch kaufen', listId: 'l1' }),
+        todo({ id: 't2', title: 'Spülmaschine ausräumen', listId: 'l1' }),
+      ],
+      [HAUSHALT],
+    )
     await openApp(page, mock)
 
     await expect(page.getByText('Milch kaufen')).toBeVisible()
     await expect(page.getByText('Spülmaschine ausräumen')).toBeVisible()
   })
 
-  test('shows the empty state when the inbox has no items', async ({ page }) => {
+  test('shows the no-list empty state when there are no lists', async ({ page }) => {
     await openApp(page, new MockApi([]))
-    await expect(page.getByText('Inbox ist leer')).toBeVisible()
+    await expect(page.getByText('Noch keine Liste')).toBeVisible()
   })
 
-  test('adds a new todo via the quick-add field', async ({ page }) => {
-    await openApp(page, new MockApi([]))
+  test('shows the all-done empty state for a list without open todos', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+    await expect(page.getByText('Alles erledigt')).toBeVisible()
+  })
 
-    await page.getByPlaceholder('Aufgabe hinzufügen …').fill('Pflanzen gießen')
-    await page.getByRole('button', { name: 'Hinzufügen' }).click()
+  test('adds a new todo into the active list via quick-add', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    await page.getByPlaceholder('Neue Aufgabe in „Haushalt" …').fill('Pflanzen gießen')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
 
     await expect(page.getByText('Pflanzen gießen')).toBeVisible()
-    await expect(page.getByText('Inbox ist leer')).toHaveCount(0)
+    await expect(page.getByText('Alles erledigt')).toHaveCount(0)
   })
 
-  test('plans an inbox todo, moving it to the Geplant segment', async ({ page }) => {
-    const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen' })])
+  test('plans a todo, assigning it', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)
 
     await page.getByRole('button', { name: 'Planen' }).click()
@@ -45,177 +56,126 @@ test.describe('Todos', () => {
     await dialog.getByPlaceholder('z. B. max').fill('bob')
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
-    // No longer in the Inbox segment...
-    await expect(page.getByText('Steuer machen')).toHaveCount(0)
-
-    // ...but present under Geplant.
-    await page.getByRole('tab', { name: /^Geplant/ }).click()
+    // Still in the list, but now shows the assignee avatar instead of a Planen button.
     const row = page.locator('.hb-row', { hasText: 'Steuer machen' })
     await expect(row).toBeVisible()
-    await expect(row.getByText('bob')).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
   })
 
-  test('completes a planned todo so it appears under Erledigt', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignee: 'alice' }),
-    ])
+  test('completes a todo so it appears under the Erledigt section', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignee: 'alice', listId: 'l1' })],
+      [HAUSHALT],
+    )
     await openApp(page, mock)
 
-    await page.getByRole('tab', { name: /^Geplant/ }).click()
-    // Completing a todo is the row checkbox in the redesign.
     await page.locator('.hb-row', { hasText: 'Rechnung zahlen' }).getByRole('checkbox').click()
 
-    await page.getByRole('tab', { name: /^Erledigt/ }).click()
+    // Reveal the collapsible "Erledigt" section.
+    await page.locator('.hb-donehead').click()
     const doneRow = page.locator('.hb-row--done', { hasText: 'Rechnung zahlen' })
     await expect(doneRow).toBeVisible()
   })
 
-  test('deletes a todo from the inbox', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Behalten' }),
-      todo({ id: 't2', title: 'Löschen' }),
-    ])
+  test('deletes a todo', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        todo({ id: 't1', title: 'Behalten', listId: 'l1' }),
+        todo({ id: 't2', title: 'Löschen', listId: 'l1' }),
+      ],
+      [HAUSHALT],
+    )
     await openApp(page, mock)
 
-    await page
-      .locator('.hb-row', { hasText: 'Löschen' })
-      .getByRole('button', { name: 'Löschen' })
-      .click()
+    await page.locator('.hb-row', { hasText: 'Löschen' }).getByRole('button', { name: 'Löschen' }).click()
 
     await expect(page.getByText('Löschen')).toHaveCount(0)
     await expect(page.getByText('Behalten')).toBeVisible()
   })
-
-  test('typing in quick-add without submitting does not create a todo', async ({ page }) => {
-    await openApp(page, new MockApi([]))
-
-    // Type a title but never press Add/Enter — nothing should be created.
-    await page.getByPlaceholder('Aufgabe hinzufügen …').fill('Verworfen')
-
-    await expect(page.getByText('Verworfen')).toHaveCount(0)
-    await expect(page.getByText('Inbox ist leer')).toBeVisible()
-  })
 })
 
 test.describe('Todo lists', () => {
-  test('renders the list filter chips from the backend', async ({ page }) => {
+  test('renders a tab per list, plus the add-list tab', async ({ page }) => {
     const mock = new MockApi(
-      [todo({ id: 't1', title: 'Müll rausbringen' })],
+      [todo({ id: 't1', title: 'Müll rausbringen', listId: 'l1' })],
       [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })],
     )
     await openApp(page, mock)
 
-    const bar = page.locator('.hb-listbar')
-    await expect(bar.getByRole('button', { name: 'Alle' })).toBeVisible()
-    await expect(bar.getByRole('button', { name: 'Haushalt' })).toBeVisible()
-    await expect(bar.getByRole('button', { name: 'Arbeit' })).toBeVisible()
-    // "Ohne Liste" only appears once at least one list exists.
-    await expect(bar.getByRole('button', { name: 'Ohne Liste' })).toBeVisible()
-    await expect(bar.getByRole('button', { name: 'Neue Liste' })).toBeVisible()
+    const tabs = page.locator('.hb-tabs')
+    await expect(tabs.getByRole('tab', { name: 'Haushalt' })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Arbeit' })).toBeVisible()
+    await expect(tabs.getByRole('button', { name: 'Neue Liste' })).toBeVisible()
   })
 
-  test('filters the inbox by the selected list', async ({ page }) => {
+  test('switching tabs shows only that list\'s todos', async ({ page }) => {
     const mock = new MockApi(
       [
         todo({ id: 't1', title: 'Steuer', listId: 'l1' }),
-        todo({ id: 't2', title: 'Frei schwebend' }),
+        todo({ id: 't2', title: 'Meeting', listId: 'l2' }),
       ],
-      [list({ id: 'l1', name: 'Haushalt' })],
+      [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })],
     )
     await openApp(page, mock)
-    const bar = page.locator('.hb-listbar')
 
-    // All todos by default.
+    // First tab (Haushalt) is active by default.
     await expect(page.getByText('Steuer')).toBeVisible()
-    await expect(page.getByText('Frei schwebend')).toBeVisible()
+    await expect(page.getByText('Meeting')).toHaveCount(0)
 
-    // Only the list's todo when filtered by it.
-    await bar.getByRole('button', { name: 'Haushalt' }).click()
-    await expect(page.getByText('Steuer')).toBeVisible()
-    await expect(page.getByText('Frei schwebend')).toHaveCount(0)
-
-    // Only the unassigned todo under "Ohne Liste".
-    await bar.getByRole('button', { name: 'Ohne Liste' }).click()
-    await expect(page.getByText('Frei schwebend')).toBeVisible()
+    await page.getByRole('tab', { name: 'Arbeit' }).click()
+    await expect(page.getByText('Meeting')).toBeVisible()
     await expect(page.getByText('Steuer')).toHaveCount(0)
-
-    // Back to everything.
-    await bar.getByRole('button', { name: 'Alle' }).click()
-    await expect(page.getByText('Steuer')).toBeVisible()
-    await expect(page.getByText('Frei schwebend')).toBeVisible()
   })
 
-  test('creates a new list via the manage-lists modal', async ({ page }) => {
-    await openApp(page, new MockApi([]))
+  test('marks a private list with a lock icon', async ({ page }) => {
+    const mock = new MockApi([], [list({ id: 'l1', name: 'Privat', visibility: 'PRIVATE' })])
+    await openApp(page, mock)
 
-    await page.locator('.hb-listbar').getByRole('button', { name: 'Neue Liste' }).click()
+    const tab = page.getByRole('tab', { name: 'Privat' })
+    await expect(tab.locator('svg')).toHaveCount(1)
+  })
+
+  test('creates a new private list via the modal', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    await page.locator('.hb-tabs').getByRole('button', { name: 'Neue Liste' }).click()
     const modal = page.locator('.hb-modal')
-    await expect(modal.getByRole('heading', { name: 'Listen verwalten' })).toBeVisible()
+    await expect(modal.getByRole('heading', { name: 'Neue Liste' })).toBeVisible()
 
-    await modal.getByPlaceholder('z. B. Haushalt, Kind, Arbeit, Verein').fill('Garten')
-    // Pick a colour swatch, then create the list.
-    await modal.locator('.hb-swatch').nth(2).click()
-    await modal.getByRole('button', { name: 'Liste erstellen' }).click()
+    await modal.getByPlaceholder('z. B. Renovierung').fill('Garten')
+    await modal.getByRole('button', { name: 'Privat', exact: true }).click()
+    await modal.getByRole('button', { name: 'Erstellen' }).click()
 
-    // The list shows up both inside the modal and as a new filter chip.
-    await expect(modal.locator('.hb-row', { hasText: 'Garten' })).toBeVisible()
-    await expect(page.locator('.hb-listbar').getByRole('button', { name: 'Garten' })).toBeVisible()
+    // The new list becomes a tab and is auto-selected.
+    const tab = page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' })
+    await expect(tab).toBeVisible()
+    await expect(tab).toHaveClass(/is-active/)
   })
 
-  test('quick-add assigns the active list to the new todo', async ({ page }) => {
-    const mock = new MockApi([], [list({ id: 'l1', name: 'Haushalt' })])
-    await openApp(page, mock)
-
-    await page.locator('.hb-listbar').getByRole('button', { name: 'Haushalt' }).click()
-    await page.getByPlaceholder('Aufgabe hinzufügen …').fill('Fenster putzen')
-    await page.getByRole('button', { name: 'Hinzufügen' }).click()
-
-    const row = page.locator('.hb-row', { hasText: 'Fenster putzen' })
-    await expect(row).toBeVisible()
-    await expect(row.locator('.hb-listtag')).toHaveText(/Haushalt/)
-  })
-
-  test('assigns a todo to a list via the row picker', async ({ page }) => {
+  test('deletes the active list and its todos', async ({ page }) => {
     const mock = new MockApi(
-      [todo({ id: 't1', title: 'Reifen wechseln' })],
-      [list({ id: 'l1', name: 'Auto' })],
+      [todo({ id: 't1', title: 'Rasen mähen', listId: 'l2' })],
+      [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Garten' })],
     )
     await openApp(page, mock)
 
-    const row = page.locator('.hb-row', { hasText: 'Reifen wechseln' })
-    await expect(row.locator('.hb-listtag')).toHaveCount(0)
+    await page.getByRole('tab', { name: 'Garten' }).click()
+    await expect(page.getByText('Rasen mähen')).toBeVisible()
 
-    await row.locator('.hb-listpick select').selectOption({ label: 'Auto' })
-    await expect(row.locator('.hb-listtag')).toHaveText(/Auto/)
-  })
-
-  test('deleting a list keeps its todos but drops the assignment', async ({ page }) => {
-    const mock = new MockApi(
-      [todo({ id: 't1', title: 'Rasen mähen', listId: 'l1' })],
-      [list({ id: 'l1', name: 'Garten' })],
-    )
-    await openApp(page, mock)
-
-    const row = page.locator('.hb-row', { hasText: 'Rasen mähen' })
-    await expect(row.locator('.hb-listtag')).toHaveText(/Garten/)
-
-    // Deletion asks for confirmation via window.confirm — accept it.
     page.once('dialog', (dialog) => dialog.accept())
-    await page.locator('.hb-listbar').getByRole('button', { name: 'Neue Liste' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.locator('.hb-row', { hasText: 'Garten' }).getByRole('button', { name: 'Löschen' }).click()
+    await page.getByRole('button', { name: /Liste löschen „Garten/ }).click()
 
-    // Chip gone; the todo survives but loses its list tag.
-    await expect(page.locator('.hb-listbar').getByRole('button', { name: 'Garten' })).toHaveCount(0)
-    await page.locator('.hb-modal__head').getByRole('button', { name: 'Schließen' }).click()
-    await expect(row).toBeVisible()
-    await expect(row.locator('.hb-listtag')).toHaveCount(0)
+    await expect(page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' })).toHaveCount(0)
+    await expect(page.getByText('Rasen mähen')).toHaveCount(0)
   })
 })
 
 test.describe('Subtasks', () => {
+  const PARTY = (subtasks = [subtask({ id: 's1', title: 'Einladen' })]) =>
+    new MockApi([todo({ id: 't1', title: 'Party', listId: 'l1', subtasks })], [HAUSHALT])
+
   test('expands a row to reveal the subtask editor', async ({ page }) => {
-    await openApp(page, new MockApi([todo({ id: 't1', title: 'Umzug planen' })]))
+    await openApp(page, new MockApi([todo({ id: 't1', title: 'Umzug planen', listId: 'l1' })], [HAUSHALT]))
 
     const row = page.locator('.hb-todo', { hasText: 'Umzug planen' })
     await expect(row.locator('.hb-subadd')).toHaveCount(0)
@@ -224,8 +184,8 @@ test.describe('Subtasks', () => {
     await expect(row.getByPlaceholder('Unteraufgabe hinzufügen …')).toBeVisible()
   })
 
-  test('adds a subtask and shows the progress badge', async ({ page }) => {
-    await openApp(page, new MockApi([todo({ id: 't1', title: 'Umzug planen' })]))
+  test('adds a subtask and shows the progress count', async ({ page }) => {
+    await openApp(page, new MockApi([todo({ id: 't1', title: 'Umzug planen', listId: 'l1' })], [HAUSHALT]))
 
     const row = page.locator('.hb-todo', { hasText: 'Umzug planen' })
     await row.getByRole('button', { name: 'Unteraufgaben' }).click()
@@ -234,62 +194,41 @@ test.describe('Subtasks', () => {
     await input.press('Enter')
 
     await expect(row.locator('.hb-subtask', { hasText: 'Kartons besorgen' })).toBeVisible()
-    await expect(row.locator('.hb-subbadge')).toContainText('0/1')
+    await expect(row.locator('.hb-subtoggle__c')).toContainText('0/1')
   })
 
-  test('checks off a subtask, updating the progress badge', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Party', subtasks: [subtask({ id: 's1', title: 'Einladen' })] }),
-    ])
-    await openApp(page, mock)
+  test('checks off a subtask, updating the progress count', async ({ page }) => {
+    await openApp(page, PARTY())
 
     const row = page.locator('.hb-todo', { hasText: 'Party' })
-    await expect(row.locator('.hb-subbadge')).toContainText('0/1')
+    await expect(row.locator('.hb-subtoggle__c')).toContainText('0/1')
 
     await row.getByRole('button', { name: 'Unteraufgaben' }).click()
     const sub = row.locator('.hb-subtask', { hasText: 'Einladen' })
     await sub.getByRole('checkbox').click()
 
     await expect(sub).toHaveClass(/hb-subtask--done/)
-    await expect(row.locator('.hb-subbadge')).toContainText('1/1')
+    await expect(row.locator('.hb-subtoggle__c')).toContainText('1/1')
   })
 
-  test('deletes a subtask, removing the progress badge', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Party', subtasks: [subtask({ id: 's1', title: 'Einladen' })] }),
-    ])
-    await openApp(page, mock)
+  test('deletes a subtask, removing the progress count', async ({ page }) => {
+    await openApp(page, PARTY())
 
     const row = page.locator('.hb-todo', { hasText: 'Party' })
     await row.getByRole('button', { name: 'Unteraufgaben' }).click()
     await row.locator('.hb-subtask', { hasText: 'Einladen' }).getByRole('button', { name: 'Löschen' }).click()
 
     await expect(row.locator('.hb-subtask')).toHaveCount(0)
-    await expect(row.locator('.hb-subbadge')).toHaveCount(0)
-  })
-
-  test('the progress badge toggles the row open', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't1', title: 'Party', subtasks: [subtask({ id: 's1', title: 'Einladen' })] }),
-    ])
-    await openApp(page, mock)
-
-    const row = page.locator('.hb-todo', { hasText: 'Party' })
-    // Collapsed by default: badge shows, subtasks hidden.
-    await expect(row.locator('.hb-subbadge')).toBeVisible()
-    await expect(row.locator('.hb-subtasks')).toHaveCount(0)
-
-    await row.locator('.hb-subbadge').click()
-    await expect(row.locator('.hb-subtasks')).toBeVisible()
+    await expect(row.locator('.hb-subtoggle__c')).toHaveCount(0)
   })
 })
 
 test.describe('Navigation', () => {
-  test('switches between the bottom-nav tabs', async ({ page }) => {
+  test('switches between the sidebar nav tabs', async ({ page }) => {
     await openApp(page, new MockApi([]))
 
     await page.getByRole('button', { name: 'Einkaufsliste' }).click()
-    await expect(page.getByRole('heading', { name: 'Einkaufsliste' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Einkaufslisten' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Rezepte' }).click()
     await expect(page.getByRole('heading', { name: 'Rezepte' })).toBeVisible()

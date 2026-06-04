@@ -10,7 +10,7 @@ export interface Subtask {
 export interface TodoList {
   id: string
   name: string
-  color: string
+  visibility: 'SHARED' | 'PRIVATE'
   createdBy: string
   createdAt: string
 }
@@ -30,6 +30,23 @@ export interface Todo {
   doneAt?: string
 }
 
+export interface ShoppingList {
+  id: string
+  name: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface ShoppingItem {
+  id: string
+  name: string
+  listId?: string
+  checked: boolean
+  createdBy: string
+  createdAt: string
+  checkedAt?: string
+}
+
 export const TOKEN = 'test-jwt-token'
 
 /**
@@ -37,20 +54,32 @@ export const TOKEN = 'test-jwt-token'
  * request so the app can run end-to-end without a real server, and stubs the
  * WebSocket so the realtime hook never opens a live connection.
  *
- * Mirrors the contract of backend/.../routes/TodoRoutes.kt: lists live under
- * /todos/lists, subtasks under /todos/{id}/subtasks, and every subtask mutation
- * responds with the freshly-built parent todo (incl. its subtasks array).
+ * Mirrors the route contracts in backend/.../routes/{Todo,Shopping}Routes.kt:
+ * lists live under /{todos,shopping}/lists, subtasks under
+ * /todos/{id}/subtasks, and every subtask mutation responds with the freshly
+ * built parent todo (incl. its subtasks array).
  */
 export class MockApi {
   private todos: Todo[]
   private lists: TodoList[]
+  private shoppingLists: ShoppingList[]
+  private shoppingItems: ShoppingItem[]
   private nextId = 100
   private nextListId = 100
   private nextSubId = 100
+  private nextShopId = 100
+  private nextShopListId = 100
 
-  constructor(initialTodos: Todo[] = [], initialLists: TodoList[] = []) {
+  constructor(
+    initialTodos: Todo[] = [],
+    initialLists: TodoList[] = [],
+    initialShoppingLists: ShoppingList[] = [],
+    initialShoppingItems: ShoppingItem[] = [],
+  ) {
     this.todos = initialTodos.map((t) => ({ ...t, subtasks: (t.subtasks ?? []).map((s) => ({ ...s })) }))
     this.lists = initialLists.map((l) => ({ ...l }))
+    this.shoppingLists = initialShoppingLists.map((l) => ({ ...l }))
+    this.shoppingItems = initialShoppingItems.map((i) => ({ ...i }))
   }
 
   async install(page: Page) {
@@ -96,16 +125,16 @@ export class MockApi {
       return this.json(route, { code: 'UNAUTHORIZED', message: 'invalid' }, 401)
     }
 
-    // ---- Lists (checked before the generic /todos/{id} matcher) ----
+    // ---- Todo lists (checked before the generic /todos/{id} matcher) ----
     if (path.endsWith('/todos/lists') && method === 'GET') {
       return this.json(route, this.lists)
     }
     if (path.endsWith('/todos/lists') && method === 'POST') {
-      const { name, color } = JSON.parse(req.postData() ?? '{}')
+      const { name, visibility } = JSON.parse(req.postData() ?? '{}')
       const list: TodoList = {
         id: `list-${this.nextListId++}`,
         name,
-        color: color ?? '#6366f1',
+        visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'SHARED',
         createdBy: 'alice',
         createdAt: new Date().toISOString(),
       }
@@ -125,8 +154,8 @@ export class MockApi {
       if (method === 'DELETE') {
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
         this.lists.splice(idx, 1)
-        // Detach todos from the removed list — they survive, just lose the link.
-        this.todos = this.todos.map((t) => (t.listId === id ? { ...t, listId: undefined } : t))
+        // Backend cascades: todos in the removed list go away with it.
+        this.todos = this.todos.filter((t) => t.listId !== id)
         return route.fulfill({ status: 204, body: '' })
       }
     }
@@ -188,7 +217,6 @@ export class MockApi {
         const body = JSON.parse(req.postData() ?? '{}')
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
         const updated: Todo = { ...this.todos[idx], ...body }
-        // An empty listId clears the assignment (backend treats "" as null).
         if (body.listId === '') updated.listId = undefined
         if (body.status === 'DONE') updated.doneAt = new Date().toISOString()
         this.todos[idx] = updated
@@ -200,7 +228,78 @@ export class MockApi {
       }
     }
 
-    // Anything else the views fetch (shopping, notes, time, recipes) → empty list.
+    // ---- Shopping lists (checked before the generic /shopping/{id} matcher) ----
+    if (path.endsWith('/shopping/lists') && method === 'GET') {
+      return this.json(route, this.shoppingLists)
+    }
+    if (path.endsWith('/shopping/lists') && method === 'POST') {
+      const { name } = JSON.parse(req.postData() ?? '{}')
+      const list: ShoppingList = {
+        id: `shoplist-${this.nextShopListId++}`,
+        name,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.shoppingLists.push(list)
+      return this.json(route, list, 201)
+    }
+
+    const shopListIdMatch = path.match(/\/shopping\/lists\/([^/]+)$/)
+    if (shopListIdMatch) {
+      const id = shopListIdMatch[1]
+      const idx = this.shoppingLists.findIndex((l) => l.id === id)
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.shoppingLists[idx] = { ...this.shoppingLists[idx], ...JSON.parse(req.postData() ?? '{}') }
+        return this.json(route, this.shoppingLists[idx])
+      }
+      if (method === 'DELETE') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.shoppingLists.splice(idx, 1)
+        this.shoppingItems = this.shoppingItems.filter((i) => i.listId !== id)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+
+    // Shopping items
+    if (path.endsWith('/shopping') && method === 'GET') {
+      return this.json(route, this.shoppingItems)
+    }
+    if (path.endsWith('/shopping') && method === 'POST') {
+      const { name, listId } = JSON.parse(req.postData() ?? '{}')
+      const item: ShoppingItem = {
+        id: `shop-${this.nextShopId++}`,
+        name,
+        listId: listId || undefined,
+        checked: false,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.shoppingItems.unshift(item)
+      return this.json(route, item, 201)
+    }
+
+    const shopItemMatch = path.match(/\/shopping\/([^/]+)$/)
+    if (shopItemMatch) {
+      const id = shopItemMatch[1]
+      const idx = this.shoppingItems.findIndex((i) => i.id === id)
+      if (method === 'PUT') {
+        const body = JSON.parse(req.postData() ?? '{}')
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        const updated: ShoppingItem = { ...this.shoppingItems[idx], ...body }
+        if (body.listId === '') updated.listId = undefined
+        if (body.checked === true) updated.checkedAt = new Date().toISOString()
+        if (body.checked === false) updated.checkedAt = undefined
+        this.shoppingItems[idx] = updated
+        return this.json(route, updated)
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.shoppingItems.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+
+    // Anything else the views fetch (notes, time, recipes) → empty list.
     if (method === 'GET') {
       return this.json(route, [])
     }
@@ -219,7 +318,24 @@ export function todo(partial: Partial<Todo> & { id: string; title: string }): To
 
 export function list(partial: Partial<TodoList> & { id: string; name: string }): TodoList {
   return {
-    color: '#6366f1',
+    visibility: 'SHARED',
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function shoppingList(partial: Partial<ShoppingList> & { id: string; name: string }): ShoppingList {
+  return {
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function shoppingItem(partial: Partial<ShoppingItem> & { id: string; name: string; listId: string }): ShoppingItem {
+  return {
+    checked: false,
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     ...partial,

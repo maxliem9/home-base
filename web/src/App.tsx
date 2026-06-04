@@ -36,8 +36,11 @@ function useNavBadges(token: string): NavBadges {
   const refreshTodos = useCallback(async () => {
     const res = await authFetch(token, `${API_BASE}/todos`)
     if (!res.ok) return
-    const todos: { status: string }[] = await res.json()
-    setBadges((b) => ({ ...b, inbox: todos.filter((x) => x.status === 'INBOX').length }))
+    const todos: { status: string; dueDate?: string }[] = await res.json()
+    const today = new Date().toISOString().slice(0, 10)
+    // badge counts open todos that are due today or overdue
+    const due = todos.filter((x) => x.status !== 'DONE' && x.dueDate && x.dueDate <= today).length
+    setBadges((b) => ({ ...b, inbox: due }))
   }, [token])
 
   const refreshShopping = useCallback(async () => {

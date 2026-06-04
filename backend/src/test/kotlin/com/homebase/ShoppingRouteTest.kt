@@ -75,27 +75,52 @@ class ShoppingRouteTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    private suspend fun ApplicationTestBuilder.createList(token: String, name: String): String {
+        val res = client.post("/api/v1/shopping/lists") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"$name"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
     @Test
-    fun `POST shopping with category stores it`() = testApplication {
+    fun `POST shopping with listId stores it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+
+        val response = client.post("/api/v1/shopping") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Äpfel","listId":"$listId"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("Äpfel", body["name"]?.jsonPrimitive?.content)
+        assertEquals(listId, body["listId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST shopping with unknown listId returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
 
         val response = client.post("/api/v1/shopping") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"name":"Äpfel","category":"Obst"}""")
+            setBody("""{"name":"X","listId":"00000000-0000-0000-0000-999999999999"}""")
         }
 
-        assertEquals(HttpStatusCode.Created, response.status)
-        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-        assertEquals("Äpfel", body["name"]?.jsonPrimitive?.content)
-        assertEquals("Obst", body["category"]?.jsonPrimitive?.content)
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test
-    fun `PUT shopping updates name and category`() = testApplication {
+    fun `PUT shopping moves item between lists and can clear`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
+        val listId = createList(token, "Drogerie")
 
         val created = client.post("/api/v1/shopping") {
             bearerAuth(token)
@@ -104,16 +129,50 @@ class ShoppingRouteTest {
         }
         val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
 
-        val updated = client.put("/api/v1/shopping/$id") {
+        val assigned = client.put("/api/v1/shopping/$id") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"name":"Vollkornbrot","category":"Backwaren"}""")
+            setBody("""{"name":"Vollkornbrot","listId":"$listId"}""")
+        }
+        assertEquals(HttpStatusCode.OK, assigned.status)
+        val body = Json.parseToJsonElement(assigned.bodyAsText()).jsonObject
+        assertEquals("Vollkornbrot", body["name"]?.jsonPrimitive?.content)
+        assertEquals(listId, body["listId"]?.jsonPrimitive?.content)
+
+        val cleared = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"listId":""}""")
+        }
+        val clearedList = Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["listId"]
+        assertTrue(clearedList == null || clearedList is JsonNull)
+    }
+
+    @Test
+    fun `DELETE list removes its items`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Baumarkt")
+        client.post("/api/v1/shopping") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Schrauben","listId":"$listId"}""")
         }
 
-        assertEquals(HttpStatusCode.OK, updated.status)
-        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
-        assertEquals("Vollkornbrot", body["name"]?.jsonPrimitive?.content)
-        assertEquals("Backwaren", body["category"]?.jsonPrimitive?.content)
+        assertEquals(
+            HttpStatusCode.NoContent,
+            client.delete("/api/v1/shopping/lists/$listId") { bearerAuth(token) }.status,
+        )
+        assertTrue(
+            Json.parseToJsonElement(
+                client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText()
+            ).jsonArray.isEmpty()
+        )
+        assertTrue(
+            Json.parseToJsonElement(
+                client.get("/api/v1/shopping/lists") { bearerAuth(token) }.bodyAsText()
+            ).jsonArray.isEmpty()
+        )
     }
 
     @Test

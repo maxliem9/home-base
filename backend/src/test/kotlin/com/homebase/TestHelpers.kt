@@ -6,6 +6,7 @@ import com.homebase.db.ProjectsTable
 import com.homebase.db.RecipeStepsTable
 import com.homebase.db.RecipesTable
 import com.homebase.db.ShoppingItemsTable
+import com.homebase.db.ShoppingListsTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
@@ -43,7 +44,7 @@ fun ApplicationTestBuilder.configureTestApplication() {
         )
         transaction {
             SchemaUtils.create(
-                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingItemsTable, NotesTable,
+                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable, NotesTable,
                 ProjectsTable, TimeEntriesTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable,
             )

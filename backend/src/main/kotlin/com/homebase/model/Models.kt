@@ -70,7 +70,7 @@ data class WsMessage(val type: String, val payload: TodoDto? = null)
 data class TodoListDto(
     val id: String,
     val name: String,
-    val color: String,
+    val visibility: String,
     val createdBy: String,
     val createdAt: String
 )
@@ -78,13 +78,13 @@ data class TodoListDto(
 @Serializable
 data class CreateTodoListRequest(
     val name: String,
-    val color: String? = null
+    val visibility: String? = null
 )
 
 @Serializable
 data class UpdateTodoListRequest(
     val name: String? = null,
-    val color: String? = null
+    val visibility: String? = null
 )
 
 @Serializable
@@ -103,7 +103,7 @@ data class UpdateSubtaskRequest(
 data class ShoppingItemDto(
     val id: String,
     val name: String,
-    val category: String? = null,
+    val listId: String? = null,
     val checked: Boolean,
     val createdBy: String,
     val createdAt: String,
@@ -113,18 +113,36 @@ data class ShoppingItemDto(
 @Serializable
 data class CreateShoppingItemRequest(
     val name: String,
-    val category: String? = null
+    val listId: String? = null
 )
 
 @Serializable
 data class UpdateShoppingItemRequest(
     val name: String? = null,
-    val category: String? = null,
+    // null = unchanged; empty string = remove from list; otherwise the target list id
+    val listId: String? = null,
     val checked: Boolean? = null
 )
 
 @Serializable
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
+
+@Serializable
+data class ShoppingListDto(
+    val id: String,
+    val name: String,
+    val createdBy: String,
+    val createdAt: String
+)
+
+@Serializable
+data class CreateShoppingListRequest(val name: String)
+
+@Serializable
+data class UpdateShoppingListRequest(val name: String? = null)
+
+@Serializable
+data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
 @Serializable
 data class NoteDto(

@@ -289,8 +289,8 @@ class TodoRouteTest {
 
     // ---- Lists ----
 
-    private suspend fun ApplicationTestBuilder.createList(token: String, name: String, color: String? = null): String {
-        val body = if (color != null) """{"name":"$name","color":"$color"}""" else """{"name":"$name"}"""
+    private suspend fun ApplicationTestBuilder.createList(token: String, name: String, visibility: String? = null): String {
+        val body = if (visibility != null) """{"name":"$name","visibility":"$visibility"}""" else """{"name":"$name"}"""
         val res = client.post("/api/v1/todos/lists") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
@@ -307,12 +307,12 @@ class TodoRouteTest {
         val created = client.post("/api/v1/todos/lists") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"name":"Haushalt","color":"#ff0000"}""")
+            setBody("""{"name":"Haushalt","visibility":"PRIVATE"}""")
         }
         assertEquals(HttpStatusCode.Created, created.status)
         val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
         assertEquals("Haushalt", body["name"]?.jsonPrimitive?.content)
-        assertEquals("#ff0000", body["color"]?.jsonPrimitive?.content)
+        assertEquals("PRIVATE", body["visibility"]?.jsonPrimitive?.content)
         assertEquals("alice", body["createdBy"]?.jsonPrimitive?.content)
 
         val lists = Json.parseToJsonElement(
@@ -335,16 +335,34 @@ class TodoRouteTest {
     }
 
     @Test
-    fun `POST list with invalid color returns 400`() = testApplication {
+    fun `POST list with invalid visibility returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
 
         val res = client.post("/api/v1/todos/lists") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"name":"Arbeit","color":"red"}""")
+            setBody("""{"name":"Arbeit","visibility":"public"}""")
         }
         assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `private list is hidden from the other user`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        createList(alice, "Geheim", "PRIVATE")
+
+        val aliceLists = Json.parseToJsonElement(
+            client.get("/api/v1/todos/lists") { bearerAuth(alice) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, aliceLists.size)
+
+        val bobLists = Json.parseToJsonElement(
+            client.get("/api/v1/todos/lists") { bearerAuth(bob) }.bodyAsText()
+        ).jsonArray
+        assertTrue(bobLists.isEmpty())
     }
 
     @Test

@@ -23,10 +23,10 @@ import java.time.LocalDate
 import java.util.UUID
 
 private const val TODO_WS_CHANNEL = "todos"
-private const val DEFAULT_LIST_COLOR = "#6366f1"
+private const val DEFAULT_LIST_VISIBILITY = "SHARED"
 private val VALID_TODO_STATUSES = setOf("INBOX", "PLANNED", "DONE")
 private val VALID_TODO_PRIORITIES = setOf("LOW", "MEDIUM", "HIGH")
-private val HEX_COLOR = Regex("^#[0-9a-fA-F]{6}$")
+private val VALID_LIST_VISIBILITIES = setOf("SHARED", "PRIVATE")
 
 fun Route.todoRoutes() {
     val json = Json { ignoreUnknownKeys = true }
@@ -41,8 +41,12 @@ fun Route.todoRoutes() {
         // ---- Lists (registered before /{id} so the static segment wins) ----
         route("/lists") {
             get {
+                val principal = call.principal<JWTPrincipal>()!!
+                val username = principal.payload.getClaim("username").asString()
                 val lists = transaction {
+                    // shared lists are visible to everyone; private lists only to their creator
                     TodoListsTable.selectAll()
+                        .where { (TodoListsTable.visibility eq "SHARED") or (TodoListsTable.createdBy eq username) }
                         .orderBy(TodoListsTable.createdAt to SortOrder.ASC)
                         .map { it.toListDto() }
                 }
@@ -57,9 +61,9 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
                     return@post
                 }
-                val color = req.color ?: DEFAULT_LIST_COLOR
-                if (!HEX_COLOR.matches(color)) {
-                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_COLOR", "color must be a #RRGGBB hex value"))
+                val visibility = req.visibility ?: DEFAULT_LIST_VISIBILITY
+                if (visibility !in VALID_LIST_VISIBILITIES) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
                     return@post
                 }
                 val list = transaction {
@@ -67,7 +71,7 @@ fun Route.todoRoutes() {
                     TodoListsTable.insert {
                         it[TodoListsTable.id] = id
                         it[name] = req.name.trim()
-                        it[TodoListsTable.color] = color
+                        it[TodoListsTable.visibility] = visibility
                         it[createdBy] = username
                         it[createdAt] = Instant.now()
                     }
@@ -80,8 +84,8 @@ fun Route.todoRoutes() {
             put("/{id}") {
                 val id = call.uuidParam() ?: return@put
                 val req = call.receive<UpdateTodoListRequest>()
-                if (req.color != null && !HEX_COLOR.matches(req.color)) {
-                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_COLOR", "color must be a #RRGGBB hex value"))
+                if (req.visibility != null && req.visibility !in VALID_LIST_VISIBILITIES) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
                     return@put
                 }
                 if (req.name != null && req.name.isBlank()) {
@@ -93,7 +97,7 @@ fun Route.todoRoutes() {
                         ?: return@transaction null
                     TodoListsTable.update({ TodoListsTable.id eq id }) {
                         req.name?.let { v -> it[name] = v.trim() }
-                        req.color?.let { v -> it[color] = v }
+                        req.visibility?.let { v -> it[visibility] = v }
                     }
                     TodoListsTable.selectAll().where { TodoListsTable.id eq id }.single().toListDto()
                 }
@@ -125,8 +129,17 @@ fun Route.todoRoutes() {
         }
 
         get {
+            val principal = call.principal<JWTPrincipal>()!!
+            val username = principal.payload.getClaim("username").asString()
             val todos = transaction {
-                TodosTable.selectAll().map { it.toDto() }
+                // hide todos that live in someone else's private list
+                val hiddenListIds = TodoListsTable.selectAll()
+                    .where { (TodoListsTable.visibility eq "PRIVATE") and (TodoListsTable.createdBy neq username) }
+                    .map { it[TodoListsTable.id] }
+                    .toSet()
+                TodosTable.selectAll()
+                    .map { it.toDto() }
+                    .filter { it.listId == null || UUID.fromString(it.listId) !in hiddenListIds }
             }
             call.respond(todos)
         }
@@ -379,7 +392,7 @@ private fun ResultRow.toSubtaskDto() = SubtaskDto(
 private fun ResultRow.toListDto() = TodoListDto(
     id = this[TodoListsTable.id].toString(),
     name = this[TodoListsTable.name],
-    color = this[TodoListsTable.color],
+    visibility = this[TodoListsTable.visibility],
     createdBy = this[TodoListsTable.createdBy],
     createdAt = this[TodoListsTable.createdAt].toString(),
 )
