@@ -77,17 +77,62 @@ function RecipeForm({ api, onClose, onCreated }) {
     </Modal>
   );
 }
-function RecipeDetail({ recipe, api, onClose, onAddToShopping }) {
+function IngredientPicker({ recipe, api, onClose, onDone }) {
+  const [sel, setSel] = useState(() => recipe.ingredients.map(() => true));
+  const toggle = (i) => setSel((s) => s.map((v, j) => (j === i ? !v : v)));
+  const count = sel.filter(Boolean).length;
+  const allOn = count === recipe.ingredients.length;
+  const add = () => {
+    const chosen = recipe.ingredients.filter((_, i) => sel[i]);
+    if (chosen.length === 0) return;
+    api.addIngredientsToShopping(chosen);
+    onDone(chosen.length);
+  };
+  return (
+    <Modal open onClose={onClose} title="Zutaten zur Liste" width={440}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Abbrechen</Button>
+        <Button variant="primary" icon="cart" onClick={add} disabled={count === 0}>{count} hinzufügen</Button>
+      </>}>
+      <div className="hb-picker-head">
+        <span className="hb-muted">{count} von {recipe.ingredients.length} ausgewählt</span>
+        <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
+          {allOn ? "Keine" : "Alle"}
+        </button>
+      </div>
+      <div className="hb-picklist">
+        {recipe.ingredients.map((ing, i) => (
+          <div key={i} className="hb-ingpick" onClick={() => toggle(i)}>
+            <Checkbox checked={sel[i]} onChange={() => toggle(i)} />
+            <span className="hb-ing__amt hb-mono">{[ing.amount, ing.unit].filter(Boolean).join(" ") || "·"}</span>
+            <span className="hb-ingpick__name">{ing.name}</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function RecipeDetail({ recipe, api, onBack, onAddToShopping }) {
   const r = recipe;
   const total = (r.prep_time_minutes || 0) + (r.cook_time_minutes || 0);
   return (
-    <Modal open onClose={onClose} title={r.title} width={680}
-      footer={<>
-        <Button variant="ghost" icon="trash" onClick={() => { api.deleteRecipe(r.id); onClose(); }}>Löschen</Button>
-        <Button variant="soft" icon="cart" onClick={() => onAddToShopping(r)}>Zutaten zur Liste</Button>
-      </>}>
-      {r.description && <p className="hb-muted" style={{ margin: "0 0 4px", fontSize: 15 }}>{r.description}</p>}
-      <div className="hb-recipe-facts">
+    <div className="hb-page">
+      <button className="hb-backlink" onClick={onBack}>
+        <Icon name="chevronLeft" size={17} stroke={2.2} />Alle Rezepte
+      </button>
+      <div className="hb-pagehead">
+        <div>
+          <div className="hb-pagehead__eyebrow">{catLabel(r.category)}</div>
+          <h1>{r.title}</h1>
+        </div>
+        <div className="hb-pagehead__actions">
+          <Button variant="ghost" icon="trash" onClick={() => { api.deleteRecipe(r.id); onBack(); }}>Löschen</Button>
+          <Button variant="soft" icon="cart" onClick={() => onAddToShopping(r)}>Zutaten zur Liste</Button>
+        </div>
+      </div>
+      {r.description && <p className="hb-muted" style={{ margin: "0 0 18px", fontSize: 16, maxWidth: 640 }}>{r.description}</p>}
+      <div className="hb-recipe-facts" style={{ maxWidth: 520, marginBottom: 26 }}>
         <div className="hb-fact"><span className="hb-fact__v hb-mono">{r.servings}</span><span className="hb-fact__l">Portionen</span></div>
         {r.prep_time_minutes ? <div className="hb-fact"><span className="hb-fact__v hb-mono">{r.prep_time_minutes}′</span><span className="hb-fact__l">Vorbereitung</span></div> : null}
         {r.cook_time_minutes ? <div className="hb-fact"><span className="hb-fact__v hb-mono">{r.cook_time_minutes}′</span><span className="hb-fact__l">Kochzeit</span></div> : null}
@@ -114,7 +159,7 @@ function RecipeDetail({ recipe, api, onClose, onAddToShopping }) {
           </ol>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -146,17 +191,37 @@ function RezepteView({ db, api, navigate }) {
   const [filter, setFilter] = useState("ALL");
   const [open, setOpen] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [picking, setPicking] = useState(null);
   const [toast, setToast] = useState(null);
 
   const cats = ["ALL", ...Object.keys(HB.recipeCategories)];
   const list = filter === "ALL" ? db.recipes : db.recipes.filter((r) => catKey(r.category) === filter);
 
-  const addToShopping = (r) => {
-    api.addIngredientsToShopping(r.ingredients);
-    setOpen(null);
-    setToast(`${r.ingredients.length} Zutaten zur Einkaufsliste hinzugefügt`);
+  // keep the open recipe in sync with the store (e.g. after edits)
+  const current = open ? db.recipes.find((r) => r.id === open.id) || null : null;
+
+  const finishAdd = (n) => {
+    setPicking(null);
+    setToast(`${n} ${n === 1 ? "Zutat" : "Zutaten"} zur Einkaufsliste hinzugefügt`);
     setTimeout(() => setToast(null), 2600);
   };
+
+  // ---- detail page (not a modal) ----
+  if (current) {
+    return (
+      <>
+        <RecipeDetail recipe={current} api={api} onBack={() => setOpen(null)} onAddToShopping={(r) => setPicking(r)} />
+        {picking && <IngredientPicker recipe={picking} api={api} onClose={() => setPicking(null)} onDone={finishAdd} />}
+        {toast && (
+          <div className="hb-toast">
+            <Icon name="check" size={16} stroke={2.4} style={{ color: "var(--accent)" }} />
+            {toast}
+            <button className="hb-link" onClick={() => navigate("einkauf")}>Ansehen</button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="hb-page">
@@ -184,7 +249,6 @@ function RezepteView({ db, api, navigate }) {
         </div>
       )}
 
-      {open && <RecipeDetail recipe={open} api={api} onClose={() => setOpen(null)} onAddToShopping={addToShopping} />}
       {adding && <RecipeForm api={api} onClose={() => setAdding(false)} onCreated={(r) => { setFilter("ALL"); setOpen(r); }} />}
       {toast && (
         <div className="hb-toast">

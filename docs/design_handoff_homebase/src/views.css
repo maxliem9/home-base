@@ -7,6 +7,47 @@
 .hb-cardhead h3 { font-size: 17px; font-weight: 600; }
 .hb-link { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; cursor: pointer; color: var(--ink-3); font-size: 13.5px; font-weight: 600; font-family: inherit; transition: color 0.14s; }
 .hb-link:hover { color: var(--accent-ink); }
+.hb-link--danger { color: var(--ink-3); }
+.hb-link--danger:hover { color: oklch(0.55 0.16 25); }
+
+/* Listen-Tabs */
+.hb-tabs { display: flex; align-items: stretch; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line-soft); margin-bottom: 24px; }
+.hb-tab { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; padding: 11px 15px; font: inherit; font-size: 14.5px; font-weight: 600; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.12s; }
+.hb-tab:hover { color: var(--ink); }
+.hb-tab.is-active { color: var(--ink); border-bottom-color: var(--accent); }
+.hb-tab__count { font-size: 11.5px; font-weight: 700; min-width: 19px; height: 19px; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--ink-2); display: inline-grid; place-items: center; font-family: var(--font-mono); }
+.hb-tab.is-active .hb-tab__count { background: var(--accent-soft); color: var(--accent-ink); }
+.hb-tab--add { color: var(--accent-ink); border-bottom-color: transparent; }
+.hb-tab--add:hover { color: var(--accent-strong); }
+
+/* Subtasks */
+.hb-todo + .hb-todo > .hb-row { }
+.hb-list > .hb-todo:last-child > .hb-row { border-bottom: none; }
+.hb-subtoggle { display: inline-flex; align-items: center; gap: 5px; background: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-2); cursor: pointer; transition: border-color 0.12s, color 0.12s; }
+.hb-subtoggle:hover { border-color: var(--accent); color: var(--ink); }
+.hb-subtoggle.is-empty { border-style: dashed; color: var(--ink-3); }
+.hb-subtoggle__c { font-family: var(--font-mono); }
+.hb-subtoggle__chev { transition: transform 0.16s ease; }
+.hb-subtoggle.is-open .hb-subtoggle__chev { transform: rotate(180deg); }
+.hb-subtasks { padding: 2px 4px 14px 47px; display: flex; flex-direction: column; }
+.hb-subrow { display: flex; align-items: center; gap: 11px; padding: 6px 0; }
+.hb-subrow__title { flex: 1; font-size: 14px; color: var(--ink); }
+.hb-subrow.is-done .hb-subrow__title { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line); }
+.hb-subrow .hb-row__actions { opacity: 0; }
+.hb-subrow:hover .hb-row__actions { opacity: 1; }
+.hb-subrow .hb-check { width: 19px; height: 19px; border-radius: 6px; }
+.hb-subadd { display: flex; align-items: center; gap: 10px; padding: 7px 0 2px; }
+.hb-subadd input { flex: 1; border: none; background: none; font: inherit; font-size: 14px; color: var(--ink); }
+.hb-subadd input:focus { outline: none; }
+.hb-subadd input::placeholder { color: var(--ink-3); }
+
+/* collapsible "Erledigt" header */
+.hb-donehead { display: inline-flex; align-items: center; gap: 9px; background: none; border: none; padding: 4px 2px; cursor: pointer; font: inherit; }
+.hb-donehead__chev { transition: transform 0.16s ease; color: var(--ink-3); }
+.hb-donehead.is-open .hb-donehead__chev { transform: rotate(180deg); }
+.hb-donehead .hb-sectionlabel { transition: color 0.12s; }
+.hb-donehead:hover .hb-sectionlabel { color: var(--ink); }
+.hb-donehead__c { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 1px 9px; }
 .hb-pickrow { display: flex; flex-wrap: wrap; gap: 8px; }
 .hb-pick { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.14s; }
 .hb-pick:hover { border-color: var(--accent); color: var(--ink); }
@@ -139,6 +180,17 @@ input[type="date"].hb-input { color: var(--ink); }
 
 .hb-recipe-facts { display: flex; gap: 10px; flex-wrap: wrap; }
 .hb-fact { flex: 1; min-width: 78px; background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+
+/* recipe detail page */
+.hb-backlink { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; margin-bottom: 18px; cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink-3); transition: color 0.12s; }
+.hb-backlink:hover { color: var(--accent-ink); }
+
+/* ingredient picker modal */
+.hb-picker-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.hb-picklist { display: flex; flex-direction: column; }
+.hb-ingpick { display: flex; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+.hb-ingpick:last-child { border-bottom: none; }
+.hb-ingpick__name { font-size: 14.5px; }
 .hb-fact__v { font-size: 21px; font-weight: 700; line-height: 1; }
 .hb-fact__l { font-size: 12px; color: var(--ink-3); font-weight: 500; }
 .hb-recipe-body { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 26px; margin-top: 6px; }

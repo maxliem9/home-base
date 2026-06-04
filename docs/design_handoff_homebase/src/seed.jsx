@@ -20,38 +20,58 @@
   let _id = 1000;
   const uid = (p) => `${p}_${++_id}`;
 
+  const todoLists = [
+    { id: "tl_haushalt", name: "Haushalt", visibility: "shared", created_by: "lea" },
+    { id: "tl_familie", name: "Familie & Termine", visibility: "shared", created_by: "max" },
+    { id: "tl_max", name: "Persönlich", visibility: "private", created_by: "max" },
+  ];
   const todos = [
     // Inbox
-    { id: uid("t"), title: "Geschenk für Mama besorgen", description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "lea", created_at: ago(40) },
-    { id: uid("t"), title: "Zahnarzttermin vereinbaren", description: "Kontrolle, ist überfällig.", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: ago(180) },
-    { id: uid("t"), title: "Rückgabe Amazon-Paket", description: "Bis Freitag in der Filiale abgeben.", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: ago(600) },
-    { id: uid("t"), title: "Steuerunterlagen sortieren", description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "lea", created_at: ago(1500) },
+    { id: uid("t"), title: "Geschenk für Mama besorgen", list_id: "tl_familie", description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "lea", created_at: ago(40), subtasks: [
+      { id: uid("st"), title: "Wunschliste checken", done: true },
+      { id: uid("st"), title: "Budget festlegen", done: false },
+      { id: uid("st"), title: "Bestellen", done: false },
+    ] },
+    { id: uid("t"), title: "Zahnarzttermin vereinbaren", list_id: "tl_max", description: "Kontrolle, ist überfällig.", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: ago(180), subtasks: [] },
+    { id: uid("t"), title: "Rückgabe Amazon-Paket", list_id: "tl_max", description: "Bis Freitag in der Filiale abgeben.", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: ago(600), subtasks: [] },
+    { id: uid("t"), title: "Steuerunterlagen sortieren", list_id: "tl_haushalt", description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "lea", created_at: ago(1500), subtasks: [
+      { id: uid("st"), title: "Belege sammeln", done: false },
+      { id: uid("st"), title: "Nach Kategorie sortieren", done: false },
+      { id: uid("st"), title: "Scannen", done: false },
+    ] },
     // Planned
-    { id: uid("t"), title: "Müll rausbringen", description: "Gelber Sack + Restmüll.", status: "PLANNED", assignee: "max", due_date: iso(0), priority: "MEDIUM", created_by: "max", created_at: ago(2000) },
-    { id: uid("t"), title: "Blumen auf dem Balkon gießen", description: "", status: "PLANNED", assignee: "lea", due_date: iso(0), priority: "LOW", created_by: "lea", created_at: ago(2500) },
-    { id: uid("t"), title: "Auto zur Inspektion bringen", description: "Termin in der Werkstadt um 9:00.", status: "PLANNED", assignee: "lea", due_date: iso(3), priority: "HIGH", created_by: "max", created_at: ago(3000) },
-    { id: uid("t"), title: "Stromzähler ablesen", description: "Stand fotografieren und an Stadtwerke senden.", status: "PLANNED", assignee: "max", due_date: iso(1), priority: "MEDIUM", created_by: "max", created_at: ago(4000) },
-    { id: uid("t"), title: "Geburtstagskarte für Opa schreiben", description: "Wird nächste Woche 80.", status: "PLANNED", assignee: "lea", due_date: iso(1), priority: "HIGH", created_by: "lea", created_at: ago(5000) },
-    { id: uid("t"), title: "Kinokarten reservieren", description: "", status: "PLANNED", assignee: "max", due_date: iso(2), priority: "LOW", created_by: "lea", created_at: ago(6000) },
+    { id: uid("t"), title: "Müll rausbringen", list_id: "tl_haushalt", description: "Gelber Sack + Restmüll.", status: "PLANNED", assignee: "max", due_date: iso(0), priority: "MEDIUM", created_by: "max", created_at: ago(2000), subtasks: [] },
+    { id: uid("t"), title: "Blumen auf dem Balkon gießen", list_id: "tl_haushalt", description: "", status: "PLANNED", assignee: "lea", due_date: iso(0), priority: "LOW", created_by: "lea", created_at: ago(2500), subtasks: [] },
+    { id: uid("t"), title: "Auto zur Inspektion bringen", list_id: "tl_familie", description: "Termin in der Werkstadt um 9:00.", status: "PLANNED", assignee: "lea", due_date: iso(3), priority: "HIGH", created_by: "max", created_at: ago(3000), subtasks: [
+      { id: uid("st"), title: "Termin bestätigen", done: true },
+      { id: uid("st"), title: "Scheckheft einpacken", done: false },
+    ] },
+    { id: uid("t"), title: "Stromzähler ablesen", list_id: "tl_haushalt", description: "Stand fotografieren und an Stadtwerke senden.", status: "PLANNED", assignee: "max", due_date: iso(1), priority: "MEDIUM", created_by: "max", created_at: ago(4000), subtasks: [] },
+    { id: uid("t"), title: "Geburtstagskarte für Opa schreiben", list_id: "tl_familie", description: "Wird nächste Woche 80.", status: "PLANNED", assignee: "lea", due_date: iso(1), priority: "HIGH", created_by: "lea", created_at: ago(5000), subtasks: [] },
+    { id: uid("t"), title: "Kinokarten reservieren", list_id: "tl_familie", description: "", status: "PLANNED", assignee: "max", due_date: iso(2), priority: "LOW", created_by: "lea", created_at: ago(6000), subtasks: [] },
     // Done
-    { id: uid("t"), title: "Wocheneinkauf erledigt", description: "", status: "DONE", assignee: "max", due_date: iso(0), priority: "MEDIUM", created_by: "max", created_at: ago(8000), done_at: ago(120) },
-    { id: uid("t"), title: "Wäsche gewaschen & aufgehängt", description: "", status: "DONE", assignee: "lea", due_date: iso(0), priority: "LOW", created_by: "lea", created_at: ago(9000), done_at: ago(300) },
-    { id: uid("t"), title: "Spülmaschine ausgeräumt", description: "", status: "DONE", assignee: "max", due_date: iso(-1), priority: "LOW", created_by: "max", created_at: ago(12000), done_at: ago(800) },
+    { id: uid("t"), title: "Wocheneinkauf erledigt", list_id: "tl_haushalt", description: "", status: "DONE", assignee: "max", due_date: iso(0), priority: "MEDIUM", created_by: "max", created_at: ago(8000), done_at: ago(120), subtasks: [] },
+    { id: uid("t"), title: "Wäsche gewaschen & aufgehängt", list_id: "tl_haushalt", description: "", status: "DONE", assignee: "lea", due_date: iso(0), priority: "LOW", created_by: "lea", created_at: ago(9000), done_at: ago(300), subtasks: [] },
+    { id: uid("t"), title: "Spülmaschine ausgeräumt", list_id: "tl_haushalt", description: "", status: "DONE", assignee: "max", due_date: iso(-1), priority: "LOW", created_by: "max", created_at: ago(12000), done_at: ago(800), subtasks: [] },
   ];
 
+  const shoppingLists = [
+    { id: "sl_woche", name: "Wocheneinkauf", created_by: "lea" },
+    { id: "sl_drog", name: "Drogerie", created_by: "max" },
+  ];
   const shopping = [
-    { id: uid("s"), name: "Äpfel", category: "Obst & Gemüse", checked: false, created_by: "lea" },
-    { id: uid("s"), name: "Bananen", category: "Obst & Gemüse", checked: false, created_by: "max" },
-    { id: uid("s"), name: "Babyspinat", category: "Obst & Gemüse", checked: true, created_by: "lea" },
-    { id: uid("s"), name: "Tomaten", category: "Obst & Gemüse", checked: false, created_by: "max" },
-    { id: uid("s"), name: "Milch (1,5%)", category: "Kühlware", checked: false, created_by: "max" },
-    { id: uid("s"), name: "Naturjoghurt", category: "Kühlware", checked: false, created_by: "lea" },
-    { id: uid("s"), name: "Butter", category: "Kühlware", checked: true, created_by: "max" },
-    { id: uid("s"), name: "Gouda am Stück", category: "Kühlware", checked: false, created_by: "lea" },
-    { id: uid("s"), name: "Spülmittel", category: "Haushalt", checked: false, created_by: "max" },
-    { id: uid("s"), name: "Toilettenpapier", category: "Haushalt", checked: false, created_by: "lea" },
-    { id: uid("s"), name: "AA-Batterien", category: "Sonstiges", checked: false, created_by: "max" },
-    { id: uid("s"), name: "Filterkaffee", category: "Sonstiges", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "Äpfel", list_id: "sl_woche", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "Bananen", list_id: "sl_woche", checked: false, created_by: "max" },
+    { id: uid("s"), name: "Babyspinat", list_id: "sl_woche", checked: true, created_by: "lea" },
+    { id: uid("s"), name: "Tomaten", list_id: "sl_woche", checked: false, created_by: "max" },
+    { id: uid("s"), name: "Milch (1,5%)", list_id: "sl_woche", checked: false, created_by: "max" },
+    { id: uid("s"), name: "Naturjoghurt", list_id: "sl_woche", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "Butter", list_id: "sl_woche", checked: true, created_by: "max" },
+    { id: uid("s"), name: "Gouda am Stück", list_id: "sl_woche", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "Filterkaffee", list_id: "sl_woche", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "Spülmittel", list_id: "sl_drog", checked: false, created_by: "max" },
+    { id: uid("s"), name: "Toilettenpapier", list_id: "sl_drog", checked: false, created_by: "lea" },
+    { id: uid("s"), name: "AA-Batterien", list_id: "sl_drog", checked: false, created_by: "max" },
   ];
   const shopCategories = ["Obst & Gemüse", "Kühlware", "Haushalt", "Sonstiges"];
 
@@ -217,6 +237,6 @@
       SNACK: "Snack", DESSERT: "Dessert", DRINK: "Getränk",
     },
     shopCategories,
-    seed: { todos, shopping, notes, projects, timeEntries, recipes },
+    seed: { todos, todoLists, shopping, shoppingLists, notes, projects, timeEntries, recipes },
   };
 })();
