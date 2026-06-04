@@ -102,6 +102,50 @@ export interface Recipe {
   updatedAt: string
 }
 
+// --- Abwesenheit / Familienkalender ---------------------------------------
+
+export type AbsenceType = 'URLAUB' | 'KRANK' | 'KIND_KRANK'
+export type HalfDay = 'vm' | 'nm'
+
+export interface Absence {
+  id: string
+  userId: string
+  date: string // YYYY-MM-DD
+  type: AbsenceType
+  half?: HalfDay | null
+}
+
+export interface PartTimeRule {
+  id: string
+  userId: string
+  weekday: number // ISO 1=Mon … 7=Sun
+  start: string // YYYY-MM-DD
+  end?: string | null
+}
+
+export interface KitaClosure {
+  id: string
+  date: string
+  label: string
+}
+
+export interface AbsSettings {
+  userId: string
+  state: string // German Bundesland code
+  allowance: number
+  carryover: number
+  carryoverExpires?: string | null
+  kindKrankCap: number
+}
+
+export interface AbsenceState {
+  users: string[]
+  absences: Absence[]
+  partTime: PartTimeRule[]
+  kitaClosures: KitaClosure[]
+  settings: AbsSettings[]
+}
+
 export type NoteVisibility = 'PRIVATE' | 'SHARED'
 
 export interface Note {

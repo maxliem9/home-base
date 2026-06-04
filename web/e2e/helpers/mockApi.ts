@@ -47,6 +47,110 @@ export interface ShoppingItem {
   checkedAt?: string
 }
 
+export type RecipeCategory = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
+
+export interface Ingredient {
+  id: string
+  name: string
+  amount?: number
+  unit?: string
+  sortOrder: number
+}
+
+export interface RecipeStep {
+  id: string
+  stepNumber: number
+  description: string
+}
+
+export interface Recipe {
+  id: string
+  title: string
+  description?: string
+  servings: number
+  prepTimeMinutes?: number
+  cookTimeMinutes?: number
+  category: RecipeCategory
+  ingredients: Ingredient[]
+  steps: RecipeStep[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type NoteVisibility = 'PRIVATE' | 'SHARED'
+
+export interface Note {
+  id: string
+  title: string
+  content: string
+  tags: string[]
+  visibility: NoteVisibility
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  color: string
+  archived: boolean
+  createdBy: string
+  createdAt: string
+}
+
+export interface TimeEntry {
+  id: string
+  projectId: string
+  userId: string
+  startedAt: string
+  stoppedAt?: string
+  description?: string
+  durationSeconds?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Absence {
+  id: string
+  userId: string
+  date: string
+  type: 'URLAUB' | 'KRANK' | 'KIND_KRANK'
+  half?: 'vm' | 'nm' | null
+}
+
+export interface PartTimeRule {
+  id: string
+  userId: string
+  weekday: number
+  start: string
+  end?: string | null
+}
+
+export interface KitaClosure {
+  id: string
+  date: string
+  label: string
+}
+
+export interface AbsSettings {
+  userId: string
+  state: string
+  allowance: number
+  carryover: number
+  carryoverExpires?: string | null
+  kindKrankCap: number
+}
+
+export interface AbsenceSeed {
+  users?: string[]
+  absences?: Absence[]
+  partTime?: PartTimeRule[]
+  kitaClosures?: KitaClosure[]
+  settings?: AbsSettings[]
+}
+
 export const TOKEN = 'test-jwt-token'
 
 /**
@@ -54,21 +158,43 @@ export const TOKEN = 'test-jwt-token'
  * request so the app can run end-to-end without a real server, and stubs the
  * WebSocket so the realtime hook never opens a live connection.
  *
- * Mirrors the route contracts in backend/.../routes/{Todo,Shopping}Routes.kt:
- * lists live under /{todos,shopping}/lists, subtasks under
- * /todos/{id}/subtasks, and every subtask mutation responds with the freshly
- * built parent todo (incl. its subtasks array).
+ * Mirrors the route contracts in backend/.../routes/*.kt: todo/shopping lists
+ * live under /{todos,shopping}/lists, subtasks under /todos/{id}/subtasks, and
+ * every subtask mutation responds with the freshly built parent todo.
+ *
+ * Todos, shopping, recipes and notes reflect their own mutations from the REST
+ * response, so the stubbed socket can stay silent for them. TimeView instead
+ * relies entirely on realtime frames, so time mutations attach an `x-ws-frames`
+ * response header that the in-page bridge (see install) replays to the socket.
+ *
+ * Todos/shopping data is seeded via the constructor; recipes/notes/time via the
+ * fluent seed* helpers so existing call sites keep working unchanged.
  */
 export class MockApi {
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
   private shoppingItems: ShoppingItem[]
+  private recipes: Recipe[] = []
+  private notes: Note[] = []
+  private projects: Project[] = []
+  private entries: TimeEntry[] = []
+  private absUsers: string[] = []
+  private absences: Absence[] = []
+  private partTime: PartTimeRule[] = []
+  private kitaClosures: KitaClosure[] = []
+  private absSettings: AbsSettings[] = []
+  private nextAbsId = 100
   private nextId = 100
   private nextListId = 100
   private nextSubId = 100
   private nextShopId = 100
   private nextShopListId = 100
+  private nextRecipeId = 100
+  private nextNoteId = 100
+  private nextProjectId = 100
+  private nextEntryId = 100
+  private nextChildId = 100
 
   constructor(
     initialTodos: Todo[] = [],
@@ -82,21 +208,87 @@ export class MockApi {
     this.shoppingItems = initialShoppingItems.map((i) => ({ ...i }))
   }
 
+  seedRecipes(recipes: Recipe[]): this {
+    this.recipes = recipes.map((r) => ({ ...r }))
+    return this
+  }
+
+  seedNotes(notes: Note[]): this {
+    this.notes = notes.map((n) => ({ ...n }))
+    return this
+  }
+
+  seedProjects(projects: Project[]): this {
+    this.projects = projects.map((p) => ({ ...p }))
+    return this
+  }
+
+  seedEntries(entries: TimeEntry[]): this {
+    this.entries = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  seedAbsence(seed: AbsenceSeed): this {
+    this.absUsers = [...(seed.users ?? [])]
+    this.absences = (seed.absences ?? []).map((a) => ({ ...a }))
+    this.partTime = (seed.partTime ?? []).map((r) => ({ ...r }))
+    this.kitaClosures = (seed.kitaClosures ?? []).map((k) => ({ ...k }))
+    this.absSettings = (seed.settings ?? []).map((s) => ({ ...s }))
+    return this
+  }
+
   async install(page: Page) {
-    // Prevent the realtime hook from opening a real socket.
+    // Replace the realtime hook's socket with a fake that never opens a real
+    // connection, and bridge REST → WebSocket: any response carrying an
+    // `x-ws-frames` header is replayed as frame(s) onto the matching channel's
+    // socket. TimeView depends on these frames to reflect its own mutations.
     await page.addInitScript(() => {
+      const sockets: Array<{ url: string; onmessage: ((e: { data: string }) => void) | null }> = []
       class FakeWebSocket {
         onopen: (() => void) | null = null
         onclose: (() => void) | null = null
-        onmessage: (() => void) | null = null
+        onmessage: ((e: { data: string }) => void) | null = null
         onerror: (() => void) | null = null
         readyState = 1
-        constructor() {}
+        url: string
+        constructor(url: string) {
+          this.url = String(url)
+          sockets.push(this)
+        }
         send() {}
-        close() {}
+        close() {
+          const i = sockets.indexOf(this)
+          if (i >= 0) sockets.splice(i, 1)
+          this.readyState = 3
+        }
       }
       // @ts-expect-error override for tests
       window.WebSocket = FakeWebSocket
+
+      const origFetch = window.fetch.bind(window)
+      window.fetch = async (...args: Parameters<typeof fetch>) => {
+        const res = await origFetch(...args)
+        const header = res.headers.get('x-ws-frames')
+        if (header) {
+          // Deliver asynchronously, mimicking a server-pushed frame so the
+          // caller's await resolves first.
+          setTimeout(() => {
+            try {
+              const { channel, frames } = JSON.parse(header)
+              for (const frame of frames) {
+                for (const s of sockets) {
+                  if (s.url.includes('/ws/' + channel) && typeof s.onmessage === 'function') {
+                    s.onmessage({ data: JSON.stringify(frame) })
+                  }
+                }
+              }
+            } catch {
+              // ignore malformed bridge headers
+            }
+          }, 0)
+        }
+        return res
+      }
     })
 
     await page.route('**/api/v1/**', (route) => this.handle(route))
@@ -108,6 +300,49 @@ export class MockApi {
       contentType: 'application/json',
       body: JSON.stringify(body),
     })
+  }
+
+  // Like json(), but tags the response with WebSocket frames the in-page bridge
+  // replays onto the given channel's socket(s) after the fetch resolves.
+  private jsonWithFrames(route: Route, body: unknown, status: number, channel: string, frames: unknown[]) {
+    return route.fulfill({
+      status,
+      contentType: 'application/json',
+      headers: { 'x-ws-frames': JSON.stringify({ channel, frames }) },
+      body: JSON.stringify(body),
+    })
+  }
+
+  // Build a Recipe from a create/update payload, assigning ids + sort/step order
+  // the way the backend does. `prev` preserves createdBy/createdAt on update.
+  private buildRecipe(id: string, b: Record<string, unknown>, prev?: Recipe): Recipe {
+    const ts = new Date().toISOString()
+    const ingredients = (b.ingredients as Array<Record<string, unknown>> | undefined) ?? []
+    const steps = (b.steps as Array<Record<string, unknown>> | undefined) ?? []
+    return {
+      id,
+      title: (b.title as string) ?? prev?.title ?? '',
+      description: (b.description as string | undefined) ?? undefined,
+      servings: (b.servings as number | undefined) ?? prev?.servings ?? 1,
+      prepTimeMinutes: (b.prepTimeMinutes as number | undefined) ?? undefined,
+      cookTimeMinutes: (b.cookTimeMinutes as number | undefined) ?? undefined,
+      category: (b.category as RecipeCategory) ?? prev?.category ?? 'DINNER',
+      ingredients: ingredients.map((i, n) => ({
+        id: `ing-${this.nextChildId++}`,
+        name: i.name as string,
+        amount: i.amount as number | undefined,
+        unit: i.unit as string | undefined,
+        sortOrder: n,
+      })),
+      steps: steps.map((s, n) => ({
+        id: `step-${this.nextChildId++}`,
+        stepNumber: n + 1,
+        description: s.description as string,
+      })),
+      createdBy: prev?.createdBy ?? 'alice',
+      createdAt: prev?.createdAt ?? ts,
+      updatedAt: ts,
+    }
   }
 
   private async handle(route: Route) {
@@ -299,7 +534,309 @@ export class MockApi {
       }
     }
 
-    // Anything else the views fetch (notes, time, recipes) → empty list.
+    // ---- Recipes ----
+    if (path.endsWith('/recipes') && method === 'GET') {
+      const category = url.searchParams.get('category')
+      return this.json(route, category ? this.recipes.filter((r) => r.category === category) : this.recipes)
+    }
+    if (path.endsWith('/recipes') && method === 'POST') {
+      const recipe = this.buildRecipe(`recipe-${this.nextRecipeId++}`, JSON.parse(req.postData() ?? '{}'))
+      this.recipes.unshift(recipe)
+      return this.json(route, recipe, 201)
+    }
+
+    const recipeIdMatch = path.match(/\/recipes\/([^/]+)$/)
+    if (recipeIdMatch) {
+      const id = recipeIdMatch[1]
+      const idx = this.recipes.findIndex((r) => r.id === id)
+      if (method === 'GET') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        // optional ?servings=N scaling, mirroring the backend contract
+        const servings = url.searchParams.get('servings')
+        const r = this.recipes[idx]
+        if (servings && r.servings > 0) {
+          const factor = Number(servings) / r.servings
+          return this.json(route, {
+            ...r,
+            servings: Number(servings),
+            ingredients: r.ingredients.map((i) => ({ ...i, amount: i.amount != null ? i.amount * factor : i.amount })),
+          })
+        }
+        return this.json(route, r)
+      }
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        const updated = this.buildRecipe(id, JSON.parse(req.postData() ?? '{}'), this.recipes[idx])
+        this.recipes[idx] = updated
+        return this.json(route, updated)
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.recipes.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+
+    // ---- Notes ----
+    if (path.endsWith('/notes') && method === 'GET') {
+      const q = (url.searchParams.get('q') ?? '').toLowerCase()
+      const list = q
+        ? this.notes.filter((n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q))
+        : this.notes
+      return this.json(route, list)
+    }
+    if (path.endsWith('/notes') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const ts = new Date().toISOString()
+      const note: Note = {
+        id: `note-${this.nextNoteId++}`,
+        title: b.title,
+        content: b.content ?? '',
+        tags: b.tags ?? [],
+        visibility: b.visibility === 'PRIVATE' ? 'PRIVATE' : 'SHARED',
+        createdBy: 'alice',
+        createdAt: ts,
+        updatedAt: ts,
+      }
+      this.notes.unshift(note)
+      return this.json(route, note, 201)
+    }
+
+    const noteIdMatch = path.match(/\/notes\/([^/]+)$/)
+    if (noteIdMatch) {
+      const id = noteIdMatch[1]
+      const idx = this.notes.findIndex((n) => n.id === id)
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.notes[idx] = { ...this.notes[idx], ...JSON.parse(req.postData() ?? '{}'), updatedAt: new Date().toISOString() }
+        return this.json(route, this.notes[idx])
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.notes.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+
+    // ---- Time: projects (checked before /time/entries matchers) ----
+    if (path.endsWith('/time/projects') && method === 'GET') {
+      return this.json(route, this.projects)
+    }
+    if (path.endsWith('/time/projects') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const project: Project = {
+        id: `proj-${this.nextProjectId++}`,
+        name: b.name,
+        color: b.color ?? '#64748B',
+        archived: false,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.projects.push(project)
+      return this.jsonWithFrames(route, project, 201, 'time', [{ type: 'PROJECT_CREATED', project }])
+    }
+
+    const archiveMatch = path.match(/\/time\/projects\/([^/]+)\/archive$/)
+    if (archiveMatch && method === 'PATCH') {
+      const idx = this.projects.findIndex((p) => p.id === archiveMatch[1])
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      const b = JSON.parse(req.postData() ?? '{}')
+      this.projects[idx] = { ...this.projects[idx], archived: b.archived ?? !this.projects[idx].archived }
+      return this.jsonWithFrames(route, this.projects[idx], 200, 'time', [{ type: 'PROJECT_UPDATED', project: this.projects[idx] }])
+    }
+
+    const projIdMatch = path.match(/\/time\/projects\/([^/]+)$/)
+    if (projIdMatch && method === 'PUT') {
+      const idx = this.projects.findIndex((p) => p.id === projIdMatch[1])
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      this.projects[idx] = { ...this.projects[idx], ...JSON.parse(req.postData() ?? '{}') }
+      return this.jsonWithFrames(route, this.projects[idx], 200, 'time', [{ type: 'PROJECT_UPDATED', project: this.projects[idx] }])
+    }
+
+    // ---- Time: running / start / stop (checked before /time/entries/{id}) ----
+    if (path.endsWith('/time/running') && method === 'GET') {
+      const running = this.entries.find((e) => !e.stoppedAt)
+      if (!running) return this.json(route, { message: 'no running timer' }, 404)
+      return this.json(route, running)
+    }
+    if (path.endsWith('/time/entries/start') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      if (!this.projects.some((p) => p.id === b.projectId)) return this.json(route, { message: 'not found' }, 404)
+      const frames: unknown[] = []
+      const ts = new Date().toISOString()
+      // a new start stops the currently running timer
+      const prev = this.entries.find((e) => !e.stoppedAt)
+      if (prev) {
+        prev.stoppedAt = ts
+        prev.durationSeconds = Math.max(0, Math.floor((Date.parse(ts) - Date.parse(prev.startedAt)) / 1000))
+        frames.push({ type: 'ENTRY_UPDATED', entry: prev })
+      }
+      const entry: TimeEntry = {
+        id: `entry-${this.nextEntryId++}`,
+        projectId: b.projectId,
+        userId: 'alice',
+        startedAt: ts,
+        description: b.description,
+        createdAt: ts,
+        updatedAt: ts,
+      }
+      this.entries.unshift(entry)
+      frames.push({ type: 'ENTRY_CREATED', entry })
+      return this.jsonWithFrames(route, entry, 201, 'time', frames)
+    }
+    if (path.endsWith('/time/entries/stop') && method === 'POST') {
+      const running = this.entries.find((e) => !e.stoppedAt)
+      if (!running) return this.json(route, { message: 'no running timer' }, 404)
+      const ts = new Date().toISOString()
+      running.stoppedAt = ts
+      running.durationSeconds = Math.max(0, Math.floor((Date.parse(ts) - Date.parse(running.startedAt)) / 1000))
+      return this.jsonWithFrames(route, running, 200, 'time', [{ type: 'ENTRY_UPDATED', entry: running }])
+    }
+
+    // ---- Time: entries ----
+    if (path.endsWith('/time/entries') && method === 'GET') {
+      const projectId = url.searchParams.get('project_id')
+      return this.json(route, projectId ? this.entries.filter((e) => e.projectId === projectId) : this.entries)
+    }
+    if (path.endsWith('/time/entries') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const started = Date.parse(b.startedAt)
+      const stopped = Date.parse(b.stoppedAt)
+      if (!(stopped > started)) return this.json(route, { code: 'BAD_REQUEST', message: 'end before start' }, 400)
+      const ts = new Date().toISOString()
+      const entry: TimeEntry = {
+        id: `entry-${this.nextEntryId++}`,
+        projectId: b.projectId,
+        userId: 'alice',
+        startedAt: b.startedAt,
+        stoppedAt: b.stoppedAt,
+        description: b.description,
+        durationSeconds: Math.floor((stopped - started) / 1000),
+        createdAt: ts,
+        updatedAt: ts,
+      }
+      this.entries.unshift(entry)
+      return this.jsonWithFrames(route, entry, 201, 'time', [{ type: 'ENTRY_CREATED', entry }])
+    }
+
+    const entryIdMatch = path.match(/\/time\/entries\/([^/]+)$/)
+    if (entryIdMatch) {
+      const idx = this.entries.findIndex((e) => e.id === entryIdMatch[1])
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.entries[idx] = { ...this.entries[idx], ...JSON.parse(req.postData() ?? '{}'), updatedAt: new Date().toISOString() }
+        return this.jsonWithFrames(route, this.entries[idx], 200, 'time', [{ type: 'ENTRY_UPDATED', entry: this.entries[idx] }])
+      }
+      if (method === 'DELETE') {
+        // TimeView removes the row optimistically; no frame needed.
+        if (idx !== -1) this.entries.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+
+    // ---- Abwesenheit / Familienkalender ----
+    if (path.endsWith('/absence') && method === 'GET') {
+      return this.json(route, {
+        users: this.absUsers,
+        absences: this.absences,
+        partTime: this.partTime,
+        kitaClosures: this.kitaClosures,
+        settings: this.absSettings,
+      })
+    }
+    if (path.endsWith('/absence/entries/batch') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      for (const d of (b.dates ?? []) as string[]) {
+        this.absences = this.absences.filter((a) => !(a.userId === b.userId && a.date === d))
+        if (b.type) this.absences.push({ id: `abs-${this.nextAbsId++}`, userId: b.userId, date: d, type: b.type, half: b.half ?? null })
+      }
+      return route.fulfill({ status: 204, body: '' })
+    }
+    if (path.endsWith('/absence/entries') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      this.absences = this.absences.filter((a) => !(a.userId === b.userId && a.date === b.date))
+      const abs: Absence = { id: `abs-${this.nextAbsId++}`, userId: b.userId, date: b.date, type: b.type, half: b.half ?? null }
+      this.absences.push(abs)
+      return this.json(route, abs, 201)
+    }
+    if (path.endsWith('/absence/entries') && method === 'DELETE') {
+      const userId = url.searchParams.get('userId')
+      const date = url.searchParams.get('date')
+      this.absences = this.absences.filter((a) => !(a.userId === userId && a.date === date))
+      return route.fulfill({ status: 204, body: '' })
+    }
+    if (path.endsWith('/absence/parttime') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const rule: PartTimeRule = { id: `pt-${this.nextAbsId++}`, userId: b.userId, weekday: b.weekday, start: b.start, end: b.end ?? null }
+      this.partTime.push(rule)
+      return this.json(route, rule, 201)
+    }
+    const ptMatch = path.match(/\/absence\/parttime\/([^/]+)$/)
+    if (ptMatch) {
+      const idx = this.partTime.findIndex((r) => r.id === ptMatch[1])
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        const b = JSON.parse(req.postData() ?? '{}')
+        this.partTime[idx] = { ...this.partTime[idx], weekday: b.weekday, start: b.start, end: b.end ?? null }
+        return this.json(route, this.partTime[idx])
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.partTime.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+    if (path.endsWith('/absence/kita/range') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      let from = b.from as string
+      let to = b.to as string
+      if (from > to) { const tmp = from; from = to; to = tmp }
+      for (let d = new Date(from + 'T12:00:00'); ymdLocal(d) <= to; d.setDate(d.getDate() + 1)) {
+        const dow = d.getDay()
+        if (dow !== 0 && dow !== 6) {
+          this.kitaClosures.push({ id: `kita-${this.nextAbsId++}`, date: ymdLocal(d), label: (b.label && String(b.label).trim()) || 'Kita geschlossen' })
+        }
+      }
+      return route.fulfill({ status: 204, body: '' })
+    }
+    if (path.endsWith('/absence/kita') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const k: KitaClosure = { id: `kita-${this.nextAbsId++}`, date: b.date, label: (b.label && String(b.label).trim()) || 'Kita geschlossen' }
+      this.kitaClosures.push(k)
+      return this.json(route, k, 201)
+    }
+    const kitaMatch = path.match(/\/absence\/kita\/([^/]+)$/)
+    if (kitaMatch) {
+      const idx = this.kitaClosures.findIndex((k) => k.id === kitaMatch[1])
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.kitaClosures[idx] = { ...this.kitaClosures[idx], ...JSON.parse(req.postData() ?? '{}') }
+        return this.json(route, this.kitaClosures[idx])
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.kitaClosures.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+    const setMatch = path.match(/\/absence\/settings\/([^/]+)$/)
+    if (setMatch && method === 'PUT') {
+      const userId = decodeURIComponent(setMatch[1])
+      const b = JSON.parse(req.postData() ?? '{}')
+      let s = this.absSettings.find((x) => x.userId === userId)
+      if (!s) {
+        s = {
+          userId,
+          state: b.state ?? 'BE',
+          allowance: b.allowance ?? 30,
+          carryover: b.carryover ?? 0,
+          carryoverExpires: b.carryoverExpires ?? null,
+          kindKrankCap: b.kindKrankCap ?? 15,
+        }
+        this.absSettings.push(s)
+      } else {
+        for (const k of Object.keys(b)) if (b[k] !== undefined) (s as Record<string, unknown>)[k] = b[k]
+      }
+      return this.json(route, s)
+    }
+
+    // Anything else the views fetch → empty list.
     if (method === 'GET') {
       return this.json(route, [])
     }
@@ -348,4 +885,87 @@ export function subtask(partial: Partial<Subtask> & { id: string; title: string 
     sortOrder: 0,
     ...partial,
   }
+}
+
+export function recipe(partial: Partial<Recipe> & { id: string; title: string }): Recipe {
+  return {
+    servings: 2,
+    category: 'DINNER',
+    ingredients: [],
+    steps: [],
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    updatedAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function ingredient(partial: Partial<Ingredient> & { id: string; name: string }): Ingredient {
+  return {
+    sortOrder: 0,
+    ...partial,
+  }
+}
+
+export function recipeStep(partial: Partial<RecipeStep> & { id: string; description: string }): RecipeStep {
+  return {
+    stepNumber: 1,
+    ...partial,
+  }
+}
+
+export function note(partial: Partial<Note> & { id: string; title: string }): Note {
+  return {
+    content: '',
+    tags: [],
+    visibility: 'SHARED',
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    updatedAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function project(partial: Partial<Project> & { id: string; name: string }): Project {
+  return {
+    color: '#4F7A52',
+    archived: false,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function timeEntry(partial: Partial<TimeEntry> & { id: string; projectId: string }): TimeEntry {
+  return {
+    userId: 'alice',
+    startedAt: '2026-06-03T08:00:00Z',
+    stoppedAt: '2026-06-03T09:00:00Z',
+    durationSeconds: 3600,
+    createdAt: '2026-06-03T08:00:00Z',
+    updatedAt: '2026-06-03T09:00:00Z',
+    ...partial,
+  }
+}
+
+/** Local YYYY-MM-DD (matches the app's date keying). */
+function ymdLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+export function absence(partial: Partial<Absence> & { id: string; userId: string; date: string }): Absence {
+  return { type: 'URLAUB', half: null, ...partial }
+}
+
+export function partTimeRule(partial: Partial<PartTimeRule> & { id: string; userId: string; weekday: number; start: string }): PartTimeRule {
+  return { end: null, ...partial }
+}
+
+export function kitaClosure(partial: Partial<KitaClosure> & { id: string; date: string }): KitaClosure {
+  return { label: 'Kita geschlossen', ...partial }
+}
+
+export function absSettings(partial: Partial<AbsSettings> & { userId: string }): AbsSettings {
+  return { state: 'BE', allowance: 30, carryover: 0, carryoverExpires: null, kindKrankCap: 15, ...partial }
 }

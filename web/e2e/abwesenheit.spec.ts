@@ -1,0 +1,116 @@
+import { test, expect, type Page } from '@playwright/test'
+import { MockApi, absence, absSettings, kitaClosure, partTimeRule, TOKEN } from './helpers/mockApi'
+
+const SHOTS = '/tmp/abw-screens'
+
+/** A populated two-person household for 2026 (today is mocked at 2026-06-04). */
+function seeded(): MockApi {
+  return new MockApi().seedAbsence({
+    users: ['max', 'lea'],
+    settings: [
+      absSettings({ userId: 'max', state: 'BE', allowance: 30, carryover: 5, carryoverExpires: '2026-09-30', kindKrankCap: 15 }),
+      absSettings({ userId: 'lea', state: 'BY', allowance: 24, carryover: 0, kindKrankCap: 15 }),
+    ],
+    partTime: [
+      partTimeRule({ id: 'pt1', userId: 'max', weekday: 1, start: '2026-01-01', end: '2026-04-30' }),
+      partTimeRule({ id: 'pt2', userId: 'lea', weekday: 5, start: '2026-03-01', end: null }),
+    ],
+    absences: [
+      // Max — a taken week in March, a planned week in July, a half day, sick days
+      absence({ id: 'a1', userId: 'max', date: '2026-03-16' }),
+      absence({ id: 'a2', userId: 'max', date: '2026-03-17' }),
+      absence({ id: 'a3', userId: 'max', date: '2026-03-18' }),
+      absence({ id: 'a4', userId: 'max', date: '2026-03-19' }),
+      absence({ id: 'a5', userId: 'max', date: '2026-03-20' }),
+      absence({ id: 'a6', userId: 'max', date: '2026-07-27' }),
+      absence({ id: 'a7', userId: 'max', date: '2026-07-28' }),
+      absence({ id: 'a8', userId: 'max', date: '2026-07-29' }),
+      absence({ id: 'a9', userId: 'max', date: '2026-06-02', half: 'vm' }),
+      absence({ id: 'a10', userId: 'max', date: '2026-05-11', type: 'KRANK' }),
+      absence({ id: 'a11', userId: 'max', date: '2026-04-21', type: 'KIND_KRANK' }),
+      // Lea — planned July week, a sick day
+      absence({ id: 'b1', userId: 'lea', date: '2026-07-27' }),
+      absence({ id: 'b2', userId: 'lea', date: '2026-07-28' }),
+      absence({ id: 'b3', userId: 'lea', date: '2026-07-29' }),
+      absence({ id: 'b4', userId: 'lea', date: '2026-02-10', type: 'KRANK' }),
+    ],
+    kitaClosures: [
+      kitaClosure({ id: 'k1', date: '2026-07-27', label: 'Sommerschließung' }),
+      kitaClosure({ id: 'k2', date: '2026-07-28', label: 'Sommerschließung' }),
+      kitaClosure({ id: 'k3', date: '2026-07-29', label: 'Sommerschließung' }),
+    ],
+  })
+}
+
+async function open(page: Page, mock: MockApi) {
+  await mock.install(page)
+  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Abwesenheit' }).click()
+  await expect(page.getByRole('heading', { name: 'Abwesenheit' })).toBeVisible()
+}
+
+test.describe('Abwesenheit', () => {
+  test('renders both summary cards and the year grid', async ({ page }) => {
+    await open(page, seeded())
+
+    await expect(page.locator('.abw-sumcard__name', { hasText: 'Max' })).toBeVisible()
+    await expect(page.locator('.abw-sumcard__name', { hasText: 'Lea' })).toBeVisible()
+    // states resolve from the Bundesland setting
+    await expect(page.getByText('Berlin')).toBeVisible()
+    await expect(page.getByText('Bayern')).toBeVisible()
+    // the year grid renders day cells
+    await expect(page.locator('.abw-raster .abw-rcell--day').first()).toBeVisible()
+
+    await page.screenshot({ path: `${SHOTS}/abw-year.png`, fullPage: true })
+  })
+
+  test('switches to the month layout', async ({ page }) => {
+    await open(page, seeded())
+    await page.getByRole('tab', { name: 'Monat' }).click()
+    await expect(page.locator('.abw-month')).toBeVisible()
+    await expect(page.locator('.abw-mcell').first()).toBeVisible()
+    await page.screenshot({ path: `${SHOTS}/abw-month.png`, fullPage: true })
+  })
+
+  test('opens the day editor and books vacation for a person', async ({ page }) => {
+    await open(page, seeded())
+
+    // a plain working Wednesday for both people
+    await page.locator('button.abw-rcell--day[title^="2026-06-10"]').click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByRole('heading', { name: 'Mittwoch, 10. Juni 2026' })).toBeVisible()
+
+    // book Urlaub for the first person (Max)
+    const maxRow = modal.locator('.abw-ed-person').first()
+    await maxRow.getByRole('button', { name: 'Urlaub', exact: true }).click()
+
+    // refetch reflects it: the pill is now active and the half-day toggle appears
+    await expect(maxRow.locator('.abw-pick.is-active', { hasText: 'Urlaub' })).toBeVisible()
+    await expect(modal.getByRole('button', { name: 'Vormittag (AM)' })).toBeVisible()
+
+    await page.screenshot({ path: `${SHOTS}/abw-day-editor.png` })
+  })
+
+  test('opens calendar settings', async ({ page }) => {
+    await open(page, seeded())
+    await page.getByRole('button', { name: 'Einstellungen' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
+    await expect(modal.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
+    await expect(modal.getByText('Kita-Schließtage')).toBeVisible()
+    await page.screenshot({ path: `${SHOTS}/abw-settings.png` })
+  })
+
+  test('books a vacation period across working days', async ({ page }) => {
+    await open(page, seeded())
+    await page.getByRole('button', { name: 'Zeitraum' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByRole('heading', { name: 'Zeitraum eintragen' })).toBeVisible()
+    // set a one-week range
+    await modal.locator('input[type="date"]').first().fill('2026-08-10')
+    await modal.locator('input[type="date"]').nth(1).fill('2026-08-14')
+    await modal.getByRole('button', { name: 'Übernehmen' }).click()
+    await expect(modal).toBeHidden()
+  })
+})

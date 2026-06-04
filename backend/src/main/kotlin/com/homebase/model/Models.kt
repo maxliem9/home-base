@@ -316,3 +316,114 @@ data class UpdateRecipeRequest(
 
 @Serializable
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
+
+// ---------- Abwesenheit / Familienkalender ----------
+
+@Serializable
+data class AbsenceDto(
+    val id: String,
+    val userId: String,
+    val date: String,
+    val type: String,
+    val half: String? = null
+)
+
+@Serializable
+data class PartTimeRuleDto(
+    val id: String,
+    val userId: String,
+    val weekday: Int,
+    val start: String,
+    val end: String? = null
+)
+
+@Serializable
+data class KitaClosureDto(
+    val id: String,
+    val date: String,
+    val label: String
+)
+
+@Serializable
+data class AbsSettingsDto(
+    val userId: String,
+    val state: String,
+    val allowance: Double,
+    val carryover: Double,
+    val carryoverExpires: String? = null,
+    val kindKrankCap: Int
+)
+
+/** Full snapshot of the planner — clients refetch this after any change. */
+@Serializable
+data class AbsenceStateDto(
+    val users: List<String>,
+    val absences: List<AbsenceDto>,
+    val partTime: List<PartTimeRuleDto>,
+    val kitaClosures: List<KitaClosureDto>,
+    val settings: List<AbsSettingsDto>
+)
+
+@Serializable
+data class SetAbsenceRequest(
+    val userId: String,
+    val date: String,
+    val type: String,
+    val half: String? = null
+)
+
+/** Bulk apply (or clear, when type is null) on the given dates. */
+@Serializable
+data class BatchAbsenceRequest(
+    val userId: String,
+    val type: String? = null,
+    val half: String? = null,
+    val dates: List<String> = emptyList()
+)
+
+@Serializable
+data class CreatePartTimeRequest(
+    val userId: String,
+    val weekday: Int,
+    val start: String,
+    val end: String? = null
+)
+
+/** Full replace of a rule's fields — end = null means open-ended. */
+@Serializable
+data class UpdatePartTimeRequest(
+    val weekday: Int,
+    val start: String,
+    val end: String? = null
+)
+
+@Serializable
+data class CreateKitaRequest(
+    val date: String,
+    val label: String? = null
+)
+
+@Serializable
+data class CreateKitaRangeRequest(
+    val from: String,
+    val to: String,
+    val label: String? = null
+)
+
+@Serializable
+data class UpdateKitaRequest(
+    val date: String? = null,
+    val label: String? = null
+)
+
+@Serializable
+data class UpdateAbsSettingsRequest(
+    val state: String? = null,
+    val allowance: Double? = null,
+    val carryover: Double? = null,
+    val carryoverExpires: String? = null,
+    val kindKrankCap: Int? = null
+)
+
+@Serializable
+data class AbsenceWsMessage(val type: String)

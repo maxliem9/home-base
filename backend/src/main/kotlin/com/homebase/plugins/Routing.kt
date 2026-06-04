@@ -1,5 +1,6 @@
 package com.homebase.plugins
 
+import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
 import com.homebase.routes.configRoutes
 import com.homebase.routes.healthRoutes
@@ -25,6 +26,7 @@ fun Application.configureRouting() {
                 noteRoutes()
                 timeRoutes()
                 recipeRoutes()
+                absenceRoutes()
             }
         }
     }
