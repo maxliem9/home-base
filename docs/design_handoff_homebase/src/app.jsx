@@ -55,8 +55,19 @@ function App() {
 
   const api = {
     // todos
-    addTodo: (title) => update("todos", (xs) => [
-      { id: nid("t"), title, description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: new Date().toISOString() },
+    addTodoList: (name, visibility = "shared") => {
+      const l = { id: nid("tl"), name, visibility, created_by: "max" };
+      update("todoLists", (xs) => [...xs, l]);
+      return l;
+    },
+    renameTodoList: (id, patch) => update("todoLists", (xs) => xs.map((l) => l.id === id ? { ...l, ...patch } : l)),
+    deleteTodoList: (id) => setDb((d) => ({
+      ...d,
+      todoLists: d.todoLists.filter((l) => l.id !== id),
+      todos: d.todos.filter((t) => t.list_id !== id),
+    })),
+    addTodo: (title, listId) => update("todos", (xs) => [
+      { id: nid("t"), title, list_id: listId, description: "", status: "INBOX", assignee: null, due_date: null, priority: null, created_by: "max", created_at: new Date().toISOString(), subtasks: [] },
       ...xs,
     ]),
     updateTodo: (id, patch) => update("todos", (xs) => xs.map((t) => t.id === id ? { ...t, ...patch } : t)),
@@ -66,15 +77,33 @@ function App() {
       return { ...t, status: "DONE", done_at: new Date().toISOString() };
     })),
     deleteTodo: (id) => update("todos", (xs) => xs.filter((t) => t.id !== id)),
+    addSubtask: (todoId, title) => update("todos", (xs) => xs.map((t) => t.id === todoId
+      ? { ...t, subtasks: [...(t.subtasks || []), { id: nid("st"), title, done: false }] } : t)),
+    toggleSubtask: (todoId, subId) => update("todos", (xs) => xs.map((t) => t.id === todoId
+      ? { ...t, subtasks: (t.subtasks || []).map((s) => s.id === subId ? { ...s, done: !s.done } : s) } : t)),
+    deleteSubtask: (todoId, subId) => update("todos", (xs) => xs.map((t) => t.id === todoId
+      ? { ...t, subtasks: (t.subtasks || []).filter((s) => s.id !== subId) } : t)),
     // shopping
-    addItem: (name, category) => update("shopping", (xs) => [...xs, { id: nid("s"), name, category, checked: false, created_by: "max" }]),
+    addList: (name) => {
+      const l = { id: nid("sl"), name, created_by: "max" };
+      update("shoppingLists", (xs) => [...xs, l]);
+      return l;
+    },
+    renameList: (id, name) => update("shoppingLists", (xs) => xs.map((l) => l.id === id ? { ...l, name } : l)),
+    deleteList: (id) => setDb((d) => ({
+      ...d,
+      shoppingLists: d.shoppingLists.filter((l) => l.id !== id),
+      shopping: d.shopping.filter((s) => s.list_id !== id),
+    })),
+    addItem: (name, listId) => update("shopping", (xs) => [...xs, { id: nid("s"), name, list_id: listId, checked: false, created_by: "max" }]),
     toggleItem: (id) => update("shopping", (xs) => xs.map((s) => s.id === id ? { ...s, checked: !s.checked } : s)),
     deleteItem: (id) => update("shopping", (xs) => xs.filter((s) => s.id !== id)),
-    clearChecked: () => update("shopping", (xs) => xs.filter((s) => !s.checked)),
-    addIngredientsToShopping: (ings) => update("shopping", (xs) => {
-      const existing = new Set(xs.map((s) => s.name.toLowerCase()));
+    clearChecked: (listId) => update("shopping", (xs) => xs.filter((s) => !(s.checked && (listId == null || s.list_id === listId)))),
+    addIngredientsToShopping: (ings, listId) => update("shopping", (xs) => {
+      const target = listId || (db.shoppingLists[0] && db.shoppingLists[0].id);
+      const existing = new Set(xs.filter((s) => s.list_id === target).map((s) => s.name.toLowerCase()));
       const add = ings.filter((i) => !existing.has(i.name.toLowerCase()))
-        .map((i) => ({ id: nid("s"), name: i.name, category: "Sonstiges", checked: false, created_by: "max" }));
+        .map((i) => ({ id: nid("s"), name: i.name, list_id: target, checked: false, created_by: "max" }));
       return [...xs, ...add];
     }),
     // notes
@@ -116,7 +145,8 @@ function App() {
   const View = { heute: HeuteView, aufgaben: AufgabenView, einkauf: EinkaufView, notizen: NotizenView, zeit: ZeitView, rezepte: RezepteView }[route];
 
   // live nav badges
-  const inboxCount = db.todos.filter((x) => x.status === "INBOX").length;
+  const _todayStr = HB.iso(0);
+  const inboxCount = db.todos.filter((x) => x.status !== "DONE" && x.due_date && x.due_date <= _todayStr).length;
   const shopCount = db.shopping.filter((x) => !x.checked).length;
   const badges = { aufgaben: inboxCount, einkauf: shopCount };
   const running = db.timeEntries.find((e) => !e.stopped_at);

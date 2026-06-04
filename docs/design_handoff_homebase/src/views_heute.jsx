@@ -145,7 +145,7 @@ function HeuteView({ db, api, navigate }) {
                     <div key={s.id} className="hb-row" style={{ padding: "9px 4px" }}>
                       <Checkbox checked={false} onChange={() => api.toggleItem(s.id)} />
                       <div className="hb-row__main"><div className="hb-row__title">{s.name}</div></div>
-                      <Badge tone="neutral">{s.category}</Badge>
+                      <Badge tone="neutral">{(db.shoppingLists.find((l) => l.id === s.list_id) || {}).name || "Liste"}</Badge>
                     </div>
                   ))}
                 </div>
