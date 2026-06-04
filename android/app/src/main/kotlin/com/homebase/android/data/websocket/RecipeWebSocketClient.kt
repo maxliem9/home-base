@@ -3,6 +3,7 @@ package com.homebase.android.data.websocket
 import com.homebase.android.data.model.RecipeDto
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -18,7 +19,7 @@ class RecipeWebSocketClient(
         data class RecipeDeleted(val recipe: RecipeDto) : WsEvent()
     }
 
-    private val moshi = Moshi.Builder().build()
+    private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
     private val eventChannel = Channel<WsEvent>(Channel.BUFFERED)
     private var webSocket: WebSocket? = null
 
