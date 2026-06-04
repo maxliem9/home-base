@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.homebase.android.ui.abwesenheit.AbsenceViewModel
+import com.homebase.android.ui.abwesenheit.AbwesenheitScreen
 import com.homebase.android.ui.aufgaben.AufgabenScreen
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.components.HbDrawerContent
@@ -102,6 +104,7 @@ class MainActivity : ComponentActivity() {
         val notesVm: NotesViewModel = viewModel(key = "notes-$token", factory = notesFactory(token))
         val timeVm: TimeViewModel = viewModel(key = "time-$token", factory = timeFactory(token, currentUser))
         val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
+        val absenceVm: AbsenceViewModel = viewModel(key = "absence-$token", factory = absenceFactory(token))
 
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
         var drawerOpen by remember { mutableStateOf(false) }
@@ -152,6 +155,10 @@ class MainActivity : ComponentActivity() {
                 HbRoute.ZEIT -> TimeScreen(
                     viewModel = timeVm,
                     currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.ABWESENHEIT -> AbwesenheitScreen(
+                    viewModel = absenceVm,
                     onOpenDrawer = openDrawer,
                 )
                 HbRoute.REZEPTE -> RecipesScreen(
@@ -224,6 +231,13 @@ class MainActivity : ComponentActivity() {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
             return RecipesViewModel(container.recipesRepository, token) as T
+        }
+    }
+
+    private fun absenceFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return AbsenceViewModel(container.absenceRepository, token) as T
         }
     }
 

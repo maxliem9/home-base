@@ -152,4 +152,42 @@ interface HomeBaseApi {
 
     @DELETE("recipes/{id}")
     suspend fun deleteRecipe(@Path("id") id: String)
+
+    // --- Abwesenheit / Familienkalender ---
+
+    @GET("absence")
+    suspend fun getAbsenceState(): AbsenceStateDto
+
+    @POST("absence/entries")
+    suspend fun setAbsence(@Body request: SetAbsenceRequest): AbsenceDto
+
+    @POST("absence/entries/batch")
+    suspend fun batchAbsence(@Body request: BatchAbsenceRequest)
+
+    @DELETE("absence/entries")
+    suspend fun clearAbsence(@Query("userId") userId: String, @Query("date") date: String)
+
+    @POST("absence/parttime")
+    suspend fun createPartTime(@Body request: CreatePartTimeRequest): PartTimeRuleDto
+
+    @PUT("absence/parttime/{id}")
+    suspend fun updatePartTime(@Path("id") id: String, @Body request: UpdatePartTimeRequest): PartTimeRuleDto
+
+    @DELETE("absence/parttime/{id}")
+    suspend fun deletePartTime(@Path("id") id: String)
+
+    @POST("absence/kita")
+    suspend fun createKita(@Body request: CreateKitaRequest): KitaClosureDto
+
+    @POST("absence/kita/range")
+    suspend fun createKitaRange(@Body request: CreateKitaRangeRequest)
+
+    @PUT("absence/kita/{id}")
+    suspend fun updateKita(@Path("id") id: String, @Body request: UpdateKitaRequest): KitaClosureDto
+
+    @DELETE("absence/kita/{id}")
+    suspend fun deleteKita(@Path("id") id: String)
+
+    @PUT("absence/settings/{userId}")
+    suspend fun updateAbsSettings(@Path("userId") userId: String, @Body request: UpdateAbsSettingsRequest): AbsSettingsDto
 }

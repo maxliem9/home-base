@@ -54,6 +54,7 @@ enum class HbRoute(val label: String, val icon: ImageVector) {
     EINKAUF("Einkaufsliste", HbIcons.cart),
     NOTIZEN("Notizen", HbIcons.note),
     ZEIT("Zeiterfassung", HbIcons.clock),
+    ABWESENHEIT("Abwesenheit", HbIcons.calendar),
     REZEPTE("Rezepte", HbIcons.chef),
 }
 
