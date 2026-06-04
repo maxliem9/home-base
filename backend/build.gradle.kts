@@ -56,6 +56,15 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+// Pin Kotlin's bytecode target to match Java above. Without this, Kotlin infers
+// the target from the JDK running Gradle (e.g. 24 in CI), which then disagrees
+// with the Java tasks' 21 and fails the JVM-target consistency check.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
 ktor {
     fatJar {
         archiveFileName.set("homebase-backend.jar")

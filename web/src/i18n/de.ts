@@ -38,16 +38,8 @@ export const de = {
   todos: {
     headerTitle: 'HomeBase — Aufgaben',
     title: 'Aufgaben',
+    eyebrow: 'Gemeinsam · Echtzeit',
     open: 'offen', // rendered as "{n} offen"
-    quickAddPlaceholder: 'Aufgabe hinzufügen …',
-    segInbox: 'Inbox',
-    segPlanned: 'Geplant',
-    segDone: 'Erledigt',
-    emptyInbox: 'Inbox ist leer',
-    emptyPlanned: 'Nichts geplant',
-    emptyDone: 'Noch nichts erledigt',
-    addHint: 'Füge oben eine Aufgabe hinzu',
-    newTask: 'Neue Aufgabe',
     plan: 'Planen',
     markDone: 'Erledigt',
     planTitle: 'Aufgabe planen',
@@ -57,34 +49,55 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
-    // Lists / groups
-    allLists: 'Alle',
-    noList: 'Ohne Liste',
-    list: 'Liste',
+    // Lists (tabs)
     newList: 'Neue Liste',
-    manageLists: 'Listen verwalten',
+    newListTitle: 'Neue Liste',
     listName: 'Name',
-    listNamePlaceholder: 'z. B. Haushalt, Kind, Arbeit, Verein',
-    listColor: 'Farbe',
-    createList: 'Liste erstellen',
-    deleteListConfirm: 'Liste löschen? Aufgaben bleiben erhalten und werden aus der Liste entfernt.',
-    emptyLists: 'Noch keine Listen',
+    listNamePlaceholder: 'z. B. Renovierung',
+    createList: 'Erstellen',
+    visibility: 'Sichtbarkeit',
+    visShared: 'Geteilt',
+    visPrivate: 'Privat',
+    deleteList: 'Liste löschen', // rendered as `Liste „{name}" löschen`
+    deleteListConfirm: 'Liste und alle Aufgaben darin löschen?', // rendered with the list name
+    noLists: 'Noch keine Liste',
+    noListsHint: 'Lege oben deine erste Aufgabenliste an.',
+    quickAddPlaceholder: 'Neue Aufgabe …', // rendered as `Neue Aufgabe in „{name}" …`
+    addTask: 'Erfassen',
+    allDone: 'Alles erledigt',
+    allDoneHint: 'Keine offenen Aufgaben in dieser Liste.',
+    doneSection: 'Erledigt',
+    // due buckets
+    bucketOver: 'Überfällig',
+    bucketToday: 'Heute',
+    bucketSoon: 'Demnächst',
+    bucketFar: 'Später',
+    bucketNone: 'Ohne Datum',
     // Subtasks
     subtasks: 'Unteraufgaben',
     addSubtask: 'Unteraufgabe hinzufügen …',
-    subtaskCount: 'Unteraufgaben', // rendered as "{done}/{total} Unteraufgaben"
   },
   shopping: {
-    headerTitle: 'HomeBase — Einkaufsliste',
-    title: 'Einkaufsliste',
+    headerTitle: 'HomeBase — Einkaufslisten',
+    title: 'Einkaufslisten',
     open: 'offen', // rendered as "{n} offen"
+    listOne: 'Liste',
+    listMany: 'Listen',
+    newList: 'Neue Liste',
+    newListTitle: 'Neue Liste',
+    listName: 'Name',
+    listNamePlaceholder: 'z. B. Wocheneinkauf',
+    createList: 'Erstellen',
+    deleteList: 'Liste löschen', // rendered as `Liste „{name}" löschen`
+    deleteListConfirm: 'Liste und alle Einträge löschen?', // rendered with the list name
+    noLists: 'Noch keine Liste',
+    noListsHint: 'Lege oben deine erste Einkaufsliste an.',
     emptyTitle: 'Liste ist leer',
-    emptyHint: 'Füge oben einen Artikel hinzu',
-    uncategorized: 'Sonstiges',
-    newItem: 'Neuer Artikel',
-    namePlaceholder: 'Artikel hinzufügen …',
-    categoryPlaceholder: 'Kategorie (optional)…',
-    clearChecked: 'Erledigte entfernen',
+    emptyHint: 'Füge oben das erste Produkt hinzu.',
+    allChecked: 'Alles abgehakt 🎉',
+    namePlaceholder: 'Was fehlt? …', // rendered as `Was fehlt in „{name}"? …`
+    inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
+    clearChecked: 'Abgehakte entfernen',
   },
   notes: {
     headerTitle: 'HomeBase — Notizen',
@@ -202,8 +215,17 @@ export const de = {
     removeStep: 'Schritt entfernen',
     addToList: 'Zutaten zur Liste',
     addedToList: 'Zutaten zur Einkaufsliste hinzugefügt', // "{n} Zutaten …"
+    addedOne: 'Zutat zur Einkaufsliste hinzugefügt', // "1 Zutat …"
     nothingToAdd: 'Keine neuen Zutaten',
     viewList: 'Ansehen',
+    backToRecipes: 'Alle Rezepte',
+    pickerTitle: 'Zutaten zur Liste',
+    pickerSelected: 'ausgewählt', // rendered as "{n} von {total} ausgewählt"
+    pickerAll: 'Alle',
+    pickerNone: 'Keine',
+    pickerTargetList: 'Liste',
+    pickerAdd: 'hinzufügen', // rendered as "{n} hinzufügen"
+    pickerNoList: 'Lege zuerst eine Einkaufsliste an.',
     // keys match the RecipeCategory enum values from the backend
     categories: {
       BREAKFAST: 'Frühstück',

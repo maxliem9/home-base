@@ -16,7 +16,7 @@ object UsersTable : Table("users") {
 object TodoListsTable : Table("todo_lists") {
     val id = uuid("id")
     val name = text("name")
-    val color = varchar("color", 7)
+    val visibility = varchar("visibility", 10)
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
@@ -47,10 +47,18 @@ object TodoSubtasksTable : Table("todo_subtasks") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object ShoppingListsTable : Table("shopping_lists") {
+    val id = uuid("id")
+    val name = text("name")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object ShoppingItemsTable : Table("shopping_items") {
     val id = uuid("id")
     val name = text("name")
-    val category = varchar("category", 50).nullable()
+    val listId = uuid("list_id").nullable()
     val checked = bool("checked")
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")

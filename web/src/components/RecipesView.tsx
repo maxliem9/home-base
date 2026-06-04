@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
-import { Recipe, RecipeCategory, ShoppingItem } from '../types'
+import { Recipe, RecipeCategory, ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
-import { Badge, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
+import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
@@ -67,10 +67,12 @@ interface RecipesViewProps {
 
 export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<RecipeCategory | 'ALL'>('ALL')
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
+  const [picking, setPicking] = useState<Recipe | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -88,7 +90,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     }
   }, [onLogout, token])
 
+  const fetchShoppingLists = useCallback(async () => {
+    const res = await authFetch(token, `${API_BASE}/shopping/lists`)
+    if (res.ok) setShoppingLists(await res.json())
+  }, [token])
+
   useEffect(() => { fetchRecipes() }, [fetchRecipes])
+  useEffect(() => { fetchShoppingLists() }, [fetchShoppingLists])
 
   useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
@@ -154,27 +162,60 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
   }
 
-  // push a recipe's ingredients onto the shopping list (deduped, "Sonstiges")
-  const addToShopping = async (recipe: Recipe) => {
+  // add the chosen ingredients to a shopping list (deduped against that list)
+  const addToShopping = async (listId: string, chosen: Recipe['ingredients']) => {
     const res = await authFetch(token, `${API_BASE}/shopping`)
     const existing: Set<string> = res.ok
-      ? new Set((await res.json() as ShoppingItem[]).map((i) => i.name.toLowerCase()))
+      ? new Set((await res.json() as ShoppingItem[]).filter((i) => i.listId === listId).map((i) => i.name.toLowerCase()))
       : new Set()
-    const toAdd = recipe.ingredients.filter((i) => i.name.trim() && !existing.has(i.name.toLowerCase()))
+    const toAdd = chosen.filter((i) => i.name.trim() && !existing.has(i.name.toLowerCase()))
     await Promise.all(
       toAdd.map((i) =>
         authFetch(token, `${API_BASE}/shopping`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: i.name, category: t.shopping.uncategorized }),
+          body: JSON.stringify({ name: i.name, listId }),
         }),
       ),
     )
-    setToast(toAdd.length ? `${toAdd.length} ${t.recipes.addedToList}` : t.recipes.nothingToAdd)
+    setPicking(null)
+    const n = toAdd.length
+    setToast(n ? `${n} ${n === 1 ? t.recipes.addedOne : t.recipes.addedToList}` : t.recipes.nothingToAdd)
     setTimeout(() => setToast(null), 2600)
   }
 
+  // keep the open recipe in sync with the store (e.g. after WS edits)
+  const current = selected ? recipes.find((r) => r.id === selected.id) ?? selected : null
   const visible = filter === 'ALL' ? recipes : recipes.filter((r) => r.category === filter)
+
+  // ---- detail page (full page, not a modal) ----
+  if (current && !draft) {
+    return (
+      <>
+        <RecipeDetail
+          recipe={current}
+          onBack={() => setSelected(null)}
+          onEdit={() => setDraft(draftFromRecipe(current))}
+          onDelete={() => handleDelete(current.id)}
+          onAddToShopping={() => setPicking(current)}
+        />
+        {picking && (
+          <IngredientPicker
+            recipe={picking}
+            lists={shoppingLists}
+            onClose={() => setPicking(null)}
+            onAdd={addToShopping}
+          />
+        )}
+        {toast && (
+          <div className="hb-toast">
+            <Icon name="check" size={18} stroke={2.4} style={{ color: 'var(--accent)' }} />
+            {toast}
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <div className="hb-page">
@@ -225,16 +266,6 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         </div>
       )}
 
-      {selected && !draft && (
-        <RecipeDetail
-          recipe={selected}
-          onClose={() => setSelected(null)}
-          onEdit={() => setDraft(draftFromRecipe(selected))}
-          onDelete={() => handleDelete(selected.id)}
-          onAddToShopping={() => addToShopping(selected)}
-        />
-      )}
-
       {draft && <RecipeEditor draft={draft} setDraft={setDraft} saving={saving} onSave={handleSave} onCancel={() => setDraft(null)} />}
 
       {toast && (
@@ -247,9 +278,9 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   )
 }
 
-function RecipeDetail({ recipe, onClose, onEdit, onDelete, onAddToShopping }: {
+function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
   recipe: Recipe
-  onClose: () => void
+  onBack: () => void
   onEdit: () => void
   onDelete: () => void
   onAddToShopping: () => void
@@ -259,24 +290,28 @@ function RecipeDetail({ recipe, onClose, onEdit, onDelete, onAddToShopping }: {
   const total = (recipe.prepTimeMinutes ?? 0) + (recipe.cookTimeMinutes ?? 0)
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={recipe.title}
-      width={620}
-      footer={
-        <>
-          <Button variant="danger" icon="trash" onClick={onDelete}>{t.common.delete}</Button>
-          <span style={{ flex: 1 }} />
-          <Button variant="ghost" icon="edit" onClick={onEdit}>{t.recipes.edit}</Button>
-          <Button icon="cart" onClick={onAddToShopping}>{t.recipes.addToList}</Button>
-        </>
-      }
-    >
-      <Badge tone="clay">{categoryLabel(recipe.category)}</Badge>
-      {recipe.description && <p className="hb-muted" style={{ margin: 0 }}>{recipe.description}</p>}
+    <div className="hb-page">
+      <button className="hb-backlink" onClick={onBack}>
+        <Icon name="chevronLeft" size={17} stroke={2.2} />{t.recipes.backToRecipes}
+      </button>
 
-      <div className="hb-recipe-facts">
+      <div className="hb-pagehead">
+        <div>
+          <div className="hb-pagehead__eyebrow">{categoryLabel(recipe.category)}</div>
+          <h1>{recipe.title}</h1>
+        </div>
+        <div className="hb-pagehead__actions">
+          <Button variant="danger" icon="trash" onClick={onDelete}>{t.common.delete}</Button>
+          <Button variant="ghost" icon="edit" onClick={onEdit}>{t.recipes.edit}</Button>
+          <Button variant="soft" icon="cart" onClick={onAddToShopping}>{t.recipes.addToList}</Button>
+        </div>
+      </div>
+
+      {recipe.description && (
+        <p className="hb-muted" style={{ margin: '0 0 18px', fontSize: 16, maxWidth: 640 }}>{recipe.description}</p>
+      )}
+
+      <div className="hb-recipe-facts" style={{ maxWidth: 560, marginBottom: 26 }}>
         <div className="hb-servings-step hb-fact" style={{ flexDirection: 'row', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
             <div className="hb-fact__v">{servings}</div>
@@ -326,6 +361,69 @@ function RecipeDetail({ recipe, onClose, onEdit, onDelete, onAddToShopping }: {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function IngredientPicker({ recipe, lists, onClose, onAdd }: {
+  recipe: Recipe
+  lists: ShoppingList[]
+  onClose: () => void
+  onAdd: (listId: string, chosen: Recipe['ingredients']) => void
+}) {
+  const [sel, setSel] = useState<boolean[]>(() => recipe.ingredients.map(() => true))
+  const [listId, setListId] = useState(lists[0]?.id ?? '')
+  const toggle = (i: number) => setSel((s) => s.map((v, j) => (j === i ? !v : v)))
+  const count = sel.filter(Boolean).length
+  const allOn = count === recipe.ingredients.length
+
+  const add = () => {
+    if (!listId) return
+    const chosen = recipe.ingredients.filter((_, i) => sel[i])
+    if (chosen.length) onAdd(listId, chosen)
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.recipes.pickerTitle}
+      width={440}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="primary" icon="cart" onClick={add} disabled={count === 0 || !listId}>{count} {t.recipes.pickerAdd}</Button>
+        </>
+      }
+    >
+      {lists.length === 0 ? (
+        <p className="hb-muted" style={{ margin: 0 }}>{t.recipes.pickerNoList}</p>
+      ) : (
+        <>
+          {lists.length > 1 && (
+            <Field label={t.recipes.pickerTargetList}>
+              <Select value={listId} onChange={setListId}>
+                {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </Select>
+            </Field>
+          )}
+          <div className="hb-picker-head">
+            <span className="hb-muted">{count} von {recipe.ingredients.length} {t.recipes.pickerSelected}</span>
+            <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
+              {allOn ? t.recipes.pickerNone : t.recipes.pickerAll}
+            </button>
+          </div>
+          <div className="hb-picklist">
+            {recipe.ingredients.map((ing, i) => (
+              <div key={ing.id} className="hb-ingpick" onClick={() => toggle(i)}>
+                <Checkbox checked={sel[i]} onChange={() => toggle(i)} />
+                <span className="hb-ing__amt">{[ing.amount != null ? fmtAmount(ing.amount) : null, ing.unit].filter(Boolean).join(' ') || '·'}</span>
+                <span className="hb-ingpick__name">{ing.name}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </Modal>
   )
 }

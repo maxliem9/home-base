@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
-import { Todo, TodoList, TodoStatus, TodoPriority, Subtask } from '../types'
+import { Todo, TodoList, TodoPriority, Subtask, ListVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import {
@@ -16,20 +16,22 @@ import {
   Modal,
   PageHead,
   PriorityDot,
-  SegmentedControl,
   Select,
   TextInput,
 } from '../ui/primitives'
-import { dueLabel } from '../ui/format'
+import { dueLabel, relTime, userMeta } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/todos`
 
-// 'ALL' = every todo, 'NONE' = todos without a list, otherwise a list id
-const FILTER_ALL = 'ALL'
-const FILTER_NONE = 'NONE'
-
-const LIST_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#64748b']
+// open todos are grouped into these due-date buckets, in this order
+const BUCKETS: { key: string; label: string }[] = [
+  { key: 'over', label: t.todos.bucketOver },
+  { key: 'today', label: t.todos.bucketToday },
+  { key: 'soon', label: t.todos.bucketSoon },
+  { key: 'far', label: t.todos.bucketFar },
+  { key: 'none', label: t.todos.bucketNone },
+]
 
 interface PlanDraft {
   id: string
@@ -47,16 +49,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const [todos, setTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
   const [loading, setLoading] = useState(true)
-  const [segment, setSegment] = useState<TodoStatus>('INBOX')
-  const [listFilter, setListFilter] = useState<string>(FILTER_ALL)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
-  const [listModal, setListModal] = useState(false)
-  const [newListName, setNewListName] = useState('')
-  const [newListColor, setNewListColor] = useState(LIST_COLORS[0])
+  const [doneOpen, setDoneOpen] = useState(false)
+  const [newListOpen, setNewListOpen] = useState(false)
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -76,6 +76,15 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchTodos() }, [fetchTodos])
+
+  // keep an active tab selected as lists load / change
+  useEffect(() => {
+    if (lists.length === 0) {
+      if (activeId !== null) setActiveId(null)
+    } else if (!activeId || !lists.some((l) => l.id === activeId)) {
+      setActiveId(lists[0].id)
+    }
+  }, [lists, activeId])
 
   useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
@@ -103,8 +112,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           break
         case 'TODO_LIST_DELETED':
           setLists((prev) => prev.filter((x) => x.id !== msg.payload.id))
-          setTodos((prev) => prev.map((x) => (x.listId === msg.payload.id ? { ...x, listId: undefined } : x)))
-          setListFilter((f) => (f === msg.payload.id ? FILTER_ALL : f))
+          setTodos((prev) => prev.filter((x) => x.listId !== msg.payload.id))
           break
       }
     } catch {
@@ -125,15 +133,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }
 
   const handleAdd = async () => {
-    if (!newTitle.trim()) return
+    if (!newTitle.trim() || !active) return
     setSubmitting(true)
     try {
-      const body: Record<string, unknown> = { title: newTitle.trim() }
-      if (listFilter !== FILTER_ALL && listFilter !== FILTER_NONE) body.listId = listFilter
       const res = await authFetch(token, `${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ title: newTitle.trim(), listId: active.id }),
       })
       if (res.ok) {
         const created: Todo = await res.json()
@@ -209,223 +215,170 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     })
 
   // --- Lists ---
-  const createList = async () => {
-    if (!newListName.trim()) return
+  const createList = async (name: string, visibility: ListVisibility) => {
     const res = await authFetch(token, `${API_BASE}/todos/lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newListName.trim(), color: newListColor }),
+      body: JSON.stringify({ name, visibility }),
     })
     if (res.ok) {
       const created: TodoList = await res.json()
       setLists((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]))
-      setNewListName('')
-      setNewListColor(LIST_COLORS[0])
+      setActiveId(created.id)
+      setNewListOpen(false)
     }
   }
 
-  const deleteList = async (id: string) => {
-    const res = await authFetch(token, `${API_BASE}/todos/lists/${id}`, { method: 'DELETE' })
-    if (res.ok) {
-      setLists((prev) => prev.filter((x) => x.id !== id))
-      setTodos((prev) => prev.map((x) => (x.listId === id ? { ...x, listId: undefined } : x)))
-      setListFilter((f) => (f === id ? FILTER_ALL : f))
-    }
+  const removeList = async () => {
+    if (!active || lists.length <= 1) return
+    if (!confirm(`${t.todos.deleteListConfirm}\n\n„${active.name}"`)) return
+    const idx = lists.findIndex((l) => l.id === active.id)
+    const next = lists[idx + 1] ?? lists[idx - 1]
+    setLists((prev) => prev.filter((l) => l.id !== active.id))
+    setTodos((prev) => prev.filter((x) => x.listId !== active.id))
+    setActiveId(next ? next.id : null)
+    await authFetch(token, `${API_BASE}/todos/lists/${active.id}`, { method: 'DELETE' })
   }
 
-  const listById = (id?: string) => lists.find((l) => l.id === id)
+  const active = lists.find((l) => l.id === activeId) ?? null
+  const openCount = (id: string) => todos.filter((x) => x.listId === id && x.status !== 'DONE').length
 
-  const matchesList = (x: Todo) =>
-    listFilter === FILTER_ALL ? true : listFilter === FILTER_NONE ? !x.listId : x.listId === listFilter
-
-  const base = todos.filter(matchesList)
-  const inbox = base.filter((x) => x.status === 'INBOX')
-  const planned = base
-    .filter((x) => x.status === 'PLANNED')
-    .sort((a, b) => {
-      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
-      if (a.dueDate) return -1
-      if (b.dueDate) return 1
-      return 0
-    })
-  const done = base
+  const listTodos = active ? todos.filter((x) => x.listId === active.id) : []
+  const openTodos = listTodos.filter((x) => x.status !== 'DONE')
+  const done = listTodos
     .filter((x) => x.status === 'DONE')
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
 
-  const visible = segment === 'INBOX' ? inbox : segment === 'PLANNED' ? planned : done
-  const emptyText =
-    segment === 'INBOX' ? t.todos.emptyInbox : segment === 'PLANNED' ? t.todos.emptyPlanned : t.todos.emptyDone
+  // bucket open todos by due tone, each bucket sorted by date
+  const buckets: Record<string, Todo[]> = { over: [], today: [], soon: [], far: [], none: [] }
+  openTodos.forEach((todo) => {
+    const d = dueLabel(todo.dueDate)
+    buckets[d ? d.tone : 'none'].push(todo)
+  })
+  Object.values(buckets).forEach((b) =>
+    b.sort((a, c) => (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')),
+  )
+  const groups = BUCKETS.filter((g) => buckets[g.key].length)
 
   return (
     <div className="hb-page">
-      <PageHead
-        eyebrow={`${inbox.length} ${t.todos.open}`}
-        title={t.todos.title}
-        actions={
-          <SegmentedControl
-            value={segment}
-            onChange={setSegment}
-            options={[
-              { value: 'INBOX', label: t.todos.segInbox, count: inbox.length },
-              { value: 'PLANNED', label: t.todos.segPlanned, count: planned.length },
-              { value: 'DONE', label: t.todos.segDone, count: done.length },
-            ]}
-          />
-        }
-      />
+      <PageHead eyebrow={t.todos.eyebrow} title={t.todos.title} />
 
-      <div className="hb-listbar">
-        <button
-          className={`hb-listchip${listFilter === FILTER_ALL ? ' is-active' : ''}`}
-          onClick={() => setListFilter(FILTER_ALL)}
-        >
-          {t.todos.allLists}
-        </button>
+      {/* Listen-Tabs */}
+      <div className="hb-tabs" role="tablist">
         {lists.map((l) => (
           <button
             key={l.id}
-            className={`hb-listchip${listFilter === l.id ? ' is-active' : ''}`}
-            onClick={() => setListFilter(l.id)}
+            role="tab"
+            aria-selected={active?.id === l.id}
+            className={`hb-tab${active?.id === l.id ? ' is-active' : ''}`}
+            onClick={() => setActiveId(l.id)}
           >
-            <span className="hb-listdot" style={{ background: l.color }} />
+            {l.visibility === 'PRIVATE' && <Icon name="lock" size={13} stroke={2} style={{ opacity: 0.7 }} />}
             {l.name}
+            {openCount(l.id) > 0 && <span className="hb-tab__count">{openCount(l.id)}</span>}
           </button>
         ))}
-        {lists.length > 0 && (
-          <button
-            className={`hb-listchip${listFilter === FILTER_NONE ? ' is-active' : ''}`}
-            onClick={() => setListFilter(FILTER_NONE)}
-          >
-            {t.todos.noList}
-          </button>
-        )}
-        <button className="hb-listchip hb-listchip--add" onClick={() => setListModal(true)}>
-          <Icon name="plus" size={15} stroke={2.2} />
+        <button className="hb-tab hb-tab--add" onClick={() => setNewListOpen(true)}>
+          <Icon name="plus" size={16} stroke={2.2} />
           {t.todos.newList}
         </button>
       </div>
 
-      <div className="hb-quickadd" style={{ marginBottom: 22 }}>
-        <Icon name="plus" size={18} stroke={2.2} style={{ color: 'var(--ink-3)' }} />
-        <input
-          value={newTitle}
-          placeholder={t.todos.quickAddPlaceholder}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-        />
-        <Button size="sm" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>{t.common.add}</Button>
-      </div>
-
-      <Card className="hb-card--pad">
-        {loading ? (
-          <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
-        ) : visible.length === 0 ? (
-          <EmptyState
-            icon={segment === 'DONE' ? 'checkCircle' : 'inbox'}
-            title={emptyText}
-            hint={segment === 'INBOX' ? t.todos.addHint : undefined}
-          />
-        ) : (
-          <div className="hb-list">
-            {visible.map((todo) => {
-              const due = dueLabel(todo.dueDate)
-              const subs = todo.subtasks ?? []
-              const doneCount = subs.filter((s) => s.done).length
-              const isOpen = expanded.has(todo.id)
-              const list = listById(todo.listId)
-              return (
-                <div key={todo.id} className="hb-todo">
-                  <div className={`hb-row${todo.status === 'DONE' ? ' hb-row--done' : ''}`}>
-                    <Checkbox checked={todo.status === 'DONE'} onChange={() => toggleDone(todo)} />
-                    <div className="hb-row__main">
-                      <div className="hb-row__title">{todo.title}</div>
-                      <div className="hb-row__meta">
-                        {list && (
-                          <span className="hb-listtag">
-                            <span className="hb-listdot" style={{ background: list.color }} />
-                            {list.name}
-                          </span>
-                        )}
-                        {todo.assignee && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <Avatar user={todo.assignee} size={18} />
-                            {todo.assignee}
-                          </span>
-                        )}
-                        {due && <Badge tone={due.tone}>{due.text}</Badge>}
-                        {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
-                        {subs.length > 0 && (
-                          <button className="hb-subbadge" onClick={() => toggleExpand(todo.id)}>
-                            <Icon name="checkCircle" size={13} stroke={2} />
-                            {doneCount}/{subs.length}
-                          </button>
-                        )}
-                        {todo.status === 'INBOX' && <span>{t.common.by} {todo.createdBy}</span>}
-                      </div>
-                    </div>
-                    <div className="hb-row__right">
-                      {lists.length > 0 && (
-                        <span className="hb-listpick">
-                          <span className="hb-listdot" style={{ background: list?.color ?? 'var(--line)' }} />
-                          <select
-                            value={todo.listId ?? ''}
-                            onChange={(e) => patchTodo(todo.id, { listId: e.target.value })}
-                          >
-                            <option value="">{t.todos.noList}</option>
-                            {lists.map((l) => (
-                              <option key={l.id} value={l.id}>{l.name}</option>
-                            ))}
-                          </select>
-                        </span>
-                      )}
-                      {todo.status === 'INBOX' && (
-                        <Button
-                          variant="soft"
-                          size="sm"
-                          icon="calendar"
-                          onClick={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
-                        >
-                          {t.todos.plan}
-                        </Button>
-                      )}
-                      <IconButton
-                        icon={isOpen ? 'chevronDown' : 'chevronRight'}
-                        label={t.todos.subtasks}
-                        active={isOpen}
-                        onClick={() => toggleExpand(todo.id)}
-                      />
-                      <div className="hb-row__actions">
-                        <IconButton icon="trash" label={t.common.delete} danger onClick={() => deleteTodo(todo.id)} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {isOpen && (
-                    <div className="hb-subtasks">
-                      {subs.map((s) => (
-                        <div key={s.id} className={`hb-subtask${s.done ? ' hb-subtask--done' : ''}`}>
-                          <Checkbox checked={s.done} onChange={() => toggleSubtask(todo.id, s)} />
-                          <span className="hb-subtask__title">{s.title}</span>
-                          <IconButton icon="trash" label={t.common.delete} danger size={15} onClick={() => deleteSubtask(todo.id, s.id)} />
-                        </div>
-                      ))}
-                      <div className="hb-subadd">
-                        <Icon name="plus" size={15} stroke={2.2} style={{ color: 'var(--ink-3)' }} />
-                        <input
-                          value={subDrafts[todo.id] ?? ''}
-                          placeholder={t.todos.addSubtask}
-                          onChange={(e) => setSubDrafts((d) => ({ ...d, [todo.id]: e.target.value }))}
-                          onKeyDown={(e) => e.key === 'Enter' && addSubtask(todo.id)}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+      {loading ? (
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+      ) : !active ? (
+        <Card className="hb-card--pad">
+          <EmptyState icon="inbox" title={t.todos.noLists} hint={t.todos.noListsHint} />
+        </Card>
+      ) : (
+        <>
+          <div className="hb-quickadd" style={{ marginBottom: 24 }}>
+            <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
+            <input
+              value={newTitle}
+              placeholder={`${t.todos.quickAddPlaceholder.replace(' …', '')} in „${active.name}" …`}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+            />
+            <Button size="sm" icon="plus" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>
+              {t.todos.addTask}
+            </Button>
           </div>
-        )}
-      </Card>
+
+          {openTodos.length === 0 ? (
+            <Card className="hb-card--pad"><EmptyState icon="checkCircle" title={t.todos.allDone} hint={t.todos.allDoneHint} /></Card>
+          ) : (
+            groups.map((g) => (
+              <div key={g.key} style={{ marginBottom: 22 }}>
+                <div className="hb-sectionlabel">
+                  {g.label}{' '}
+                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-3)', fontWeight: 500 }}>{buckets[g.key].length}</span>
+                </div>
+                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                  <div className="hb-list">
+                    {buckets[g.key].map((todo) => (
+                      <TodoRow
+                        key={todo.id}
+                        todo={todo}
+                        open={expanded.has(todo.id)}
+                        draft={subDrafts[todo.id] ?? ''}
+                        onToggleDone={() => toggleDone(todo)}
+                        onToggleExpand={() => toggleExpand(todo.id)}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
+                        onDelete={() => deleteTodo(todo.id)}
+                        onToggleSub={(s) => toggleSubtask(todo.id, s)}
+                        onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
+                        onDraft={(v) => setSubDrafts((d) => ({ ...d, [todo.id]: v }))}
+                        onAddSub={() => addSubtask(todo.id)}
+                      />
+                    ))}
+                  </div>
+                </Card>
+              </div>
+            ))
+          )}
+
+          {done.length > 0 && (
+            <div style={{ marginTop: 30 }}>
+              <button className={`hb-donehead${doneOpen ? ' is-open' : ''}`} onClick={() => setDoneOpen((v) => !v)}>
+                <Icon name="chevronDown" size={16} stroke={2.4} className="hb-donehead__chev" />
+                <span className="hb-sectionlabel" style={{ margin: 0 }}>{t.todos.doneSection}</span>
+                <span className="hb-donehead__c">{done.length}</span>
+              </button>
+              {doneOpen && (
+                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6, marginTop: 12 }}>
+                  <div className="hb-list">
+                    {done.map((todo) => (
+                      <TodoRow
+                        key={todo.id}
+                        todo={todo}
+                        open={expanded.has(todo.id)}
+                        draft={subDrafts[todo.id] ?? ''}
+                        onToggleDone={() => toggleDone(todo)}
+                        onToggleExpand={() => toggleExpand(todo.id)}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
+                        onDelete={() => deleteTodo(todo.id)}
+                        onToggleSub={(s) => toggleSubtask(todo.id, s)}
+                        onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
+                        onDraft={(v) => setSubDrafts((d) => ({ ...d, [todo.id]: v }))}
+                        onAddSub={() => addSubtask(todo.id)}
+                      />
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {lists.length > 1 && (
+            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={removeList}>
+              <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+              {t.todos.deleteList} „{active.name}"
+            </button>
+          )}
+        </>
+      )}
 
       <Modal
         open={!!plan}
@@ -459,57 +412,135 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         )}
       </Modal>
 
-      <Modal
-        open={listModal}
-        onClose={() => setListModal(false)}
-        title={t.todos.manageLists}
-        footer={<Button variant="ghost" onClick={() => setListModal(false)}>{t.common.close}</Button>}
-      >
-        <Field label={t.todos.listName}>
-          <TextInput
-            value={newListName}
-            onChange={setNewListName}
-            placeholder={t.todos.listNamePlaceholder}
-            onKeyDown={(e) => e.key === 'Enter' && createList()}
-          />
-        </Field>
-        <Field label={t.todos.listColor}>
-          <div className="hb-swatches">
-            {LIST_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`hb-swatch${newListColor === c ? ' is-active' : ''}`}
-                style={{ background: c }}
-                aria-label={c}
-                onClick={() => setNewListColor(c)}
-              />
-            ))}
-          </div>
-        </Field>
-        <Button icon="plus" onClick={createList} disabled={!newListName.trim()} style={{ marginTop: 4 }}>
-          {t.todos.createList}
-        </Button>
-
-        {lists.length > 0 ? (
-          <div className="hb-list" style={{ marginTop: 18 }}>
-            {lists.map((l) => (
-              <div key={l.id} className="hb-row">
-                <span className="hb-listdot" style={{ background: l.color, width: 12, height: 12 }} />
-                <div className="hb-row__main"><div className="hb-row__title">{l.name}</div></div>
-                <IconButton
-                  icon="trash"
-                  label={t.common.delete}
-                  danger
-                  onClick={() => { if (confirm(t.todos.deleteListConfirm)) deleteList(l.id) }}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="hb-muted" style={{ marginTop: 16, fontSize: 13.5 }}>{t.todos.emptyLists}</p>
-        )}
-      </Modal>
+      {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
     </div>
+  )
+}
+
+function TodoRow({
+  todo,
+  open,
+  draft,
+  onToggleDone,
+  onToggleExpand,
+  onPlan,
+  onDelete,
+  onToggleSub,
+  onDeleteSub,
+  onDraft,
+  onAddSub,
+}: {
+  todo: Todo
+  open: boolean
+  draft: string
+  onToggleDone: () => void
+  onToggleExpand: () => void
+  onPlan: () => void
+  onDelete: () => void
+  onToggleSub: (s: Subtask) => void
+  onDeleteSub: (subId: string) => void
+  onDraft: (v: string) => void
+  onAddSub: () => void
+}) {
+  const due = dueLabel(todo.dueDate)
+  const subs = todo.subtasks ?? []
+  const doneCount = subs.filter((s) => s.done).length
+  const isDone = todo.status === 'DONE'
+
+  return (
+    <div className="hb-todo">
+      <div className={`hb-row${isDone ? ' hb-row--done' : ''}`}>
+        <Checkbox checked={isDone} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={onToggleDone} />
+        <div className="hb-row__main">
+          <div className="hb-row__title">{todo.title}</div>
+          <div className="hb-row__meta">
+            {todo.description && (
+              <span style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.description}</span>
+            )}
+            {todo.priority && !isDone && <PriorityDot priority={todo.priority} withLabel />}
+            {isDone && todo.doneAt && <span>{t.todos.markDone.toLowerCase()} {relTime(todo.doneAt)}</span>}
+          </div>
+        </div>
+        <div className="hb-row__right">
+          <button
+            className={`hb-subtoggle${open ? ' is-open' : ''}${subs.length ? '' : ' is-empty'}`}
+            onClick={onToggleExpand}
+            title={t.todos.subtasks}
+            aria-label={t.todos.subtasks}
+          >
+            <Icon name="checkCircle" size={14} stroke={2} />
+            {subs.length > 0 && <span className="hb-subtoggle__c">{doneCount}/{subs.length}</span>}
+            <Icon name="chevronDown" size={13} stroke={2.4} className="hb-subtoggle__chev" />
+          </button>
+          {due && !isDone && <Badge tone={due.tone}>{due.text}</Badge>}
+          {todo.assignee ? (
+            <Avatar user={todo.assignee} size={28} />
+          ) : !isDone && !todo.dueDate ? (
+            <Button size="sm" variant="soft" icon="calendar" onClick={onPlan}>{t.todos.plan}</Button>
+          ) : (
+            <Avatar user={null} size={28} />
+          )}
+          <div className="hb-row__actions">
+            <IconButton icon="trash" label={t.common.delete} danger size={16} onClick={onDelete} />
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div className="hb-subtasks">
+          {subs.map((s) => (
+            <div key={s.id} className={`hb-subtask${s.done ? ' hb-subtask--done' : ''}`}>
+              <Checkbox checked={s.done} onChange={() => onToggleSub(s)} />
+              <span className="hb-subtask__title">{s.title}</span>
+              <IconButton icon="trash" label={t.common.delete} danger size={15} onClick={() => onDeleteSub(s.id)} />
+            </div>
+          ))}
+          <div className="hb-subadd">
+            <Icon name="plus" size={15} stroke={2.2} style={{ color: 'var(--ink-3)' }} />
+            <input
+              value={draft}
+              placeholder={t.todos.addSubtask}
+              onChange={(e) => onDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && onAddSub()}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, visibility: ListVisibility) => void }) {
+  const [name, setName] = useState('')
+  const [visibility, setVisibility] = useState<ListVisibility>('SHARED')
+  const create = () => { if (name.trim()) onCreate(name.trim(), visibility) }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.todos.newListTitle}
+      width={440}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim()}>{t.todos.createList}</Button>
+        </>
+      }
+    >
+      <Field label={t.todos.listName}>
+        <TextInput value={name} onChange={setName} placeholder={t.todos.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
+      </Field>
+      <Field label={t.todos.visibility}>
+        <div className="hb-pickrow">
+          <button className={`hb-pick${visibility === 'SHARED' ? ' is-active' : ''}`} onClick={() => setVisibility('SHARED')}>
+            <Icon name="users" size={16} stroke={2} /> {t.todos.visShared}
+          </button>
+          <button className={`hb-pick${visibility === 'PRIVATE' ? ' is-active' : ''}`} onClick={() => setVisibility('PRIVATE')}>
+            <Icon name="lock" size={16} stroke={2} /> {t.todos.visPrivate}
+          </button>
+        </div>
+      </Field>
+    </Modal>
   )
 }

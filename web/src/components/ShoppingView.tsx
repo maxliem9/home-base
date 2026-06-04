@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
-import { ShoppingItem } from '../types'
+import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
-import { Avatar, Button, Card, Checkbox, EmptyState, IconButton, PageHead, TextInput } from '../ui/primitives'
+import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
@@ -16,36 +16,65 @@ interface ShoppingViewProps {
 
 export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [items, setItems] = useState<ShoppingItem[]>([])
+  const [lists, setLists] = useState<ShoppingList[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
-  const [newCategory, setNewCategory] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [newListOpen, setNewListOpen] = useState(false)
 
-  const fetchItems = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await authFetch(token, `${API_BASE}/shopping`)
-      if (res.status === 401) {
+      const [itemRes, listRes] = await Promise.all([
+        authFetch(token, `${API_BASE}/shopping`),
+        authFetch(token, `${API_BASE}/shopping/lists`),
+      ])
+      if (itemRes.status === 401 || listRes.status === 401) {
         onLogout()
         return
       }
-      if (!res.ok) return
-      setItems(await res.json())
+      if (itemRes.ok) setItems(await itemRes.json())
+      if (listRes.ok) setLists(await listRes.json())
     } finally {
       setLoading(false)
     }
   }, [onLogout, token])
 
-  useEffect(() => { fetchItems() }, [fetchItems])
+  useEffect(() => { fetchAll() }, [fetchAll])
+
+  // keep an active tab selected as lists load / change
+  useEffect(() => {
+    if (lists.length === 0) {
+      if (activeId !== null) setActiveId(null)
+    } else if (!activeId || !lists.some((l) => l.id === activeId)) {
+      setActiveId(lists[0].id)
+    }
+  }, [lists, activeId])
 
   useWebSocket(withWsToken(WS_URL, token), (raw) => {
     try {
       const msg = JSON.parse(raw)
-      if (msg.type === 'SHOPPING_CREATED' && msg.payload) {
-        setItems((prev) => (prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
-      } else if (msg.type === 'SHOPPING_UPDATED' && msg.payload) {
-        setItems((prev) => prev.map((i) => (i.id === msg.payload.id ? msg.payload : i)))
-      } else if (msg.type === 'SHOPPING_DELETED' && msg.payload) {
-        setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
+      if (!msg.payload) return
+      switch (msg.type) {
+        case 'SHOPPING_CREATED':
+          setItems((prev) => (prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
+          break
+        case 'SHOPPING_UPDATED':
+          setItems((prev) => prev.map((i) => (i.id === msg.payload.id ? msg.payload : i)))
+          break
+        case 'SHOPPING_DELETED':
+          setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
+          break
+        case 'SHOPPING_LIST_CREATED':
+          setLists((prev) => (prev.some((l) => l.id === msg.payload.id) ? prev : [...prev, msg.payload]))
+          break
+        case 'SHOPPING_LIST_UPDATED':
+          setLists((prev) => prev.map((l) => (l.id === msg.payload.id ? msg.payload : l)))
+          break
+        case 'SHOPPING_LIST_DELETED':
+          setLists((prev) => prev.filter((l) => l.id !== msg.payload.id))
+          setItems((prev) => prev.filter((i) => i.listId !== msg.payload.id))
+          break
       }
     } catch {
       // ignore malformed frames
@@ -53,16 +82,19 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   })
 
   const handleAdd = async () => {
-    if (!newName.trim()) return
+    if (!newName.trim() || !active) return
     setSubmitting(true)
     try {
-      await authFetch(token, `${API_BASE}/shopping`, {
+      const res = await authFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), category: newCategory.trim() || undefined }),
+        body: JSON.stringify({ name: newName.trim(), listId: active.id }),
       })
+      if (res.ok) {
+        const created: ShoppingItem = await res.json()
+        setItems((prev) => (prev.some((i) => i.id === created.id) ? prev : [created, ...prev]))
+      }
       setNewName('')
-      setNewCategory('')
     } finally {
       setSubmitting(false)
     }
@@ -83,71 +115,101 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }
 
   const clearChecked = async () => {
-    const checked = items.filter((i) => i.checked)
-    setItems((prev) => prev.filter((i) => !i.checked))
-    await Promise.all(checked.map((i) => authFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })))
+    if (!active) return
+    const checkedHere = items.filter((i) => i.checked && i.listId === active.id)
+    setItems((prev) => prev.filter((i) => !(i.checked && i.listId === active.id)))
+    await Promise.all(checkedHere.map((i) => authFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })))
   }
 
-  // group by category, uncategorised last
-  const grouped = items.reduce<Record<string, ShoppingItem[]>>((acc, item) => {
-    const key = item.category?.trim() || t.shopping.uncategorized
-    ;(acc[key] ??= []).push(item)
-    return acc
-  }, {})
-  const categories = Object.keys(grouped).sort((a, b) =>
-    a === t.shopping.uncategorized ? 1 : b === t.shopping.uncategorized ? -1 : a.localeCompare(b),
-  )
+  const createList = async (name: string) => {
+    const res = await authFetch(token, `${API_BASE}/shopping/lists`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) {
+      const created: ShoppingList = await res.json()
+      setLists((prev) => (prev.some((l) => l.id === created.id) ? prev : [...prev, created]))
+      setActiveId(created.id)
+      setNewListOpen(false)
+    }
+  }
 
-  const openCount = items.filter((i) => !i.checked).length
-  const anyChecked = items.some((i) => i.checked)
+  const removeList = async () => {
+    if (!active || lists.length <= 1) return
+    if (!confirm(`${t.shopping.deleteListConfirm}\n\n„${active.name}"`)) return
+    const idx = lists.findIndex((l) => l.id === active.id)
+    const next = lists[idx + 1] ?? lists[idx - 1]
+    setLists((prev) => prev.filter((l) => l.id !== active.id))
+    setItems((prev) => prev.filter((i) => i.listId !== active.id))
+    setActiveId(next ? next.id : null)
+    await authFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+  }
+
+  const active = lists.find((l) => l.id === activeId) ?? null
+  const itemsOf = (id: string) => items.filter((i) => i.listId === id)
+  const openCount = (id: string) => itemsOf(id).filter((i) => !i.checked).length
+
+  const listItems = active ? itemsOf(active.id) : []
+  const open = listItems.filter((i) => !i.checked)
+  const checked = listItems.filter((i) => i.checked)
+  const totalOpen = items.filter((i) => !i.checked).length
 
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={`${openCount} ${t.shopping.open}`}
+        eyebrow={`${lists.length} ${lists.length === 1 ? t.shopping.listOne : t.shopping.listMany} · ${totalOpen} ${t.shopping.open}`}
         title={t.shopping.title}
-        actions={anyChecked ? <Button variant="ghost" size="sm" icon="trash" onClick={clearChecked}>{t.shopping.clearChecked}</Button> : undefined}
       />
 
-      <div className="hb-shop-add">
-        <div className="hb-quickadd">
-          <Icon name="cart" size={18} stroke={2} style={{ color: 'var(--ink-3)' }} />
-          <input
-            value={newName}
-            placeholder={t.shopping.namePlaceholder}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          />
-        </div>
-        <TextInput
-          value={newCategory}
-          onChange={setNewCategory}
-          placeholder={t.shopping.categoryPlaceholder}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          style={{ maxWidth: 220 }}
-        />
-        <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t.common.add}</Button>
+      {/* Listen-Tabs */}
+      <div className="hb-tabs" role="tablist">
+        {lists.map((l) => (
+          <button
+            key={l.id}
+            role="tab"
+            aria-selected={active?.id === l.id}
+            className={`hb-tab${active?.id === l.id ? ' is-active' : ''}`}
+            onClick={() => setActiveId(l.id)}
+          >
+            {l.name}
+            {openCount(l.id) > 0 && <span className="hb-tab__count">{openCount(l.id)}</span>}
+          </button>
+        ))}
+        <button className="hb-tab hb-tab--add" onClick={() => setNewListOpen(true)}>
+          <Icon name="plus" size={16} stroke={2.2} />
+          {t.shopping.newList}
+        </button>
       </div>
 
       {loading ? (
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
-      ) : items.length === 0 ? (
-        <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.emptyTitle} hint={t.shopping.emptyHint} /></Card>
+      ) : !active ? (
+        <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.noLists} hint={t.shopping.noListsHint} /></Card>
       ) : (
-        <div className="hb-shop-grid">
-          {categories.map((category) => (
-            <Card key={category} className="hb-card--pad">
-              <div className="hb-cardhead">
-                <h3>{category}</h3>
-                <span className="hb-badge hb-badge--neutral">{grouped[category].length}</span>
-              </div>
+        <>
+          <div className="hb-shop-add">
+            <div className="hb-quickadd" style={{ flex: 1 }}>
+              <Icon name="cart" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
+              <input
+                value={newName}
+                placeholder={`Was fehlt in „${active.name}"? …`}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t.common.add}</Button>
+          </div>
+
+          {open.length === 0 && checked.length === 0 ? (
+            <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.emptyTitle} hint={t.shopping.emptyHint} /></Card>
+          ) : (
+            <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
               <div className="hb-list">
-                {grouped[category].map((item) => (
-                  <div key={item.id} className={`hb-row${item.checked ? ' hb-row--done' : ''}`}>
-                    <Checkbox checked={item.checked} onChange={() => toggleChecked(item)} />
-                    <div className="hb-row__main">
-                      <div className="hb-row__title">{item.name}</div>
-                    </div>
+                {open.map((item) => (
+                  <div key={item.id} className="hb-row" style={{ padding: '11px 4px' }}>
+                    <Checkbox checked={false} onChange={() => toggleChecked(item)} />
+                    <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                     <div className="hb-row__right">
                       <Avatar user={item.createdBy} size={22} />
                       <div className="hb-row__actions">
@@ -156,11 +218,66 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                     </div>
                   </div>
                 ))}
+                {open.length === 0 && <div className="hb-muted" style={{ padding: '14px 4px', fontSize: 14 }}>{t.shopping.allChecked}</div>}
               </div>
             </Card>
-          ))}
-        </div>
+          )}
+
+          {checked.length > 0 && (
+            <div style={{ marginTop: 26 }}>
+              <div className="hb-cardhead" style={{ marginBottom: 12 }}>
+                <div className="hb-sectionlabel" style={{ margin: 0 }}>{t.shopping.inCart} · {checked.length}</div>
+                <button className="hb-link" onClick={clearChecked}>
+                  {t.shopping.clearChecked} <Icon name="trash" size={14} stroke={2} />
+                </button>
+              </div>
+              <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                <div className="hb-list">
+                  {checked.map((item) => (
+                    <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
+                      <Checkbox checked onChange={() => toggleChecked(item)} />
+                      <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                      <Avatar user={item.createdBy} size={22} />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {lists.length > 1 && (
+            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={removeList}>
+              <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+              {t.shopping.deleteList} „{active.name}"
+            </button>
+          )}
+        </>
       )}
+
+      {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
     </div>
+  )
+}
+
+function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
+  const [name, setName] = useState('')
+  const create = () => { if (name.trim()) onCreate(name.trim()) }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.shopping.newListTitle}
+      width={420}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim()}>{t.shopping.createList}</Button>
+        </>
+      }
+    >
+      <Field label={t.shopping.listName}>
+        <TextInput value={name} onChange={setName} placeholder={t.shopping.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
+      </Field>
+    </Modal>
   )
 }

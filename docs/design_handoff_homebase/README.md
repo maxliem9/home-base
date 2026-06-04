@@ -118,18 +118,54 @@ resolved tokens for **light theme · klar · clay accent**:
 - File: `src/views_heute.jsx`.
 
 ### 2. Aufgaben (Tasks)
-- Quick-add input at top.
-- Tasks grouped by status: INBOX, PLANNED (with due date), DONE.
-- Each task: checkbox (toggle done), title, optional meta (assignee, due date,
-  priority flag), actions (edit / delete).
+Tasks are organized into **named lists** (tabs at the top), and within the
+active list shown as **one scrolling page grouped by due date** — there is NO
+Inbox/Planned/Done mode switcher anymore.
+- **List tabs** across the top, one per todo list, each with an open-item count
+  badge; private lists show a lock icon. A "+ Neue Liste" tab opens a modal with
+  a **Name** field + a **Geteilt/Privat** visibility picker.
+  - Lists are shared by default; a **private** list is only visible to its
+    creator (`visibility: "private"`, filtered by `created_by === currentUser`).
+  - With >1 visible list, a "Liste löschen" link deletes the active list and all
+    its todos.
+- **Quick-add** bar adds an undated task to the active list (appears under
+  "Ohne Datum").
+- **Open todos** are auto-grouped into due-date sections, rendered in this order
+  when non-empty: **Überfällig → Heute → Demnächst → Später → Ohne Datum**, each
+  with a count. "Planen" = set a due date (via the edit modal); there is no
+  separate Inbox step.
+- **Erledigt** (done) is a **collapsible section** at the bottom with a count,
+  collapsed by default.
+- Each task: checkbox (toggle done), title, optional meta (description, priority
+  flag, done-time), due-date badge, assignee avatar (or a "Planen" button when
+  undated), delete.
+- **Subtasks**: every task has a progress pill on the right (e.g. `1/3`) + a
+  chevron; clicking it **expands an inline checklist** with an
+  "Unteraufgabe hinzufügen …" input. Subtasks are **title + done only**.
+  Toggling a subtask updates the count and keeps the panel open; the parent is
+  **not** auto-completed. Tasks without subtasks still show a dashed toggle to
+  add the first one.
+- Data: each todo has `list_id` and a `subtasks: [{ id, title, done }]` array.
 - Assignable to Max or Lea.
-- File: `src/views_aufgaben.jsx`.
+- Files: `src/views_aufgaben.jsx` (lists, grouping, subtasks); todo lists live in
+  the `todoLists` collection.
+- Nav badge (sidebar) = count of open todos that are **overdue or due today**.
 
 ### 3. Einkauf (Shopping)
-- Items grouped by category: "Obst & Gemüse", "Kühlware", "Haushalt", "Sonstiges".
-- Each item: checkbox, name, who added it (avatar). Checked items can be cleared.
-- Add-item form (name + category). Ingredients pushed from Rezepte land here
-  under "Sonstiges", de-duplicated by lowercased name.
+Multiple **named lists** switched via **tabs** at the top — there are **no item
+categories** anymore; each list is a single flat list.
+- **List tabs**, one per shopping list, each with an open-item count; a
+  "+ Neue Liste" tab opens a modal with just a **Name** field. All shopping
+  lists are shared.
+- With >1 list, a "Liste löschen" link removes the active list and its items.
+- **Add-item** bar has only a name input (no category select); items go into the
+  active list.
+- Each item: checkbox, name, who added it (avatar), delete. Checked items move to
+  an **"Im Wagen"** section per list with an "Abgehakte entfernen" action.
+- Ingredients pushed from Rezepte land in the **first list** by default,
+  de-duplicated by lowercased name within that list.
+- Data: each item has `list_id` (no `category`); lists live in the
+  `shoppingLists` collection.
 - File: `src/views_einkauf.jsx`.
 
 ### 4. Notizen (Notes)
@@ -208,14 +244,22 @@ any old `LUNCH`/`DINNER` rows to it.
 - Card hover: subtle lift / accent border (`.hb-card--hover`).
 
 ## State Management
-Single in-memory store in `App` (`src/app.jsx`), persisted to localStorage,
-seeded from `src/seed.jsx`. Collections: `todos`, `shopping`, `notes`,
-`projects`, `timeEntries`, `recipes`. All mutations go through an `api` object
-(`addTodo`, `toggleDone`, `addItem`, `addIngredientsToShopping`, `addNote`,
-`startTimer`/`stopTimer` with the one-timer invariant, `addRecipe`,
-`deleteRecipe`, etc.). The "current user" is hard-coded as `max` (constant `ME`
-in `views_zeit.jsx`); in production this becomes the authenticated user and
-drives the per-user edit permissions.
+Single in-memory store in `App` (`src/app.jsx`), seeded from `src/seed.jsx`.
+Collections: `todos`, `todoLists`, `shopping`, `shoppingLists`, `notes`,
+`projects`, `timeEntries`, `recipes`. All mutations go through an `api` object:
+- todos/lists: `addTodoList`, `renameTodoList`, `deleteTodoList` (also deletes
+  its todos), `addTodo(title, listId)`, `updateTodo`, `toggleDone`, `deleteTodo`,
+  and subtask ops `addSubtask`/`toggleSubtask`/`deleteSubtask`;
+- shopping: `addList`, `renameList`, `deleteList` (also deletes its items),
+  `addItem(name, listId)`, `toggleItem`, `deleteItem`, `clearChecked(listId)`,
+  `addIngredientsToShopping(ings, listId?)` (defaults to the first list);
+- plus `addNote`, `startTimer`/`stopTimer` (one-timer invariant), `addRecipe`,
+  `deleteRecipe`, etc.
+
+The "current user" is hard-coded as `max` (constant `ME` in `views_zeit.jsx`,
+and a local `ME` in `views_aufgaben.jsx` used to filter private lists); in
+production this becomes the authenticated user and drives per-user edit
+permissions and private-list visibility.
 
 In a real build, replace this with your data layer (API + server state) and
 real auth. Keep the **ownership rule** and the **single-running-timer-per-user**

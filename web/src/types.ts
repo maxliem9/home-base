@@ -8,10 +8,12 @@ export interface Subtask {
   sortOrder: number
 }
 
+export type ListVisibility = 'SHARED' | 'PRIVATE'
+
 export interface TodoList {
   id: string
   name: string
-  color: string
+  visibility: ListVisibility
   createdBy: string
   createdAt: string
 }
@@ -31,10 +33,17 @@ export interface Todo {
   doneAt?: string
 }
 
+export interface ShoppingList {
+  id: string
+  name: string
+  createdBy: string
+  createdAt: string
+}
+
 export interface ShoppingItem {
   id: string
   name: string
-  category?: string
+  listId?: string
   checked: boolean
   createdBy: string
   createdAt: string
