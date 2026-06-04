@@ -58,6 +58,49 @@ export function clockTime(isoStr: string): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+const WD_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']
+
+/** Separator label for a day in a chronological list: Heute / Gestern /
+ *  Vorgestern / weekday name (within the last 7 days) / "D. Mon". */
+export function dayGroupLabel(isoStr: string): string {
+  const d = new Date(isoStr)
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diff = Math.round((day - startOfToday()) / DAY)
+  if (diff === 0) return 'Heute'
+  if (diff === -1) return 'Gestern'
+  if (diff === -2) return 'Vorgestern'
+  if (diff < 0 && diff > -7) return WD_LONG[d.getDay()]
+  return `${d.getDate()}. ${MON[d.getMonth()]}`
+}
+
+/** Monday-based start of the week containing `date`. */
+function weekStart(date: Date): Date {
+  const dow = (date.getDay() + 6) % 7 // Mon = 0
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - dow)
+}
+
+/** Stable key for the (Monday-based) week containing `isoStr`. */
+export function weekKey(isoStr: string): string {
+  const s = weekStart(new Date(isoStr))
+  return `${s.getFullYear()}-${pad(s.getMonth() + 1)}-${pad(s.getDate())}`
+}
+
+/** { label, range } for a week — label is "Diese Woche"/"Letzte Woche"/null,
+ *  range is e.g. "12.–18. Mai". */
+export function weekLabel(isoStr: string): { label: string | null; range: string } {
+  const s = weekStart(new Date(isoStr))
+  const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)
+  const diffWeeks = Math.round((s.getTime() - weekStart(new Date()).getTime()) / (7 * DAY))
+  let label: string | null = null
+  if (diffWeeks === 0) label = 'Diese Woche'
+  else if (diffWeeks === -1) label = 'Letzte Woche'
+  const range =
+    s.getMonth() === e.getMonth()
+      ? `${s.getDate()}.–${e.getDate()}. ${MON[e.getMonth()]}`
+      : `${s.getDate()}. ${MON[s.getMonth()]} – ${e.getDate()}. ${MON[e.getMonth()]}`
+  return { label, range }
+}
+
 // --- avatars --------------------------------------------------------------
 
 interface UserMeta {

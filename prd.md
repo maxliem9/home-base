@@ -70,6 +70,21 @@ Projektbezogene Zeiterfassung mit Start/Stopp-Timer.
   neuen Timers wird ein noch laufender automatisch gestoppt).
 - Endpunkt für den aktuell laufenden Timer (`GET /time/running`).
 - Echtzeit-Sync über `/ws/time` (PROJECT_*/ENTRY_*-Events).
+- **Auswertung im Web** (clientseitig aus den vorhandenen Einträgen berechnet,
+  kein zusätzlicher Endpunkt):
+    - „Letzte Einträge" sind nach Tag gruppiert; jede Gruppe zeigt eine
+      Trennzeile mit Tageslabel (Heute / Gestern / Vorgestern / Wochentag /
+      Datum) und der Tagessumme.
+    - Ein Klick auf Name oder Gesamtzeit einer Projektkarte öffnet eine
+      **Projekt-Detailansicht** mit vier Kennzahlen (Gesamt, diese Woche,
+      Anzahl Einträge, ⌀ pro Eintrag), einer Aufschlüsselung **pro Nutzer**
+      (sobald mehrere Nutzer Einträge haben) und der vollständigen,
+      tagesgruppierten Eintragshistorie (Löschen weiterhin nur für eigene
+      Einträge).
+    - **Wochenübersicht** („Pro Woche") in der Detailansicht: eine Zeile je
+      ISO-Woche (Montag-basiert), neueste zuerst, mit Wochensumme,
+      Eintragsanzahl und einem nutzerweise segmentierten Balken (Breite je
+      Segment ∝ Zeit des Nutzers, skaliert auf die aktivste Woche).
 
 Felder Projekt: id, name, color, archived, created_by, created_at
 Felder Zeiteintrag: id, project_id, user_id, started_at, stopped_at?,
@@ -95,7 +110,8 @@ Felder Schritt: id, recipe_id, step_number, description
 ## Post-MVP (Backlog)
 - Mehrsprachigkeit / Sprachumschalter (Texte sind bereits externalisiert) 🔜
 - Rezept-Zutaten direkt auf die Einkaufsliste übernehmen 🔜
-- Zeiterfassung: Auswertungen/Reports (Summen pro Projekt/Woche) 🔜
+- Zeiterfassung: server-seitige Reports / CSV-Export 🔜
+  *(In-App-Auswertung pro Projekt/Woche ist umgesetzt ✅)*
 - Angebote zu Einkaufsitems (Rewe/Kaufland) 🔜
 - Wiederkehrende Todos 🔜
 - Bilder in Notizen 🔜

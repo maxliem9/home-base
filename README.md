@@ -1,6 +1,6 @@
 # HomeBase
 
-Privater Familien-Hub für 2 Nutzer — Echtzeit-Sync für Todos, Einkaufsliste und Notizen zwischen Web und Android.
+Privater Familien-Hub für 2 Nutzer — Echtzeit-Sync für Todos, Einkaufsliste, Notizen, Zeiterfassung und Rezepte zwischen Web und Android.
 
 ## Stack
 
@@ -120,6 +120,7 @@ curl https://home.example.com/api/v1/health
 | `TELEGRAM_BOT_TOKEN`| Telegram Bot Token (optional)         | `123456:ABC-...`                      |
 | `TELEGRAM_CHAT_ID`  | Empfänger-Chat-ID (optional)          | `-1001234567890`                      |
 | `DIGEST_TIME`       | Uhrzeit des täglichen Digests         | `20:00`                               |
+| `HOUSEHOLD_NAME`    | Anzeigename in der Sidebar (optional) | `Mäxchen`                             |
 
 JWT-Secret generieren:
 
@@ -132,5 +133,7 @@ openssl rand -hex 32
 - Inbox-Todos mit Status-Flow `INBOX` → `PLANNED` → `DONE`
 - Gemeinsame Einkaufsliste mit Kategorien und Abhaken in Echtzeit
 - Notizen mit Suche, Tags und `PRIVATE`/`SHARED` Sichtbarkeit
+- Projektbasierte Zeiterfassung mit Start/Stopp-Timer (höchstens ein laufender Timer pro Nutzer); tagesgruppierte Eintragsliste und Projekt-Detailansicht mit Kennzahlen, Aufschlüsselung pro Nutzer und Wochenübersicht
+- Rezeptsammlung mit Zutaten, Zubereitungsschritten und Portionsskalierung
 - Web-Login und Android-Login über dieselben fest konfigurierten Nutzer
 - Täglicher Telegram-Digest zur konfigurierten Uhrzeit (`DIGEST_TIME`): heute erledigte Todos, neue Inbox-Items, morgen fällige Todos
