@@ -219,6 +219,41 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-clickable { cursor: pointer; border-radius: var(--radius-sm); }
 .hb-clickable:hover { background: var(--surface-2); }
 
+/* ---------- Todo lists / groups ---------- */
+.hb-listbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.hb-listchip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.14s, border-color 0.14s, color 0.14s; }
+.hb-listchip:hover { background: var(--surface-2); color: var(--ink); }
+.hb-listchip.is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.hb-listchip--add { color: var(--ink-3); border-style: dashed; }
+.hb-listdot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.hb-listtag { display: inline-flex; align-items: center; gap: 6px; }
+.hb-subbadge { display: inline-flex; align-items: center; gap: 5px; border: none; background: var(--surface-2); color: var(--ink-2); padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.hb-subbadge:hover { background: var(--surface-3); }
+.hb-listpick { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); }
+.hb-listpick select { border: none; background: transparent; color: var(--ink-2); font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; max-width: 110px; }
+.hb-listpick select:focus { outline: none; }
+
+/* ---------- Todo + subtasks ---------- */
+.hb-todo { border-bottom: 1px solid var(--line-soft); }
+.hb-todo:last-child { border-bottom: none; }
+.hb-todo .hb-row { border-bottom: none; }
+.hb-subtasks { display: flex; flex-direction: column; gap: 9px; padding: 2px 4px 14px 48px; }
+.hb-subtask { display: flex; align-items: center; gap: 11px; }
+.hb-subtask__title { flex: 1; min-width: 0; font-size: 14px; color: var(--ink-2); }
+.hb-subtask--done .hb-subtask__title { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line); }
+.hb-subtask .hb-row__actions, .hb-subtask .hb-iconbtn { opacity: 0; transition: opacity 0.14s; }
+.hb-subtask:hover .hb-iconbtn { opacity: 1; }
+.hb-subadd { display: flex; align-items: center; gap: 9px; padding-left: 1px; }
+.hb-subadd input { flex: 1; border: none; background: transparent; font-size: 14px; color: var(--ink); font-family: inherit; padding: 4px 0; }
+.hb-subadd input:focus { outline: none; }
+.hb-subadd input::placeholder { color: var(--ink-3); }
+
+/* ---------- Color swatches ---------- */
+.hb-swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.hb-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s; }
+.hb-swatch:hover { transform: scale(1.1); }
+.hb-swatch.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+
 /* ---------- Inputs ---------- */
 .hb-field { display: flex; flex-direction: column; gap: 7px; }
 .hb-field__label { font-size: 13px; font-weight: 600; color: var(--ink-2); }

@@ -9,6 +9,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// A field is "null" when it is either serialized as JSON null or omitted entirely
+// (kotlinx-serialization drops null/empty defaults from the payload).
+private fun JsonElement?.isNullJson(): Boolean = this == null || this is JsonNull
+
 class TodoRouteTest {
 
     private suspend fun ApplicationTestBuilder.loginAndGetToken(
@@ -281,5 +285,266 @@ class TodoRouteTest {
             client.get("/api/v1/todos") { bearerAuth(aliceToken) }.bodyAsText()
         ).jsonArray
         assertEquals(2, todos.size)
+    }
+
+    // ---- Lists ----
+
+    private suspend fun ApplicationTestBuilder.createList(token: String, name: String, color: String? = null): String {
+        val body = if (color != null) """{"name":"$name","color":"$color"}""" else """{"name":"$name"}"""
+        val res = client.post("/api/v1/todos/lists") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    @Test
+    fun `POST list creates it and GET lists returns it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos/lists") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Haushalt","color":"#ff0000"}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        val body = Json.parseToJsonElement(created.bodyAsText()).jsonObject
+        assertEquals("Haushalt", body["name"]?.jsonPrimitive?.content)
+        assertEquals("#ff0000", body["color"]?.jsonPrimitive?.content)
+        assertEquals("alice", body["createdBy"]?.jsonPrimitive?.content)
+
+        val lists = Json.parseToJsonElement(
+            client.get("/api/v1/todos/lists") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, lists.size)
+    }
+
+    @Test
+    fun `POST list with blank name returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos/lists") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"  "}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `POST list with invalid color returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos/lists") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Arbeit","color":"red"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `PUT list renames it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Verein")
+
+        val res = client.put("/api/v1/todos/lists/$listId") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Sportverein"}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals("Sportverein", Json.parseToJsonElement(res.bodyAsText()).jsonObject["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST todo with listId stores it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Kind")
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Windeln kaufen","listId":"$listId"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        assertEquals(listId, Json.parseToJsonElement(res.bodyAsText()).jsonObject["listId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST todo with unknown listId returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"X","listId":"00000000-0000-0000-0000-999999999999"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `PUT todo can assign and clear a list`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Haushalt")
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll rausbringen"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val assigned = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"listId":"$listId"}""")
+        }
+        assertEquals(listId, Json.parseToJsonElement(assigned.bodyAsText()).jsonObject["listId"]?.jsonPrimitive?.content)
+
+        val cleared = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"listId":""}""")
+        }
+        // null defaults are omitted from the JSON, so an absent key means "no list"
+        assertTrue(Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["listId"].isNullJson())
+    }
+
+    @Test
+    fun `DELETE list detaches its todos`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Arbeit")
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Report","listId":"$listId"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        assertEquals(
+            HttpStatusCode.NoContent,
+            client.delete("/api/v1/todos/lists/$listId") { bearerAuth(token) }.status,
+        )
+
+        val todo = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray.single { it.jsonObject["id"]?.jsonPrimitive?.content == id }
+        assertTrue(todo.jsonObject["listId"].isNullJson())
+    }
+
+    // ---- Subtasks ----
+
+    private suspend fun ApplicationTestBuilder.createTodo(token: String, title: String): String {
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    @Test
+    fun `POST subtask appears in the parent todo`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val todoId = createTodo(token, "Umzug planen")
+
+        val res = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Kartons besorgen"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        val subtasks = Json.parseToJsonElement(res.bodyAsText()).jsonObject["subtasks"]!!.jsonArray
+        assertEquals(1, subtasks.size)
+        assertEquals("Kartons besorgen", subtasks[0].jsonObject["title"]?.jsonPrimitive?.content)
+        assertEquals(false, subtasks[0].jsonObject["done"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `POST subtask with blank title returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val todoId = createTodo(token, "Parent")
+
+        val res = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"   "}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `PUT subtask toggles done`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val todoId = createTodo(token, "Parent")
+        val created = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Step 1"}""")
+        }
+        val subId = Json.parseToJsonElement(created.bodyAsText())
+            .jsonObject["subtasks"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.put("/api/v1/todos/$todoId/subtasks/$subId") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"done":true}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val sub = Json.parseToJsonElement(res.bodyAsText()).jsonObject["subtasks"]!!.jsonArray[0].jsonObject
+        assertEquals(true, sub["done"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `DELETE subtask removes it from the parent`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val todoId = createTodo(token, "Parent")
+        val created = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Step 1"}""")
+        }
+        val subId = Json.parseToJsonElement(created.bodyAsText())
+            .jsonObject["subtasks"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.delete("/api/v1/todos/$todoId/subtasks/$subId") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        // empty list default is omitted from the JSON
+        val subs = Json.parseToJsonElement(res.bodyAsText()).jsonObject["subtasks"]
+        assertTrue(subs == null || subs is JsonNull || subs.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `DELETE todo also removes its subtasks`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val todoId = createTodo(token, "Parent")
+        client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Step 1"}""")
+        }
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/todos/$todoId") { bearerAuth(token) }.status)
+        // recreating subtask on the deleted parent must 404 (parent and its subtasks are gone)
+        val res = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Ghost"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
     }
 }

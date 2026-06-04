@@ -18,6 +18,14 @@ data class LoginRequest(val username: String, val password: String)
 data class TokenResponse(val token: String)
 
 @Serializable
+data class SubtaskDto(
+    val id: String,
+    val title: String,
+    val done: Boolean,
+    val sortOrder: Int
+)
+
+@Serializable
 data class TodoDto(
     val id: String,
     val title: String,
@@ -26,6 +34,8 @@ data class TodoDto(
     val assignee: String? = null,
     val dueDate: String? = null,
     val priority: String? = null,
+    val listId: String? = null,
+    val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
     val doneAt: String? = null
@@ -37,7 +47,8 @@ data class CreateTodoRequest(
     val description: String? = null,
     val assignee: String? = null,
     val dueDate: String? = null,
-    val priority: String? = null
+    val priority: String? = null,
+    val listId: String? = null
 )
 
 @Serializable
@@ -47,11 +58,46 @@ data class UpdateTodoRequest(
     val status: String? = null,
     val assignee: String? = null,
     val dueDate: String? = null,
-    val priority: String? = null
+    val priority: String? = null,
+    // null = unchanged; empty string = remove from list; otherwise the target list id
+    val listId: String? = null
 )
 
 @Serializable
 data class WsMessage(val type: String, val payload: TodoDto? = null)
+
+@Serializable
+data class TodoListDto(
+    val id: String,
+    val name: String,
+    val color: String,
+    val createdBy: String,
+    val createdAt: String
+)
+
+@Serializable
+data class CreateTodoListRequest(
+    val name: String,
+    val color: String? = null
+)
+
+@Serializable
+data class UpdateTodoListRequest(
+    val name: String? = null,
+    val color: String? = null
+)
+
+@Serializable
+data class TodoListWsMessage(val type: String, val payload: TodoListDto? = null)
+
+@Serializable
+data class CreateSubtaskRequest(val title: String)
+
+@Serializable
+data class UpdateSubtaskRequest(
+    val title: String? = null,
+    val done: Boolean? = null
+)
 
 @Serializable
 data class ShoppingItemDto(

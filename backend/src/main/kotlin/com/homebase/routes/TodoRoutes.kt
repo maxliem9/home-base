@@ -1,5 +1,7 @@
 package com.homebase.routes
 
+import com.homebase.db.TodoListsTable
+import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
@@ -21,13 +23,107 @@ import java.time.LocalDate
 import java.util.UUID
 
 private const val TODO_WS_CHANNEL = "todos"
+private const val DEFAULT_LIST_COLOR = "#6366f1"
 private val VALID_TODO_STATUSES = setOf("INBOX", "PLANNED", "DONE")
 private val VALID_TODO_PRIORITIES = setOf("LOW", "MEDIUM", "HIGH")
+private val HEX_COLOR = Regex("^#[0-9a-fA-F]{6}$")
 
 fun Route.todoRoutes() {
     val json = Json { ignoreUnknownKeys = true }
 
+    suspend fun broadcastTodo(type: String, todo: TodoDto) =
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage(type, todo)))
+
+    suspend fun broadcastList(type: String, list: TodoListDto) =
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(TodoListWsMessage(type, list)))
+
     route("/todos") {
+        // ---- Lists (registered before /{id} so the static segment wins) ----
+        route("/lists") {
+            get {
+                val lists = transaction {
+                    TodoListsTable.selectAll()
+                        .orderBy(TodoListsTable.createdAt to SortOrder.ASC)
+                        .map { it.toListDto() }
+                }
+                call.respond(lists)
+            }
+
+            post {
+                val principal = call.principal<JWTPrincipal>()!!
+                val username = principal.payload.getClaim("username").asString()
+                val req = call.receive<CreateTodoListRequest>()
+                if (req.name.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
+                    return@post
+                }
+                val color = req.color ?: DEFAULT_LIST_COLOR
+                if (!HEX_COLOR.matches(color)) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_COLOR", "color must be a #RRGGBB hex value"))
+                    return@post
+                }
+                val list = transaction {
+                    val id = UUID.randomUUID()
+                    TodoListsTable.insert {
+                        it[TodoListsTable.id] = id
+                        it[name] = req.name.trim()
+                        it[TodoListsTable.color] = color
+                        it[createdBy] = username
+                        it[createdAt] = Instant.now()
+                    }
+                    TodoListsTable.selectAll().where { TodoListsTable.id eq id }.single().toListDto()
+                }
+                broadcastList("TODO_LIST_CREATED", list)
+                call.respond(HttpStatusCode.Created, list)
+            }
+
+            put("/{id}") {
+                val id = call.uuidParam() ?: return@put
+                val req = call.receive<UpdateTodoListRequest>()
+                if (req.color != null && !HEX_COLOR.matches(req.color)) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_COLOR", "color must be a #RRGGBB hex value"))
+                    return@put
+                }
+                if (req.name != null && req.name.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
+                    return@put
+                }
+                val list = transaction {
+                    TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
+                        ?: return@transaction null
+                    TodoListsTable.update({ TodoListsTable.id eq id }) {
+                        req.name?.let { v -> it[name] = v.trim() }
+                        req.color?.let { v -> it[color] = v }
+                    }
+                    TodoListsTable.selectAll().where { TodoListsTable.id eq id }.single().toListDto()
+                }
+                if (list == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
+                    return@put
+                }
+                broadcastList("TODO_LIST_UPDATED", list)
+                call.respond(list)
+            }
+
+            delete("/{id}") {
+                val id = call.uuidParam() ?: return@delete
+                val deleted = transaction {
+                    val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
+                        ?: return@transaction null
+                    // detach todos from the list (mirrors ON DELETE SET NULL for the H2 test DB)
+                    TodosTable.update({ TodosTable.listId eq id }) { it[listId] = null }
+                    TodoListsTable.deleteWhere { TodoListsTable.id eq id }
+                    existing.toListDto()
+                }
+                if (deleted == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
+                    return@delete
+                }
+                broadcastList("TODO_LIST_DELETED", deleted)
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
+
         get {
             val todos = transaction {
                 TodosTable.selectAll().map { it.toDto() }
@@ -50,8 +146,16 @@ fun Route.todoRoutes() {
                 call.respond(HttpStatusCode.BadRequest, validationError)
                 return@post
             }
+            val listId = req.listId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            if (req.listId != null && req.listId.isNotBlank() && listId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
+                return@post
+            }
 
             val todo = transaction {
+                if (listId != null && TodoListsTable.selectAll().where { TodoListsTable.id eq listId }.empty()) {
+                    return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                }
                 val id = UUID.randomUUID()
                 TodosTable.insert {
                     it[TodosTable.id] = id
@@ -61,19 +165,30 @@ fun Route.todoRoutes() {
                     it[assignee] = req.assignee
                     it[dueDate] = req.dueDate?.let { d -> LocalDate.parse(d) }
                     it[priority] = req.priority
+                    it[TodosTable.listId] = listId
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
                 TodosTable.selectAll().where { TodosTable.id eq id }.single().toDto()
             }
 
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_CREATED", todo)))
+            if (todo is ErrorResponse) {
+                call.respond(HttpStatusCode.BadRequest, todo)
+                return@post
+            }
+            broadcastTodo("TODO_CREATED", todo as TodoDto)
             call.respond(HttpStatusCode.Created, todo)
         }
 
         put("/{id}") {
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTodoRequest>()
+            // null = unchanged, "" = clear, else target list id (must exist)
+            val targetListId: UUID? = req.listId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            if (req.listId != null && req.listId.isNotBlank() && targetListId == null) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
+                return@put
+            }
 
             val todo = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
@@ -88,6 +203,9 @@ fun Route.todoRoutes() {
                     dueDate = nextDueDate,
                     priority = req.priority ?: existing[TodosTable.priority],
                 )?.let { return@transaction it }
+                if (targetListId != null && TodoListsTable.selectAll().where { TodoListsTable.id eq targetListId }.empty()) {
+                    return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                }
 
                 TodosTable.update({ TodosTable.id eq id }) {
                     req.title?.let { v -> it[title] = v }
@@ -95,6 +213,7 @@ fun Route.todoRoutes() {
                     req.assignee?.let { v -> it[assignee] = v }
                     req.dueDate?.let { v -> it[dueDate] = LocalDate.parse(v) }
                     req.priority?.let { v -> it[priority] = v }
+                    req.listId?.let { _ -> it[listId] = targetListId }
                     req.status?.let { v ->
                         it[status] = v
                         it[doneAt] = if (v == "DONE") Instant.now() else null
@@ -112,7 +231,7 @@ fun Route.todoRoutes() {
                 return@put
             }
 
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_UPDATED", todo as TodoDto)))
+            broadcastTodo("TODO_UPDATED", todo as TodoDto)
             call.respond(todo)
         }
 
@@ -121,6 +240,8 @@ fun Route.todoRoutes() {
             val deletedTodo = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
                     ?: return@transaction null
+                // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
+                TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
                 TodosTable.deleteWhere { TodosTable.id eq id }
                 existing.toDto()
             }
@@ -128,8 +249,86 @@ fun Route.todoRoutes() {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Todo not found"))
                 return@delete
             }
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_DELETED", deletedTodo)))
+            broadcastTodo("TODO_DELETED", deletedTodo)
             call.respond(HttpStatusCode.NoContent)
+        }
+
+        // ---- Subtasks ----
+        route("/{id}/subtasks") {
+            post {
+                val todoId = call.uuidParam() ?: return@post
+                val req = call.receive<CreateSubtaskRequest>()
+                if (req.title.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
+                    return@post
+                }
+                val todo = transaction {
+                    if (TodosTable.selectAll().where { TodosTable.id eq todoId }.empty()) return@transaction null
+                    val nextOrder = (TodoSubtasksTable.selectAll()
+                        .where { TodoSubtasksTable.todoId eq todoId }
+                        .maxOfOrNull { it[TodoSubtasksTable.sortOrder] } ?: -1) + 1
+                    TodoSubtasksTable.insert {
+                        it[id] = UUID.randomUUID()
+                        it[TodoSubtasksTable.todoId] = todoId
+                        it[title] = req.title.trim()
+                        it[done] = false
+                        it[sortOrder] = nextOrder
+                        it[createdAt] = Instant.now()
+                    }
+                    TodosTable.selectAll().where { TodosTable.id eq todoId }.single().toDto()
+                }
+                if (todo == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Todo not found"))
+                    return@post
+                }
+                broadcastTodo("TODO_UPDATED", todo)
+                call.respond(HttpStatusCode.Created, todo)
+            }
+
+            put("/{subtaskId}") {
+                val todoId = call.uuidParam() ?: return@put
+                val subtaskId = call.uuidParam("subtaskId") ?: return@put
+                val req = call.receive<UpdateSubtaskRequest>()
+                if (req.title != null && req.title.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
+                    return@put
+                }
+                val todo = transaction {
+                    val exists = TodoSubtasksTable.selectAll()
+                        .where { (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId) }
+                        .empty().not()
+                    if (!exists) return@transaction null
+                    TodoSubtasksTable.update({ TodoSubtasksTable.id eq subtaskId }) {
+                        req.title?.let { v -> it[title] = v.trim() }
+                        req.done?.let { v -> it[done] = v }
+                    }
+                    TodosTable.selectAll().where { TodosTable.id eq todoId }.single().toDto()
+                }
+                if (todo == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Subtask not found"))
+                    return@put
+                }
+                broadcastTodo("TODO_UPDATED", todo)
+                call.respond(todo)
+            }
+
+            delete("/{subtaskId}") {
+                val todoId = call.uuidParam() ?: return@delete
+                val subtaskId = call.uuidParam("subtaskId") ?: return@delete
+                val todo = transaction {
+                    val deleted = TodoSubtasksTable.deleteWhere {
+                        (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId)
+                    }
+                    if (deleted == 0) return@transaction null
+                    TodosTable.selectAll().where { TodosTable.id eq todoId }.single().toDto()
+                }
+                if (todo == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Subtask not found"))
+                    return@delete
+                }
+                broadcastTodo("TODO_UPDATED", todo)
+                call.respond(todo)
+            }
         }
     }
 
@@ -170,15 +369,39 @@ private fun validateTodoInput(
     return null
 }
 
-private fun ResultRow.toDto() = TodoDto(
-    id = this[TodosTable.id].toString(),
-    title = this[TodosTable.title],
-    description = this[TodosTable.description],
-    status = this[TodosTable.status],
-    assignee = this[TodosTable.assignee],
-    dueDate = this[TodosTable.dueDate]?.toString(),
-    priority = this[TodosTable.priority],
-    createdBy = this[TodosTable.createdBy],
-    createdAt = this[TodosTable.createdAt].toString(),
-    doneAt = this[TodosTable.doneAt]?.toString()
+private fun ResultRow.toSubtaskDto() = SubtaskDto(
+    id = this[TodoSubtasksTable.id].toString(),
+    title = this[TodoSubtasksTable.title],
+    done = this[TodoSubtasksTable.done],
+    sortOrder = this[TodoSubtasksTable.sortOrder],
 )
+
+private fun ResultRow.toListDto() = TodoListDto(
+    id = this[TodoListsTable.id].toString(),
+    name = this[TodoListsTable.name],
+    color = this[TodoListsTable.color],
+    createdBy = this[TodoListsTable.createdBy],
+    createdAt = this[TodoListsTable.createdAt].toString(),
+)
+
+private fun ResultRow.toDto(): TodoDto {
+    val todoId = this[TodosTable.id]
+    val subtasks = TodoSubtasksTable.selectAll()
+        .where { TodoSubtasksTable.todoId eq todoId }
+        .orderBy(TodoSubtasksTable.sortOrder to SortOrder.ASC)
+        .map { it.toSubtaskDto() }
+    return TodoDto(
+        id = todoId.toString(),
+        title = this[TodosTable.title],
+        description = this[TodosTable.description],
+        status = this[TodosTable.status],
+        assignee = this[TodosTable.assignee],
+        dueDate = this[TodosTable.dueDate]?.toString(),
+        priority = this[TodosTable.priority],
+        listId = this[TodosTable.listId]?.toString(),
+        subtasks = subtasks,
+        createdBy = this[TodosTable.createdBy],
+        createdAt = this[TodosTable.createdAt].toString(),
+        doneAt = this[TodosTable.doneAt]?.toString(),
+    )
+}

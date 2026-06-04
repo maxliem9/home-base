@@ -98,6 +98,19 @@
     { id: uid("e"), project_id: "p_lernen", user_id: "max", started_at: ago(2900), stopped_at: ago(2855), description: "Vokabeln Einheit 4", created_at: ago(2900), updated_at: ago(2855) },
     { id: uid("e"), project_id: "p_garten", user_id: "lea", started_at: ago(4400), stopped_at: ago(4280), description: "Hochbeet bepflanzt", created_at: ago(4400), updated_at: ago(4280) },
     { id: uid("e"), project_id: "p_steuer", user_id: "lea", started_at: ago(5900), stopped_at: ago(5780), description: "", created_at: ago(5900), updated_at: ago(5780) },
+    // ---- last week ----
+    { id: uid("e"), project_id: "p_app", user_id: "max", started_at: ago(12120), stopped_at: ago(12000), description: "Kalender-Ansicht", created_at: ago(12120), updated_at: ago(12000) },
+    { id: uid("e"), project_id: "p_app", user_id: "lea", started_at: ago(13090), stopped_at: ago(13000), description: "Code-Review", created_at: ago(13090), updated_at: ago(13000) },
+    { id: uid("e"), project_id: "p_steuer", user_id: "lea", started_at: ago(15150), stopped_at: ago(15000), description: "Umsatzsteuer Q1", created_at: ago(15150), updated_at: ago(15000) },
+    { id: uid("e"), project_id: "p_lernen", user_id: "max", started_at: ago(16560), stopped_at: ago(16500), description: "Vokabeln Einheit 5", created_at: ago(16560), updated_at: ago(16500) },
+    // ---- two weeks ago ----
+    { id: uid("e"), project_id: "p_app", user_id: "max", started_at: ago(22180), stopped_at: ago(22000), description: "Onboarding-Flow", created_at: ago(22180), updated_at: ago(22000) },
+    { id: uid("e"), project_id: "p_app", user_id: "lea", started_at: ago(24075), stopped_at: ago(24000), description: "Bugfixing", created_at: ago(24075), updated_at: ago(24000) },
+    { id: uid("e"), project_id: "p_steuer", user_id: "lea", started_at: ago(26120), stopped_at: ago(26000), description: "Belege sortieren", created_at: ago(26120), updated_at: ago(26000) },
+    { id: uid("e"), project_id: "p_garten", user_id: "lea", started_at: ago(28090), stopped_at: ago(28000), description: "Beet umgegraben", created_at: ago(28090), updated_at: ago(28000) },
+    // ---- three weeks ago ----
+    { id: uid("e"), project_id: "p_app", user_id: "max", started_at: ago(32150), stopped_at: ago(32000), description: "Auth-Modul", created_at: ago(32150), updated_at: ago(32000) },
+    { id: uid("e"), project_id: "p_steuer", user_id: "lea", started_at: ago(35100), stopped_at: ago(35000), description: "Termin vorbereitet", created_at: ago(35100), updated_at: ago(35000) },
   ];
 
   const recipes = [

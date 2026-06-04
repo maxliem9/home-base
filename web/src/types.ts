@@ -1,6 +1,21 @@
 export type TodoStatus = 'INBOX' | 'PLANNED' | 'DONE'
 export type TodoPriority = 'LOW' | 'MEDIUM' | 'HIGH'
 
+export interface Subtask {
+  id: string
+  title: string
+  done: boolean
+  sortOrder: number
+}
+
+export interface TodoList {
+  id: string
+  name: string
+  color: string
+  createdBy: string
+  createdAt: string
+}
+
 export interface Todo {
   id: string
   title: string
@@ -9,6 +24,8 @@ export interface Todo {
   assignee?: string
   dueDate?: string
   priority?: TodoPriority
+  listId?: string
+  subtasks?: Subtask[]
   createdBy: string
   createdAt: string
   doneAt?: string
