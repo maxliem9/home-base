@@ -4,6 +4,7 @@ import android.content.Context
 import com.homebase.android.BuildConfig
 import com.homebase.android.data.api.AuthInterceptor
 import com.homebase.android.data.api.HomeBaseApi
+import com.homebase.android.data.repository.AbsenceRepository
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.NotesRepository
@@ -11,6 +12,7 @@ import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
 import com.homebase.android.data.websocket.RecipeWebSocketClient
@@ -76,5 +78,10 @@ class AppContainer(context: Context) {
     val recipesRepository = RecipesRepository(
         api = api,
         wsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    val absenceRepository = AbsenceRepository(
+        api = api,
+        wsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }

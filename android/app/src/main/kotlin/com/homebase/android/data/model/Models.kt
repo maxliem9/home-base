@@ -334,6 +334,115 @@ data class UpdateRecipeRequest(
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
 // ---------------------------------------------------------------------------
+// Abwesenheit / Familienkalender
+// ---------------------------------------------------------------------------
+
+@JsonClass(generateAdapter = true)
+data class AbsenceDto(
+    val id: String,
+    val userId: String,
+    val date: String,
+    val type: String,
+    val half: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PartTimeRuleDto(
+    val id: String,
+    val userId: String,
+    val weekday: Int,
+    val start: String,
+    val end: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class KitaClosureDto(
+    val id: String,
+    val date: String,
+    val label: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class AbsSettingsDto(
+    val userId: String,
+    val state: String,
+    val allowance: Double,
+    val carryover: Double,
+    val carryoverExpires: String? = null,
+    val kindKrankCap: Int,
+)
+
+/** Full planner snapshot — clients refetch this after any change. */
+@JsonClass(generateAdapter = true)
+data class AbsenceStateDto(
+    val users: List<String> = emptyList(),
+    val absences: List<AbsenceDto> = emptyList(),
+    val partTime: List<PartTimeRuleDto> = emptyList(),
+    val kitaClosures: List<KitaClosureDto> = emptyList(),
+    val settings: List<AbsSettingsDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class SetAbsenceRequest(
+    val userId: String,
+    val date: String,
+    val type: String,
+    val half: String? = null,
+)
+
+/** Bulk apply (or clear, when type is null) on the given dates. */
+@JsonClass(generateAdapter = true)
+data class BatchAbsenceRequest(
+    val userId: String,
+    val type: String? = null,
+    val half: String? = null,
+    val dates: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class CreatePartTimeRequest(
+    val userId: String,
+    val weekday: Int,
+    val start: String,
+    val end: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdatePartTimeRequest(
+    val weekday: Int,
+    val start: String,
+    val end: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateKitaRequest(
+    val date: String,
+    val label: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateKitaRangeRequest(
+    val from: String,
+    val to: String,
+    val label: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateKitaRequest(
+    val date: String? = null,
+    val label: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateAbsSettingsRequest(
+    val state: String? = null,
+    val allowance: Double? = null,
+    val carryover: Double? = null,
+    val carryoverExpires: String? = null,
+    val kindKrankCap: Int? = null,
+)
+
+// ---------------------------------------------------------------------------
 // Enums (mirror backend domain values)
 // ---------------------------------------------------------------------------
 
@@ -341,3 +450,4 @@ enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
 enum class Visibility { PRIVATE, SHARED }
 enum class RecipeCategory { BREAKFAST, LUNCH, DINNER, SNACK, DESSERT, DRINK }
+enum class AbsenceType { URLAUB, KRANK, KIND_KRANK }
