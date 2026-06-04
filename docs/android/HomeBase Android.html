@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HomeBase — Android</title>
+  <link rel="stylesheet" href="android/hb-mobile.css" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #efeee9; }
+    * { box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="#b56a43"/>
+      <rect x="36" y="22" width="28" height="56" rx="6" fill="#f7f5ef"/>
+      <rect x="44" y="30" width="12" height="3" rx="1.5" fill="#b56a43"/>
+      <circle cx="50" cy="68" r="3" fill="#b56a43"/>
+    </svg>
+  </template>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="android/design-canvas.jsx"></script>
+  <script type="text/babel" src="android/android-frame.jsx"></script>
+  <script type="text/babel" src="android/m-shell.jsx"></script>
+  <script type="text/babel" src="android/m-screens-heute.jsx"></script>
+  <script type="text/babel" src="android/m-screens-aufgaben.jsx"></script>
+  <script type="text/babel" src="android/m-screens-einkauf.jsx"></script>
+  <script type="text/babel" src="android/m-screens-notizen.jsx"></script>
+  <script type="text/babel" src="android/m-screens-zeit.jsx"></script>
+  <script type="text/babel" src="android/m-screens-rezepte.jsx"></script>
+  <script type="text/babel" src="android/m-app.jsx"></script>
+</body>
+</html>

@@ -43,3 +43,6 @@ android/app/.cxx/
 
 # Docker
 docker-compose.override.yml
+
+# Claude Code (local agent state: worktrees, launch config)
+.claude/

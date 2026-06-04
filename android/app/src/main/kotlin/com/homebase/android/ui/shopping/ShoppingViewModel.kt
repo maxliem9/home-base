@@ -3,6 +3,7 @@ package com.homebase.android.ui.shopping
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
@@ -13,10 +14,26 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ShoppingUiState(
+    val lists: List<ShoppingListDto> = emptyList(),
     val items: List<ShoppingItemDto> = emptyList(),
+    val activeListId: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-)
+) {
+    val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
+
+    val activeIsFirst: Boolean get() = activeList != null && lists.firstOrNull()?.id == activeList?.id
+
+    /** Items in the active list; the first list also surfaces unfiled (null) items. */
+    val visibleItems: List<ShoppingItemDto>
+        get() {
+            val id = activeList?.id ?: return items.filter { it.listId == null }
+            return items.filter { it.listId == id || (activeIsFirst && it.listId == null) }
+        }
+
+    /** Count of open (unchecked) items across all lists — used for the drawer badge. */
+    val openCount: Int get() = items.count { !it.checked }
+}
 
 class ShoppingViewModel(
     private val repository: ShoppingRepository,
@@ -34,87 +51,135 @@ class ShoppingViewModel(
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            repository.getItems()
-                .onSuccess { items ->
-                    _uiState.update { it.copy(items = items, isLoading = false) }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isLoading = false, error = e.message) }
-                }
+            val lists = repository.getLists()
+            val items = repository.getItems()
+            val error = lists.exceptionOrNull()?.message ?: items.exceptionOrNull()?.message
+            _uiState.update { state ->
+                state.copy(
+                    lists = lists.getOrDefault(state.lists),
+                    items = items.getOrDefault(state.items),
+                    isLoading = false,
+                    error = error,
+                )
+            }
         }
     }
 
-    fun addItem(name: String, category: String?) {
+    fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
+
+    fun addItem(name: String) {
         if (name.isBlank()) return
+        val listId = _uiState.value.activeList?.id
         viewModelScope.launch {
-            repository.createItem(name.trim(), category?.trim()?.takeIf { it.isNotEmpty() })
-                .onSuccess { item ->
-                    _uiState.update { state ->
-                        if (state.items.none { it.id == item.id })
-                            state.copy(items = listOf(item) + state.items)
-                        else state
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
-                }
+            repository.createItem(name.trim(), listId)
+                .onSuccess { upsertItem(it) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
 
     fun toggleChecked(item: ShoppingItemDto) {
         viewModelScope.launch {
             repository.updateItem(item.id, UpdateShoppingItemRequest(checked = !item.checked))
-                .onSuccess { updated ->
-                    _uiState.update { state ->
-                        state.copy(items = state.items.map { if (it.id == updated.id) updated else it })
-                    }
-                }
-                .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
-                }
+                .onSuccess { upsertItem(it) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
 
     fun deleteItem(id: String) {
         viewModelScope.launch {
             repository.deleteItem(id)
-                .onSuccess {
-                    _uiState.update { state ->
-                        state.copy(items = state.items.filter { it.id != id })
+                .onSuccess { _uiState.update { s -> s.copy(items = s.items.filter { it.id != id }) } }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /** Remove all checked ("Im Wagen") items from the active list. */
+    fun clearChecked() {
+        val checked = _uiState.value.visibleItems.filter { it.checked }
+        checked.forEach { deleteItem(it.id) }
+    }
+
+    /**
+     * Push recipe ingredient names onto the first shopping list, skipping any that already exist
+     * there (case-insensitive). Returns the number of items actually added via [onAdded].
+     */
+    fun addItemsToFirstList(names: List<String>, onAdded: (Int) -> Unit = {}) {
+        val firstList = _uiState.value.lists.firstOrNull()
+        val targetId = firstList?.id
+        val existing = _uiState.value.items
+            .filter { it.listId == targetId }
+            .map { it.name.trim().lowercase() }
+            .toSet()
+        val toAdd = names
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase() }
+            .filter { it.lowercase() !in existing }
+        if (toAdd.isEmpty()) {
+            onAdded(0)
+            return
+        }
+        viewModelScope.launch {
+            var added = 0
+            toAdd.forEach { name ->
+                repository.createItem(name, targetId)
+                    .onSuccess { upsertItem(it); added++ }
+            }
+            onAdded(added)
+        }
+    }
+
+    fun createList(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.createList(name.trim())
+                .onSuccess { list ->
+                    _uiState.update { s ->
+                        val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
+                        s.copy(lists = lists, activeListId = list.id)
                     }
                 }
-                .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
-                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
 
     fun clearError() = _uiState.update { it.copy(error = null) }
+
+    private fun upsertItem(item: ShoppingItemDto) {
+        _uiState.update { s ->
+            val items = if (s.items.any { it.id == item.id }) {
+                s.items.map { if (it.id == item.id) item else it }
+            } else {
+                listOf(item) + s.items
+            }
+            s.copy(items = items)
+        }
+    }
+
+    private fun upsertList(list: ShoppingListDto) {
+        _uiState.update { s ->
+            val lists = if (s.lists.any { it.id == list.id }) {
+                s.lists.map { if (it.id == list.id) list else it }
+            } else {
+                s.lists + list
+            }
+            s.copy(lists = lists)
+        }
+    }
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
-                    is ShoppingWebSocketClient.WsEvent.ItemCreated -> {
-                        _uiState.update { state ->
-                            if (state.items.none { it.id == event.item.id })
-                                state.copy(items = listOf(event.item) + state.items)
-                            else state
-                        }
-                    }
-                    is ShoppingWebSocketClient.WsEvent.ItemUpdated -> {
-                        _uiState.update { state ->
-                            state.copy(
-                                items = state.items.map { if (it.id == event.item.id) event.item else it }
-                            )
-                        }
-                    }
-                    is ShoppingWebSocketClient.WsEvent.ItemDeleted -> {
-                        _uiState.update { state ->
-                            state.copy(items = state.items.filter { it.id != event.item.id })
-                        }
-                    }
+                    is ShoppingWebSocketClient.WsEvent.ItemCreated -> upsertItem(event.item)
+                    is ShoppingWebSocketClient.WsEvent.ItemUpdated -> upsertItem(event.item)
+                    is ShoppingWebSocketClient.WsEvent.ItemDeleted ->
+                        _uiState.update { s -> s.copy(items = s.items.filter { it.id != event.item.id }) }
+                    is ShoppingWebSocketClient.WsEvent.ListCreated -> upsertList(event.list)
+                    is ShoppingWebSocketClient.WsEvent.ListUpdated -> upsertList(event.list)
+                    is ShoppingWebSocketClient.WsEvent.ListDeleted ->
+                        _uiState.update { s -> s.copy(lists = s.lists.filter { it.id != event.list.id }) }
                 }
             }
         }

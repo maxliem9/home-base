@@ -1,10 +1,11 @@
 package com.homebase.android
 
+import com.homebase.android.data.model.CreateTodoRequest
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
-import com.homebase.android.ui.inbox.InboxViewModel
+import com.homebase.android.ui.aufgaben.TodoViewModel
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -19,7 +20,7 @@ import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class InboxViewModelTest {
+class TodoViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: TodoRepository
@@ -35,6 +36,8 @@ class InboxViewModelTest {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         every { repository.incomingEvents } returns wsEvents
+        // load() fetches both lists and todos; default lists to empty unless a test overrides.
+        coEvery { repository.getLists() } returns Result.success(emptyList())
     }
 
     @After
@@ -42,7 +45,7 @@ class InboxViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm(): InboxViewModel = InboxViewModel(repository, "test-token")
+    private fun createVm(): TodoViewModel = TodoViewModel(repository, "test-token")
 
     @Test
     fun `initial load populates todos`() = runTest {
@@ -68,15 +71,15 @@ class InboxViewModelTest {
     }
 
     @Test
-    fun `createTodo prepends new todo to list`() = runTest {
+    fun `addTodo prepends new todo to list`() = runTest {
         coEvery { repository.getTodos() } returns Result.success(emptyList())
         val newTodo = todo(id = "2", title = "Buy milk")
-        coEvery { repository.createTodo("Buy milk") } returns Result.success(newTodo)
+        coEvery { repository.createTodo(CreateTodoRequest("Buy milk")) } returns Result.success(newTodo)
 
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.createTodo("Buy milk")
+        vm.addTodo("Buy milk")
         advanceUntilIdle()
 
         assertEquals(1, vm.uiState.value.todos.size)
@@ -84,13 +87,13 @@ class InboxViewModelTest {
     }
 
     @Test
-    fun `createTodo with blank title does nothing`() = runTest {
+    fun `addTodo with blank title does nothing`() = runTest {
         coEvery { repository.getTodos() } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.createTodo("   ")
+        vm.addTodo("   ")
         advanceUntilIdle()
 
         coVerify(exactly = 0) { repository.createTodo(any()) }
@@ -98,7 +101,7 @@ class InboxViewModelTest {
     }
 
     @Test
-    fun `markDone replaces todo in list`() = runTest {
+    fun `toggleDone marks an open todo done`() = runTest {
         val original = todo(id = "1", status = "INBOX")
         val updated = original.copy(status = "DONE")
         coEvery { repository.getTodos() } returns Result.success(listOf(original))
@@ -107,7 +110,7 @@ class InboxViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.markDone("1")
+        vm.toggleDone(original)
         advanceUntilIdle()
 
         assertEquals("DONE", vm.uiState.value.todos[0].status)
@@ -140,7 +143,7 @@ class InboxViewModelTest {
     }
 
     @Test
-    fun `WS TodoCreated event adds todo without duplicate`() = runTest {
+    fun `WS TodoCreated event adds todo`() = runTest {
         coEvery { repository.getTodos() } returns Result.success(emptyList())
 
         val vm = createVm()

@@ -2,6 +2,31 @@ package com.homebase.android.data.model
 
 import com.squareup.moshi.JsonClass
 
+// ---------------------------------------------------------------------------
+// Auth & config
+// ---------------------------------------------------------------------------
+
+@JsonClass(generateAdapter = true)
+data class LoginRequest(val username: String, val password: String)
+
+@JsonClass(generateAdapter = true)
+data class TokenResponse(val token: String)
+
+@JsonClass(generateAdapter = true)
+data class AppConfigResponse(val householdName: String)
+
+// ---------------------------------------------------------------------------
+// Todos, todo lists & subtasks
+// ---------------------------------------------------------------------------
+
+@JsonClass(generateAdapter = true)
+data class SubtaskDto(
+    val id: String,
+    val title: String,
+    val done: Boolean,
+    val sortOrder: Int,
+)
+
 @JsonClass(generateAdapter = true)
 data class TodoDto(
     val id: String,
@@ -11,13 +36,22 @@ data class TodoDto(
     val assignee: String? = null,
     val dueDate: String? = null,
     val priority: String? = null,
+    val listId: String? = null,
+    val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
     val doneAt: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
-data class CreateTodoRequest(val title: String)
+data class CreateTodoRequest(
+    val title: String,
+    val description: String? = null,
+    val assignee: String? = null,
+    val dueDate: String? = null,
+    val priority: String? = null,
+    val listId: String? = null,
+)
 
 @JsonClass(generateAdapter = true)
 data class UpdateTodoRequest(
@@ -27,22 +61,55 @@ data class UpdateTodoRequest(
     val assignee: String? = null,
     val dueDate: String? = null,
     val priority: String? = null,
+    // null = unchanged, "" = remove from list, UUID = move to that list
+    val listId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
-data class LoginRequest(val username: String, val password: String)
+data class CreateSubtaskRequest(val title: String)
 
 @JsonClass(generateAdapter = true)
-data class TokenResponse(val token: String)
+data class UpdateSubtaskRequest(
+    val title: String? = null,
+    val done: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class TodoListDto(
+    val id: String,
+    val name: String,
+    val visibility: String,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateTodoListRequest(
+    val name: String,
+    val visibility: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateTodoListRequest(
+    val name: String? = null,
+    val visibility: String? = null,
+)
 
 @JsonClass(generateAdapter = true)
 data class WsMessage(val type: String, val payload: TodoDto? = null)
 
 @JsonClass(generateAdapter = true)
+data class TodoListWsMessage(val type: String, val payload: TodoListDto? = null)
+
+// ---------------------------------------------------------------------------
+// Shopping items & lists
+// ---------------------------------------------------------------------------
+
+@JsonClass(generateAdapter = true)
 data class ShoppingItemDto(
     val id: String,
     val name: String,
-    val category: String? = null,
+    val listId: String? = null,
     val checked: Boolean,
     val createdBy: String,
     val createdAt: String,
@@ -52,18 +119,40 @@ data class ShoppingItemDto(
 @JsonClass(generateAdapter = true)
 data class CreateShoppingItemRequest(
     val name: String,
-    val category: String? = null,
+    val listId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class UpdateShoppingItemRequest(
     val name: String? = null,
-    val category: String? = null,
+    // null = unchanged, "" = remove from list, UUID = move to that list
+    val listId: String? = null,
     val checked: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)
+data class ShoppingListDto(
+    val id: String,
+    val name: String,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateShoppingListRequest(val name: String)
+
+@JsonClass(generateAdapter = true)
+data class UpdateShoppingListRequest(val name: String? = null)
+
+@JsonClass(generateAdapter = true)
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
+
+@JsonClass(generateAdapter = true)
+data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
 
 @JsonClass(generateAdapter = true)
 data class NoteDto(
@@ -95,6 +184,10 @@ data class UpdateNoteRequest(
 
 @JsonClass(generateAdapter = true)
 data class NoteWsMessage(val type: String, val payload: NoteDto? = null)
+
+// ---------------------------------------------------------------------------
+// Time tracking
+// ---------------------------------------------------------------------------
 
 @JsonClass(generateAdapter = true)
 data class ProjectDto(
@@ -164,6 +257,10 @@ data class TimeWsMessage(
     val entry: TimeEntryDto? = null,
     val project: ProjectDto? = null,
 )
+
+// ---------------------------------------------------------------------------
+// Recipes
+// ---------------------------------------------------------------------------
 
 @JsonClass(generateAdapter = true)
 data class IngredientDto(
@@ -236,7 +333,11 @@ data class UpdateRecipeRequest(
 @JsonClass(generateAdapter = true)
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
+// ---------------------------------------------------------------------------
+// Enums (mirror backend domain values)
+// ---------------------------------------------------------------------------
+
 enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
-enum class NoteVisibility { PRIVATE, SHARED }
+enum class Visibility { PRIVATE, SHARED }
 enum class RecipeCategory { BREAKFAST, LUNCH, DINNER, SNACK, DESSERT, DRINK }

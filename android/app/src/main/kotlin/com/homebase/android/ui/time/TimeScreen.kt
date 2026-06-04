@@ -1,422 +1,861 @@
 package com.homebase.android.ui.time
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.homebase.android.R
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbAppBar
+import com.homebase.android.ui.components.HbBottomSheet
+import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonSize
+import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbField
+import com.homebase.android.ui.components.HbIcon
+import com.homebase.android.ui.components.HbIconButton
+import com.homebase.android.ui.components.HbIcons
+import com.homebase.android.ui.components.HbPill
+import com.homebase.android.ui.components.HbRadius
+import com.homebase.android.ui.components.HbRadiusSm
+import com.homebase.android.ui.components.HbScreenScaffold
+import com.homebase.android.ui.components.HbFab
+import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.HbToast
+import com.homebase.android.ui.components.displayName
+import com.homebase.android.ui.theme.Hb
+import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
-import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
-private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
+// ---------------------------------------------------------------------------
+// Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
+// project-detail sheet and new-project sheet. Mirrors docs/android/android/
+// m-screens-zeit.jsx and the .hb-timerhero/.hb-projcard/.hb-weekbar tokens.
+// ---------------------------------------------------------------------------
 
-private fun parseColor(hex: String): Color = runCatching {
-    Color(android.graphics.Color.parseColor(hex))
-}.getOrDefault(Color(0xFF9CA3AF))
-
-private fun isToday(startedAt: String): Boolean = runCatching {
-    Instant.parse(startedAt).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now()
-}.getOrDefault(false)
-
-private fun formatDuration(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    return when {
-        h > 0 -> "${h}h ${m}m"
-        m > 0 -> "${m}m"
-        else -> "${seconds}s"
-    }
-}
-
-private fun formatClock(seconds: Long): String {
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return "%02d:%02d:%02d".format(h, m, s)
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TimeScreen(viewModel: TimeViewModel) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var showManual by remember { mutableStateOf(false) }
-    var showAddProject by remember { mutableStateOf(false) }
+fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () -> Unit) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val projectsById = remember(uiState.projects) { uiState.projects.associateBy { it.id } }
+    var showNewProject by remember { mutableStateOf(false) }
+    var detailProjectId by remember { mutableStateOf<String?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.time_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                actions = {
-                    IconButton(onClick = { showAddProject = true }) {
-                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.time_add_project_cd))
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showManual = true },
-                text = { Text(stringResource(R.string.time_entry)) },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when {
-                uiState.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                else -> {
-                    val todayEntries = uiState.entries
-                        .filter { it.stoppedAt != null && isToday(it.startedAt) }
-                        .sortedByDescending { it.startedAt }
-                    val todayTotal = todayEntries.sumOf { it.durationSeconds ?: 0L }
+    val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
+    val entriesByProject = remember(state.entries) { state.entries.groupBy { it.projectId } }
 
-                    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        uiState.running?.let { running ->
-                            item(key = "running") {
-                                RunningCard(
-                                    entry = running,
-                                    project = projectsById[running.projectId],
-                                    onStop = viewModel::stopTimer,
+    // Active projects first, then archived (shown only when the archive toggle is on).
+    var showArchived by remember { mutableStateOf(false) }
+    val gridProjects = remember(state.projects, showArchived) {
+        val active = state.projects.filter { !it.archived }
+        val archived = state.projects.filter { it.archived }
+        if (showArchived) active + archived else active
+    }
+
+    val detailProject = detailProjectId?.let { projectsById[it] }
+
+    Box(Modifier.fillMaxSize()) {
+        HbScreenScaffold(
+            appBar = {
+                HbAppBar(
+                    eyebrow = "Zeiterfassung",
+                    title = "Zeit",
+                    onLeft = onOpenDrawer,
+                    actions = { HbIconButton(HbIcons.more, {}) },
+                )
+            },
+            fab = { HbFab(onClick = { showNewProject = true }, label = "Projekt") },
+        ) {
+            // --- Timer hero ---
+            Box(Modifier.padding(horizontal = 18.dp)) {
+                val running = state.running
+                if (running != null) {
+                    RunningHero(
+                        running = running,
+                        project = projectsById[running.projectId],
+                        onStop = { viewModel.stopTimer() },
+                    )
+                } else {
+                    IdleHero()
+                }
+            }
+
+            Spacer(Modifier.size(22.dp))
+
+            // --- Projekte ---
+            Row(
+                Modifier.padding(horizontal = 18.dp).fillMaxWidth().padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Projekte".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+                Row(
+                    Modifier
+                        .clip(HbRadiusSm)
+                        .clickable { showArchived = !showArchived }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        if (showArchived) "Aktive" else "Archiv",
+                        style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink3,
+                    )
+                    HbIcon(HbIcons.chevronRight, size = 14.dp, tint = Hb.ink3)
+                }
+            }
+
+            if (gridProjects.isEmpty()) {
+                Text(
+                    "Noch keine Projekte. Lege unten eines an.",
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            } else {
+                Column(
+                    Modifier.padding(horizontal = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    gridProjects.chunked(2).forEach { rowProjects ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            rowProjects.forEach { project ->
+                                ProjectCard(
+                                    project = project,
+                                    entries = entriesByProject[project.id].orEmpty(),
+                                    isRunning = state.running?.projectId == project.id,
+                                    onStart = { viewModel.startTimer(project.id, null) },
+                                    onStop = { viewModel.stopTimer() },
+                                    onOpen = { detailProjectId = project.id },
+                                    modifier = Modifier.weight(1f),
                                 )
                             }
-                        }
-
-                        item(key = "quickstart") {
-                            Text(stringResource(R.string.time_quickstart), style = MaterialTheme.typography.titleSmall)
-                        }
-                        if (uiState.activeProjects.isEmpty()) {
-                            item(key = "no-projects") {
-                                Text(
-                                    stringResource(R.string.time_no_projects),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.outline,
-                                )
-                            }
-                        } else {
-                            items(uiState.activeProjects, key = { "p-${it.id}" }) { project ->
-                                ProjectStartRow(project = project, onStart = { viewModel.startTimer(project.id, null) })
-                            }
-                        }
-
-                        item(key = "today-header") {
-                            Row(
-                                Modifier.fillMaxWidth().padding(top = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(stringResource(R.string.time_today), style = MaterialTheme.typography.titleSmall)
-                                Text(formatDuration(todayTotal), style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                        if (todayEntries.isEmpty()) {
-                            item(key = "today-empty") {
-                                Text(
-                                    stringResource(R.string.time_no_entries_today),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.outline,
-                                )
-                            }
-                        } else {
-                            items(todayEntries, key = { it.id }) { entry ->
-                                EntryRow(
-                                    entry = entry,
-                                    project = projectsById[entry.projectId],
-                                    onDelete = { viewModel.deleteEntry(entry.id) },
-                                )
-                            }
+                            // Pad an odd final row so the single card keeps half-width.
+                            if (rowProjects.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
             }
+
+            Spacer(Modifier.size(26.dp))
+
+            // --- Letzte Einträge ---
+            Text(
+                "Letzte Einträge".uppercase(),
+                style = HbType.sectionLabel,
+                color = Hb.ink3,
+                modifier = Modifier.padding(horizontal = 18.dp).padding(start = 2.dp),
+            )
+
+            val recent = remember(state.entries) {
+                state.entries.filter { it.stoppedAt != null }.sortedByDescending { it.startedAt }
+            }
+            if (recent.isEmpty()) {
+                Text(
+                    "Noch keine erfassten Zeiten.",
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                    modifier = Modifier.padding(horizontal = 18.dp).padding(top = 12.dp),
+                )
+            } else {
+                EntriesByDay(
+                    entries = recent,
+                    projectsById = projectsById,
+                    currentUser = currentUser,
+                    showProjectName = true,
+                    onDelete = { viewModel.deleteEntry(it) },
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            }
         }
-    }
 
-    uiState.error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = viewModel::clearError,
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.action_ok)) } },
-            title = { Text(stringResource(R.string.error_title)) },
-            text = { Text(msg) },
-        )
-    }
+        // --- Sheets ---
+        if (showNewProject) {
+            NewProjectSheet(
+                onDismiss = { showNewProject = false },
+                onCreate = { name, hex ->
+                    viewModel.addProject(name, hex)
+                    showNewProject = false
+                },
+            )
+        }
 
-    if (showManual) {
-        ManualEntrySheet(
-            projects = uiState.activeProjects,
-            onSubmit = { projectId, startedAt, stoppedAt, description ->
-                viewModel.addManualEntry(projectId, startedAt, stoppedAt, description)
-                showManual = false
-            },
-            onDismiss = { showManual = false },
-        )
-    }
+        if (detailProject != null) {
+            ProjectDetailSheet(
+                project = detailProject,
+                entries = entriesByProject[detailProject.id].orEmpty(),
+                isRunning = state.running?.projectId == detailProject.id,
+                currentUser = currentUser,
+                onDelete = { viewModel.deleteEntry(it) },
+                onDismiss = { detailProjectId = null },
+            )
+        }
 
-    if (showAddProject) {
-        AddProjectDialog(
-            onConfirm = { name, color ->
-                viewModel.addProject(name, color)
-                showAddProject = false
-            },
-            onDismiss = { showAddProject = false },
-        )
+        state.error?.let { msg ->
+            HbToast(
+                message = msg,
+                icon = HbIcons.x,
+                actionLabel = "OK",
+                onAction = { viewModel.clearError() },
+            )
+        }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Timer hero (.hb-timerhero)
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun RunningCard(entry: TimeEntryDto, project: ProjectDto?, onStop: () -> Unit) {
-    // live ticking clock
-    val elapsed by produceState(initialValue = currentElapsed(entry.startedAt), entry.startedAt) {
+private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () -> Unit) {
+    val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
-            value = currentElapsed(entry.startedAt)
+            value = Format.elapsedSeconds(running.startedAt)
             delay(1000)
         }
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
+            .clip(HbRadius)
+            .background(Brush.linearGradient(0f to Hb.accentSoft, 0.78f to Hb.surface))
+            .padding(22.dp),
+    ) {
+        // "LÄUFT" live row
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(9.dp).clip(HbPill).background(Hb.clay))
+            Text(
+                "Läuft".uppercase(),
+                style = HbType.eyebrow.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.05.em),
+                color = Hb.accentInk,
+            )
+        }
+        // Project dot + name
         Row(
-            Modifier.fillMaxWidth().padding(16.dp),
+            Modifier.padding(top = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(parseColor(project?.color ?: "#4F46E5")))
-            Column(Modifier.weight(1f)) {
-                Text(project?.name ?: stringResource(R.string.time_project), style = MaterialTheme.typography.titleMedium)
-                entry.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            Box(
+                Modifier
+                    .size(11.dp)
+                    .clip(HbPill)
+                    .background(if (project != null) Format.parseColor(project.color) else Hb.ink3),
+            )
+            Text(
+                project?.name ?: "Projekt",
+                style = HbType.cardTitle.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!running.description.isNullOrBlank()) {
+            Text(
+                running.description!!,
+                style = HbType.body.copy(fontSize = 14.5.sp),
+                color = Hb.ink2,
+                modifier = Modifier.padding(top = 6.dp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            Format.clock(elapsed),
+            style = HbType.mono(46.0),
+            color = Hb.ink,
+            modifier = Modifier.padding(vertical = 16.dp),
+        )
+        HbButton(
+            "Timer stoppen",
+            onClick = onStop,
+            variant = HbButtonVariant.Primary,
+            icon = HbIcons.stop,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun IdleHero() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(22.dp),
+    ) {
+        Text(
+            "Kein Timer aktiv".uppercase(),
+            style = HbType.eyebrow.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.05.em),
+            color = Hb.ink3,
+        )
+        Text(
+            "00:00:00",
+            style = HbType.mono(34.0),
+            color = Hb.ink3,
+            modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+        )
+        Text(
+            "Starte unten ein Projekt, um die Zeit zu erfassen.",
+            style = HbType.body.copy(fontSize = 14.sp),
+            color = Hb.ink3,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Project card (.hb-projcard)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ProjectCard(
+    project: ProjectDto,
+    entries: List<TimeEntryDto>,
+    isRunning: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val totalSeconds = remember(entries) { sumSeconds(entries) }
+    val ringModifier = if (isRunning) {
+        Modifier
+            .shadow(0.dp, HbRadius, clip = false, ambientColor = Hb.accentSoft, spotColor = Hb.accentSoft)
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(3.dp, Hb.accentSoft, HbRadius)
+            .border(1.dp, Hb.accent, HbRadius)
+            .padding(15.dp)
+    } else {
+        Modifier
+            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(15.dp)
+    }
+    Column(
+        modifier
+            .then(ringModifier)
+            .then(if (project.archived) Modifier.alpha(0.72f) else Modifier),
+        verticalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        // head: dot + name (whole upper area opens the detail sheet)
+        Column(Modifier.clickable { onOpen() }, verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.size(11.dp).clip(HbPill).background(Format.parseColor(project.color)))
+                Text(
+                    project.name,
+                    style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            Text(formatClock(elapsed), style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
-            FilledIconButton(onClick = onStop) {
-                // square "stop" glyph
-                Text("■")
+            Text(
+                Format.durationLong(totalSeconds),
+                style = HbType.mono(21.0),
+                color = Hb.ink,
+            )
+        }
+        if (isRunning) {
+            HbButton(
+                "Stopp",
+                onClick = onStop,
+                variant = HbButtonVariant.Soft,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.stop,
+            )
+        } else {
+            HbButton(
+                "Start",
+                onClick = onStart,
+                variant = HbButtonVariant.Primary,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.play,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Day-grouped entry list (.hb-daysep + .hb-row)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun EntriesByDay(
+    entries: List<TimeEntryDto>,
+    projectsById: Map<String, ProjectDto>,
+    currentUser: String?,
+    showProjectName: Boolean,
+    onDelete: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // entries arrive already newest-first; preserve that order across day buckets.
+    val groups = remember(entries) {
+        val ordered = LinkedHashMap<String, MutableList<TimeEntryDto>>()
+        entries.forEach { entry ->
+            ordered.getOrPut(Format.dayGroupLabel(entry.startedAt)) { mutableListOf() }.add(entry)
+        }
+        ordered.toList()
+    }
+    Column(modifier.fillMaxWidth()) {
+        groups.forEach { (label, dayEntries) ->
+            val daySum = sumSeconds(dayEntries)
+            // .hb-daysep
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    label.uppercase(),
+                    style = HbType.small.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.06.em),
+                    color = Hb.ink3,
+                )
+                Box(Modifier.weight(1f).size(1.dp).background(Hb.lineSoft))
+                Text(
+                    "Σ ${Format.durationLong(daySum)}",
+                    style = HbType.small.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink2,
+                )
+            }
+            dayEntries.forEach { entry ->
+                EntryRow(
+                    entry = entry,
+                    project = projectsById[entry.projectId],
+                    currentUser = currentUser,
+                    showProjectName = showProjectName,
+                    onDelete = { onDelete(entry.id) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ProjectStartRow(project: ProjectDto, onStart: () -> Unit) {
-    ListItem(
-        leadingContent = {
-            Box(Modifier.size(16.dp).clip(CircleShape).background(parseColor(project.color)))
-        },
-        headlineContent = { Text(project.name) },
-        trailingContent = {
-            IconButton(onClick = onStart) {
-                Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.time_start_timer_cd))
-            }
-        },
-    )
-}
+private fun EntryRow(
+    entry: TimeEntryDto,
+    project: ProjectDto?,
+    currentUser: String?,
+    showProjectName: Boolean,
+    onDelete: () -> Unit,
+) {
+    val own = currentUser != null && entry.userId == currentUser
+    val duration = Format.entrySeconds(entry.startedAt, entry.stoppedAt)
+    val range = "${Format.clockOfDay(entry.startedAt)}–${Format.clockOfDay(entry.stoppedAt)}"
+    val title = if (showProjectName) (project?.name ?: "Projekt") else (entry.description ?: project?.name ?: "Eintrag")
 
-@Composable
-private fun EntryRow(entry: TimeEntryDto, project: ProjectDto?, onDelete: () -> Unit) {
-    val range = buildString {
-        append(TIME_FMT.format(Instant.parse(entry.startedAt)))
-        append("–")
-        entry.stoppedAt?.let { append(TIME_FMT.format(Instant.parse(it))) }
-        entry.description?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-    }
-    ListItem(
-        leadingContent = {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(parseColor(project?.color ?: "#9CA3AF")))
-        },
-        headlineContent = { Text(project?.name ?: stringResource(R.string.time_project)) },
-        supportingContent = { Text(range) },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatDuration(entry.durationSeconds ?: 0L), fontFamily = FontFamily.Monospace)
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(11.dp)
+                    .clip(HbPill)
+                    .background(if (project != null) Format.parseColor(project.color) else Hb.ink3),
+            )
+            Column(Modifier.weight(1f)) {
+                Row {
+                    Text(
+                        title,
+                        style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (showProjectName && !entry.description.isNullOrBlank()) {
+                        Text(
+                            " · ${entry.description}",
+                            style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.Normal),
+                            color = Hb.ink3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Row(
+                    Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    HbAvatar(entry.userId, size = 18.dp)
+                    Text(range, style = HbType.meta, color = Hb.ink3)
                 }
             }
-        },
-    )
+            Text(
+                Format.durationLong(duration),
+                style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink2,
+            )
+            if (own) {
+                HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
+            } else {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    HbIcon(HbIcons.lock, size = 17.dp, tint = Hb.ink3)
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ---------------------------------------------------------------------------
+// New-project sheet (Name + swatch picker)
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun ManualEntrySheet(
-    projects: List<ProjectDto>,
-    onSubmit: (projectId: String, startedAt: String, stoppedAt: String, description: String?) -> Unit,
+private fun NewProjectSheet(onDismiss: () -> Unit, onCreate: (String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf(Hb.projectSwatches.first()) }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Neues Projekt",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Erstellen",
+                onClick = { if (name.isNotBlank()) onCreate(name, hexOf(selected)) },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        HbField("Name") {
+            HbTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = "z. B. Renovierung",
+            )
+        }
+        HbField("Farbe") {
+            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Hb.projectSwatches.forEach { color ->
+                    val isActive = color == selected
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(color, RoundedCornerShape(11.dp))
+                            .then(
+                                if (isActive) {
+                                    Modifier
+                                        .border(2.dp, Hb.surface, RoundedCornerShape(11.dp))
+                                        .border(4.dp, Hb.ink2, RoundedCornerShape(13.dp))
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .clickable { selected = color },
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Project-detail sheet (stats, per-user chips, weekly bars, all entries)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ProjectDetailSheet(
+    project: ProjectDto,
+    entries: List<TimeEntryDto>,
+    isRunning: Boolean,
+    currentUser: String?,
+    onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
-    var projectId by remember { mutableStateOf(projects.firstOrNull()?.id ?: "") }
-    var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var start by remember { mutableStateOf("09:00") }
-    var end by remember { mutableStateOf("10:00") }
-    var description by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    val invalidTimesMsg = stringResource(R.string.time_invalid_times)
+    val finished = remember(entries) { entries.filter { it.stoppedAt != null } }
+    val totalSeconds = remember(finished) { sumSeconds(finished) }
+    val count = finished.size
+    val avgSeconds = if (count > 0) totalSeconds / count else 0L
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(stringResource(R.string.time_record_entry), style = MaterialTheme.typography.titleLarge)
-
-            ProjectDropdown(projects = projects, selectedId = projectId, onSelect = { projectId = it })
-
-            OutlinedTextField(
-                value = date,
-                onValueChange = { date = it },
-                label = { Text(stringResource(R.string.time_field_date)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = start,
-                    onValueChange = { start = it },
-                    label = { Text(stringResource(R.string.time_field_start)) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = end,
-                    onValueChange = { end = it },
-                    label = { Text(stringResource(R.string.time_field_end)) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text(stringResource(R.string.time_field_description)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-
-            Button(
-                onClick = {
-                    val result = buildEntryTimestamps(date, start, end)
-                    if (result == null) {
-                        error = invalidTimesMsg
-                    } else {
-                        onSubmit(projectId, result.first, result.second, description)
-                    }
-                },
-                enabled = projectId.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.action_save)) }
-        }
+    val today = LocalDate.now()
+    val thisWeekStart = today.with(DayOfWeek.MONDAY)
+    val thisWeekSeconds = remember(finished) {
+        finished.filter { weekStartOf(it.startedAt) == thisWeekStart }.let { sumSeconds(it) }
     }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProjectDropdown(projects: List<ProjectDto>, selectedId: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val selected = projects.firstOrNull { it.id == selectedId }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selected?.name ?: stringResource(R.string.time_select_project),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.time_project)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            projects.forEach { project ->
-                DropdownMenuItem(
-                    text = { Text(project.name) },
-                    onClick = { onSelect(project.id); expanded = false },
-                )
+    // Per-user totals.
+    val byUser = remember(finished) {
+        finished.groupBy { it.userId }
+            .mapValues { (_, list) -> sumSeconds(list) }
+            .toList()
+            .sortedByDescending { it.second }
+    }
+
+    // Weekly aggregation: Monday -> (per-user seconds, entry count).
+    val weeks = remember(finished) { buildWeeks(finished) }
+    val busiestWeek = weeks.maxOfOrNull { it.totalSeconds } ?: 0L
+
+    val projectColor = Format.parseColor(project.color)
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = project.name,
+        full = true,
+        footer = {
+            HbButton(
+                "Schließen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        // active marker
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(13.dp).clip(HbPill).background(projectColor))
+            Text(
+                if (isRunning) "Aktives Projekt" else "Projekt",
+                style = HbType.label.copy(fontSize = 13.sp),
+                color = Hb.ink3,
+            )
+        }
+
+        // 4 stat tiles (.hb-detail-stats / .hb-fact)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FactTile(Format.durationLong(totalSeconds), "Gesamt", Modifier.weight(1f))
+                FactTile(Format.durationLong(thisWeekSeconds), "Diese Woche", Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FactTile(count.toString(), "Einträge", Modifier.weight(1f))
+                FactTile(Format.durationLong(avgSeconds), "ø / Eintrag", Modifier.weight(1f))
             }
         }
-    }
-}
 
-@Composable
-private fun AddProjectDialog(onConfirm: (String, String) -> Unit, onDismiss: () -> Unit) {
-    val colors = listOf("#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#EC4899", "#06B6D4", "#8B5CF6", "#64748B")
-    var name by remember { mutableStateOf("") }
-    var color by remember { mutableStateOf(colors.first()) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.time_new_project)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.time_project_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    colors.forEach { c ->
-                        Box(
-                            Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(parseColor(c))
-                                .then(if (c == color) Modifier.padding(2.dp) else Modifier),
-                        ) {
-                            IconButton(onClick = { color = c }, modifier = Modifier.fillMaxSize()) {
-                                if (c == color) Text("✓", color = Color.White)
-                            }
-                        }
+        // per-user chips (.hb-detail-user)
+        if (byUser.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                byUser.forEach { (userId, seconds) ->
+                    Row(
+                        Modifier
+                            .clip(HbPill)
+                            .background(Hb.surface2, HbPill)
+                            .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        HbAvatar(userId, size = 24.dp)
+                        Text(
+                            displayName(userId),
+                            style = HbType.label.copy(fontSize = 13.5.sp),
+                            color = Hb.ink,
+                        )
+                        Text(
+                            Format.durationLong(seconds),
+                            style = HbType.label.copy(fontSize = 13.sp),
+                            color = Hb.ink2,
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onConfirm(name, color) }, enabled = name.isNotBlank()) {
-                Text(stringResource(R.string.time_create))
+        }
+
+        // Pro Woche
+        if (weeks.isNotEmpty()) {
+            Text("Pro Woche".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                weeks.forEach { week ->
+                    WeekRow(week = week, busiest = busiestWeek, today = today)
+                }
             }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
-    )
+        }
+
+        // Alle Einträge
+        if (finished.isNotEmpty()) {
+            Text("Alle Einträge".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            EntriesByDay(
+                entries = finished.sortedByDescending { it.startedAt },
+                projectsById = mapOf(project.id to project),
+                currentUser = currentUser,
+                showProjectName = false,
+                onDelete = onDelete,
+            )
+        }
+    }
 }
 
-// --- helpers ---------------------------------------------------------------
+@Composable
+private fun FactTile(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(HbRadiusSm)
+            .background(Hb.surface2, HbRadiusSm)
+            .padding(horizontal = 15.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            value,
+            style = HbType.cardTitle.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 22.sp),
+            color = Hb.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(label, style = HbType.small.copy(fontWeight = FontWeight.Medium), color = Hb.ink3)
+    }
+}
 
-private fun currentElapsed(startedAt: String): Long = runCatching {
-    val start = Instant.parse(startedAt).toEpochMilli()
-    ((System.currentTimeMillis() - start) / 1000).coerceAtLeast(0)
-}.getOrDefault(0L)
+@Composable
+private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        // head: label (+ range) + total
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                weekLabel(week.weekStart, today),
+                style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                Format.durationLong(week.totalSeconds),
+                style = HbType.label.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                color = Hb.ink,
+            )
+        }
+        // bar (.hb-weekbar) — per-user segments scaled so the busiest week fills the bar
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .clip(HbPill)
+                .background(Hb.surface2, HbPill),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            val scale = if (busiest > 0) week.totalSeconds.toFloat() / busiest.toFloat() else 0f
+            week.byUser.forEach { (userId, seconds) ->
+                if (seconds > 0 && week.totalSeconds > 0) {
+                    val frac = (seconds.toFloat() / week.totalSeconds.toFloat()) * scale
+                    Box(
+                        Modifier
+                            .weight(frac.coerceAtLeast(0.0001f))
+                            .widthIn(min = 4.dp) // mirrors .hb-weekbar__seg min-width
+                            .fillMaxHeight()
+                            .clip(HbPill)
+                            .background(Hb.userColor(userId)),
+                    )
+                }
+            }
+            // remaining space so shorter weeks don't fill the whole bar
+            val remaining = (1f - scale).coerceIn(0f, 1f)
+            if (remaining > 0f) Spacer(Modifier.weight(remaining))
+        }
+        Text("${week.count} Einträge", style = HbType.small, color = Hb.ink3)
+    }
+}
 
-/** Builds (startIso, stopIso) in UTC from local date/time inputs, or null if invalid / stop ≤ start. */
-private fun buildEntryTimestamps(date: String, start: String, end: String): Pair<String, String>? = runCatching {
-    val d = LocalDate.parse(date)
-    val s = LocalTime.parse(start)
-    val e = LocalTime.parse(end)
-    val zone = ZoneId.systemDefault()
-    val startInstant = d.atTime(s).atZone(zone).toInstant()
-    val stopInstant = d.atTime(e).atZone(zone).toInstant()
-    if (!stopInstant.isAfter(startInstant)) return null
-    startInstant.toString() to stopInstant.toString()
-}.getOrNull()
+// ---------------------------------------------------------------------------
+// Weekly aggregation helpers
+// ---------------------------------------------------------------------------
+
+private data class WeekStat(
+    val weekStart: LocalDate,
+    val byUser: List<Pair<String, Long>>,
+    val totalSeconds: Long,
+    val count: Int,
+)
+
+/** Build week stats (Monday-anchored) for weeks that have entries, newest first, max 6. */
+private fun buildWeeks(entries: List<TimeEntryDto>): List<WeekStat> {
+    val byWeek = LinkedHashMap<LocalDate, MutableList<TimeEntryDto>>()
+    entries.forEach { entry ->
+        val ws = weekStartOf(entry.startedAt) ?: return@forEach
+        byWeek.getOrPut(ws) { mutableListOf() }.add(entry)
+    }
+    return byWeek.entries
+        .map { (weekStart, list) ->
+            val perUser = list.groupBy { it.userId }
+                .mapValues { (_, l) -> sumSeconds(l) }
+                .toList()
+                .sortedByDescending { it.second }
+            WeekStat(
+                weekStart = weekStart,
+                byUser = perUser,
+                totalSeconds = sumSeconds(list),
+                count = list.size,
+            )
+        }
+        .sortedByDescending { it.weekStart }
+        .take(6)
+}
+
+private val DETAIL_ZONE: ZoneId get() = ZoneId.systemDefault()
+
+private fun weekStartOf(iso: String?): LocalDate? =
+    Format.parseInstant(iso)?.atZone(DETAIL_ZONE)?.toLocalDate()?.with(DayOfWeek.MONDAY)
+
+private fun weekLabel(weekStart: LocalDate, today: LocalDate): String {
+    val currentWeekStart = today.with(DayOfWeek.MONDAY)
+    return when (weekStart) {
+        currentWeekStart -> "Diese Woche"
+        currentWeekStart.minusWeeks(1) -> "Letzte Woche"
+        else -> {
+            val end = weekStart.plusDays(6)
+            "%02d.%02d.–%02d.%02d.".format(
+                weekStart.dayOfMonth, weekStart.monthValue,
+                end.dayOfMonth, end.monthValue,
+            )
+        }
+    }
+}
+
+/** Sum of entry durations (uses live "now" for any still-running entry). */
+private fun sumSeconds(entries: List<TimeEntryDto>): Long =
+    entries.sumOf { Format.entrySeconds(it.startedAt, it.stoppedAt) }
+
+/** Convert a Compose [Color] back to a "#rrggbb" hex string for the API. */
+private fun hexOf(color: Color): String = "#%06X".format(0xFFFFFF and color.toArgb())

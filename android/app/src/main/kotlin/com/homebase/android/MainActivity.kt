@@ -2,25 +2,38 @@ package com.homebase.android
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.homebase.android.ui.inbox.InboxScreen
-import com.homebase.android.ui.inbox.InboxViewModel
+import com.homebase.android.ui.aufgaben.AufgabenScreen
+import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.components.HbDrawerContent
+import com.homebase.android.ui.components.HbRoute
+import com.homebase.android.ui.heute.HeuteScreen
 import com.homebase.android.ui.login.LoginScreen
 import com.homebase.android.ui.notes.NotesScreen
 import com.homebase.android.ui.notes.NotesViewModel
@@ -28,6 +41,7 @@ import com.homebase.android.ui.recipes.RecipesScreen
 import com.homebase.android.ui.recipes.RecipesViewModel
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
+import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HomeBaseTheme
 import com.homebase.android.ui.time.TimeScreen
 import com.homebase.android.ui.time.TimeViewModel
@@ -38,21 +52,12 @@ class MainActivity : ComponentActivity() {
 
     private val container by lazy { (application as HomeBaseApplication).container }
 
-    private enum class Tab(val label: String) {
-        INBOX("Inbox"),
-        SHOPPING("Einkauf"),
-        NOTES("Notizen"),
-        TIME("Zeit"),
-        RECIPES("Rezepte"),
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             HomeBaseTheme {
                 val token by container.authRepository.tokenFlow.collectAsStateWithLifecycle(null)
-
                 if (token == null) {
                     LoginGate()
                 } else {
@@ -88,98 +93,109 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun MainScaffold(token: String) {
-        var tab by rememberSaveable { mutableStateOf(Tab.INBOX) }
+        val currentUser = remember(token) { usernameFromToken(token) }
 
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = tab == Tab.INBOX,
-                        onClick = { tab = Tab.INBOX },
-                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                        label = { Text(Tab.INBOX.label) },
-                    )
-                    NavigationBarItem(
-                        selected = tab == Tab.SHOPPING,
-                        onClick = { tab = Tab.SHOPPING },
-                        icon = { Icon(Icons.Filled.ShoppingCart, contentDescription = null) },
-                        label = { Text(Tab.SHOPPING.label) },
-                    )
-                    NavigationBarItem(
-                        selected = tab == Tab.NOTES,
-                        onClick = { tab = Tab.NOTES },
-                        icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                        label = { Text(Tab.NOTES.label) },
-                    )
-                    NavigationBarItem(
-                        selected = tab == Tab.TIME,
-                        onClick = { tab = Tab.TIME },
-                        icon = { Icon(Icons.Filled.DateRange, contentDescription = null) },
-                        label = { Text(Tab.TIME.label) },
-                    )
-                    NavigationBarItem(
-                        selected = tab == Tab.RECIPES,
-                        onClick = { tab = Tab.RECIPES },
-                        icon = { Icon(Icons.Filled.Star, contentDescription = null) },
-                        label = { Text(Tab.RECIPES.label) },
-                    )
-                }
-            },
-        ) { padding ->
-            when (tab) {
-                Tab.INBOX -> {
-                    val vm: InboxViewModel = viewModel(
-                        key = "inbox-$token",
-                        factory = inboxFactory(token),
-                    )
-                    Box(Modifier.padding(padding)) {
-                        InboxScreen(viewModel = vm)
-                    }
-                }
-                Tab.SHOPPING -> {
-                    val vm: ShoppingViewModel = viewModel(
-                        key = "shopping-$token",
-                        factory = shoppingFactory(token),
-                    )
-                    Box(Modifier.padding(padding)) {
-                        ShoppingScreen(viewModel = vm)
-                    }
-                }
-                Tab.NOTES -> {
-                    val vm: NotesViewModel = viewModel(
-                        key = "notes-$token",
-                        factory = notesFactory(token),
-                    )
-                    Box(Modifier.padding(padding)) {
-                        NotesScreen(viewModel = vm)
-                    }
-                }
-                Tab.TIME -> {
-                    val vm: TimeViewModel = viewModel(
-                        key = "time-$token",
-                        factory = timeFactory(token),
-                    )
-                    Box(Modifier.padding(padding)) {
-                        TimeScreen(viewModel = vm)
-                    }
-                }
-                Tab.RECIPES -> {
-                    val vm: RecipesViewModel = viewModel(
-                        key = "recipes-$token",
-                        factory = recipesFactory(token),
-                    )
-                    Box(Modifier.padding(padding)) {
-                        RecipesScreen(viewModel = vm)
-                    }
-                }
+        // All five ViewModels are hoisted here so the drawer can show live badges, screens stay
+        // alive across navigation, and the dashboard can read several domains at once.
+        val todoVm: TodoViewModel = viewModel(key = "todo-$token", factory = todoFactory(token))
+        val shoppingVm: ShoppingViewModel = viewModel(key = "shopping-$token", factory = shoppingFactory(token))
+        val notesVm: NotesViewModel = viewModel(key = "notes-$token", factory = notesFactory(token))
+        val timeVm: TimeViewModel = viewModel(key = "time-$token", factory = timeFactory(token, currentUser))
+        val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
+
+        var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
+        var drawerOpen by remember { mutableStateOf(false) }
+
+        val household by produceState(initialValue = "Max & Lea") {
+            container.configRepository.getHouseholdName().onSuccess { value = it }
+        }
+
+        val todoState by todoVm.uiState.collectAsState()
+        val shoppingState by shoppingVm.uiState.collectAsState()
+        val timeState by timeVm.uiState.collectAsState()
+
+        val badges = mapOf(
+            HbRoute.AUFGABEN to todoState.openCount,
+            HbRoute.EINKAUF to shoppingState.openCount,
+        )
+        val dots = if (timeState.running != null) setOf(HbRoute.ZEIT) else emptySet()
+
+        val openDrawer = { drawerOpen = true }
+
+        BackHandler(enabled = drawerOpen) { drawerOpen = false }
+
+        Box(Modifier.fillMaxSize().background(Hb.paper)) {
+            when (route) {
+                HbRoute.HEUTE -> HeuteScreen(
+                    todoVm = todoVm,
+                    shoppingVm = shoppingVm,
+                    timeVm = timeVm,
+                    currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                    onNavigate = { route = it },
+                )
+                HbRoute.AUFGABEN -> AufgabenScreen(
+                    viewModel = todoVm,
+                    currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.EINKAUF -> ShoppingScreen(
+                    viewModel = shoppingVm,
+                    currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.NOTIZEN -> NotesScreen(
+                    viewModel = notesVm,
+                    currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.ZEIT -> TimeScreen(
+                    viewModel = timeVm,
+                    currentUser = currentUser,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.REZEPTE -> RecipesScreen(
+                    viewModel = recipesVm,
+                    shoppingViewModel = shoppingVm,
+                    onOpenDrawer = openDrawer,
+                )
+            }
+
+            // Scrim
+            AnimatedVisibility(visible = drawerOpen, enter = fadeIn(), exit = fadeOut()) {
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Hb.scrim)
+                        .clickable(interactionSource = interaction, indication = null) { drawerOpen = false },
+                )
+            }
+            // Drawer
+            AnimatedVisibility(
+                visible = drawerOpen,
+                modifier = Modifier.align(Alignment.CenterStart),
+                enter = slideInHorizontally { -it },
+                exit = slideOutHorizontally { -it },
+            ) {
+                HbDrawerContent(
+                    active = route,
+                    householdName = household,
+                    currentUser = currentUser,
+                    badges = badges,
+                    dots = dots,
+                    onSelect = { route = it; drawerOpen = false },
+                )
             }
         }
     }
 
-    private fun inboxFactory(token: String) = object : ViewModelProvider.Factory {
+    // --- ViewModel factories ---
+
+    private fun todoFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return InboxViewModel(container.todoRepository, token) as T
+            return TodoViewModel(container.todoRepository, token) as T
         }
     }
 
@@ -197,19 +213,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun timeFactory(token: String) = object : ViewModelProvider.Factory {
+    private fun timeFactory(token: String, username: String?) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return TimeViewModel(container.timeRepository, token, usernameFromToken(token)) as T
+            return TimeViewModel(container.timeRepository, token, username) as T
         }
     }
-
-    /** Reads the `username` claim from the JWT payload so the running-timer banner only reflects this user. */
-    private fun usernameFromToken(token: String): String? = runCatching {
-        val payload = token.split(".")[1]
-        val decoded = String(android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
-        JSONObject(decoded).optString("username").takeIf { it.isNotEmpty() }
-    }.getOrNull()
 
     private fun recipesFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -217,4 +226,16 @@ class MainActivity : ComponentActivity() {
             return RecipesViewModel(container.recipesRepository, token) as T
         }
     }
+
+    /** Reads the `username` claim from the JWT payload (drives greeting + delete permissions). */
+    private fun usernameFromToken(token: String): String? = runCatching {
+        val payload = token.split(".")[1]
+        val decoded = String(
+            android.util.Base64.decode(
+                payload,
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
+            ),
+        )
+        JSONObject(decoded).optString("username").takeIf { it.isNotEmpty() }
+    }.getOrNull()
 }

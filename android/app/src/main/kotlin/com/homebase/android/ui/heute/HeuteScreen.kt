@@ -1,0 +1,457 @@
+package com.homebase.android.ui.heute
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.TodoDto
+import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbAppBar
+import com.homebase.android.ui.components.HbBadge
+import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonSize
+import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbCard
+import com.homebase.android.ui.components.HbCardHead
+import com.homebase.android.ui.components.HbCheck
+import com.homebase.android.ui.components.HbIcon
+import com.homebase.android.ui.components.HbIconButton
+import com.homebase.android.ui.components.HbIcons
+import com.homebase.android.ui.components.HbPriority
+import com.homebase.android.ui.components.HbQuickAdd
+import com.homebase.android.ui.components.HbRadius
+import com.homebase.android.ui.components.HbRoute
+import com.homebase.android.ui.components.HbRow
+import com.homebase.android.ui.components.HbScreenScaffold
+import com.homebase.android.ui.components.HbTone
+import com.homebase.android.ui.components.displayName
+import com.homebase.android.ui.shopping.ShoppingViewModel
+import com.homebase.android.ui.theme.Hb
+import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.time.TimeViewModel
+import com.homebase.android.ui.util.Format
+import kotlinx.coroutines.delay
+import java.time.LocalDate
+import java.time.ZoneId
+
+@Composable
+fun HeuteScreen(
+    todoVm: TodoViewModel,
+    shoppingVm: ShoppingViewModel,
+    timeVm: TimeViewModel,
+    currentUser: String?,
+    onOpenDrawer: () -> Unit,
+    onNavigate: (HbRoute) -> Unit,
+) {
+    val todoState by todoVm.uiState.collectAsStateWithLifecycle()
+    val shoppingState by shoppingVm.uiState.collectAsStateWithLifecycle()
+    val timeState by timeVm.uiState.collectAsStateWithLifecycle()
+
+    val today = LocalDate.now()
+    var value by remember { mutableStateOf("") }
+
+    // --- Derived counts / lists ---
+    val dueTodayCount = todoState.todos.count {
+        it.status != "DONE" && Format.dueGroup(it.dueDate) == Format.DueGroup.HEUTE
+    }
+    val inboxCount = todoState.todos.count { it.status == "INBOX" }
+    val tomorrow = today.plusDays(1)
+    val dueTomorrowCount = todoState.todos.count {
+        it.status != "DONE" && Format.parseLocalDate(it.dueDate) == tomorrow
+    }
+    val doneTodayCount = todoState.todos.count {
+        it.status == "DONE" && doneLocalDate(it.doneAt) == today
+    }
+
+    val dueTodayTodos = todoState.todos.filter {
+        it.status != "DONE" && Format.dueGroup(it.dueDate) == Format.DueGroup.HEUTE
+    }
+    val heuteDran: List<TodoDto> = (
+        dueTodayTodos.ifEmpty { todoState.todos.filter { it.status != "DONE" } }
+        ).take(3)
+
+    val openShopping = shoppingState.items.filter { !it.checked }
+    val shoppingShown = openShopping.take(4)
+
+    Box(Modifier.fillMaxSize()) {
+        HbScreenScaffold(
+            appBar = {
+                HbAppBar(
+                    title = "",
+                    onLeft = onOpenDrawer,
+                    leftIcon = HbIcons.menu,
+                    actions = {
+                        HbIconButton(HbIcons.search, {})
+                        HbIconButton(HbIcons.bell, {})
+                    },
+                )
+            },
+        ) {
+            // Eyebrow date
+            Text(
+                Format.longWeekdayDate(),
+                style = HbType.eyebrow,
+                color = Hb.ink3,
+                modifier = Modifier.padding(horizontal = 18.dp).padding(start = 2.dp),
+            )
+
+            // Greeting (two lines)
+            Text(
+                "${Format.greeting()},\n${displayName(currentUser)}.",
+                style = HbType.greeting,
+                color = Hb.ink,
+                modifier = Modifier.padding(horizontal = 18.dp).padding(top = 6.dp, bottom = 18.dp),
+            )
+
+            // Quick-add pill
+            HbQuickAdd(
+                value = value,
+                onValueChange = { value = it },
+                onSubmit = {
+                    if (value.isNotBlank()) {
+                        todoVm.addTodo(value)
+                        value = ""
+                    }
+                },
+                placeholder = "Schnell erfassen …",
+                leading = HbIcons.sparkle,
+                modifier = Modifier.padding(horizontal = 18.dp),
+            )
+
+            Spacer(Modifier.size(20.dp))
+
+            // Quick stats — 2×2 grid
+            Column(
+                Modifier.padding(horizontal = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCard(HbIcons.calendar, dueTodayCount.toString(), "Heute fällig", Modifier.weight(1f))
+                    StatCard(HbIcons.inbox, inboxCount.toString(), "In der Inbox", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCard(HbIcons.clock, dueTomorrowCount.toString(), "Morgen fällig", Modifier.weight(1f))
+                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), "Heute erledigt", Modifier.weight(1f))
+                }
+            }
+
+            Spacer(Modifier.size(18.dp))
+
+            // "Heute dran"
+            HbCard(Modifier.padding(horizontal = 18.dp)) {
+                Column {
+                    HbCardHead(
+                        "Heute dran",
+                        linkText = "Alle Aufgaben",
+                        onLink = { onNavigate(HbRoute.AUFGABEN) },
+                    )
+                    if (heuteDran.isEmpty()) {
+                        Text("Nichts für heute", style = HbType.meta, color = Hb.ink3)
+                    } else {
+                        Column {
+                            heuteDran.forEachIndexed { index, todo ->
+                                HbRow(divider = index < heuteDran.lastIndex) {
+                                    HbCheck(
+                                        checked = todo.status == "DONE",
+                                        onCheckedChange = { todoVm.toggleDone(todo) },
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            todo.title,
+                                            style = HbType.rowTitle,
+                                            color = Hb.ink,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (todo.priority != null) {
+                                            HbPriority(todo.priority, Modifier.padding(top = 4.dp))
+                                        }
+                                    }
+                                    HbAvatar(todo.assignee)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.size(16.dp))
+
+            // "Zeiterfassung"
+            HbCard(Modifier.padding(horizontal = 18.dp)) {
+                Column {
+                    HbCardHead("Zeiterfassung", linkText = "Öffnen", onLink = { onNavigate(HbRoute.ZEIT) })
+                    val running = timeState.running
+                    if (running != null) {
+                        val project = timeState.projects.firstOrNull { it.id == running.projectId }
+                        RunWidget(running = running, projectName = project?.name, projectColor = project?.color)
+                        HbButton(
+                            "Stoppen",
+                            { timeVm.stopTimer() },
+                            modifier = Modifier.padding(top = 14.dp),
+                            variant = HbButtonVariant.Soft,
+                            size = HbButtonSize.Sm,
+                            icon = HbIcons.stop,
+                        )
+                    } else {
+                        Text("Kein Timer aktiv", style = HbType.meta, color = Hb.ink3)
+                    }
+                }
+            }
+
+            Spacer(Modifier.size(16.dp))
+
+            // "Einkaufsliste"
+            HbCard(Modifier.padding(horizontal = 18.dp)) {
+                Column {
+                    HbCardHead("Einkaufsliste", linkText = "Öffnen", onLink = { onNavigate(HbRoute.EINKAUF) })
+                    if (shoppingShown.isEmpty()) {
+                        Text("Liste ist leer", style = HbType.meta, color = Hb.ink3)
+                    } else {
+                        Column {
+                            shoppingShown.forEachIndexed { index, item ->
+                                ShopRow(item = item, divider = index < shoppingShown.lastIndex, onToggle = { shoppingVm.toggleChecked(item) })
+                            }
+                        }
+                        val remaining = openShopping.size - shoppingShown.size
+                        if (remaining > 0) {
+                            Text(
+                                "+ $remaining weitere",
+                                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 12.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.size(16.dp))
+
+            // "Abend-Digest" — custom card with top gradient
+            DigestCard(
+                doneToday = doneTodayCount,
+                inbox = inboxCount,
+                dueTomorrow = dueTomorrowCount,
+                modifier = Modifier.padding(horizontal = 18.dp),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stat card (mirrors .hb-stat)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun StatCard(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+    ) {
+        Column {
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Hb.accentSoft, RoundedCornerShape(9.dp)),
+                contentAlignment = Alignment.Center,
+            ) { HbIcon(icon, size = 19.dp, tint = Hb.accentInk) }
+            Text(
+                value,
+                style = HbType.cardTitle.copy(
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 30.sp,
+                    letterSpacing = (-0.02).em,
+                ),
+                color = Hb.ink,
+                modifier = Modifier.padding(top = 9.dp),
+            )
+            Text(
+                label,
+                style = HbType.meta.copy(fontWeight = FontWeight.Medium),
+                color = Hb.ink3,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Running-timer widget (mirrors .hb-runwidget)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor: String?) {
+    val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
+        while (true) {
+            value = Format.elapsedSeconds(running.startedAt)
+            delay(1000)
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier
+                .size(12.dp)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(if (projectColor != null) Format.parseColor(projectColor) else Hb.ink3),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                projectName ?: "Projekt",
+                style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!running.description.isNullOrBlank()) {
+                Text(
+                    running.description!!,
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text(Format.clock(elapsed), style = HbType.mono(20.0), color = Hb.ink)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shopping mini row
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ShopRow(item: ShoppingItemDto, divider: Boolean, onToggle: () -> Unit) {
+    HbRow(divider = divider) {
+        HbCheck(checked = false, onCheckedChange = onToggle)
+        Text(
+            item.name,
+            style = HbType.rowTitle,
+            color = Hb.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        HbAvatar(item.createdBy, size = 24.dp)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Abend-Digest card (custom — needs top gradient)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun DigestCard(doneToday: Int, inbox: Int, dueTomorrow: Int, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
+            .clip(HbRadius)
+            .background(Brush.verticalGradient(0f to Hb.accentSoft, 0.42f to Hb.surface))
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(18.dp),
+    ) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HbIcon(HbIcons.send, size = 17.dp, tint = Hb.accent)
+                    Text("Abend-Digest", style = HbType.cardTitle, color = Hb.ink)
+                }
+                HbBadge("heute · 20:00", tone = HbTone.Neutral)
+            }
+            Text(
+                "Vorschau der Telegram-Nachricht, die ihr beide bekommt.",
+                style = HbType.meta,
+                color = Hb.ink3,
+                modifier = Modifier.padding(bottom = 14.dp),
+            )
+            Column {
+                DigestLine("Heute erledigt", doneToday.toString(), divider = true)
+                DigestLine("Neu in der Inbox", inbox.toString(), divider = true)
+                DigestLine("Morgen fällig", dueTomorrow.toString(), divider = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DigestLine(key: String, value: String, divider: Boolean) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = if (divider) 9.dp else 0.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                key,
+                style = HbType.body.copy(fontSize = 14.5.sp, fontWeight = FontWeight.Medium),
+                color = Hb.ink2,
+            )
+            Text(
+                value,
+                style = HbType.mono.copy(fontWeight = FontWeight.Bold),
+                color = Hb.accentInk,
+            )
+        }
+        if (divider) {
+            Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
+            Spacer(Modifier.size(9.dp))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+private fun doneLocalDate(doneAt: String?): LocalDate? =
+    Format.parseInstant(doneAt)?.atZone(ZoneId.systemDefault())?.toLocalDate()

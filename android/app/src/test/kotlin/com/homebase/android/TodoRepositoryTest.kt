@@ -63,7 +63,7 @@ class TodoRepositoryTest {
         val expected = todo(title = "Buy milk")
         coEvery { api.createTodo(CreateTodoRequest("Buy milk")) } returns expected
 
-        val result = repository.createTodo("Buy milk")
+        val result = repository.createTodo(CreateTodoRequest("Buy milk"))
 
         assertTrue(result.isSuccess)
         assertEquals(expected, result.getOrNull())
