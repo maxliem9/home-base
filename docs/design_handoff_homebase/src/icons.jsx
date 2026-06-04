@@ -98,6 +98,44 @@
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
 
+  const WD_LONG = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+
+  // separator label for a day in a chronological list
+  function dayGroupLabel(isoStr) {
+    const d = new Date(isoStr);
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diff = Math.round((day - HB.today) / HB.DAY);
+    if (diff === 0) return "Heute";
+    if (diff === -1) return "Gestern";
+    if (diff === -2) return "Vorgestern";
+    if (diff < 0 && diff > -7) return WD_LONG[d.getDay()];
+    return `${d.getDate()}. ${MON[d.getMonth()]}`;
+  }
+
+  // Monday-based week start
+  function weekStart(date) {
+    const d = new Date(date);
+    const dow = (d.getDay() + 6) % 7; // Mon = 0
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - dow);
+  }
+  function weekKey(isoStr) {
+    const s = weekStart(new Date(isoStr));
+    return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}-${String(s.getDate()).padStart(2, "0")}`;
+  }
+  // { label, range } — label is "Diese Woche"/"Letzte Woche"/null, range is "12.–18. Mai"
+  function weekLabel(isoStr) {
+    const s = weekStart(new Date(isoStr));
+    const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6);
+    const diffWeeks = Math.round((s - weekStart(new Date())) / (7 * HB.DAY));
+    let label = null;
+    if (diffWeeks === 0) label = "Diese Woche";
+    else if (diffWeeks === -1) label = "Letzte Woche";
+    const range = s.getMonth() === e.getMonth()
+      ? `${s.getDate()}.–${e.getDate()}. ${MON[e.getMonth()]}`
+      : `${s.getDate()}. ${MON[s.getMonth()]} – ${e.getDate()}. ${MON[e.getMonth()]}`;
+    return { label, range };
+  }
+
   window.Icon = Icon;
-  window.HBfmt = { dueLabel, relTime, fmtDuration, fmtDurationShort, clockTime, WD, MON };
+  window.HBfmt = { dueLabel, relTime, fmtDuration, fmtDurationShort, clockTime, dayGroupLabel, weekKey, weekLabel, WD, MON };
 })();

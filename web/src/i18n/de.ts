@@ -57,6 +57,22 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
+    // Lists / groups
+    allLists: 'Alle',
+    noList: 'Ohne Liste',
+    list: 'Liste',
+    newList: 'Neue Liste',
+    manageLists: 'Listen verwalten',
+    listName: 'Name',
+    listNamePlaceholder: 'z. B. Haushalt, Kind, Arbeit, Verein',
+    listColor: 'Farbe',
+    createList: 'Liste erstellen',
+    deleteListConfirm: 'Liste löschen? Aufgaben bleiben erhalten und werden aus der Liste entfernt.',
+    emptyLists: 'Noch keine Listen',
+    // Subtasks
+    subtasks: 'Unteraufgaben',
+    addSubtask: 'Unteraufgabe hinzufügen …',
+    subtaskCount: 'Unteraufgaben', // rendered as "{done}/{total} Unteraufgaben"
   },
   shopping: {
     headerTitle: 'HomeBase — Einkaufsliste',

@@ -43,6 +43,9 @@ The prototype has a Tweaks panel that lets you switch visual directions. The
 | Theme         | **Hell (light)** | Light, warm-neutral "paper" base |
 | Dichte (density) | **Normal (regular)** | Standard spacing scale |
 
+(These four are already baked in as the prototype's `TWEAK_DEFAULTS` in
+`src/app.jsx`.)
+
 You do **not** need to build the other looks (Kontur, Erde), other accents,
 dark theme, or the Tweaks panel itself — those were exploration scaffolding.
 Ship the single configuration above. (If a dark theme is wanted later, the
@@ -141,12 +144,27 @@ resolved tokens for **light theme · klar · clay accent**:
   nothing is running. **Invariant: only one timer runs per user at a time** —
   starting a timer stops the user's previous one.
 - **Projects grid**: cards with color dot, name, total time, Start/Stop button,
-  edit + archive actions. "Neues Projekt" button in page head opens a modal
-  (name + color swatch picker). Archived projects toggle.
+  edit + archive actions. The project **name and total are clickable** and open
+  a **project detail modal** (see below). "Neues Projekt" button in page head
+  opens a modal (name + color swatch picker). Archived projects toggle.
 - **Letzte Einträge** (recent entries): combined list of BOTH users' finished
-  entries (project dot, name, description, time range, owner avatar, duration).
+  entries, **grouped by day** with separator rows ("Heute", "Gestern",
+  "Vorgestern", weekday name within the last week, else a date) and a per-day
+  total on the right. Each row: project dot, name, description, time range,
+  owner avatar, duration.
   - **Permissions:** a user may only delete their **own** entries. Others' rows
     show a lock icon instead of the trash button.
+- **Project detail modal** (`ProjectDetail`): opened from a project card. Shows
+  - four stat tiles: total time, this-week time, entry count, ø per entry;
+  - a per-user breakdown chip row (Max vs. Lea totals) when both have entries;
+  - **"Pro Woche"** — a weekly summary: one row per ISO week (Monday-based),
+    labelled "Diese Woche" / "Letzte Woche" / date range, with a horizontal bar
+    **segmented by user** (segment width ∝ that user's time, scaled to the
+    busiest week) and the week's total + entry count;
+  - **"Alle Einträge"** — the project's full history, day-grouped, same
+    ownership-based delete/lock rule.
+- **Date/week helpers** live in `src/icons.jsx` (`HBfmt`): `dayGroupLabel`,
+  `weekKey`, `weekLabel` (Monday-based week start). Reuse equivalents in prod.
 - File: `src/views_zeit.jsx`.
 
 ### 6. Rezepte (Recipes)

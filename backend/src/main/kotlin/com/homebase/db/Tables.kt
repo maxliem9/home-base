@@ -13,6 +13,15 @@ object UsersTable : Table("users") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object TodoListsTable : Table("todo_lists") {
+    val id = uuid("id")
+    val name = text("name")
+    val color = varchar("color", 7)
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object TodosTable : Table("todos") {
     val id = uuid("id")
     val title = text("title")
@@ -21,9 +30,20 @@ object TodosTable : Table("todos") {
     val assignee = varchar("assignee", 50).nullable()
     val dueDate = date("due_date").nullable()
     val priority = varchar("priority", 10).nullable()
+    val listId = uuid("list_id").nullable()
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     val doneAt = timestamp("done_at").nullable()
+    override val primaryKey = PrimaryKey(id)
+}
+
+object TodoSubtasksTable : Table("todo_subtasks") {
+    val id = uuid("id")
+    val todoId = uuid("todo_id")
+    val title = text("title")
+    val done = bool("done")
+    val sortOrder = integer("sort_order")
+    val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
 }
 
