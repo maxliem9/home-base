@@ -5,6 +5,7 @@ import com.homebase.android.BuildConfig
 import com.homebase.android.data.api.AuthInterceptor
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AuthRepository
+import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
@@ -49,6 +50,8 @@ class AppContainer(context: Context) {
         .create(HomeBaseApi::class.java)
 
     val authRepository = AuthRepository(context, api) { token -> currentToken = token }
+
+    val configRepository = ConfigRepository(api)
 
     val todoRepository = TodoRepository(
         api = api,

@@ -1,163 +1,361 @@
 package com.homebase.android.ui.shopping
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.ui.components.HbAppBar
+import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbBottomSheet
+import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbCheck
+import com.homebase.android.ui.components.HbEmpty
+import com.homebase.android.ui.components.HbField
+import com.homebase.android.ui.components.HbFab
+import com.homebase.android.ui.components.HbIcon
+import com.homebase.android.ui.components.HbIconButton
+import com.homebase.android.ui.components.HbIcons
+import com.homebase.android.ui.components.HbPill
+import com.homebase.android.ui.components.HbQuickAdd
+import com.homebase.android.ui.components.HbRow
+import com.homebase.android.ui.components.HbScreenScaffold
+import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.bottomBorder
+import com.homebase.android.ui.theme.Hb
+import com.homebase.android.ui.theme.HbType
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShoppingScreen(viewModel: ShoppingViewModel) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var showAddDialog by remember { mutableStateOf(false) }
+fun ShoppingScreen(
+    viewModel: ShoppingViewModel,
+    currentUser: String?,
+    onOpenDrawer: () -> Unit,
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.shopping_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Text("+", style = MaterialTheme.typography.headlineMedium)
-            }
-        },
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            when {
-                uiState.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                uiState.items.isEmpty() -> Text(
-                    stringResource(R.string.shopping_empty),
-                    modifier = Modifier.align(Alignment.Center),
-                    style = MaterialTheme.typography.bodyLarge,
+    var addItemText by remember { mutableStateOf("") }
+    var showNewListSheet by remember { mutableStateOf(false) }
+    var showAddItemSheet by remember { mutableStateOf(false) }
+
+    val visible = state.visibleItems
+    val openItems = visible.filter { !it.checked }
+    val checkedItems = visible.filter { it.checked }
+
+    Box(Modifier.fillMaxSize()) {
+        HbScreenScaffold(
+            appBar = {
+                HbAppBar(
+                    eyebrow = "Einkaufsliste",
+                    title = state.activeList?.name ?: "Einkauf",
+                    onLeft = onOpenDrawer,
+                    actions = { HbIconButton(HbIcons.more, {}) },
                 )
-                else -> {
-                    // group by category, uncategorised ("Sonstiges") last
-                    val uncategorized = stringResource(R.string.shopping_uncategorized)
-                    val grouped = uiState.items.groupBy { it.category?.trim()?.ifEmpty { null } ?: uncategorized }
-                    val categories = grouped.keys.sortedWith(
-                        compareBy({ it == uncategorized }, { it })
-                    )
-                    LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                        categories.forEach { category ->
-                            item(key = "header-$category") {
-                                Text(
-                                    text = category.uppercase(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                                )
-                            }
-                            items(grouped.getValue(category), key = { it.id }) { item ->
-                                ShoppingRow(
-                                    item = item,
-                                    onToggle = { viewModel.toggleChecked(item) },
-                                    onDelete = { viewModel.deleteItem(item.id) },
-                                )
-                                HorizontalDivider()
-                            }
+            },
+            fab = { HbFab(onClick = { showAddItemSheet = true }, label = "Artikel") },
+        ) {
+            // Full-bleed list-tabs strip
+            ListTabs(
+                lists = state.lists,
+                items = state.items,
+                activeListId = state.activeList?.id,
+                onSelect = { viewModel.selectList(it) },
+                onNewList = { showNewListSheet = true },
+            )
+
+            Column(Modifier.padding(horizontal = 18.dp)) {
+                HbQuickAdd(
+                    value = addItemText,
+                    onValueChange = { addItemText = it },
+                    onSubmit = {
+                        viewModel.addItem(addItemText)
+                        addItemText = ""
+                    },
+                    placeholder = "Artikel hinzufügen …",
+                    leading = HbIcons.plus,
+                )
+
+                Spacer(Modifier.size(18.dp))
+
+                if (visible.isEmpty()) {
+                    HbEmpty(HbIcons.cart, "Liste ist leer", "Füge oben Artikel hinzu.")
+                } else {
+                    openItems.forEach { item ->
+                        OpenItemRow(item = item, onToggle = { viewModel.toggleChecked(item) })
+                    }
+
+                    if (checkedItems.isNotEmpty()) {
+                        Spacer(Modifier.size(24.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "Im Wagen · ${checkedItems.size}".uppercase(),
+                                style = HbType.sectionLabel,
+                                color = Hb.ink3,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                            Text(
+                                "Abgehakte entfernen",
+                                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink3,
+                                modifier = Modifier
+                                    .clip(HbPill)
+                                    .clickable { viewModel.clearChecked() }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                            )
+                        }
+                        Spacer(Modifier.size(8.dp))
+                        checkedItems.forEach { item ->
+                            CheckedItemRow(item = item, onToggle = { viewModel.toggleChecked(item) })
                         }
                     }
                 }
             }
         }
-    }
 
-    uiState.error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = viewModel::clearError,
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.action_ok)) } },
-            title = { Text(stringResource(R.string.error_title)) },
-            text = { Text(msg) },
-        )
-    }
+        if (showNewListSheet) {
+            NewListSheet(
+                onDismiss = { showNewListSheet = false },
+                onCreate = { name ->
+                    viewModel.createList(name)
+                    showNewListSheet = false
+                },
+            )
+        }
 
-    if (showAddDialog) {
-        AddItemDialog(
-            onConfirm = { name, category ->
-                viewModel.addItem(name, category)
-                showAddDialog = false
-            },
-            onDismiss = { showAddDialog = false },
-        )
+        if (showAddItemSheet) {
+            AddItemSheet(
+                onDismiss = { showAddItemSheet = false },
+                onAdd = { name ->
+                    viewModel.addItem(name)
+                    showAddItemSheet = false
+                },
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// List-tabs strip (full-bleed, horizontally scrollable)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ListTabs(
+    lists: List<ShoppingListDto>,
+    items: List<ShoppingItemDto>,
+    activeListId: String?,
+    onSelect: (String) -> Unit,
+    onNewList: () -> Unit,
+) {
+    val firstListId = lists.firstOrNull()?.id
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .bottomBorder(Hb.lineSoft),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Spacer(Modifier.width(18.dp))
+        lists.forEach { list ->
+            val openCount = items.count { item ->
+                !item.checked && (item.listId == list.id || (list.id == firstListId && item.listId == null))
+            }
+            ListTab(
+                label = list.name,
+                count = openCount,
+                active = list.id == activeListId,
+                onClick = { onSelect(list.id) },
+            )
+        }
+        NewListTab(onClick = onNewList)
+        Spacer(Modifier.width(18.dp))
     }
 }
 
 @Composable
-private fun ShoppingRow(
-    item: ShoppingItemDto,
-    onToggle: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    ListItem(
-        leadingContent = {
-            Checkbox(checked = item.checked, onCheckedChange = { onToggle() })
-        },
-        headlineContent = {
+private fun ListTab(label: String, count: Int, active: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clickable { onClick() }
+            .then(if (active) Modifier.accentUnderline() else Modifier)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            label,
+            style = HbType.label.copy(fontSize = 14.5.sp),
+            color = if (active) Hb.ink else Hb.ink3,
+        )
+        Box(
+            Modifier
+                .heightIn(min = 19.dp)
+                .clip(HbPill)
+                .background(if (active) Hb.accentSoft else Hb.surface3, HbPill)
+                .padding(horizontal = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
-                text = item.name,
-                textDecoration = if (item.checked) TextDecoration.LineThrough else null,
+                count.toString(),
+                style = HbType.mono.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                color = if (active) Hb.accentInk else Hb.ink2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NewListTab(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clickable { onClick() }
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HbIcon(HbIcons.plus, size = 16.dp, tint = Hb.accentInk)
+        Text("Neue Liste", style = HbType.label.copy(fontSize = 14.5.sp), color = Hb.accentInk)
+    }
+}
+
+/** 2dp accent underline drawn at the bottom edge (overlapping the strip's hairline). */
+private fun Modifier.accentUnderline(): Modifier = drawBehind {
+    val w = 2.dp.toPx()
+    val y = size.height - w / 2f
+    drawLine(Hb.accent, Offset(0f, y), Offset(size.width, y), w)
+}
+
+// ---------------------------------------------------------------------------
+// Item rows
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun OpenItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
+    HbRow {
+        HbCheck(checked = false, onCheckedChange = onToggle)
+        Text(
+            item.name,
+            style = HbType.rowTitle,
+            color = Hb.ink,
+            modifier = Modifier.weight(1f),
+        )
+        HbAvatar(item.createdBy, size = 24.dp)
+    }
+}
+
+@Composable
+private fun CheckedItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
+    HbRow {
+        HbCheck(checked = true, onCheckedChange = onToggle)
+        Text(
+            item.name,
+            style = HbType.rowTitle.copy(textDecoration = TextDecoration.LineThrough),
+            color = Hb.ink3,
+            modifier = Modifier.weight(1f),
+        )
+        HbAvatar(item.createdBy, size = 24.dp)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sheets
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Neue Liste",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Erstellen",
+                onClick = { onCreate(name) },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
             )
         },
-        trailingContent = {
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete))
-            }
-        },
-    )
+    ) {
+        HbField("Name") {
+            HbTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = "z. B. Drogerie",
+            )
+        }
+        Text(
+            "Alle Einkaufslisten sind geteilt.",
+            style = HbType.small.copy(fontSize = 12.5.sp),
+            color = Hb.ink3,
+        )
+    }
 }
 
 @Composable
-private fun AddItemDialog(onConfirm: (String, String?) -> Unit, onDismiss: () -> Unit) {
+private fun AddItemSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.shopping_new_item)) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.shopping_field_item)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    label = { Text(stringResource(R.string.shopping_field_category)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Artikel",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Hinzufügen",
+                onClick = { onAdd(name) },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
+            )
         },
-        confirmButton = {
-            TextButton(
-                onClick = { if (name.isNotBlank()) onConfirm(name, category) },
-                enabled = name.isNotBlank(),
-            ) { Text(stringResource(R.string.action_add)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
-    )
+    ) {
+        HbField("Name") {
+            HbTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = "z. B. Tomaten",
+            )
+        }
+    }
 }

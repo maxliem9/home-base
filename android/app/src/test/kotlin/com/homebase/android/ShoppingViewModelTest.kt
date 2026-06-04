@@ -28,10 +28,9 @@ class ShoppingViewModelTest {
     private fun item(
         id: String = "1",
         name: String = "Milch",
-        category: String? = null,
         checked: Boolean = false,
     ) = ShoppingItemDto(
-        id = id, name = name, category = category, checked = checked,
+        id = id, name = name, checked = checked,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
@@ -40,6 +39,8 @@ class ShoppingViewModelTest {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         every { repository.incomingEvents } returns wsEvents
+        // load() fetches both lists and items; default lists to empty unless a test overrides.
+        coEvery { repository.getLists() } returns Result.success(emptyList())
     }
 
     @After
@@ -81,7 +82,7 @@ class ShoppingViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.addItem("Brot", null)
+        vm.addItem("Brot")
         advanceUntilIdle()
 
         assertEquals(1, vm.uiState.value.items.size)
@@ -89,14 +90,14 @@ class ShoppingViewModelTest {
     }
 
     @Test
-    fun `addItem normalises blank category to null`() = runTest {
+    fun `addItem uses null list when none is selected`() = runTest {
         coEvery { repository.getItems() } returns Result.success(emptyList())
         coEvery { repository.createItem("Brot", null) } returns Result.success(item(id = "2", name = "Brot"))
 
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.addItem("Brot", "   ")
+        vm.addItem("Brot")
         advanceUntilIdle()
 
         coVerify { repository.createItem("Brot", null) }
@@ -109,7 +110,7 @@ class ShoppingViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.addItem("   ", null)
+        vm.addItem("   ")
         advanceUntilIdle()
 
         coVerify(exactly = 0) { repository.createItem(any(), any()) }

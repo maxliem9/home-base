@@ -8,6 +8,11 @@ interface HomeBaseApi {
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): TokenResponse
 
+    @GET("config")
+    suspend fun getConfig(): AppConfigResponse
+
+    // --- Todos ---
+
     @GET("todos")
     suspend fun getTodos(): List<TodoDto>
 
@@ -19,6 +24,37 @@ interface HomeBaseApi {
 
     @DELETE("todos/{id}")
     suspend fun deleteTodo(@Path("id") id: String)
+
+    // --- Todo lists ---
+
+    @GET("todos/lists")
+    suspend fun getTodoLists(): List<TodoListDto>
+
+    @POST("todos/lists")
+    suspend fun createTodoList(@Body request: CreateTodoListRequest): TodoListDto
+
+    @PUT("todos/lists/{id}")
+    suspend fun updateTodoList(@Path("id") id: String, @Body request: UpdateTodoListRequest): TodoListDto
+
+    @DELETE("todos/lists/{id}")
+    suspend fun deleteTodoList(@Path("id") id: String)
+
+    // --- Subtasks (return the updated parent todo) ---
+
+    @POST("todos/{id}/subtasks")
+    suspend fun createSubtask(@Path("id") todoId: String, @Body request: CreateSubtaskRequest): TodoDto
+
+    @PUT("todos/{id}/subtasks/{subtaskId}")
+    suspend fun updateSubtask(
+        @Path("id") todoId: String,
+        @Path("subtaskId") subtaskId: String,
+        @Body request: UpdateSubtaskRequest,
+    ): TodoDto
+
+    @DELETE("todos/{id}/subtasks/{subtaskId}")
+    suspend fun deleteSubtask(@Path("id") todoId: String, @Path("subtaskId") subtaskId: String): TodoDto
+
+    // --- Shopping items ---
 
     @GET("shopping")
     suspend fun getShoppingItems(): List<ShoppingItemDto>
@@ -32,6 +68,22 @@ interface HomeBaseApi {
     @DELETE("shopping/{id}")
     suspend fun deleteShoppingItem(@Path("id") id: String)
 
+    // --- Shopping lists ---
+
+    @GET("shopping/lists")
+    suspend fun getShoppingLists(): List<ShoppingListDto>
+
+    @POST("shopping/lists")
+    suspend fun createShoppingList(@Body request: CreateShoppingListRequest): ShoppingListDto
+
+    @PUT("shopping/lists/{id}")
+    suspend fun updateShoppingList(@Path("id") id: String, @Body request: UpdateShoppingListRequest): ShoppingListDto
+
+    @DELETE("shopping/lists/{id}")
+    suspend fun deleteShoppingList(@Path("id") id: String)
+
+    // --- Notes ---
+
     @GET("notes")
     suspend fun getNotes(@Query("q") query: String? = null): List<NoteDto>
 
@@ -43,6 +95,8 @@ interface HomeBaseApi {
 
     @DELETE("notes/{id}")
     suspend fun deleteNote(@Path("id") id: String)
+
+    // --- Time tracking ---
 
     @GET("time/projects")
     suspend fun getProjects(): List<ProjectDto>
@@ -81,6 +135,8 @@ interface HomeBaseApi {
 
     @GET("time/running")
     suspend fun getRunningTimer(): TimeEntryDto
+
+    // --- Recipes ---
 
     @GET("recipes")
     suspend fun getRecipes(@Query("category") category: String? = null): List<RecipeDto>
