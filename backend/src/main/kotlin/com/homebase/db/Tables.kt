@@ -88,6 +88,41 @@ object TimeEntriesTable : Table("time_entries") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object AbsencesTable : Table("absences") {
+    val id = uuid("id")
+    val userId = varchar("user_id", 50)
+    val date = date("date")
+    val type = varchar("type", 20)
+    val half = varchar("half", 2).nullable()
+    override val primaryKey = PrimaryKey(id)
+}
+
+object PartTimeRulesTable : Table("part_time_rules") {
+    val id = uuid("id")
+    val userId = varchar("user_id", 50)
+    val weekday = integer("weekday")
+    val startDate = date("start_date")
+    val endDate = date("end_date").nullable()
+    override val primaryKey = PrimaryKey(id)
+}
+
+object KitaClosuresTable : Table("kita_closures") {
+    val id = uuid("id")
+    val date = date("date")
+    val label = text("label")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object AbsSettingsTable : Table("abs_settings") {
+    val userId = varchar("user_id", 50)
+    val state = varchar("state", 2)
+    val allowance = double("allowance")
+    val carryover = double("carryover")
+    val carryoverExpires = date("carryover_expires").nullable()
+    val kindKrankCap = integer("kind_krank_cap")
+    override val primaryKey = PrimaryKey(userId)
+}
+
 object NotesTable : Table("notes") {
     val id = uuid("id")
     val title = text("title")

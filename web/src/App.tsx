@@ -10,8 +10,9 @@ import { NotesView } from './components/NotesView'
 import { ShoppingView } from './components/ShoppingView'
 import { TimeView } from './components/TimeView'
 import { RecipesView } from './components/RecipesView'
+import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 
-type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes'
+type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'todos', label: t.nav.todos, icon: 'checkCircle' },
@@ -19,6 +20,7 @@ const NAV: { id: Tab; label: string; icon: string }[] = [
   { id: 'notes', label: t.nav.notes, icon: 'note' },
   { id: 'time', label: t.nav.time, icon: 'clock' },
   { id: 'recipes', label: t.nav.recipes, icon: 'chef' },
+  { id: 'abwesenheit', label: t.nav.abwesenheit, icon: 'calendar' },
 ]
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -159,6 +161,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
         {tab === 'time' && <TimeView token={token} onLogout={onLogout} />}
         {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
+        {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
       </main>
     </div>
   )
