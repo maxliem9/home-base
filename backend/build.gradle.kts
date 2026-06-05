@@ -48,6 +48,7 @@ dependencies {
     implementation("at.favre.lib:bcrypt:0.10.2")
 
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-websockets:$ktorVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.0")
     testImplementation("com.h2database:h2:2.2.224")
     testImplementation("io.mockk:mockk:1.13.10")
