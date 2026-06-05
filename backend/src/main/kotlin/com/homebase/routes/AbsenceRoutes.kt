@@ -20,9 +20,14 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 private const val ABSENCE_WS_CHANNEL = "absence"
+
+// Guard rails against a single request inflating the DB / blocking in one transaction.
+private const val MAX_BATCH_DATES = 366       // entries/batch: at most a year of explicit dates
+private const val MAX_KITA_RANGE_DAYS = 731   // kita/range: at most ~2 years span (inclusive)
 
 private val ABSENCE_TYPES = setOf("URLAUB", "KRANK", "KIND_KRANK")
 private val HALF_VALUES = setOf("vm", "nm")
@@ -111,6 +116,9 @@ private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {
             }
             if (req.half != null && req.half !in HALF_VALUES) {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_HALF", "half must be null, 'vm' or 'nm'"))
+            }
+            if (req.dates.size > MAX_BATCH_DATES) {
+                return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("TOO_MANY_DATES", "dates must not exceed $MAX_BATCH_DATES entries"))
             }
             val dates = req.dates.map { parseDate(it) ?: return@post call.invalidDate() }
 
@@ -230,11 +238,20 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             var from = parseDate(req.from) ?: return@post call.invalidDate()
             var to = parseDate(req.to) ?: return@post call.invalidDate()
             if (from.isAfter(to)) { val t = from; from = to; to = t }
+            if (ChronoUnit.DAYS.between(from, to) + 1 > MAX_KITA_RANGE_DAYS) {
+                return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("RANGE_TOO_LARGE", "range must not exceed $MAX_KITA_RANGE_DAYS days"))
+            }
 
             transaction {
+                // Skip dates that already have a closure so a re-run stays idempotent.
+                val existing = KitaClosuresTable
+                    .selectAll()
+                    .where { (KitaClosuresTable.date greaterEq from) and (KitaClosuresTable.date lessEq to) }
+                    .map { it[KitaClosuresTable.date] }
+                    .toSet()
                 var d = from
                 while (!d.isAfter(to)) {
-                    if (d.dayOfWeek.value <= 5) insertKita(d, req.label)
+                    if (d.dayOfWeek.value <= 5 && d !in existing) insertKita(d, req.label)
                     d = d.plusDays(1)
                 }
             }
