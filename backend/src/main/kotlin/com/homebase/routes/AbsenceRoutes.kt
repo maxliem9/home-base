@@ -227,9 +227,20 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
         post {
             val req = call.receive<CreateKitaRequest>()
             val date = parseDate(req.date) ?: return@post call.invalidDate()
-            val dto = transaction { insertKita(date, req.label) }
-            notify()
-            call.respond(HttpStatusCode.Created, dto)
+            // Idempotent: one closure per date (enforced by the unique index). If the
+            // day is already marked closed, return that closure instead of duplicating it.
+            // (Two truly-concurrent posts for the same new date can still race here; the
+            // unique index is the backstop — the loser's insert rolls back rather than
+            // creating a duplicate.)
+            val (dto, created) = transaction {
+                val existing = KitaClosuresTable.selectAll()
+                    .where { KitaClosuresTable.date eq date }
+                    .singleOrNull()
+                if (existing != null) existing.toKitaDto() to false
+                else insertKita(date, req.label) to true
+            }
+            if (created) notify()
+            call.respond(if (created) HttpStatusCode.Created else HttpStatusCode.OK, dto)
         }
 
         // Add a closure for each weekday in the range (weekends are skipped).
@@ -243,7 +254,8 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             }
 
             transaction {
-                // Skip dates that already have a closure so a re-run stays idempotent.
+                // Skip dates that already have a closure so a re-run stays idempotent
+                // and doesn't trip the unique(date) index (the DB is the hard backstop).
                 val existing = KitaClosuresTable
                     .selectAll()
                     .where { (KitaClosuresTable.date greaterEq from) and (KitaClosuresTable.date lessEq to) }
@@ -264,14 +276,22 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             val req = call.receive<UpdateKitaRequest>()
             val date = req.date?.let { parseDate(it) ?: return@put call.invalidDate() }
 
-            val dto = transaction {
-                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@transaction null
+            // dto==null → not found; conflict==true → target date already taken by another closure.
+            val (dto, conflict) = transaction {
+                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@transaction null to false
+                // Moving onto a date another closure occupies would violate unique(date) → clean 409.
+                if (date != null && !KitaClosuresTable.selectAll()
+                        .where { (KitaClosuresTable.date eq date) and (KitaClosuresTable.id neq id) }
+                        .empty()
+                ) return@transaction null to true
                 KitaClosuresTable.update({ KitaClosuresTable.id eq id }) {
                     date?.let { v -> it[KitaClosuresTable.date] = v }
                     req.label?.let { v -> it[label] = v }
                 }
-                KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.single().toKitaDto()
-            } ?: return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Kita closure not found"))
+                KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.single().toKitaDto() to false
+            }
+            if (conflict) return@put call.respond(HttpStatusCode.Conflict, ErrorResponse("DATE_CONFLICT", "Another closure already exists on that date"))
+            if (dto == null) return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Kita closure not found"))
 
             notify()
             call.respond(dto)

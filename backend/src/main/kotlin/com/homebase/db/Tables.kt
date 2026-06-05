@@ -111,6 +111,10 @@ object KitaClosuresTable : Table("kita_closures") {
     val date = date("date")
     val label = text("label")
     override val primaryKey = PrimaryKey(id)
+
+    // One closure per date — mirrors the unique index from V13 (a closure is a
+    // household-wide marker, so a second row for the same day is meaningless).
+    init { uniqueIndex("kita_closures_date_uniq", date) }
 }
 
 object AbsSettingsTable : Table("abs_settings") {
