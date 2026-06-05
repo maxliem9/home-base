@@ -62,6 +62,9 @@ interface HomeBaseApi {
     @POST("shopping")
     suspend fun createShoppingItem(@Body request: CreateShoppingItemRequest): ShoppingItemDto
 
+    @POST("shopping/batch")
+    suspend fun batchAddShoppingItems(@Body request: BatchAddShoppingRequest): BatchAddShoppingResponse
+
     @PUT("shopping/{id}")
     suspend fun updateShoppingItem(@Path("id") id: String, @Body request: UpdateShoppingItemRequest): ShoppingItemDto
 

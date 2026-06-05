@@ -23,7 +23,7 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | ID | Titel | Kategorie | Prio | Status | Quelle |
 |----|-------|-----------|------|--------|--------|
 | [0001](0001-i18n-sprachumschalter.md) | Mehrsprachigkeit / Sprachumschalter | feature | medium | backlog | prd.md |
-| [0002](0002-rezept-zutaten-einkaufsliste.md) | Rezept-Zutaten auf Einkaufsliste übernehmen | feature | medium | backlog | prd.md |
+| [0002](0002-rezept-zutaten-einkaufsliste.md) | Rezept-Zutaten auf Einkaufsliste übernehmen | feature | medium | done | prd.md |
 | [0003](0003-zeiterfassung-reports-csv.md) | Zeiterfassung: server-seitige Reports / CSV-Export | feature | low | backlog | prd.md |
 | [0004](0004-einkauf-angebote.md) | Angebote zu Einkaufsitems (Rewe/Kaufland) | feature | low | backlog | prd.md |
 | [0005](0005-wiederkehrende-todos.md) | Wiederkehrende Todos | feature | medium | backlog | prd.md |

@@ -147,6 +147,29 @@ data class UpdateShoppingListRequest(val name: String? = null)
 @JsonClass(generateAdapter = true)
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
 
+/** One recipe ingredient (already serving-scaled) for [BatchAddShoppingRequest]. */
+@JsonClass(generateAdapter = true)
+data class ShoppingLineInput(
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class BatchAddShoppingRequest(
+    val listId: String? = null,
+    val items: List<ShoppingLineInput> = emptyList(),
+)
+
+/** Result of a batch add: created items, quantities merged into existing ones, skipped dupes. */
+@JsonClass(generateAdapter = true)
+data class BatchAddShoppingResponse(
+    val added: Int,
+    val merged: Int,
+    val skipped: Int,
+    val items: List<ShoppingItemDto> = emptyList(),
+)
+
 @JsonClass(generateAdapter = true)
 data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 

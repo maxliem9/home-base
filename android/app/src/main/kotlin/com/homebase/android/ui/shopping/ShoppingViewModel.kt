@@ -3,6 +3,7 @@ package com.homebase.android.ui.shopping
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
@@ -100,32 +101,30 @@ class ShoppingViewModel(
     }
 
     /**
-     * Push recipe ingredient names onto the first shopping list, skipping any that already exist
-     * there (case-insensitive). Returns the number of items actually added via [onAdded].
+     * Push the chosen (already serving-scaled) recipe ingredients onto [listId] via the batch
+     * endpoint, which formats each as a "200 g Mehl" label and merges quantities into matching
+     * items already on the list. Reports how many were freshly added vs. merged via [onResult].
      */
-    fun addItemsToFirstList(names: List<String>, onAdded: (Int) -> Unit = {}) {
-        val firstList = _uiState.value.lists.firstOrNull()
-        val targetId = firstList?.id
-        val existing = _uiState.value.items
-            .filter { it.listId == targetId }
-            .map { it.name.trim().lowercase() }
-            .toSet()
-        val toAdd = names
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinctBy { it.lowercase() }
-            .filter { it.lowercase() !in existing }
-        if (toAdd.isEmpty()) {
-            onAdded(0)
+    fun addIngredients(
+        listId: String?,
+        lines: List<ShoppingLineInput>,
+        onResult: (added: Int, merged: Int) -> Unit = { _, _ -> },
+    ) {
+        if (lines.isEmpty()) {
+            onResult(0, 0)
             return
         }
+        val targetId = listId ?: _uiState.value.activeList?.id
         viewModelScope.launch {
-            var added = 0
-            toAdd.forEach { name ->
-                repository.createItem(name, targetId)
-                    .onSuccess { upsertItem(it); added++ }
-            }
-            onAdded(added)
+            repository.batchAdd(targetId, lines)
+                .onSuccess { resp ->
+                    resp.items.forEach { upsertItem(it) }
+                    onResult(resp.added, resp.merged)
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = e.message) }
+                    onResult(0, 0)
+                }
         }
     }
 
