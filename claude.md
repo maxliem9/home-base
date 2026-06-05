@@ -18,24 +18,25 @@ homebase/
 
 ## Backlog & Out-of-Scope-Funde
 Geplante, aber noch nicht umgesetzte Features sowie Funde, die nicht zur gerade
-laufenden Aufgabe gehören, leben im Ordner `backlog/` — ein Markdown-File pro Vorhaben,
-Index und Konventionen in `backlog/README.md`.
+laufenden Aufgabe gehören, leben als **GitHub Issues**. Das frühere dateibasierte
+`backlog/` wurde nach Issues migriert (Hintergrund + alte-ID→Issue-Zuordnung in
+`backlog/README.md`).
 
 **Regel für alle (Menschen wie KI-Agenten):** Wenn dir während einer Aufgabe etwas
 auffällt, das nicht zur laufenden Änderung gehört — ein Bug in fremdem Code, eine
 Refactoring-Gelegenheit, eine Feature-Idee, fehlende Tests/Doku, technische Schuld —
 dann blähe nicht den Scope der aktuellen Aufgabe auf und lass den Fund nicht fallen,
-sondern leg ein Backlog-Item an:
-1. In `backlog/README.md` prüfen, ob es das schon gibt (keine Duplikate).
-2. `backlog/TEMPLATE.md` nach `backlog/NNNN-kurzer-slug.md` kopieren (nächste freie ID).
-3. Frontmatter + Abschnitte ausfüllen; unter `source` festhalten, woher der Fund stammt
-   (z. B. `"PR #30"`, `"session 2026-06-05"`).
-4. Eine Zeile in die Tabelle in `backlog/README.md` eintragen.
+sondern leg ein GitHub Issue an:
+1. Erst auf Duplikate prüfen: `gh issue list --search "<stichwort>"`.
+2. Issue anlegen: `gh issue create --title "<knapp>" --body "<Kontext / Aufgabe / Notizen>"`
+   (Herkunft im Body festhalten, z. B. „aus Review von PR #30").
+3. Labeln: genau **ein** Kategorie-Label (`security` · `bug` · `tech-debt` · `test-gap` ·
+   `feature` · `docs` · `chore`) und **ein** Prioritäts-Label
+   (`priority:high` · `priority:medium` · `priority:low`).
 
 Sofort miterledigen nur, wenn der Fund trivial ist **und** vom Auftrag gedeckt — sonst
-ins Backlog; ein ausdrückliches „mach das gleich mit" geht vor. Beim Abarbeiten `status`
-pflegen (`backlog` → `in-progress` → `done`/`wont-do`); die Item-Datei bleibt erhalten,
-nur die Tabelle wird nachgezogen.
+ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen das Issue
+über den PR schließen (`Closes #<n>` im PR-Body); Status/Assignee am Issue pflegen.
 
 ## Deployment
 - Synology NAS, DSM 7.x, Container Manager (Docker)
