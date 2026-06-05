@@ -92,6 +92,9 @@ class NoteImageRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(ContentType.Image.PNG, response.contentType()?.withoutParameters())
         assertContentEquals(pngBytes, response.readRawBytes())
+        // bytes are served with the declared (un-sniffed) content type, so the browser must
+        // not be allowed to MIME-sniff a crafted file into markup
+        assertEquals("nosniff", response.headers["X-Content-Type-Options"])
     }
 
     @Test

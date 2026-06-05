@@ -328,6 +328,10 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
             }
             // Stored names are immutable (UUID-based), so the bytes never change.
             call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=31536000, immutable")
+            // The stored content-type is the *declared* one from upload; the bytes are never
+            // sniffed/validated to be a real image. Tell the browser not to MIME-sniff so a
+            // crafted file (e.g. HTML mislabelled image/png) can never be reinterpreted as markup.
+            call.response.headers.append("X-Content-Type-Options", "nosniff")
             call.respondBytes(Files.readAllBytes(file), ContentType.parse(row[NoteImagesTable.contentType]))
         }
 
