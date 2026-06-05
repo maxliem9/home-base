@@ -30,6 +30,8 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | [0006](0006-bilder-in-notizen.md) | Bilder in Notizen | feature | low | done | prd.md |
 | [0007](0007-ios-app.md) | iOS-App | feature | low | backlog | prd.md |
 | [0008](0008-json-defaults-leere-arrays.md) | Leere Arrays werden aus JSON weggelassen (encodeDefaults) | bug | medium | backlog | session 2026-06-05 |
+| [0009](0009-batch-merge-mehrwort-zutaten.md) | Mengen-Merge greift nicht bei mehrwortigen Zutatennamen | tech-debt | low | backlog | PR #37 review |
+| [0010](0010-upload-groesse-im-speicher.md) | Bild-Upload puffert ganze Datei vor dem Größenlimit | tech-debt | low | backlog | PR #38 review |
 | [0011](0011-flyway-repair-unbedingt-bei-jedem-start.md) | flyway.repair() läuft unbedingt bei jedem Start | tech-debt | medium | backlog | PR #33 |
 | [0012](0012-migration-ci-test-haerten.md) | Migrations-Integrationstest + CI-Skip-Guard härten | tech-debt | low | backlog | PR #35 |
 | [0013](0013-passwort-hashing-sha256-kein-kdf.md) | Passwörter als ungesalzenes SHA-256 ohne KDF | security | high | backlog | PR #4 |
