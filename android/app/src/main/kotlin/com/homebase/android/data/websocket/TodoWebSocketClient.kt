@@ -4,6 +4,7 @@ import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -22,7 +23,7 @@ class TodoWebSocketClient(
         data class ListDeleted(val list: TodoListDto) : WsEvent()
     }
 
-    private val moshi = Moshi.Builder().build()
+    private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
     private val eventChannel = Channel<WsEvent>(Channel.BUFFERED)
     private var webSocket: WebSocket? = null
 
