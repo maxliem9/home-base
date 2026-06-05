@@ -194,10 +194,12 @@ private fun Route.entryRoutes(json: Json) {
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
 
             val startLock = TIMER_START_LOCKS.computeIfAbsent(username) { Any() }
-            val result = synchronized(startLock) {
+            val result: Any? = synchronized(startLock) {
                 transaction {
-                    if (ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.empty()) {
-                        return@transaction null
+                    val project = ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
+                        ?: return@transaction null
+                    if (project[ProjectsTable.archived]) {
+                        return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
                     }
                     val now = Instant.now()
                     // Stop any timer that is still running for this user.
@@ -229,16 +231,19 @@ private fun Route.entryRoutes(json: Json) {
                 }
             }
 
-            if (result == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Project not found"))
-                return@post
+            when (result) {
+                null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Project not found"))
+                is ErrorResponse -> call.respond(HttpStatusCode.Conflict, result)
+                is Pair<*, *> -> {
+                    val stoppedDto = result.first as TimeEntryDto?
+                    val startedDto = result.second as TimeEntryDto
+                    stoppedDto?.let {
+                        WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = it)))
+                    }
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = startedDto)))
+                    call.respond(HttpStatusCode.Created, startedDto)
+                }
             }
-            val (stoppedDto, startedDto) = result
-            stoppedDto?.let {
-                WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = it)))
-            }
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = startedDto)))
-            call.respond(HttpStatusCode.Created, startedDto)
         }
 
         post("/stop") {
@@ -277,9 +282,11 @@ private fun Route.entryRoutes(json: Json) {
                 return@post
             }
 
-            val entry = transaction {
-                if (ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.empty()) {
-                    return@transaction null
+            val entry: Any? = transaction {
+                val project = ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
+                    ?: return@transaction null
+                if (project[ProjectsTable.archived]) {
+                    return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
                 }
                 val id = UUID.randomUUID()
                 val now = Instant.now()
@@ -295,12 +302,14 @@ private fun Route.entryRoutes(json: Json) {
                 }
                 TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.single().toEntryDto()
             }
-            if (entry == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Project not found"))
-                return@post
+            when (entry) {
+                null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Project not found"))
+                is ErrorResponse -> call.respond(HttpStatusCode.Conflict, entry)
+                is TimeEntryDto -> {
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = entry)))
+                    call.respond(HttpStatusCode.Created, entry)
+                }
             }
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = entry)))
-            call.respond(HttpStatusCode.Created, entry)
         }
 
         put("/{id}") {
@@ -320,8 +329,12 @@ private fun Route.entryRoutes(json: Json) {
             val outcome = transaction {
                 val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
                     ?: return@transaction null
-                if (newProjectId != null && ProjectsTable.selectAll().where { ProjectsTable.id eq newProjectId }.empty()) {
-                    return@transaction ErrorResponse("NOT_FOUND", "Project not found")
+                if (newProjectId != null) {
+                    val project = ProjectsTable.selectAll().where { ProjectsTable.id eq newProjectId }.singleOrNull()
+                        ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
+                    if (project[ProjectsTable.archived]) {
+                        return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
+                    }
                 }
                 val effectiveStart = newStarted ?: existing[TimeEntriesTable.startedAt]
                 val effectiveStop = newStopped ?: existing[TimeEntriesTable.stoppedAt]
@@ -341,7 +354,11 @@ private fun Route.entryRoutes(json: Json) {
             when (outcome) {
                 null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Time entry not found"))
                 is ErrorResponse -> {
-                    val status = if (outcome.code == "NOT_FOUND") HttpStatusCode.NotFound else HttpStatusCode.BadRequest
+                    val status = when (outcome.code) {
+                        "NOT_FOUND" -> HttpStatusCode.NotFound
+                        "PROJECT_ARCHIVED" -> HttpStatusCode.Conflict
+                        else -> HttpStatusCode.BadRequest
+                    }
                     call.respond(status, outcome)
                 }
                 is TimeEntryDto -> {

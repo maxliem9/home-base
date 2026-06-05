@@ -256,6 +256,92 @@ class TimeRouteTest {
     }
 
     @Test
+    fun `start on archived project returns 409 and leaves the running timer untouched`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val active = createProject(token, "Aktiv", "#111111")
+        val archived = createProject(token, "Archiv", "#222222")
+        client.patch("/api/v1/time/projects/$archived/archive") { bearerAuth(token) }
+
+        // a timer is already running on an active project
+        val runningId = Json.parseToJsonElement(client.post("/api/v1/time/entries/start") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$active"}""")
+        }.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.post("/api/v1/time/entries/start") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$archived"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals("PROJECT_ARCHIVED", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+
+        // the rejected start must not have stopped the still-running timer
+        val running = client.get("/api/v1/time/running") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, running.status)
+        assertEquals(runningId, Json.parseToJsonElement(running.bodyAsText()).jsonObject["id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `manual entry on archived project returns 409`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        client.patch("/api/v1/time/projects/$projectId/archive") { bearerAuth(token) }
+
+        val res = client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals("PROJECT_ARCHIVED", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `moving an entry onto an archived project returns 409`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val active = createProject(token, "Aktiv", "#111111")
+        val archived = createProject(token, "Archiv", "#222222")
+        client.patch("/api/v1/time/projects/$archived/archive") { bearerAuth(token) }
+
+        val id = Json.parseToJsonElement(client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$active","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z"}""")
+        }.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.put("/api/v1/time/entries/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$archived"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals("PROJECT_ARCHIVED", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `editing an existing entry whose project was archived stays allowed`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        val id = Json.parseToJsonElement(client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z"}""")
+        }.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.patch("/api/v1/time/projects/$projectId/archive") { bearerAuth(token) }
+
+        // changing only the description (no project switch) must still work
+        val updated = client.put("/api/v1/time/entries/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"description":"Nachgepflegt"}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        assertEquals("Nachgepflegt", Json.parseToJsonElement(updated.bodyAsText()).jsonObject["description"]?.jsonPrimitive?.content)
+
+        // and deleting it must still work
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/time/entries/$id") { bearerAuth(token) }.status)
+    }
+
+    @Test
     fun `running timers are tracked per user independently`() = testApplication {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
