@@ -86,8 +86,8 @@ jobs:
         run: ./gradlew test --tests "com.homebase.MigrationIntegrationTest" --no-daemon
 
       # Guard against a silent skip re-creating the very blind spot this job exists to close:
-      # if the gate weren't satisfied the test would be reported as skipped and the job would
-      # still go green. Fail unless exactly one test actually executed.
+      # if the gate weren't satisfied the tests would be reported as skipped and the job would
+      # still go green. Fail unless the suite actually executed with nothing skipped.
       - name: Verify the migration test was not skipped
         if: always()
         working-directory: backend
@@ -97,8 +97,8 @@ jobs:
             echo "::error::No result file for MigrationIntegrationTest — it never ran."
             exit 1
           fi
-          if ! grep -q 'tests="1"' "$report" || ! grep -q 'skipped="0"' "$report"; then
-            echo "::error::MigrationIntegrationTest was skipped or did not run exactly once (DB_URL gate unmet?)."
+          if grep -q 'tests="0"' "$report" || ! grep -q 'skipped="0"' "$report"; then
+            echo "::error::MigrationIntegrationTest was skipped or never ran (DB_URL gate unmet?)."
             cat "$report"
             exit 1
           fi
