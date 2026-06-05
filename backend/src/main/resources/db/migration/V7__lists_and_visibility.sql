@@ -1,5 +1,19 @@
 -- Todo-list visibility (replaces color) + list-based shopping (replaces categories).
 
+-- 0. Safety net. todo_lists and todos.list_id were introduced before this migration
+-- but were never created by an earlier migration file (they only ever existed in the
+-- author's database), so a fresh database has neither and the ALTERs below would fail
+-- with "relation todo_lists does not exist". Create them here if missing — a no-op on
+-- existing databases that already have them. (color is added because step 1 drops it.)
+CREATE TABLE IF NOT EXISTS todo_lists (
+    id          UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT            NOT NULL,
+    color       VARCHAR(20),
+    created_by  VARCHAR(50)     NOT NULL REFERENCES users(username),
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+ALTER TABLE todos ADD COLUMN IF NOT EXISTS list_id UUID REFERENCES todo_lists(id) ON DELETE SET NULL;
+
 -- 1. Todo lists: swap color for a SHARED/PRIVATE visibility flag.
 ALTER TABLE todo_lists ADD COLUMN visibility VARCHAR(10) NOT NULL DEFAULT 'SHARED';
 ALTER TABLE todo_lists DROP COLUMN color;
