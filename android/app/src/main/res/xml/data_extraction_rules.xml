@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup / device-transfer rules for API >= 31 (referenced via android:dataExtractionRules).
+  The encrypted auth prefs are excluded from both cloud backup and device-to-device transfer:
+  the Tink/Keystore master key is device-bound, so a restored copy would be unusable and the
+  JWT must not leave the device. For API <= 30 see backup_rules.xml.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="auth.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="auth.xml" />
+    </device-transfer>
+</data-extraction-rules>

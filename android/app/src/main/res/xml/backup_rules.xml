@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API <= 30 (referenced via android:fullBackupContent).
+  The encrypted auth prefs are excluded: the Tink/Keystore master key is device-bound
+  and never backed up, so a restored copy would be unusable (and the JWT must not leave
+  the device). For API >= 31 see data_extraction_rules.xml.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="auth.xml" />
+</full-backup-content>

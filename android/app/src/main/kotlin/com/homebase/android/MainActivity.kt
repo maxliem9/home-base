@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.homebase.android.data.repository.AuthState
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
 import com.homebase.android.ui.abwesenheit.AbwesenheitScreen
 import com.homebase.android.ui.aufgaben.AufgabenScreen
@@ -61,11 +62,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             HomeBaseTheme {
-                val token by container.authRepository.tokenFlow.collectAsStateWithLifecycle(null)
-                if (token == null) {
-                    LoginGate()
-                } else {
-                    MainScaffold(token!!)
+                val authState by container.authRepository.state.collectAsStateWithLifecycle()
+                when (val s = authState) {
+                    AuthState.Loading -> Box(Modifier.fillMaxSize().background(Hb.paper))
+                    AuthState.LoggedOut -> LoginGate()
+                    is AuthState.LoggedIn -> MainScaffold(s.token)
                 }
             }
         }
