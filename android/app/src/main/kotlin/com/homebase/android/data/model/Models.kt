@@ -178,12 +178,25 @@ data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto?
 // ---------------------------------------------------------------------------
 
 @JsonClass(generateAdapter = true)
+data class NoteImageDto(
+    val id: String,
+    val noteId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val sortOrder: Int,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class NoteDto(
     val id: String,
     val title: String,
     val content: String,
     val tags: List<String> = emptyList(),
     val visibility: String,
+    val images: List<NoteImageDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String,

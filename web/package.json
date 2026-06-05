@@ -11,7 +11,8 @@
     "test:unit": "TZ=UTC vitest run",
     "test:unit:watch": "TZ=UTC vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json"
   },
   "dependencies": {
     "react": "^18.3.1",

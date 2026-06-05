@@ -2,6 +2,13 @@
 .env
 .env.local
 
+# Uploaded note images (local dev writes here; prod uses a mounted volume)
+uploads/
+backend/uploads/
+
+# Local backups produced by scripts/backup.sh
+backups/
+
 # Kotlin / Gradle
 .gradle/
 build/

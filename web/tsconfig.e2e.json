@@ -1,0 +1,7 @@
+{
+  // Type-checks the Playwright e2e suite against the real app types in src/
+  // (the main build's tsconfig only includes "src", so fixture drift from the
+  // app's types — e.g. a missing required field on Note — would go unnoticed).
+  "extends": "./tsconfig.json",
+  "include": ["e2e"]
+}

@@ -51,6 +51,7 @@ Todo-Felder:
 - Markdown-Inhalt
 - Tags + Volltextsuche
 - Sichtbarkeit: privat oder geteilt
+- Bilder als Anhang (Upload, Galerie, Vollbild) ✅
 
 ### 4. Täglicher Digest (Telegram) ✅
 - Jeden Abend zur konfigurierbaren Uhrzeit (`DIGEST_TIME`)
@@ -114,7 +115,7 @@ Felder Schritt: id, recipe_id, step_number, description
   *(In-App-Auswertung pro Projekt/Woche ist umgesetzt ✅)*
 - Angebote zu Einkaufsitems (Rewe/Kaufland) 🔜
 - Wiederkehrende Todos 🔜
-- Bilder in Notizen 🔜
+- Bilder in Notizen ✅
 - iOS-App 🔜
 
 ---
@@ -123,10 +124,10 @@ Felder Schritt: id, recipe_id, step_number, description
 - Backend:  Kotlin + Ktor, PostgreSQL 16, WebSockets, Flyway
 - Web:      React + Vite + TypeScript + Tailwind CSS
 - Android:  Jetpack Compose
-- Proxy:    Nginx (Reverse Proxy, HTTPS)
+- Proxy:    Synology DSM Reverse Proxy (HTTPS) → web-Container (nginx, SPA + /api)
 - Digest:   Telegram Bot API
 - Hosting:  Synology NAS, erreichbar via DynDNS + Port 443
-- CI/CD:    GitHub Actions (Backend-, Web-, Android-Build + Docker-Image-Build)
+- CI/CD:    GitHub Actions (Backend-, Web-, Android-Build; Docker-Images → GHCR)
 
 ## Nicht im MVP
 - Push Notifications (Android)

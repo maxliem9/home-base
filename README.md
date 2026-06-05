@@ -9,8 +9,8 @@ Privater Familien-Hub für 2 Nutzer — Echtzeit-Sync für Todos, Einkaufsliste,
 | Backend   | Kotlin · Ktor · Exposed · PostgreSQL |
 | Web       | React 18 · Vite · TypeScript · Tailwind |
 | Android   | Jetpack Compose · Kotlin Coroutines  |
-| Proxy     | Nginx (TLS-Termination)              |
-| Hosting   | Synology NAS · Docker                |
+| Proxy     | Synology DSM Reverse Proxy (TLS) · web-Container (nginx) für SPA + /api |
+| Hosting   | Synology NAS · Docker · Images via GHCR |
 
 ---
 
@@ -65,40 +65,43 @@ npm run dev
 - DynDNS-Domain (z. B. `home.example.com`)
 - Let's Encrypt Zertifikat via **DSM → Systemsteuerung → Sicherheit → Zertifikat**
 
-### Zertifikatspfad anpassen
+### HTTPS via DSM Reverse Proxy
 
-Synology speichert Let's Encrypt Zertifikate unter:
+TLS terminiert Synology DSM — kein Zertifikat-Mount, kein Container-Neustart bei
+der Erneuerung:
 
-```
-/usr/syno/etc/certificate/_archive/<CERT_ID>/
-```
+1. **Systemsteuerung → Sicherheit → Zertifikat:** Let's-Encrypt-Zertifikat für die
+   Domain anlegen (Port 80 muss von außen erreichbar sein).
+2. **Systemsteuerung → Anmeldeportal → Erweitert → Reverse Proxy → Erstellen:**
+   - Quelle: **HTTPS**, deine Domain, Port **443**
+   - Ziel: **HTTP**, **localhost**, Port **3000** (der `web`-Container)
+   - **WebSocket** aktivieren (Custom Header) — nötig für den Echtzeit-Sync
+3. Dem Dienst unter **Zertifikat → Konfigurieren** das Zertifikat aus Schritt 1
+   zuweisen.
 
-Den aktuellen Pfad findest du in der DSM-Oberfläche oder mit:
-
-```bash
-# SSH auf NAS
-ls /usr/syno/etc/certificate/_archive/
-```
-
-Passe in `docker-compose.yml` den Volume-Mount des nginx-Services an:
-
-```yaml
-volumes:
-  - /usr/syno/etc/certificate/_archive/<CERT_ID>:/etc/nginx/certs:ro
-```
+DSM bedient dann `https://<domain>` und erneuert das Zertifikat automatisch.
 
 ### Deploy
 
+Backend- und Web-Images werden von der CI gebaut und nach GHCR gepusht — die NAS
+**zieht** sie nur (kein Build aus dem Quellcode). Auf der NAS genügen
+`docker-compose.yml` und `.env`.
+
 ```bash
+# Einmalig: an GHCR anmelden (privates Repo ⇒ private Images)
+echo <GITHUB_PAT> | docker login ghcr.io -u <github-user> --password-stdin
+
 # .env mit Produktionswerten befüllen
 cp .env.example .env && nano .env
 
-# Images bauen und starten
-docker compose up -d --build
+# Images ziehen und starten
+docker compose pull && docker compose up -d
 
 # Logs prüfen
 docker compose logs -f
 ```
+
+Aktualisieren später: `docker compose pull && docker compose up -d`.
 
 ### Health-Check
 
@@ -121,6 +124,8 @@ curl https://home.example.com/api/v1/health
 | `TELEGRAM_CHAT_ID`  | Empfänger-Chat-ID (optional)          | `-1001234567890`                      |
 | `DIGEST_TIME`       | Uhrzeit des täglichen Digests         | `20:00`                               |
 | `HOUSEHOLD_NAME`    | Anzeigename in der Sidebar (optional) | `Mäxchen`                             |
+| `UPLOAD_DIR`        | Speicherort der Notizbilder (prod: per Volume gesetzt) | `/data/uploads`      |
+| `MAX_UPLOAD_MB`     | Max. Größe pro Notizbild in MB (optional) | `10`                              |
 
 JWT-Secret generieren:
 

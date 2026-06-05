@@ -4,6 +4,7 @@ import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
 import com.homebase.db.IngredientsTable
 import com.homebase.db.KitaClosuresTable
+import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
 import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.ProjectsTable
@@ -24,6 +25,7 @@ import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
 
@@ -33,12 +35,17 @@ import java.util.UUID
  * (which uses Postgres-specific SQL). Tables are created via Exposed SchemaUtils.
  */
 fun ApplicationTestBuilder.configureTestApplication() {
+    // Each test gets its own throwaway upload directory; a low size cap keeps the
+    // "too large" test cheap (just over 1 MB rather than just over 10 MB).
+    val uploadDir = Files.createTempDirectory("homebase-test-uploads").toString()
     environment {
         config = MapApplicationConfig(
             "jwt.secret" to "test-secret-key-for-testing-only",
             "jwt.issuer" to "homebase",
             "jwt.audience" to "homebase-users",
             "jwt.realm" to "HomeBase",
+            "app.uploadDir" to uploadDir,
+            "app.maxUploadMb" to "1",
         )
     }
     application {
@@ -48,7 +55,8 @@ fun ApplicationTestBuilder.configureTestApplication() {
         )
         transaction {
             SchemaUtils.create(
-                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable, NotesTable,
+                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
+                NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable,
                 AbsencesTable, PartTimeRulesTable, KitaClosuresTable, AbsSettingsTable,

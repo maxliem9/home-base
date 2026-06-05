@@ -169,12 +169,27 @@ data class UpdateShoppingListRequest(val name: String? = null)
 data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
 @Serializable
+data class NoteImageDto(
+    val id: String,
+    val noteId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val sortOrder: Int,
+    val createdBy: String,
+    val createdAt: String
+)
+
+@Serializable
 data class NoteDto(
     val id: String,
     val title: String,
     val content: String,
     val tags: List<String>,
     val visibility: String,
+    // no default: the JSON config omits default values, but clients always expect
+    // an `images` array (an empty one for image-less notes), so it must be encoded.
+    val images: List<NoteImageDto>,
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String

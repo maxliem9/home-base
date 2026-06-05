@@ -1,5 +1,6 @@
 package com.homebase.plugins
 
+import com.homebase.routes.NoteImageConfig
 import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
 import com.homebase.routes.configRoutes
@@ -12,9 +13,13 @@ import com.homebase.routes.todoRoutes
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
+import java.nio.file.Paths
 
 fun Application.configureRouting() {
     val householdName = environment.config.propertyOrNull("app.householdName")?.getString() ?: "Mäxchen"
+    val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
+    val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
+    val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
     routing {
         route("/api/v1") {
             healthRoutes()
@@ -23,7 +28,7 @@ fun Application.configureRouting() {
                 configRoutes(householdName)
                 todoRoutes()
                 shoppingRoutes()
-                noteRoutes()
+                noteRoutes(noteImageConfig)
                 timeRoutes()
                 recipeRoutes()
                 absenceRoutes()

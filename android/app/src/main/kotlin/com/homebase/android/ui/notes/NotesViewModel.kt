@@ -2,8 +2,10 @@ package com.homebase.android.ui.notes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.homebase.android.BuildConfig
 import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
+import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
@@ -91,6 +93,29 @@ class NotesViewModel(
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
+
+    fun uploadImage(noteId: String, bytes: ByteArray, filename: String, contentType: String) {
+        viewModelScope.launch {
+            repository.uploadImage(noteId, bytes, filename, contentType)
+                .onSuccess { note -> upsert(note) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun removeImage(noteId: String, imageId: String) {
+        viewModelScope.launch {
+            repository.deleteImage(noteId, imageId)
+                .onSuccess { note -> upsert(note) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Authenticated URL for an image. <img>/Coil can't set an Authorization header, so the
+     * backend accepts the JWT via the same `?token=` fallback used for WebSocket upgrades.
+     */
+    fun imageUrl(image: NoteImageDto): String =
+        BuildConfig.BASE_URL.trimEnd('/') + "/notes/${image.noteId}/images/${image.id}?token=$token"
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
