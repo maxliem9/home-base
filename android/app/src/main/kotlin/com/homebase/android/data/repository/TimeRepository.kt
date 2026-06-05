@@ -56,5 +56,6 @@ class TimeRepository(
     suspend fun deleteEntry(id: String): Result<Unit> = runCatching { api.deleteTimeEntry(id) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
+    fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 }

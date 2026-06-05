@@ -61,5 +61,6 @@ class AbsenceRepository(
         runCatching { api.updateAbsSettings(userId, request) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
+    fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 }
