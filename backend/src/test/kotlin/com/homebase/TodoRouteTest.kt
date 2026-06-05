@@ -641,6 +641,43 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `other user cannot update a subtask in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+        val subId = createSubtask(alice, secretTodo, "step")
+
+        val res = client.put("/api/v1/todos/$secretTodo/subtasks/$subId") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"done":true}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // unchanged for the owner: the subtask is still not done
+        val sub = todosOf(alice).single().jsonObject["subtasks"]!!.jsonArray.single().jsonObject
+        assertEquals(false, sub["done"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `other user cannot delete a subtask in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+        val subId = createSubtask(alice, secretTodo, "step")
+
+        val res = client.delete("/api/v1/todos/$secretTodo/subtasks/$subId") { bearerAuth(bob) }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // still there for the owner
+        assertEquals(1, todosOf(alice).single().jsonObject["subtasks"]!!.jsonArray.size)
+    }
+
+    @Test
     fun `other user can still add a todo to a shared list`() = testApplication {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
@@ -666,6 +703,16 @@ class TodoRouteTest {
             setBody("""{"title":"$title","listId":"$listId"}""")
         }
         return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    private suspend fun ApplicationTestBuilder.createSubtask(token: String, todoId: String, title: String): String {
+        val res = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText())
+            .jsonObject["subtasks"]!!.jsonArray.last().jsonObject["id"]!!.jsonPrimitive.content
     }
 
     private suspend fun ApplicationTestBuilder.createTodo(token: String, title: String): String {
