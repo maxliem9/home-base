@@ -32,9 +32,25 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | [0008](0008-json-defaults-leere-arrays.md) | Leere Arrays werden aus JSON weggelassen (encodeDefaults) | bug | medium | backlog | session 2026-06-05 |
 | [0009](0009-batch-merge-mehrwort-zutaten.md) | Mengen-Merge greift nicht bei mehrwortigen Zutatennamen | tech-debt | low | backlog | PR #37 review |
 | [0010](0010-upload-groesse-im-speicher.md) | Bild-Upload puffert ganze Datei vor dem Größenlimit | tech-debt | low | backlog | PR #38 review |
+| [0011](0011-flyway-repair-unbedingt-bei-jedem-start.md) | flyway.repair() läuft unbedingt bei jedem Start | tech-debt | medium | backlog | PR #33 |
+| [0012](0012-migration-ci-test-haerten.md) | Migrations-Integrationstest + CI-Skip-Guard härten | tech-debt | low | backlog | PR #35 |
+| [0013](0013-passwort-hashing-sha256-kein-kdf.md) | Passwörter als ungesalzenes SHA-256 ohne KDF | security | high | backlog | PR #4 |
+| [0014](0014-todos-private-listen-ws-leak.md) | Todos privater Listen lecken über geteilten WS-Kanal | security | high | backlog | PR #24 |
+| [0015](0015-android-token-klartext-datastore.md) | Android: JWT-Token im Klartext im DataStore | security | medium | backlog | PR #3 |
+| [0016](0016-android-websocket-kein-reconnect.md) | Android: WebSocket-Clients ohne Reconnect | bug | medium | backlog | PR #3 |
+| [0017](0017-ci-workflow-permissions-least-privilege.md) | CI-Workflows ohne top-level permissions: | security | medium | backlog | PR #6 |
+| [0018](0018-ci-actions-sha-pinning.md) | GitHub-Actions nur auf Mutable Tags gepinnt (Supply-Chain) | security | medium | backlog | PR #12 |
+| [0019](0019-docker-ci-java21-statt-24.md) | Docker/CI auf Java 24 statt 21 LTS | tech-debt | medium | backlog | PR #11 |
+| [0020](0020-todo-liste-loeschen-verwaiste-todos.md) | Liste löschen verwaist Todos (UI/Digest) | bug | medium | backlog | PR #24 |
+| [0021](0021-telegram-digest-zeitzone.md) | Telegram-Digest Zeitzone (UTC statt Europe/Berlin) | bug | medium | backlog | PR #10 |
+| [0022](0022-vitest-suite-nicht-in-ci.md) | Vitest-Unit-Suite läuft in keinem CI-Job | test-gap | medium | backlog | PR #26 |
+| [0023](0023-backend-container-non-root.md) | Backend-Container läuft als root | security | low | backlog | PR #11 |
+| [0024](0024-zeiterfassung-archivierte-projekte.md) | Zeiterfassung erlaubt archivierte Projekte | bug | low | backlog | PR #13 |
+| [0025](0025-abwesenheit-authz-userid-aus-jwt.md) | Abwesenheit: Authz aus JWT statt Request-userId | security | low | backlog | PR #27 |
+| [0026](0026-abwesenheit-bulk-insert-limit.md) | Abwesenheit: kita/range & batch ohne Limit | bug | low | backlog | PR #27 |
 
 ## Legende
 
 - **Status:** `backlog` · `in-progress` · `done` · `wont-do`
-- **Kategorie:** `feature` · `tech-debt` · `bug` · `chore` · `docs`
+- **Kategorie:** `feature` · `tech-debt` · `bug` · `security` · `test-gap` · `chore` · `docs`
 - **Prio:** `low` · `medium` · `high`

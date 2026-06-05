@@ -184,3 +184,10 @@ db       — postgres:16 auf Port 5432
 - Backend: ./gradlew run         → http://localhost:8080
 - Web:     npm run dev           → http://localhost:5173
 - DB:      docker compose -f docker-compose.dev.yml up
+
+
+## Review
+
+Wenn du einen PR erstellt hast, starte einen neuen Agent der das Review des PRs macht.
+
+Reagiere dann auch auf das Review und frage mich bei starken Änderungen.
