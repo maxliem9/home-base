@@ -29,7 +29,6 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | [0005](0005-wiederkehrende-todos.md) | Wiederkehrende Todos | feature | medium | backlog | prd.md |
 | [0006](0006-bilder-in-notizen.md) | Bilder in Notizen | feature | low | backlog | prd.md |
 | [0007](0007-ios-app.md) | iOS-App | feature | low | backlog | prd.md |
-| [0008](0008-branches-aufraeumen.md) | Gemergte lokale Git-Branches aufräumen | chore | low | backlog | session 2026-06-05 |
 
 ## Legende
 
