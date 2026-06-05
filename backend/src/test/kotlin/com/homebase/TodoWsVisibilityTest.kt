@@ -161,6 +161,9 @@ class TodoWsVisibilityTest {
                     msg["payload"]?.jsonObject?.get("title")?.jsonPrimitive?.content == "visible",
                 "the private list's creation must not precede the shared todo on the channel",
             )
+
+            // The private list's TODO_LIST_CREATED must not be lingering behind the shared todo.
+            assertNull(withTimeoutOrNull(500) { incoming.receive() }, "no further frames expected for Bob")
         }
     }
 }
