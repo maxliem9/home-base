@@ -2,12 +2,18 @@ import { test, expect, type Page } from '@playwright/test'
 import { MockApi, todo, list, subtask, TOKEN } from './helpers/mockApi'
 
 /** Logs in by seeding the token, then installs the given mock backend. */
-async function openApp(page: Page, mock: MockApi) {
+async function openApp(page: Page, mock: MockApi, token: string = TOKEN) {
   await mock.install(page)
-  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
+
+// A JWT whose middle segment base64-decodes to {"username":"alice"}, matching the mock's createdBy.
+// The default TOKEN is not a real JWT, so `usernameFromToken` yields null; tests that depend on the
+// app knowing the current user (e.g. an owner keeping their list after a shared→private flip) seed
+// this instead. (payload = btoa('{"username":"alice"}'))
+const ALICE_TOKEN = 'x.eyJ1c2VybmFtZSI6ImFsaWNlIn0=.y'
 
 // The redesign shows todos per list tab, so most tests seed a default list.
 const HAUSHALT = list({ id: 'l1', name: 'Haushalt' })
@@ -150,6 +156,49 @@ test.describe('Todo lists', () => {
     const tab = page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' })
     await expect(tab).toBeVisible()
     await expect(tab).toHaveClass(/is-active/)
+  })
+
+  test('edits a list: renames it and flips it to private, keeping it for the owner', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Fenster putzen', listId: 'l1' })],
+      [list({ id: 'l1', name: 'Haushalt', createdBy: 'alice' })],
+    )
+    await openApp(page, mock, ALICE_TOKEN)
+
+    await page.getByRole('button', { name: /Liste bearbeiten „Haushalt/ }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByRole('heading', { name: 'Liste bearbeiten' })).toBeVisible()
+
+    await modal.getByPlaceholder('z. B. Renovierung').fill('Heim')
+    await modal.locator('.hb-pick', { hasText: 'Privat' }).click()
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+
+    // The owner keeps the list even though the backend broadcasts a TODO_LIST_DELETED for the flip:
+    // the tab stays, now renamed and marked private (lock icon), and its todos remain. (issue #75)
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    const tab = page.locator('.hb-tabs').getByRole('tab', { name: 'Heim' })
+    await expect(tab).toBeVisible()
+    await expect(tab.locator('svg')).toHaveCount(1)
+    await expect(page.getByText('Fenster putzen')).toBeVisible()
+  })
+
+  test('flips a private list to shared without duplicating its todos', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Geschenk kaufen', listId: 'l1' })],
+      [list({ id: 'l1', name: 'Geheim', visibility: 'PRIVATE', createdBy: 'alice' })],
+    )
+    await openApp(page, mock, ALICE_TOKEN)
+
+    await page.getByRole('button', { name: /Liste bearbeiten „Geheim/ }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.locator('.hb-pick', { hasText: 'Geteilt' }).click()
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    // The lock is gone (now shared) and the replayed TODO_CREATED frame must not duplicate the todo.
+    const tab = page.locator('.hb-tabs').getByRole('tab', { name: 'Geheim' })
+    await expect(tab.locator('svg')).toHaveCount(0)
+    await expect(page.locator('.hb-row', { hasText: 'Geschenk kaufen' })).toHaveCount(1)
   })
 
   test('deletes the active list and its todos', async ({ page }) => {

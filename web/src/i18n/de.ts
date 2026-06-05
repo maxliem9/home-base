@@ -59,6 +59,11 @@ export const de = {
     visibility: 'Sichtbarkeit',
     visShared: 'Geteilt',
     visPrivate: 'Privat',
+    visSharedHint: 'Beide sehen und bearbeiten diese Liste.',
+    visPrivateHint: 'Nur du siehst diese Liste.',
+    editList: 'Liste bearbeiten', // link label, rendered as `Liste bearbeiten „{name}"`
+    editListTitle: 'Liste bearbeiten', // edit-modal title
+    saveList: 'Speichern', // save button in the edit modal
     deleteList: 'Liste löschen', // link label, rendered as `Liste „{name}" löschen`
     deleteListTitle: 'Liste löschen?', // confirm-modal title
     deleteListConfirm: 'Endgültig löschen', // danger button in the confirm modal

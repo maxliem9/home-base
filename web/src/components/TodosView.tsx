@@ -19,7 +19,7 @@ import {
   Select,
   TextInput,
 } from '../ui/primitives'
-import { dueLabel, relTime, userMeta } from '../ui/format'
+import { dueLabel, relTime, userMeta, usernameFromToken } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/todos`
@@ -46,6 +46,7 @@ interface TodosViewProps {
 }
 
 export function TodosView({ token, onLogout }: TodosViewProps) {
+  const me = usernameFromToken(token)
   const [todos, setTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,6 +58,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
   const [doneOpen, setDoneOpen] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
+  const [editListOpen, setEditListOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const fetchTodos = useCallback(async () => {
@@ -112,8 +114,16 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           setLists((prev) => prev.map((x) => (x.id === msg.payload.id ? msg.payload : x)))
           break
         case 'TODO_LIST_DELETED':
-          setLists((prev) => prev.filter((x) => x.id !== msg.payload.id))
-          setTodos((prev) => prev.filter((x) => x.listId !== msg.payload.id))
+          // A shared→private flip is broadcast as a delete whose payload is the now-PRIVATE list.
+          // For its owner that means "keep it, just hide it from the other user" — so mark it private
+          // instead of dropping it. A genuine delete always carries a SHARED list; everyone else drops
+          // it either way (they lost access). See issue #75 / the private-list visibility model.
+          if (msg.payload.visibility === 'PRIVATE' && msg.payload.createdBy === me) {
+            setLists((prev) => prev.map((x) => (x.id === msg.payload.id ? msg.payload : x)))
+          } else {
+            setLists((prev) => prev.filter((x) => x.id !== msg.payload.id))
+            setTodos((prev) => prev.filter((x) => x.listId !== msg.payload.id))
+          }
           break
       }
     } catch {
@@ -227,6 +237,22 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       setLists((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]))
       setActiveId(created.id)
       setNewListOpen(false)
+    }
+  }
+
+  // rename and/or change a list's visibility. private→shared reveals the list (and its todos via the
+  // backend replay) to the other user; shared→private hides it again. (issue #75)
+  const updateList = async (name: string, visibility: ListVisibility) => {
+    if (!active) return
+    const res = await authFetch(token, `${API_BASE}/todos/lists/${active.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, visibility }),
+    })
+    if (res.ok) {
+      const updated: TodoList = await res.json()
+      setLists((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+      setEditListOpen(false)
     }
   }
 
@@ -374,12 +400,18 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             </div>
           )}
 
-          {lists.length > 1 && (
-            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDelete(true)}>
-              <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {t.todos.deleteList} „{active.name}"
+          <div style={{ marginTop: 26, display: 'flex', gap: 20, alignItems: 'center' }}>
+            <button className="hb-link" onClick={() => setEditListOpen(true)}>
+              <Icon name="edit" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+              {t.todos.editList} „{active.name}"
             </button>
-          )}
+            {lists.length > 1 && (
+              <button className="hb-link hb-link--danger" onClick={() => setConfirmDelete(true)}>
+                <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+                {t.todos.deleteList} „{active.name}"
+              </button>
+            )}
+          </div>
         </>
       )}
 
@@ -416,6 +448,10 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      {editListOpen && active && (
+        <EditListModal list={active} onClose={() => setEditListOpen(false)} onSave={updateList} />
+      )}
 
       <Modal
         open={confirmDelete && !!active}
@@ -562,15 +598,58 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
         <TextInput value={name} onChange={setName} placeholder={t.todos.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
       </Field>
       <Field label={t.todos.visibility}>
-        <div className="hb-pickrow">
-          <button className={`hb-pick${visibility === 'SHARED' ? ' is-active' : ''}`} onClick={() => setVisibility('SHARED')}>
-            <Icon name="users" size={16} stroke={2} /> {t.todos.visShared}
-          </button>
-          <button className={`hb-pick${visibility === 'PRIVATE' ? ' is-active' : ''}`} onClick={() => setVisibility('PRIVATE')}>
-            <Icon name="lock" size={16} stroke={2} /> {t.todos.visPrivate}
-          </button>
-        </div>
+        <VisibilityPicker visibility={visibility} onChange={setVisibility} />
       </Field>
     </Modal>
+  )
+}
+
+function EditListModal({
+  list,
+  onClose,
+  onSave,
+}: {
+  list: TodoList
+  onClose: () => void
+  onSave: (name: string, visibility: ListVisibility) => void
+}) {
+  const [name, setName] = useState(list.name)
+  const [visibility, setVisibility] = useState<ListVisibility>(list.visibility)
+  const dirty = name.trim() !== list.name || visibility !== list.visibility
+  const save = () => { if (name.trim() && dirty) onSave(name.trim(), visibility) }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.todos.editListTitle}
+      width={440}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || !dirty}>{t.todos.saveList}</Button>
+        </>
+      }
+    >
+      <Field label={t.todos.listName}>
+        <TextInput value={name} onChange={setName} placeholder={t.todos.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && save()} />
+      </Field>
+      <Field label={t.todos.visibility} hint={visibility === 'SHARED' ? t.todos.visSharedHint : t.todos.visPrivateHint}>
+        <VisibilityPicker visibility={visibility} onChange={setVisibility} />
+      </Field>
+    </Modal>
+  )
+}
+
+function VisibilityPicker({ visibility, onChange }: { visibility: ListVisibility; onChange: (v: ListVisibility) => void }) {
+  return (
+    <div className="hb-pickrow">
+      <button className={`hb-pick${visibility === 'SHARED' ? ' is-active' : ''}`} onClick={() => onChange('SHARED')}>
+        <Icon name="users" size={16} stroke={2} /> {t.todos.visShared}
+      </button>
+      <button className={`hb-pick${visibility === 'PRIVATE' ? ' is-active' : ''}`} onClick={() => onChange('PRIVATE')}>
+        <Icon name="lock" size={16} stroke={2} /> {t.todos.visPrivate}
+      </button>
+    </div>
   )
 }

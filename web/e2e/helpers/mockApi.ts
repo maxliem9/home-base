@@ -258,14 +258,33 @@ export class MockApi {
       const idx = this.lists.findIndex((l) => l.id === id)
       if (method === 'PUT') {
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
-        this.lists[idx] = { ...this.lists[idx], ...JSON.parse(req.postData() ?? '{}') }
-        return this.json(route, this.lists[idx])
+        const wasShared = this.lists[idx].visibility !== 'PRIVATE'
+        const updated = { ...this.lists[idx], ...JSON.parse(req.postData() ?? '{}') }
+        this.lists[idx] = updated
+        const isShared = updated.visibility !== 'PRIVATE'
+        // Mirror broadcastListUpdate in TodoRoutes.kt: translate the visibility transition for the
+        // shared channel. private→shared additionally replays the now-visible todos (issue #75).
+        const frames: unknown[] = []
+        if (isShared && wasShared) {
+          frames.push({ type: 'TODO_LIST_UPDATED', payload: updated })
+        } else if (isShared) {
+          frames.push({ type: 'TODO_LIST_CREATED', payload: updated })
+          for (const t of this.todos.filter((t) => t.listId === updated.id)) frames.push({ type: 'TODO_CREATED', payload: t })
+        } else if (wasShared) {
+          frames.push({ type: 'TODO_LIST_DELETED', payload: updated })
+        }
+        return this.jsonWithFrames(route, updated, 200, 'todos', frames)
       }
       if (method === 'DELETE') {
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        const removed = this.lists[idx]
         this.lists.splice(idx, 1)
         // Backend cascades: todos in the removed list go away with it.
         this.todos = this.todos.filter((t) => t.listId !== id)
+        // A shared list's deletion is broadcast (private ones are silent), mirroring broadcastListDelete.
+        if (removed.visibility !== 'PRIVATE') {
+          return this.jsonWithFrames(route, '', 204, 'todos', [{ type: 'TODO_LIST_DELETED', payload: removed }])
+        }
         return route.fulfill({ status: 204, body: '' })
       }
     }

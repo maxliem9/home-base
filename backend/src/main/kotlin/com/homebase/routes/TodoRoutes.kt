@@ -105,14 +105,21 @@ fun Route.todoRoutes() {
                         req.visibility?.let { v -> it[visibility] = v }
                     }
                     val updated = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.single().toListDto()
-                    wasShared to updated
+                    // private -> shared reveals the list's todos to the other client; they were never
+                    // broadcast while private, so load them here to replay over the channel (issue #75).
+                    val revealedTodos = if (!wasShared && updated.visibility != VISIBILITY_PRIVATE) {
+                        TodosTable.selectAll().where { TodosTable.listId eq id }
+                            .orderBy(TodosTable.createdAt to SortOrder.ASC)
+                            .map { it.toDto() }
+                    } else emptyList()
+                    Triple(wasShared, updated, revealedTodos)
                 }
                 if (result == null) {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
                     return@put
                 }
-                val (wasShared, list) = result
-                broadcastListUpdate(json, wasShared, list)
+                val (wasShared, list, revealedTodos) = result
+                broadcastListUpdate(json, wasShared, list, revealedTodos)
                 call.respond(list)
             }
 
@@ -510,7 +517,12 @@ private suspend fun broadcastListCreate(json: Json, list: TodoListDto) {
 }
 
 /** Same visibility rules as todos, applied to the list's own metadata (its name leaks otherwise). */
-private suspend fun broadcastListUpdate(json: Json, wasShared: Boolean, list: TodoListDto) {
+private suspend fun broadcastListUpdate(
+    json: Json,
+    wasShared: Boolean,
+    list: TodoListDto,
+    revealedTodos: List<TodoDto>,
+) {
     val isShared = list.visibility != VISIBILITY_PRIVATE
     val type = when {
         isShared && wasShared -> "TODO_LIST_UPDATED"  // normal edit: other client replaces it
@@ -519,6 +531,14 @@ private suspend fun broadcastListUpdate(json: Json, wasShared: Boolean, list: To
         else -> return                                // stays private: nothing to share
     }
     WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(TodoListWsMessage(type, list)))
+    // private -> shared: the TODO_LIST_CREATED above only carries list metadata. The list's todos were
+    // never broadcast while it was private, so the other client would render it empty until a manual
+    // reload. Replay each as a TODO_CREATED upsert (the frontend handler is idempotent). See issue #75.
+    if (isShared && !wasShared) {
+        revealedTodos.forEach { todo ->
+            WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_CREATED", todo)))
+        }
+    }
 }
 
 private suspend fun broadcastListDelete(json: Json, list: TodoListDto) {

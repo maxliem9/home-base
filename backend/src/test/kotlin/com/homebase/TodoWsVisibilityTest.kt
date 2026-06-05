@@ -143,6 +143,43 @@ class TodoWsVisibilityTest {
     }
 
     @Test
+    fun `flipping a private list to shared replays its todos to the other client`() = testApplication {
+        configureTestApplication()
+        val alice = login("alice", "password123")
+        val bob = login("bob", "password456")
+        val list = createList(alice, "Geheim", "PRIVATE")
+        createTodo(alice, "alpha", listId = list)
+        createTodo(alice, "beta", listId = list)
+
+        val wsClient = createClient { install(WebSockets) }
+        wsClient.webSocket("/api/v1/ws/todos?token=$bob") {
+            delay(300)
+
+            client.put("/api/v1/todos/lists/$list") {
+                bearerAuth(alice)
+                contentType(ContentType.Application.Json)
+                setBody("""{"visibility":"SHARED"}""")
+            }
+
+            // The list itself appears for Bob first...
+            val listMsg = nextMessage()
+            assertEquals("TODO_LIST_CREATED", listMsg["type"]?.jsonPrimitive?.content)
+            assertEquals(list, listMsg["payload"]?.jsonObject?.get("id")?.jsonPrimitive?.content)
+
+            // ...then its previously-hidden todos are replayed so it isn't rendered empty (issue #75).
+            val first = nextMessage()
+            assertEquals("TODO_CREATED", first["type"]?.jsonPrimitive?.content)
+            assertEquals("alpha", first["payload"]?.jsonObject?.get("title")?.jsonPrimitive?.content)
+
+            val second = nextMessage()
+            assertEquals("TODO_CREATED", second["type"]?.jsonPrimitive?.content)
+            assertEquals("beta", second["payload"]?.jsonObject?.get("title")?.jsonPrimitive?.content)
+
+            assertNull(withTimeoutOrNull(500) { incoming.receive() }, "no further frames expected for Bob")
+        }
+    }
+
+    @Test
     fun `creating a private list is not broadcast to the other client`() = testApplication {
         configureTestApplication()
         val alice = login("alice", "password123")
