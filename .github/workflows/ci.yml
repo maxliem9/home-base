@@ -10,6 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default: test/build jobs only read the checkout. The GITHUB_TOKEN
+# otherwise inherits the repo default (often read-write-all) on pushes to main and
+# repo-internal branches. Individual jobs raise this where needed — the docker job
+# keeps its local `packages: write` to push to GHCR.
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend tests

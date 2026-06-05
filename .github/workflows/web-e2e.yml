@@ -8,6 +8,12 @@ on:
       - 'web/**'
       - '.github/workflows/web-e2e.yml'
 
+# Least-privilege default: this workflow only checks out, builds and tests the web
+# app — it never writes to the repo. Artifact upload uses the Actions runtime token,
+# not GITHUB_TOKEN's contents scope.
+permissions:
+  contents: read
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
