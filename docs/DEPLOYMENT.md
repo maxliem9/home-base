@@ -6,16 +6,18 @@ through a FRITZ!Box with HTTPS, and install the Android app on your phone.
 Architecture (production):
 
 ```
- Phone / Browser ──HTTPS:443──> FRITZ!Box ──port-forward──> Synology NAS
-                                                              │
-                                                   ┌──────────┴───────────┐
-                                                   │   nginx (container)   │  :80 → 301 → :443
-                                                   │   reverse proxy + TLS │
-                                                   └─────┬───────────┬─────┘
-                                                /api/ →  │           │  / →
-                                              backend:8080        web:3000
-                                                   │
-                                               db (postgres:16)
+ Phone / Browser ──HTTPS:443──> FRITZ!Box ──forward 443──> Synology NAS
+                                                             │
+                                          DSM reverse proxy  (terminates TLS,
+                                                             │   DSM-managed cert)
+                                                             ▼  http://localhost:3000
+                                                  ┌────────────────────┐
+                                                  │  web (nginx :3000)  │  serves the SPA,
+                                                  └─────────┬──────────┘  proxies /api + WS
+                                                  /api, /ws →│
+                                                       backend:8080
+                                                             │
+                                                       db (postgres:16)
 ```
 
 The web app and the Android app talk to the **same** backend at
@@ -41,7 +43,12 @@ The web app and the Android app talk to the **same** backend at
 > **Prebuilt images:** the backend and web images are built by CI and published
 > to GitHub Container Registry, so the NAS **pulls** them and never compiles
 > anything. You don't need Java, Node, or the app source on the NAS — only
-> `docker-compose.yml`, your `.env`, and `nginx/nginx.conf`.
+> `docker-compose.yml` and your `.env`.
+
+> **TLS:** Synology DSM's built-in **reverse proxy** terminates HTTPS using a
+> DSM-managed certificate (auto-renewed, no container restart needed) and forwards
+> to the `web` container, which serves the SPA and proxies `/api` + WebSocket to
+> the backend. There is no nginx container in this stack — DSM is the front door.
 
 ---
 
@@ -80,9 +87,9 @@ files — not the whole source tree.
 
 1. In **File Station**, create a folder, e.g. `/docker/homebase`
    (full path `/volume1/docker/homebase`).
-2. Copy just these into it: **`docker-compose.yml`**, **`.env.example`**, and the
-   **`nginx/`** folder (its `nginx.conf` is bind-mounted by the proxy). Copying
-   the whole repo also works — the extra files are simply unused.
+2. Copy just **`docker-compose.yml`** and **`.env.example`** into it (plus the
+   **`scripts/`** folder if you want the helpers). Copying the whole repo also
+   works — the extra files are simply unused.
 3. Log Docker in to GHCR so it can pull the private images. SSH into the NAS:
    ```bash
    echo <YOUR_GITHUB_PAT> | sudo docker login ghcr.io -u <your-github-username> --password-stdin
@@ -135,72 +142,51 @@ DIGEST_TIME=20:00
 
 ---
 
-## 4. TLS certificate (DSM Let's Encrypt)
+## 4. HTTPS via DSM's reverse proxy
 
-The nginx container terminates HTTPS using a certificate that DSM obtains and
-renews for you.
+DSM terminates HTTPS for you: it obtains/renews the certificate and forwards the
+decrypted traffic to the `web` container. No certificate is mounted into any
+container, and **renewals apply automatically — no restarts**. You can set this
+up after the stack is running (Part 6), since the proxy targets `localhost:3000`.
 
-1. First make sure your domain reaches the NAS on port 80 — that requires the
-   FRITZ!Box port-forward from **Part F**. (Do Part F, then come back here, or
-   issue the cert once forwarding is in place.)
+**4a. Get a certificate**
+
+1. Make sure your domain reaches the NAS on port 80 — that needs the FRITZ!Box
+   port-forward from **Part 7** (do that first, or issue the cert once it's in place).
 2. **DSM → Control Panel → Security → Certificate → Add → Add a new certificate
-   → Get a certificate from Let's Encrypt.**
-   - **Domain name:** your domain (e.g. `homebase.example.com` or `yourname.synology.me`).
-   - Finish the wizard. Issuance needs inbound port 80 to reach the NAS.
-3. Select the new certificate → **Settings/Configure** → set it as the
-   certificate used by the system (this makes DSM store it under the **`DEFAULT`**
-   archive folder, which is what `docker-compose.yml` mounts).
+   → Get a certificate from Let's Encrypt.** Enter your domain (e.g.
+   `homebase.example.com` or `yourname.synology.me`) and finish the wizard.
+   (Issuance needs inbound port 80.)
 
-The compose file mounts the cert read-only:
+**4b. Add the reverse-proxy rule**
 
-```yaml
-- /usr/syno/etc/certificate/_archive/DEFAULT:/etc/nginx/certs:ro
-```
+**DSM → Control Panel → Login Portal → Advanced → Reverse Proxy → Create**
+(older DSM: **Application Portal → Reverse Proxy**):
 
-That folder must contain `fullchain.pem` and `privkey.pem` (it does, by default).
+- **Source:** protocol **HTTPS**, hostname **your domain**, port **443**.
+- **Destination:** protocol **HTTP**, hostname **localhost**, port **3000**
+  (the `web` container's published port).
+- Open **Custom Header → Create → WebSocket** (or tick *Enable WebSocket*) — this
+  is required for real-time sync.
+- Save. Then in **Control Panel → Security → Certificate → Settings**, make sure
+  the service for your domain uses the certificate from 4a.
 
-> **If your cert is *not* the default:** SSH into the NAS and list the archive:
-> ```bash
-> sudo ls -l /usr/syno/etc/certificate/_archive/
-> ```
-> Each sub-folder is one certificate. Find the one holding your domain's
-> `fullchain.pem`/`privkey.pem` and change the mount path in
-> `docker-compose.yml` to that folder instead of `DEFAULT`.
-
-> **Renewal:** DSM auto-renews every ~90 days, but the running nginx container
-> won't notice new files on its own. After a renewal, restart the proxy:
-> `docker restart homebase-nginx-1` (or restart the project in Container
-> Manager). A monthly DSM **Scheduled Task** running that command keeps it hands-off.
+DSM now serves `https://<your-domain>` and renews the cert on its own.
 
 ---
 
-## 5. Heads-up: ports 80 / 443 on Synology
+## 5. Ports
 
-The nginx container wants host ports **80** and **443**. On many Synology setups
-DSM's own services (Web Station / Login Portal) already use them, which would
-make the container fail to start with *"address already in use"*.
+The app stack binds only **`127.0.0.1:3000`** (the `web` container, reachable
+just by the NAS itself) — so there's no container fighting DSM over ports 80/443.
+DSM's reverse proxy listens on **443**, which it owns.
 
-Check over SSH:
+If DSM's own Login Portal already uses 443, either move the portal
+(**Control Panel → Login Portal**) or pick a different source port for the
+reverse-proxy rule and forward that port in Part 7.
 
-```bash
-sudo netstat -tlnp | grep -E ':80 |:443 '
-```
-
-- **If 80/443 are free:** great, no change needed.
-- **If they're taken:** either free them in **Control Panel → Login Portal**
-  (move DSM to other ports / disable Web Station), **or** remap the container to
-  high host ports. To remap, edit the `nginx` service in `docker-compose.yml`:
-
-  ```yaml
-  ports:
-    - "8080:80"
-    - "8443:443"
-  ```
-
-  …and in **Part F** forward external **80 → NAS:8080** and **443 → NAS:8443**.
-
-> If you run the Synology firewall, allow the chosen ports (Control Panel →
-> Security → Firewall).
+> Synology firewall on? Allow the reverse-proxy port (Control Panel → Security →
+> Firewall).
 
 ---
 
@@ -212,7 +198,7 @@ sudo netstat -tlnp | grep -E ':80 |:443 '
 2. **Project name:** `homebase`. **Path:** the folder from Part 2
    (`/docker/homebase`). It will detect `docker-compose.yml`.
 3. Create and start. Container Manager **pulls** the prebuilt images from GHCR
-   (under a minute) and starts all four services — nothing is compiled on the NAS.
+   (under a minute) and starts the three services — nothing is compiled on the NAS.
 
 **CLI way (often more reliable for the first run):** SSH into the NAS:
 
@@ -224,9 +210,10 @@ sudo docker compose ps          # all services "running"/"healthy"
 sudo docker compose logs -f backend
 ```
 
-Healthy state: `db` healthy, `backend`, `web`, `nginx` all up. The backend runs
-Flyway migrations automatically on first boot (creates the tables) and seeds the
-users from `SEED_USERS`.
+Healthy state: `db` healthy, `backend` and `web` up. The backend runs Flyway
+migrations automatically on first boot (creates the tables) and seeds the users
+from `SEED_USERS`. HTTPS is then served by DSM's reverse proxy (Part 4) — the
+stack itself only listens on `localhost:3000`.
 
 ---
 
@@ -257,10 +244,10 @@ Pick **one**:
    Sharing) → Gerät für Freigaben hinzufügen (Add device for sharing).**
 2. Select your **NAS** from the device list.
 3. Add **two** "new sharing" entries (*Neue Freigabe → Portfreigabe*):
-   - **HTTPS:** protocol TCP, external port **443** → to NAS port **443**
-     (or **8443** if you remapped in Part 5).
-   - **HTTP:** protocol TCP, external port **80** → to NAS port **80**
-     (or **8080**). Needed for the HTTP→HTTPS redirect and Let's Encrypt.
+   - **HTTPS:** protocol TCP, external port **443** → NAS port **443**
+     (DSM's reverse proxy; use your chosen port if you changed it in Part 5).
+   - **HTTP:** protocol TCP, external port **80** → NAS port **80**
+     (DSM uses it for Let's Encrypt issuance and renewal).
 4. Apply. Keep the NAS on a **fixed local IP** (FRITZ!Box → Heimnetz → Netzwerk →
    the NAS → "Diesem Gerät immer die gleiche IP-Adresse zuweisen").
 
@@ -282,8 +269,8 @@ https://<your-domain>/                    → the HomeBase login page
 Log in with a `SEED_USERS` account. Open the web app on two devices and add a
 todo — it should appear on both in real time (WebSocket sync).
 
-If the browser warns about the certificate, the cert mount/domain in Parts 4–5
-doesn't match the domain you're visiting.
+If the browser warns about the certificate, the reverse-proxy rule or its
+assigned certificate (Part 4) doesn't match the domain you're visiting.
 
 ---
 
@@ -375,8 +362,7 @@ sudo docker compose pull && sudo docker compose up -d
 # Logs
 sudo docker compose logs -f backend
 
-# Restart proxy after a cert renewal
-sudo docker restart homebase-nginx-1
+# (Cert renewals need no action — DSM's reverse proxy applies them automatically.)
 
 # Back up the database (todos, notes, recipes, … live in the pgdata volume)
 sudo docker compose exec db pg_dump -U "$DB_USER" homebase > homebase-$(date +%F).sql
@@ -429,13 +415,13 @@ to keep snapshots of both the database and the note images.
 |---|---|
 | `docker compose pull` fails with `unauthorized` / `denied` | NAS not logged in to GHCR (Part 2), PAT missing the `read:packages` scope, or the package is private and not yours. Re-run `docker login ghcr.io`, or make the packages public. |
 | Pull fails with `manifest unknown` / `not found` | CI hasn't published the images yet — merge to `main` once so the `docker` job runs — or `IMAGE_TAG` in `.env` points at a tag that doesn't exist. |
-| nginx container won't start, "address already in use" | DSM owns 80/443 → remap to 8080/8443 (Part 5) and adjust the FRITZ!Box forward (Part 7b). |
-| Browser cert warning / `ERR_CERT` | Cert domain ≠ visited domain, or the mount points at the wrong `_archive` folder (Part 4). |
+| DSM shows **502 / 503 Bad Gateway** | The reverse-proxy destination is wrong or `web` isn't up. Confirm the rule points at `localhost:3000` and `docker compose ps` shows `web` running. |
+| Browser cert warning / `ERR_CERT` | The reverse-proxy rule's domain ≠ the domain you visit, or it isn't using the Let's Encrypt cert (Part 4). |
 | Site loads but login fails | `SEED_USERS` not set, or password mismatch. Check `docker compose logs backend` for the seeding line; fix `.env` and `up -d`. |
 | Works at home, not outside | Port forwarding missing/wrong, or **DS-Lite/CGNAT** (Part 7b note). Test the health URL on mobile data. |
-| Real-time sync not updating | WebSocket blocked — confirm the `/api/` proxy in `nginx/nginx.conf` keeps the `Upgrade`/`Connection` headers (it does by default) and that you reach the site over HTTPS. |
+| Real-time sync not updating | WebSocket not enabled on the DSM reverse-proxy rule — add the **WebSocket** custom header (Part 4b) — and confirm you're on HTTPS. |
 | Android app can't connect | `BASE_URL` still the placeholder, missing `/api/v1/` suffix, or you built `assembleDebug` without repointing the debug `BASE_URL` (Path A). |
 | Telegram digest never arrives | `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` empty, wrong chat id, or nothing to report that day (empty digests are skipped by design). |
-| Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB), or nginx `client_max_body_size` (12m by default in `nginx/nginx.conf`) is lower than a raised cap. |
+| Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB); or the DSM reverse proxy caps the request body — raise it in the rule's advanced settings (the `web` container itself already allows 12 MB). |
 | Note images vanish after a rebuild | The `uploads` volume wasn't backed up/restored — images live there, not in the SQL dump (Part 10). |
 ```

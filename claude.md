@@ -7,13 +7,12 @@ zwischen Android (Compose) und Web (React).
 
 homebase/
 ├── backend/                  — Kotlin + Ktor API + WebSocket Server
-├── web/                      — React + Vite + TypeScript Frontend
+├── web/                      — React + Vite + TS Frontend (nginx: SPA + /api-Proxy)
 ├── android/                  — Jetpack Compose App
-├── nginx/
-│   └── nginx.conf            — Reverse Proxy Konfiguration
-├── docker-compose.yml        — Produktion (Synology NAS)
+├── docker-compose.yml        — Produktion (Synology NAS, Images aus GHCR)
 ├── docker-compose.dev.yml    — Lokale Entwicklung (nur DB)
 ├── .env.example
+├── scripts/                  — setup-env / deploy / backup / restore
 ├── backlog/                  — dateibasiertes Backlog (ein File pro Vorhaben)
 └── CLAUDE.md
 
@@ -41,10 +40,10 @@ nur die Tabelle wird nachgezogen.
 ## Deployment
 - Synology NAS, DSM 7.x, Container Manager (Docker)
 - Erreichbar via DynDNS + HTTPS (kein VPN nötig)
-- Nginx als Reverse Proxy auf Port 443
-    - /api/ → backend:8080 (inkl. WebSocket Upgrade)
-    - /     → web:3000
-- Let's Encrypt Zertifikat via Synology DSM (auto-renewal)
+- Synology DSM Reverse Proxy terminiert HTTPS (Port 443) → web (localhost:3000)
+    - der web-Container (nginx) liefert das SPA und proxyt /api + WebSocket → backend:8080
+    - kein eigener nginx-Container mehr; DSM ist die einzige TLS-Schicht
+- Let's Encrypt Zertifikat via Synology DSM (auto-renewal, kein Container-Neustart nötig)
 - Backend/Web-Images werden von GitHub Actions gebaut und nach GHCR gepusht
   (ghcr.io/maxliem9/homebase-{backend,web}); die NAS **zieht** sie nur, baut
   nichts aus dem Quellcode. Tag über IMAGE_TAG (default latest). Privates Repo
@@ -172,10 +171,10 @@ UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, d
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 
 ## Docker Services
-Produktion (docker-compose.yml):
-nginx    — Port 80+443, Reverse Proxy, bindet Synology-Zertifikat ein
+Produktion (docker-compose.yml) — 3 Services; HTTPS liefert DSM Reverse Proxy davor:
 backend  — GHCR-Image, expose 8080 (nur intern), Volume uploads (Notizbilder)
-web      — GHCR-Image, expose 3000 (nur intern)
+web      — GHCR-Image (nginx); liefert SPA + proxyt /api & WebSocket → backend;
+           published auf 127.0.0.1:3000 (Ziel des DSM Reverse Proxy)
 db       — postgres:16, Volume pgdata
 
 Entwicklung (docker-compose.dev.yml):
