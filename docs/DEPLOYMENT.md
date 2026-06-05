@@ -397,6 +397,32 @@ Don't delete either volume unless you intend to wipe that data.
 
 ---
 
+## 10b. Helper scripts
+
+The scripts in [`scripts/`](../scripts) take the repetitive bits off your hands.
+Run them from the project folder; on the NAS prefix with `sudo` if Docker needs it.
+
+| Script | What it does |
+|---|---|
+| `scripts/setup-env.sh` | Creates `.env` — random `JWT_SECRET`/`DB_PASSWORD`, prompts for the two login passwords (blank ⇒ generated & printed). Won't overwrite an existing `.env` without `--force`. |
+| `scripts/deploy.sh` | `docker compose pull && up -d` + status — first start and every later update. |
+| `scripts/backup.sh [dir]` | Dumps the database **and** tars the `uploads` volume (note images) into `./backups/` (or `[dir]`). |
+| `scripts/restore.sh <db.sql> <uploads.tar.gz>` | Restores a backup — **destructive**, asks for confirmation. |
+
+Typical first run on the NAS:
+
+```bash
+cd /volume1/docker/homebase
+./scripts/setup-env.sh                  # create .env (Part 3)
+sudo docker login ghcr.io -u <user>     # one-time, for the private images (Part 2)
+sudo ./scripts/deploy.sh                # pull + start (Part 6)
+```
+
+Point a weekly **DSM → Control Panel → Task Scheduler** job at `scripts/backup.sh`
+to keep snapshots of both the database and the note images.
+
+---
+
 ## 11. Troubleshooting
 
 | Symptom | Likely cause / fix |

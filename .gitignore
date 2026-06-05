@@ -6,6 +6,9 @@
 uploads/
 backend/uploads/
 
+# Local backups produced by scripts/backup.sh
+backups/
+
 # Kotlin / Gradle
 .gradle/
 build/
