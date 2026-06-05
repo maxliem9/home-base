@@ -32,11 +32,16 @@ The web app and the Android app talk to the **same** backend at
   - a **DynDNS** hostname configured in the FRITZ!Box (covered in Part F).
 - Admin access to your **FRITZ!Box**.
 - A computer with **Android Studio** (or the Android SDK) to build the phone app.
+- The backend/web images are pulled from **GHCR** (`ghcr.io/maxliem9/homebase-*`).
+  This repo is private, so the packages are private too — you'll need a **GitHub
+  Personal Access Token** with the `read:packages` scope for the NAS login in
+  Part 2. (Or make the two packages public on GitHub, then no login is needed.)
 - Roughly 15–30 minutes.
 
-> **Note on Java version:** the backend compiles and runs on **Java 24**. The
-> Docker images in this repo are already aligned to that (`backend/Dockerfile`
-> uses JDK/JRE 24). You don't need Java installed on the NAS — Docker handles it.
+> **Prebuilt images:** the backend and web images are built by CI and published
+> to GitHub Container Registry, so the NAS **pulls** them and never compiles
+> anything. You don't need Java, Node, or the app source on the NAS — only
+> `docker-compose.yml`, your `.env`, and `nginx/nginx.conf`.
 
 ---
 
@@ -68,17 +73,22 @@ Log in with one of the `SEED_USERS` you set. When happy, move on.
 
 ---
 
-## 2. Get the code onto the NAS
+## 2. Put the deployment files on the NAS & log in to GHCR
 
-Container Manager builds the images from source, so the whole repo must live on
-the NAS.
+Because the images are prebuilt and pulled from GHCR, the NAS only needs a few
+files — not the whole source tree.
 
 1. In **File Station**, create a folder, e.g. `/docker/homebase`
    (full path `/volume1/docker/homebase`).
-2. Copy the entire project into it (drag-and-drop via File Station, or over
-   SMB/`scp`, or `git clone` if you have Git Server installed). You should end
-   up with `docker-compose.yml`, `backend/`, `web/`, `nginx/`, `.env.example`,
-   etc. inside that folder.
+2. Copy just these into it: **`docker-compose.yml`**, **`.env.example`**, and the
+   **`nginx/`** folder (its `nginx.conf` is bind-mounted by the proxy). Copying
+   the whole repo also works — the extra files are simply unused.
+3. Log Docker in to GHCR so it can pull the private images. SSH into the NAS:
+   ```bash
+   echo <YOUR_GITHUB_PAT> | sudo docker login ghcr.io -u <your-github-username> --password-stdin
+   ```
+   Use a token with the `read:packages` scope. (Skip this step if you made the
+   packages public.) The login persists, so this is a one-time setup.
 
 ---
 
@@ -201,14 +211,15 @@ sudo netstat -tlnp | grep -E ':80 |:443 '
 1. **Container Manager → Project → Create.**
 2. **Project name:** `homebase`. **Path:** the folder from Part 2
    (`/docker/homebase`). It will detect `docker-compose.yml`.
-3. Create and let it **build** (first build pulls images and compiles the
-   backend — a few minutes). It then starts all four services.
+3. Create and start. Container Manager **pulls** the prebuilt images from GHCR
+   (under a minute) and starts all four services — nothing is compiled on the NAS.
 
-**CLI way (often more reliable for the first build):** SSH into the NAS:
+**CLI way (often more reliable for the first run):** SSH into the NAS:
 
 ```bash
 cd /volume1/docker/homebase
-sudo docker compose up -d --build
+sudo docker compose pull        # fetch the backend/web images from GHCR
+sudo docker compose up -d
 sudo docker compose ps          # all services "running"/"healthy"
 sudo docker compose logs -f backend
 ```
@@ -358,8 +369,8 @@ and reinstall (same signing key for Path B).
 ```bash
 cd /volume1/docker/homebase
 
-# Update after pulling new code
-sudo docker compose up -d --build
+# Update to the latest published images (CI republishes on every merge to main)
+sudo docker compose pull && sudo docker compose up -d
 
 # Logs
 sudo docker compose logs -f backend
@@ -390,7 +401,8 @@ Don't delete either volume unless you intend to wipe that data.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `backend` build fails on Java version | Ensure you're on this repo's `backend/Dockerfile` (JDK/JRE **24**). Older versions used JDK 21 and can't compile/run Java 24. |
+| `docker compose pull` fails with `unauthorized` / `denied` | NAS not logged in to GHCR (Part 2), PAT missing the `read:packages` scope, or the package is private and not yours. Re-run `docker login ghcr.io`, or make the packages public. |
+| Pull fails with `manifest unknown` / `not found` | CI hasn't published the images yet — merge to `main` once so the `docker` job runs — or `IMAGE_TAG` in `.env` points at a tag that doesn't exist. |
 | nginx container won't start, "address already in use" | DSM owns 80/443 → remap to 8080/8443 (Part 5) and adjust the FRITZ!Box forward (Part 7b). |
 | Browser cert warning / `ERR_CERT` | Cert domain ≠ visited domain, or the mount points at the wrong `_archive` folder (Part 4). |
 | Site loads but login fails | `SEED_USERS` not set, or password mismatch. Check `docker compose logs backend` for the seeding line; fix `.env` and `up -d`. |

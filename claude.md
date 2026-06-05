@@ -45,6 +45,10 @@ nur die Tabelle wird nachgezogen.
     - /api/ → backend:8080 (inkl. WebSocket Upgrade)
     - /     → web:3000
 - Let's Encrypt Zertifikat via Synology DSM (auto-renewal)
+- Backend/Web-Images werden von GitHub Actions gebaut und nach GHCR gepusht
+  (ghcr.io/maxliem9/homebase-{backend,web}); die NAS **zieht** sie nur, baut
+  nichts aus dem Quellcode. Tag über IMAGE_TAG (default latest). Privates Repo
+  ⇒ private Packages ⇒ `docker login ghcr.io` auf der NAS nötig.
 
 ## Backend-Konventionen
 - Kotlin, Ktor Framework
@@ -170,8 +174,8 @@ MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 ## Docker Services
 Produktion (docker-compose.yml):
 nginx    — Port 80+443, Reverse Proxy, bindet Synology-Zertifikat ein
-backend  — expose 8080 (nur intern), Volume uploads (Notizbilder)
-web      — expose 3000 (nur intern)
+backend  — GHCR-Image, expose 8080 (nur intern), Volume uploads (Notizbilder)
+web      — GHCR-Image, expose 3000 (nur intern)
 db       — postgres:16, Volume pgdata
 
 Entwicklung (docker-compose.dev.yml):

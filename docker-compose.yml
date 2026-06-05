@@ -14,7 +14,9 @@ services:
     restart: unless-stopped
 
   backend:
-    build: ./backend
+    # Prebuilt by CI and pulled from GHCR (override the tag via IMAGE_TAG in .env).
+    # To build from source on the NAS instead, replace this line with: build: ./backend
+    image: ghcr.io/maxliem9/homebase-backend:${IMAGE_TAG:-latest}
     expose:
       - "8080"
     env_file: .env
@@ -29,7 +31,9 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./web
+    # Prebuilt by CI and pulled from GHCR (override the tag via IMAGE_TAG in .env).
+    # To build from source on the NAS instead, replace this line with: build: ./web
+    image: ghcr.io/maxliem9/homebase-web:${IMAGE_TAG:-latest}
     expose:
       - "3000"
     restart: unless-stopped

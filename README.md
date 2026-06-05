@@ -89,16 +89,25 @@ volumes:
 
 ### Deploy
 
+Backend- und Web-Images werden von der CI gebaut und nach GHCR gepusht — die NAS
+**zieht** sie nur (kein Build aus dem Quellcode). Auf der NAS genügen
+`docker-compose.yml`, `.env` und `nginx/nginx.conf`.
+
 ```bash
+# Einmalig: an GHCR anmelden (privates Repo ⇒ private Images)
+echo <GITHUB_PAT> | docker login ghcr.io -u <github-user> --password-stdin
+
 # .env mit Produktionswerten befüllen
 cp .env.example .env && nano .env
 
-# Images bauen und starten
-docker compose up -d --build
+# Images ziehen und starten
+docker compose pull && docker compose up -d
 
 # Logs prüfen
 docker compose logs -f
 ```
+
+Aktualisieren später: `docker compose pull && docker compose up -d`.
 
 ### Health-Check
 
