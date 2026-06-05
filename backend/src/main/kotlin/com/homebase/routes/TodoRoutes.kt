@@ -185,10 +185,10 @@ fun Route.todoRoutes() {
             }
 
             val result = transaction {
-                // resolve the target list's visibility (and existence) in one lookup
+                // resolve the target list's visibility, enforcing ownership: a foreign private list
+                // is treated as non-existent so it can neither be written into nor probed (#73)
                 val listVisibility = if (listId != null) {
-                    TodoListsTable.selectAll().where { TodoListsTable.id eq listId }.singleOrNull()
-                        ?.get(TodoListsTable.visibility)
+                    writableListVisibility(listId, username)
                         ?: return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 } else null
                 val id = UUID.randomUUID()
@@ -210,7 +210,8 @@ fun Route.todoRoutes() {
             }
 
             if (result is ErrorResponse) {
-                call.respond(HttpStatusCode.BadRequest, result)
+                // the only in-transaction error is the unknown/foreign list -> 404 (no existence oracle)
+                call.respond(HttpStatusCode.NotFound, result)
                 return@post
             }
             result as TodoMutation
@@ -219,6 +220,8 @@ fun Route.todoRoutes() {
         }
 
         put("/{id}") {
+            val principal = call.principal<JWTPrincipal>()!!
+            val username = principal.payload.getClaim("username").asString()
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTodoRequest>()
             // null = unchanged, "" = clear, else target list id (must exist)
@@ -231,6 +234,9 @@ fun Route.todoRoutes() {
             val result = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
                     ?: return@transaction null
+                // a todo in someone else's private list is invisible to the caller (see GET filter);
+                // treat it as non-existent so its UUID can't be written through or probed here (#73)
+                if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction null
                 // capture the pre-update visibility so the broadcast can translate transitions
                 val wasShared = listIsShared(existing[TodosTable.listId])
                 val nextStatus = req.status ?: existing[TodosTable.status]
@@ -243,7 +249,8 @@ fun Route.todoRoutes() {
                     dueDate = nextDueDate,
                     priority = req.priority ?: existing[TodosTable.priority],
                 )?.let { return@transaction it }
-                if (targetListId != null && TodoListsTable.selectAll().where { TodoListsTable.id eq targetListId }.empty()) {
+                // moving into a list requires it to be writable: unknown or foreign-private -> 404 (#73)
+                if (targetListId != null && writableListVisibility(targetListId, username) == null) {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
 
@@ -270,7 +277,9 @@ fun Route.todoRoutes() {
                 return@put
             }
             if (result is ErrorResponse) {
-                call.respond(HttpStatusCode.BadRequest, result)
+                // validation failures are 400; the unknown/foreign target list is 404 (no oracle)
+                val status = if (result.code == "NOT_FOUND") HttpStatusCode.NotFound else HttpStatusCode.BadRequest
+                call.respond(status, result)
                 return@put
             }
 
@@ -280,10 +289,14 @@ fun Route.todoRoutes() {
         }
 
         delete("/{id}") {
+            val principal = call.principal<JWTPrincipal>()!!
+            val username = principal.payload.getClaim("username").asString()
             val id = call.uuidParam() ?: return@delete
             val result = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
                     ?: return@transaction null
+                // a todo in someone else's private list is invisible; treat it as non-existent (#73)
+                if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction null
                 val shared = listIsShared(existing[TodosTable.listId])
                 // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                 TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
@@ -302,6 +315,8 @@ fun Route.todoRoutes() {
         // ---- Subtasks ----
         route("/{id}/subtasks") {
             post {
+                val principal = call.principal<JWTPrincipal>()!!
+                val username = principal.payload.getClaim("username").asString()
                 val todoId = call.uuidParam() ?: return@post
                 val req = call.receive<CreateSubtaskRequest>()
                 if (req.title.isBlank()) {
@@ -309,7 +324,7 @@ fun Route.todoRoutes() {
                     return@post
                 }
                 val result = transaction {
-                    if (TodosTable.selectAll().where { TodosTable.id eq todoId }.empty()) return@transaction null
+                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
                     val nextOrder = (TodoSubtasksTable.selectAll()
                         .where { TodoSubtasksTable.todoId eq todoId }
                         .maxOfOrNull { it[TodoSubtasksTable.sortOrder] } ?: -1) + 1
@@ -332,6 +347,8 @@ fun Route.todoRoutes() {
             }
 
             put("/{subtaskId}") {
+                val principal = call.principal<JWTPrincipal>()!!
+                val username = principal.payload.getClaim("username").asString()
                 val todoId = call.uuidParam() ?: return@put
                 val subtaskId = call.uuidParam("subtaskId") ?: return@put
                 val req = call.receive<UpdateSubtaskRequest>()
@@ -340,6 +357,8 @@ fun Route.todoRoutes() {
                     return@put
                 }
                 val result = transaction {
+                    // a subtask under a foreign private todo is as hidden as a missing one -> same 404
+                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
                     val exists = TodoSubtasksTable.selectAll()
                         .where { (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId) }
                         .empty().not()
@@ -359,9 +378,13 @@ fun Route.todoRoutes() {
             }
 
             delete("/{subtaskId}") {
+                val principal = call.principal<JWTPrincipal>()!!
+                val username = principal.payload.getClaim("username").asString()
                 val todoId = call.uuidParam() ?: return@delete
                 val subtaskId = call.uuidParam("subtaskId") ?: return@delete
                 val result = transaction {
+                    // a subtask under a foreign private todo is as hidden as a missing one -> same 404
+                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
                     val deleted = TodoSubtasksTable.deleteWhere {
                         (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId)
                     }
@@ -402,6 +425,45 @@ private fun listIsShared(listId: UUID?): Boolean {
     if (listId == null) return true
     return TodoListsTable.selectAll().where { TodoListsTable.id eq listId }
         .singleOrNull()?.get(TodoListsTable.visibility) != VISIBILITY_PRIVATE
+}
+
+/**
+ * Resolves the visibility of a list a caller wants to write a todo *into*, enforcing private-list
+ * ownership. Returns the visibility for a writable list (SHARED, or a PRIVATE list owned by
+ * [username]); returns null when the list does not exist OR is someone else's PRIVATE list. Callers
+ * must answer both null cases with the same 404 "List not found" so a foreign private list's UUID
+ * stays indistinguishable from an unknown one — no cross-tenant write, no existence oracle (#73).
+ * Must run inside a transaction.
+ */
+private fun writableListVisibility(listId: UUID, username: String): String? {
+    val row = TodoListsTable.selectAll().where { TodoListsTable.id eq listId }.singleOrNull() ?: return null
+    val visibility = row[TodoListsTable.visibility]
+    if (visibility == VISIBILITY_PRIVATE && row[TodoListsTable.createdBy] != username) return null
+    return visibility
+}
+
+/**
+ * Whether the todo living in [listId]'s list is visible to [username]. A todo in someone else's
+ * PRIVATE list is hidden (it is already filtered out of GET /todos), so write paths must treat it as
+ * non-existent — the same 404 they return for an unknown id, leaking neither its contents nor its
+ * existence (#73). A null/unknown list (orphaned list_id, only possible on the FK-less H2 test DB)
+ * counts as visible, mirroring [listIsShared]. Must run inside a transaction.
+ */
+private fun listVisibleTo(listId: UUID?, username: String): Boolean {
+    if (listId == null) return true
+    val row = TodoListsTable.selectAll().where { TodoListsTable.id eq listId }.singleOrNull() ?: return true
+    return row[TodoListsTable.visibility] != VISIBILITY_PRIVATE || row[TodoListsTable.createdBy] == username
+}
+
+/**
+ * Whether the subtask endpoints may act on [todoId] for [username]: the parent todo must exist and
+ * must not live in someone else's private list. False covers both an unknown id and a hidden one, so
+ * callers return the same 404 for each — no subtask write into a foreign private list, no oracle (#73).
+ * Must run inside a transaction.
+ */
+private fun parentTodoVisibleTo(todoId: UUID, username: String): Boolean {
+    val row = TodosTable.selectAll().where { TodosTable.id eq todoId }.singleOrNull() ?: return false
+    return listVisibleTo(row[TodosTable.listId], username)
 }
 
 /** Loads the parent todo after a subtask change together with its list visibility. */
