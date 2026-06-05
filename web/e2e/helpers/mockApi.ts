@@ -1,146 +1,21 @@
 import type { Page, Route } from '@playwright/test'
 
-export interface Subtask {
-  id: string
-  title: string
-  done: boolean
-  sortOrder: number
-}
+// e2e fixtures use the app's real domain types (src/types.ts) so that any drift —
+// e.g. a newly-required field like Note.images — is caught by
+// `npm run typecheck:e2e` instead of failing at runtime. Re-exported so the spec
+// files can keep importing these names from this helper.
+import type {
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
+  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  NoteVisibility, NoteImage, Note,
+  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, AbsSettings,
+} from '../../src/types'
 
-export interface TodoList {
-  id: string
-  name: string
-  visibility: 'SHARED' | 'PRIVATE'
-  createdBy: string
-  createdAt: string
-}
-
-export interface Todo {
-  id: string
-  title: string
-  description?: string
-  status: 'INBOX' | 'PLANNED' | 'DONE'
-  assignee?: string
-  dueDate?: string
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH'
-  listId?: string
-  subtasks?: Subtask[]
-  createdBy: string
-  createdAt: string
-  doneAt?: string
-}
-
-export interface ShoppingList {
-  id: string
-  name: string
-  createdBy: string
-  createdAt: string
-}
-
-export interface ShoppingItem {
-  id: string
-  name: string
-  listId?: string
-  checked: boolean
-  createdBy: string
-  createdAt: string
-  checkedAt?: string
-}
-
-export type RecipeCategory = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
-
-export interface Ingredient {
-  id: string
-  name: string
-  amount?: number
-  unit?: string
-  sortOrder: number
-}
-
-export interface RecipeStep {
-  id: string
-  stepNumber: number
-  description: string
-}
-
-export interface Recipe {
-  id: string
-  title: string
-  description?: string
-  servings: number
-  prepTimeMinutes?: number
-  cookTimeMinutes?: number
-  category: RecipeCategory
-  ingredients: Ingredient[]
-  steps: RecipeStep[]
-  createdBy: string
-  createdAt: string
-  updatedAt: string
-}
-
-export type NoteVisibility = 'PRIVATE' | 'SHARED'
-
-export interface Note {
-  id: string
-  title: string
-  content: string
-  tags: string[]
-  visibility: NoteVisibility
-  createdBy: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface Project {
-  id: string
-  name: string
-  color: string
-  archived: boolean
-  createdBy: string
-  createdAt: string
-}
-
-export interface TimeEntry {
-  id: string
-  projectId: string
-  userId: string
-  startedAt: string
-  stoppedAt?: string
-  description?: string
-  durationSeconds?: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface Absence {
-  id: string
-  userId: string
-  date: string
-  type: 'URLAUB' | 'KRANK' | 'KIND_KRANK'
-  half?: 'vm' | 'nm' | null
-}
-
-export interface PartTimeRule {
-  id: string
-  userId: string
-  weekday: number
-  start: string
-  end?: string | null
-}
-
-export interface KitaClosure {
-  id: string
-  date: string
-  label: string
-}
-
-export interface AbsSettings {
-  userId: string
-  state: string
-  allowance: number
-  carryover: number
-  carryoverExpires?: string | null
-  kindKrankCap: number
+export type {
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
+  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  NoteVisibility, NoteImage, Note,
+  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, AbsSettings,
 }
 
 export interface AbsenceSeed {
@@ -832,7 +707,7 @@ export class MockApi {
         }
         this.absSettings.push(s)
       } else {
-        for (const k of Object.keys(b)) if (b[k] !== undefined) (s as Record<string, unknown>)[k] = b[k]
+        for (const k of Object.keys(b)) if (b[k] !== undefined) (s as unknown as Record<string, unknown>)[k] = b[k]
       }
       return this.json(route, s)
     }

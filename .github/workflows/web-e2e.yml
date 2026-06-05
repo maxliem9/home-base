@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Type-check the e2e suite against the app's real types (src/types.ts) so
+      # fixture drift (e.g. a missing required field) fails here, before the
+      # tests run. Cheap, so it goes ahead of the slow browser install.
+      - name: Type-check e2e
+        run: npm run typecheck:e2e
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
