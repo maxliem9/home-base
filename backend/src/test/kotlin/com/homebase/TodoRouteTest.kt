@@ -454,16 +454,18 @@ class TodoRouteTest {
     }
 
     @Test
-    fun `POST todo with unknown listId returns 400`() = testApplication {
+    fun `POST todo with unknown listId returns 404`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
 
+        // an unknown list answers exactly like a foreign private one (404), so the two are
+        // indistinguishable and the private-list existence stays hidden (see #73).
         val res = client.post("/api/v1/todos") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody("""{"title":"X","listId":"00000000-0000-0000-0000-999999999999"}""")
         }
-        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(HttpStatusCode.NotFound, res.status)
     }
 
     @Test
@@ -535,7 +537,183 @@ class TodoRouteTest {
         assertTrue(todos.any { it.jsonObject["id"]?.jsonPrimitive?.content == survivorId })
     }
 
+    // ---- Cross-tenant writes into a foreign private list (issue #73) ----
+    // A private list belongs to its creator. Knowing (or guessing) its UUID must not let the other
+    // user write a todo into it, move a todo into it, or touch a todo/subtask already inside it. Every
+    // such attempt answers 404 — exactly like an unknown id — so no cross-tenant write and no oracle
+    // distinguishing "foreign private list/todo exists" from "does not exist".
+
+    private suspend fun ApplicationTestBuilder.todosOf(token: String) = Json.parseToJsonElement(
+        client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+    ).jsonArray
+
+    @Test
+    fun `other user cannot create a todo in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"injected","listId":"$secretList"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // the owner must not find an injected todo in her private list
+        assertTrue(todosOf(alice).isEmpty(), "no todo may have been written into the private list")
+    }
+
+    @Test
+    fun `other user cannot move a todo into a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val bobTodo = createTodo(bob, "Bob's todo")
+
+        val res = client.put("/api/v1/todos/$bobTodo") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"listId":"$secretList"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // the move must not have happened: Bob's todo still has no list
+        val moved = todosOf(bob).single { it.jsonObject["id"]?.jsonPrimitive?.content == bobTodo }
+        assertTrue(moved.jsonObject["listId"].isNullJson(), "the todo must not have been moved into the private list")
+    }
+
+    @Test
+    fun `other user cannot modify a todo in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+
+        val res = client.put("/api/v1/todos/$secretTodo") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Hijacked"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // unchanged for the owner
+        val title = todosOf(alice).single().jsonObject["title"]?.jsonPrimitive?.content
+        assertEquals("secret", title)
+    }
+
+    @Test
+    fun `other user cannot delete a todo in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+
+        val res = client.delete("/api/v1/todos/$secretTodo") { bearerAuth(bob) }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // still there for the owner
+        assertEquals(1, todosOf(alice).size)
+    }
+
+    @Test
+    fun `other user cannot add a subtask to a todo in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+
+        val res = client.post("/api/v1/todos/$secretTodo/subtasks") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"injected step"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // the owner's todo gained no subtask
+        val subs = todosOf(alice).single().jsonObject["subtasks"]
+        assertTrue(subs == null || subs is JsonNull || subs.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `other user cannot update a subtask in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+        val subId = createSubtask(alice, secretTodo, "step")
+
+        val res = client.put("/api/v1/todos/$secretTodo/subtasks/$subId") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"done":true}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // unchanged for the owner: the subtask is still not done
+        val sub = todosOf(alice).single().jsonObject["subtasks"]!!.jsonArray.single().jsonObject
+        assertEquals(false, sub["done"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `other user cannot delete a subtask in a foreign private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val secretList = createList(alice, "Geheim", "PRIVATE")
+        val secretTodo = createTodoInList(alice, "secret", secretList)
+        val subId = createSubtask(alice, secretTodo, "step")
+
+        val res = client.delete("/api/v1/todos/$secretTodo/subtasks/$subId") { bearerAuth(bob) }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // still there for the owner
+        assertEquals(1, todosOf(alice).single().jsonObject["subtasks"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `other user can still add a todo to a shared list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val sharedList = createList(alice, "Haushalt", "SHARED")
+
+        // ownership is only enforced for PRIVATE lists; shared lists stay writable by both users
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Einkaufen","listId":"$sharedList"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        assertEquals(sharedList, Json.parseToJsonElement(res.bodyAsText()).jsonObject["listId"]?.jsonPrimitive?.content)
+    }
+
     // ---- Subtasks ----
+
+    private suspend fun ApplicationTestBuilder.createTodoInList(token: String, title: String, listId: String): String {
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title","listId":"$listId"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    private suspend fun ApplicationTestBuilder.createSubtask(token: String, todoId: String, title: String): String {
+        val res = client.post("/api/v1/todos/$todoId/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText())
+            .jsonObject["subtasks"]!!.jsonArray.last().jsonObject["id"]!!.jsonPrimitive.content
+    }
 
     private suspend fun ApplicationTestBuilder.createTodo(token: String, title: String): String {
         val res = client.post("/api/v1/todos") {
