@@ -127,6 +127,30 @@ data class UpdateShoppingItemRequest(
 @Serializable
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
 
+/** One ingredient line for [BatchAddShoppingRequest] — amount is already scaled by the client. */
+@Serializable
+data class ShoppingLineInput(
+    val name: String,
+    val amount: Double? = null,
+    val unit: String? = null
+)
+
+/** Push several recipe ingredients onto a list at once; see the /shopping/batch route. */
+@Serializable
+data class BatchAddShoppingRequest(
+    val listId: String? = null,
+    val items: List<ShoppingLineInput> = emptyList()
+)
+
+/** Summary of a batch add: freshly created items, quantities merged into existing ones, skipped dupes. */
+@Serializable
+data class BatchAddShoppingResponse(
+    val added: Int,
+    val merged: Int,
+    val skipped: Int,
+    val items: List<ShoppingItemDto> = emptyList()
+)
+
 @Serializable
 data class ShoppingListDto(
     val id: String,

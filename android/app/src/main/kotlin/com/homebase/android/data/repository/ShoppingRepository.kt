@@ -1,9 +1,12 @@
 package com.homebase.android.data.repository
 
 import com.homebase.android.data.api.HomeBaseApi
+import com.homebase.android.data.model.BatchAddShoppingRequest
+import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.CreateShoppingItemRequest
 import com.homebase.android.data.model.CreateShoppingListRequest
 import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateShoppingListRequest
@@ -22,6 +25,9 @@ class ShoppingRepository(
 
     suspend fun createItem(name: String, listId: String?): Result<ShoppingItemDto> =
         runCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId)) }
+
+    suspend fun batchAdd(listId: String?, lines: List<ShoppingLineInput>): Result<BatchAddShoppingResponse> =
+        runCatching { api.batchAddShoppingItems(BatchAddShoppingRequest(listId, lines)) }
 
     suspend fun updateItem(id: String, request: UpdateShoppingItemRequest): Result<ShoppingItemDto> =
         runCatching { api.updateShoppingItem(id, request) }

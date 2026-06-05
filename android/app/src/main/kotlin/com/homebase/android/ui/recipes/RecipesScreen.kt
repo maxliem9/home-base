@@ -2,6 +2,7 @@ package com.homebase.android.ui.recipes
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,12 +46,15 @@ import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientInput
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeStepInput
+import com.homebase.android.data.model.ShoppingLineInput
+import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
+import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbDotSep
 import com.homebase.android.ui.components.HbEmpty
 import com.homebase.android.ui.components.HbField
@@ -341,16 +348,19 @@ private fun RecipeDetailPage(
 ) {
     BackHandler(onBack = onBack)
 
-    var toastCount by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(toastCount) {
-        if (toastCount != null) {
+    val shoppingState by shoppingViewModel.uiState.collectAsStateWithLifecycle()
+    var showPicker by remember { mutableStateOf(false) }
+    var toastMsg by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(toastMsg) {
+        if (toastMsg != null) {
             kotlinx.coroutines.delay(2600)
-            toastCount = null
+            toastMsg = null
         }
     }
 
     val hue = Format.recipeHue(recipe.id)
 
+    Box(Modifier.fillMaxSize()) {
     HbScreenScaffold(
         appBar = {
             HbAppBar(
@@ -363,13 +373,7 @@ private fun RecipeDetailPage(
             )
         },
         overlay = {
-            toastCount?.let { count ->
-                HbToast(
-                    message = "$count Zutaten zur Einkaufsliste hinzugefügt",
-                    actionLabel = "Ansehen",
-                    onAction = {},
-                )
-            }
+            toastMsg?.let { msg -> HbToast(message = msg) }
         },
     ) {
         // Full-bleed hero band
@@ -459,17 +463,28 @@ private fun RecipeDetailPage(
                 )
                 HbButton(
                     "Zutaten zur Liste",
-                    onClick = {
-                        shoppingViewModel.addItemsToFirstList(
-                            recipe.ingredients.map { it.name },
-                        ) { added -> toastCount = added }
-                    },
+                    onClick = { showPicker = true },
                     variant = HbButtonVariant.Primary,
                     icon = HbIcons.cart,
                     modifier = Modifier.weight(1f),
                 )
             }
             Spacer(Modifier.size(28.dp))
+        }
+    }
+
+        if (showPicker) {
+            AddToShoppingSheet(
+                recipe = recipe,
+                lists = shoppingState.lists,
+                onDismiss = { showPicker = false },
+                onConfirm = { listId, lines ->
+                    showPicker = false
+                    shoppingViewModel.addIngredients(listId, lines) { added, merged ->
+                        toastMsg = addToast(added, merged)
+                    }
+                },
+            )
         }
     }
 }
@@ -538,6 +553,169 @@ private fun StepRow(number: Int, description: String) {
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// "Zutaten zur Liste" picker — pick servings, ingredients and a target list
+// ---------------------------------------------------------------------------
+
+/** Toast copy after a batch add, e.g. "3 hinzugefügt · 1 zusammengeführt". */
+private fun addToast(added: Int, merged: Int): String = when {
+    added == 0 && merged == 0 -> "Nichts hinzugefügt"
+    merged == 0 -> "$added ${if (added == 1) "Zutat" else "Zutaten"} hinzugefügt"
+    added == 0 -> "$merged zusammengeführt"
+    else -> "$added hinzugefügt · $merged zusammengeführt"
+}
+
+@Composable
+private fun AddToShoppingSheet(
+    recipe: RecipeDto,
+    lists: List<ShoppingListDto>,
+    onDismiss: () -> Unit,
+    onConfirm: (listId: String, lines: List<ShoppingLineInput>) -> Unit,
+) {
+    val baseServings = recipe.servings.coerceAtLeast(1)
+    var servings by remember { mutableStateOf(baseServings) }
+    var selected by remember { mutableStateOf(recipe.ingredients.map { true }) }
+    var listId by remember { mutableStateOf(lists.firstOrNull()?.id) }
+    var menuOpen by remember { mutableStateOf(false) }
+
+    val factor = servings.toDouble() / baseServings.toDouble()
+    val count = selected.count { it }
+    val selectedList = lists.firstOrNull { it.id == listId } ?: lists.firstOrNull()
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Zutaten zur Liste",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                if (count > 0) "$count hinzufügen" else "Hinzufügen",
+                onClick = {
+                    val targetId = selectedList?.id
+                    val lines = recipe.ingredients
+                        .filterIndexed { i, _ -> selected.getOrElse(i) { false } }
+                        .map { ing ->
+                            ShoppingLineInput(
+                                name = ing.name,
+                                amount = ing.amount?.let { Math.round(it * factor * 1000.0) / 1000.0 },
+                                unit = ing.unit,
+                            )
+                        }
+                    if (targetId != null && lines.isNotEmpty()) onConfirm(targetId, lines)
+                },
+                variant = HbButtonVariant.Primary,
+                icon = HbIcons.cart,
+                enabled = count > 0 && selectedList != null,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        if (lists.isEmpty()) {
+            Text("Lege zuerst eine Einkaufsliste an.", style = HbType.body, color = Hb.ink3)
+        } else {
+            // Target list — only offer a choice when there's more than one.
+            if (lists.size > 1) {
+                HbField("Liste") {
+                    Box {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(HbRadiusSm)
+                                .background(Hb.surface, HbRadiusSm)
+                                .border(1.dp, Hb.line, HbRadiusSm)
+                                .clickable { menuOpen = true }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                selectedList?.name ?: "—",
+                                style = HbType.body,
+                                color = Hb.ink,
+                                modifier = Modifier.weight(1f),
+                            )
+                            HbIcon(HbIcons.chevronDown, size = 18.dp, tint = Hb.ink3)
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            lists.forEach { l ->
+                                DropdownMenuItem(
+                                    text = { Text(l.name, style = HbType.body, color = Hb.ink) },
+                                    onClick = { listId = l.id; menuOpen = false },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Servings — drives the amount scaling.
+            HbField("Portionen") {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    StepButton(HbIcons.minus) { if (servings > 1) servings-- }
+                    Text("$servings", style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold), color = Hb.ink)
+                    StepButton(HbIcons.plus) { servings++ }
+                    if (factor != 1.0) {
+                        Text(
+                            "Mengen ×${Format.amount(factor)}",
+                            style = HbType.small.copy(fontSize = 12.5.sp),
+                            color = Hb.ink3,
+                        )
+                    }
+                }
+            }
+
+            // Ingredient checklist (all on by default — untick the staples you keep at home).
+            HbSectionLabel("Zutaten")
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                recipe.ingredients.forEachIndexed { i, ing ->
+                    val amountUnit = "${ing.amount?.let { Format.amount(it * factor) } ?: ""} ${ing.unit ?: ""}".trim()
+                    val toggle = { selected = selected.mapIndexed { j, v -> if (j == i) !v else v } }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { toggle() }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        HbCheck(checked = selected.getOrElse(i) { false }, onCheckedChange = toggle, size = 22.dp)
+                        Text(
+                            amountUnit.ifBlank { "·" },
+                            style = HbType.mono.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                            color = Hb.accentInk,
+                            modifier = Modifier.widthIn(min = 64.dp),
+                        )
+                        Text(
+                            ing.name,
+                            style = TextStyle(fontSize = 14.5.sp),
+                            color = Hb.ink,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepButton(icon: ImageVector, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(HbPill)
+            .background(Hb.surface2, HbPill)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) { HbIcon(icon, size = 18.dp, tint = Hb.ink2) }
 }
 
 // ---------------------------------------------------------------------------

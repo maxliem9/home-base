@@ -1,6 +1,8 @@
 package com.homebase.android
 
+import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
@@ -157,6 +159,45 @@ class ShoppingViewModelTest {
         assertNotNull(vm.uiState.value.error)
         vm.clearError()
         assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `addIngredients upserts returned items and reports counts`() = runTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        val created = item(id = "10", name = "200 g Mehl")
+        coEvery { repository.batchAdd(any(), any()) } returns Result.success(
+            BatchAddShoppingResponse(added = 1, merged = 0, skipped = 0, items = listOf(created)),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var addedSeen = -1
+        var mergedSeen = -1
+        vm.addIngredients("list-1", listOf(ShoppingLineInput("Mehl", 200.0, "g"))) { a, m ->
+            addedSeen = a; mergedSeen = m
+        }
+        advanceUntilIdle()
+
+        assertEquals(1, addedSeen)
+        assertEquals(0, mergedSeen)
+        assertEquals(1, vm.uiState.value.items.size)
+        assertEquals("200 g Mehl", vm.uiState.value.items[0].name)
+    }
+
+    @Test
+    fun `addIngredients with empty lines skips the request`() = runTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var reported = false
+        vm.addIngredients("list-1", emptyList()) { _, _ -> reported = true }
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.batchAdd(any(), any()) }
+        assertTrue(reported)
     }
 
     @Test

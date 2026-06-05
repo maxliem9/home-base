@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
-import { Recipe, RecipeCategory, ShoppingItem, ShoppingList } from '../types'
+import { Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
@@ -73,6 +73,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [picking, setPicking] = useState<Recipe | null>(null)
+  const [pickServings, setPickServings] = useState(0)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -162,26 +163,28 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
   }
 
-  // add the chosen ingredients to a shopping list (deduped against that list)
-  const addToShopping = async (listId: string, chosen: Recipe['ingredients']) => {
-    const res = await authFetch(token, `${API_BASE}/shopping`)
-    const existing: Set<string> = res.ok
-      ? new Set((await res.json() as ShoppingItem[]).filter((i) => i.listId === listId).map((i) => i.name.toLowerCase()))
-      : new Set()
-    const toAdd = chosen.filter((i) => i.name.trim() && !existing.has(i.name.toLowerCase()))
-    await Promise.all(
-      toAdd.map((i) =>
-        authFetch(token, `${API_BASE}/shopping`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: i.name, listId }),
-        }),
-      ),
-    )
+  // hand the chosen (already serving-scaled) ingredients to the batch endpoint, which formats
+  // each as a "200 g Mehl" label and merges quantities into matching items already on the list
+  const addToShopping = async (listId: string, items: { name: string; amount?: number; unit?: string }[]) => {
     setPicking(null)
-    const n = toAdd.length
-    setToast(n ? `${n} ${n === 1 ? t.recipes.addedOne : t.recipes.addedToList}` : t.recipes.nothingToAdd)
-    setTimeout(() => setToast(null), 2600)
+    const flash = (msg: string) => {
+      setToast(msg)
+      setTimeout(() => setToast(null), 2600)
+    }
+    const res = await authFetch(token, `${API_BASE}/shopping/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listId, items }),
+    })
+    if (!res.ok) {
+      flash(t.recipes.nothingToAdd)
+      return
+    }
+    const summary = (await res.json()) as { added: number; merged: number; skipped: number }
+    const parts: string[] = []
+    if (summary.added > 0) parts.push(`${summary.added} ${t.recipes.added}`)
+    if (summary.merged > 0) parts.push(`${summary.merged} ${t.recipes.merged}`)
+    flash(parts.length ? parts.join(' · ') : t.recipes.nothingToAdd)
   }
 
   // keep the open recipe in sync with the store (e.g. after WS edits)
@@ -197,11 +200,12 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           onBack={() => setSelected(null)}
           onEdit={() => setDraft(draftFromRecipe(current))}
           onDelete={() => handleDelete(current.id)}
-          onAddToShopping={() => setPicking(current)}
+          onAddToShopping={(servings) => { setPickServings(servings); setPicking(current) }}
         />
         {picking && (
           <IngredientPicker
             recipe={picking}
+            servings={pickServings}
             lists={shoppingLists}
             onClose={() => setPicking(null)}
             onAdd={addToShopping}
@@ -283,7 +287,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
-  onAddToShopping: () => void
+  onAddToShopping: (servings: number) => void
 }) {
   const [servings, setServings] = useState(recipe.servings)
   const factor = recipe.servings > 0 ? servings / recipe.servings : 1
@@ -303,7 +307,7 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
         <div className="hb-pagehead__actions">
           <Button variant="danger" icon="trash" onClick={onDelete}>{t.common.delete}</Button>
           <Button variant="ghost" icon="edit" onClick={onEdit}>{t.recipes.edit}</Button>
-          <Button variant="soft" icon="cart" onClick={onAddToShopping}>{t.recipes.addToList}</Button>
+          <Button variant="soft" icon="cart" onClick={() => onAddToShopping(servings)}>{t.recipes.addToList}</Button>
         </div>
       </div>
 
@@ -365,22 +369,32 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
   )
 }
 
-function IngredientPicker({ recipe, lists, onClose, onAdd }: {
+function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   recipe: Recipe
+  servings: number
   lists: ShoppingList[]
   onClose: () => void
-  onAdd: (listId: string, chosen: Recipe['ingredients']) => void
+  onAdd: (listId: string, items: { name: string; amount?: number; unit?: string }[]) => void
 }) {
   const [sel, setSel] = useState<boolean[]>(() => recipe.ingredients.map(() => true))
   const [listId, setListId] = useState(lists[0]?.id ?? '')
+  const effServings = servings > 0 ? servings : recipe.servings
+  const factor = recipe.servings > 0 ? effServings / recipe.servings : 1
+  const scale = (a: number) => Math.round(a * factor * 1000) / 1000
   const toggle = (i: number) => setSel((s) => s.map((v, j) => (j === i ? !v : v)))
   const count = sel.filter(Boolean).length
   const allOn = count === recipe.ingredients.length
 
   const add = () => {
     if (!listId) return
-    const chosen = recipe.ingredients.filter((_, i) => sel[i])
-    if (chosen.length) onAdd(listId, chosen)
+    const items = recipe.ingredients
+      .filter((_, i) => sel[i])
+      .map((ing) => ({
+        name: ing.name,
+        amount: ing.amount != null ? scale(ing.amount) : undefined,
+        unit: ing.unit ?? undefined,
+      }))
+    if (items.length) onAdd(listId, items)
   }
 
   return (
@@ -407,6 +421,11 @@ function IngredientPicker({ recipe, lists, onClose, onAdd }: {
               </Select>
             </Field>
           )}
+          {factor !== 1 && (
+            <p className="hb-muted" style={{ margin: '0 0 4px', fontSize: 13 }}>
+              {t.recipes.pickerScaledTo.replace('{n}', String(effServings))}
+            </p>
+          )}
           <div className="hb-picker-head">
             <span className="hb-muted">{count} von {recipe.ingredients.length} {t.recipes.pickerSelected}</span>
             <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
@@ -417,7 +436,7 @@ function IngredientPicker({ recipe, lists, onClose, onAdd }: {
             {recipe.ingredients.map((ing, i) => (
               <div key={ing.id} className="hb-ingpick" onClick={() => toggle(i)}>
                 <Checkbox checked={sel[i]} onChange={() => toggle(i)} />
-                <span className="hb-ing__amt">{[ing.amount != null ? fmtAmount(ing.amount) : null, ing.unit].filter(Boolean).join(' ') || '·'}</span>
+                <span className="hb-ing__amt">{[ing.amount != null ? fmtAmount(scale(ing.amount)) : null, ing.unit].filter(Boolean).join(' ') || '·'}</span>
                 <span className="hb-ingpick__name">{ing.name}</span>
               </div>
             ))}

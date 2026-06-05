@@ -297,4 +297,116 @@ class ShoppingRouteTest {
         ).jsonArray
         assertEquals(2, items.size)
     }
+
+    // ---- Batch add (recipe ingredients → list) ----
+
+    private suspend fun ApplicationTestBuilder.batchAdd(token: String, body: String) =
+        client.post("/api/v1/shopping/batch") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+    private suspend fun ApplicationTestBuilder.itemNames(token: String): List<String> =
+        Json.parseToJsonElement(client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText())
+            .jsonArray.map { it.jsonObject["name"]!!.jsonPrimitive.content }
+
+    @Test
+    fun `POST shopping batch formats amount and unit into the item name`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Mehl","amount":200,"unit":"g"},{"name":"Eier","amount":2}]}""")
+
+        assertEquals(HttpStatusCode.OK, res.status)
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(2, body["added"]!!.jsonPrimitive.int)
+        assertEquals(0, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertTrue("200 g Mehl" in names)
+        assertTrue("2 Eier" in names)
+    }
+
+    @Test
+    fun `POST shopping batch merges same name and unit by summing`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Mehl","amount":500,"unit":"g"}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Mehl","amount":200,"unit":"g"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("700 g Mehl", names[0])
+    }
+
+    @Test
+    fun `POST shopping batch keeps differing units separate`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Zucker","amount":100,"unit":"g"},{"name":"Zucker","amount":1,"unit":"kg"}]}""")
+
+        val names = itemNames(token)
+        assertEquals(2, names.size)
+        assertTrue("100 g Zucker" in names)
+        assertTrue("1 kg Zucker" in names)
+    }
+
+    @Test
+    fun `POST shopping batch merges duplicate lines within one request`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Mehl","amount":200,"unit":"g"},{"name":"Mehl","amount":300,"unit":"g"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(1, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("500 g Mehl", names[0])
+    }
+
+    @Test
+    fun `POST shopping batch skips an exact duplicate name`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Salz"}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Salz"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["skipped"]!!.jsonPrimitive.int)
+        assertEquals(listOf("Salz"), itemNames(token))
+    }
+
+    @Test
+    fun `POST shopping batch with malformed listId returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = batchAdd(token, """{"listId":"not-a-uuid","items":[{"name":"Mehl"}]}""")
+
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `POST shopping batch with unknown listId returns 404`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = batchAdd(token, """{"listId":"00000000-0000-0000-0000-999999999999","items":[{"name":"Mehl"}]}""")
+
+        assertEquals(HttpStatusCode.NotFound, res.status)
+    }
 }

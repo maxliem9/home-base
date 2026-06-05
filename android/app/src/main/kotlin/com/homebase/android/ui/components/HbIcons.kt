@@ -33,6 +33,7 @@ object HbIcons {
     val checkCircle = stroke("M9 12.5 11 14.5 15.5 9.5 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z")
     val circle = stroke("M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z")
     val plus = stroke("M12 5v14M5 12h14")
+    val minus = stroke("M5 12h14")
     val cart = stroke("M3 4h2l2.4 12.2a1 1 0 0 0 1 .8h8.2a1 1 0 0 0 1-.8L21 8H6 M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z M17 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z")
     val note = stroke("M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M14 3v5h5")
     val clock = stroke("M12 7v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z")

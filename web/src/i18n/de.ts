@@ -217,7 +217,10 @@ export const de = {
     addToList: 'Zutaten zur Liste',
     addedToList: 'Zutaten zur Einkaufsliste hinzugefügt', // "{n} Zutaten …"
     addedOne: 'Zutat zur Einkaufsliste hinzugefügt', // "1 Zutat …"
+    added: 'hinzugefügt', // toast: "{n} hinzugefügt"
+    merged: 'zusammengeführt', // toast: "{n} zusammengeführt"
     nothingToAdd: 'Keine neuen Zutaten',
+    pickerScaledTo: 'Mengen für {n} Portionen',
     viewList: 'Ansehen',
     backToRecipes: 'Alle Rezepte',
     pickerTitle: 'Zutaten zur Liste',
