@@ -1,0 +1,108 @@
+package com.homebase
+
+import com.homebase.db.DatabaseFactory
+import com.homebase.db.TodoSubtasksTable
+import com.homebase.db.TodosTable
+import com.homebase.db.UsersTable
+import io.ktor.server.config.MapApplicationConfig
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.transaction
+import org.junit.Assume.assumeTrue
+import java.time.Instant
+import java.util.UUID
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * Runs the real Flyway migrations against a throwaway PostgreSQL and exercises the writes
+ * the unit suite can't. The other tests build their schema from Exposed via SchemaUtils on
+ * H2 (see [configureTestApplication]), which silently diverges from the Flyway/Postgres
+ * schema the app actually deploys against. That divergence hid three production-breaking
+ * bugs (fixed in the V7/V9/V10 migrations):
+ *
+ *  1. V7 ALTERed tables no earlier migration created, so a fresh DB couldn't migrate at all.
+ *  2. todo_subtasks was modelled in Exposed but never migrated, so the first subtask write 500'd.
+ *  3. todos.status / todos.priority were PG ENUM types that reject Exposed's varchar bindings
+ *     on write, so every "create todo" 500'd (reads worked via PG's implicit enum->text cast).
+ *
+ * This test reproduces the real deploy path — migrate, then insert a todo with status/priority
+ * and a subtask — so the same class of schema/code drift fails CI instead of production.
+ *
+ * Gated on a PostgreSQL DB_URL: it runs only where one is provided (the dedicated CI job, or
+ * locally if you point DB_URL at a Postgres). The normal H2 unit job and a plain `gradle test`
+ * skip it. The CI job additionally asserts the test was *not* skipped, so a broken gate can't
+ * silently re-create the very "tests bypass the real schema" blind spot this guards against.
+ */
+class MigrationIntegrationTest {
+
+    private val dbUrl: String? = System.getenv("DB_URL")
+    private val dbUser: String? = System.getenv("DB_USER")
+    private val dbPassword: String? = System.getenv("DB_PASSWORD")
+
+    @BeforeTest
+    fun requirePostgres() {
+        assumeTrue(
+            "Set DB_URL (jdbc:postgresql://...), DB_USER and DB_PASSWORD to run the migration IT",
+            dbUrl?.startsWith("jdbc:postgresql") == true && dbUser != null && dbPassword != null,
+        )
+    }
+
+    @Test
+    fun `migrations apply on a fresh DB and the app can write todos, enum columns and subtasks`() {
+        // Mirrors production startup: DatabaseFactory.init runs flyway.repair() + migrate()
+        // and connects Exposed. On a fresh DB this throws loudly if any migration is broken
+        // (this is what catches a V7-style missing-prerequisite regression).
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        // Unique per run so the test is also re-runnable against a persistent local Postgres.
+        val userName = "mig_it_${UUID.randomUUID().toString().take(8)}"
+        val todoUuid = UUID.randomUUID()
+
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            // status/priority are the columns that were PG ENUMs before V9. If they ever
+            // revert to enum types, these varchar bindings fail here exactly as they did in prod.
+            TodosTable.insert {
+                it[id] = todoUuid
+                it[title] = "migration smoke test"
+                it[status] = "PLANNED"
+                it[priority] = "HIGH"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            // todo_subtasks only exists if V10 ran.
+            TodoSubtasksTable.insert {
+                it[id] = UUID.randomUUID()
+                it[todoId] = todoUuid
+                it[title] = "subtask"
+                it[done] = false
+                it[sortOrder] = 0
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        transaction {
+            val row = TodosTable.selectAll().where { TodosTable.id eq todoUuid }.single()
+            assertEquals("PLANNED", row[TodosTable.status])
+            assertEquals("HIGH", row[TodosTable.priority])
+
+            val subtaskCount = TodoSubtasksTable.selectAll()
+                .where { TodoSubtasksTable.todoId eq todoUuid }
+                .count()
+            assertEquals(1L, subtaskCount)
+        }
+    }
+}

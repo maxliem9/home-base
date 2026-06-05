@@ -39,6 +39,79 @@ jobs:
           path: backend/build/reports/tests/test
           if-no-files-found: ignore
 
+  migrations:
+    name: DB migrations (real Postgres)
+    runs-on: ubuntu-latest
+    # The unit suite builds its schema from Exposed via SchemaUtils on H2, bypassing Flyway
+    # and the Postgres-specific types entirely — which is exactly how three schema/code-drift
+    # bugs reached production (a fresh DB couldn't migrate, and todo writes 500'd; see the
+    # V7/V9/V10 migrations). This job runs the real migrations against a throwaway Postgres
+    # and exercises the writes H2 can't, so that class of drift fails CI instead of the NAS.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: homebase
+          POSTGRES_USER: homebase
+          POSTGRES_PASSWORD: homebase
+        ports:
+          - 5432:5432
+        # Don't start the test until Postgres accepts connections.
+        options: >-
+          --health-cmd "pg_isready -U homebase -d homebase"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mirror the backend job: Gradle runs on JDK 24, the build itself targets 21.
+      - name: Set up JDK 24
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '24'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # MigrationIntegrationTest is gated on a Postgres DB_URL (it's skipped in the H2 unit
+      # job and locally). Pointing DB_URL at the service container makes it run here.
+      - name: Run migration integration test
+        working-directory: backend
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/homebase
+          DB_USER: homebase
+          DB_PASSWORD: homebase
+        run: ./gradlew test --tests "com.homebase.MigrationIntegrationTest" --no-daemon
+
+      # Guard against a silent skip re-creating the very blind spot this job exists to close:
+      # if the gate weren't satisfied the test would be reported as skipped and the job would
+      # still go green. Fail unless exactly one test actually executed.
+      - name: Verify the migration test was not skipped
+        if: always()
+        working-directory: backend
+        run: |
+          report="build/test-results/test/TEST-com.homebase.MigrationIntegrationTest.xml"
+          if [ ! -f "$report" ]; then
+            echo "::error::No result file for MigrationIntegrationTest — it never ran."
+            exit 1
+          fi
+          if ! grep -q 'tests="1"' "$report" || ! grep -q 'skipped="0"' "$report"; then
+            echo "::error::MigrationIntegrationTest was skipped or did not run exactly once (DB_URL gate unmet?)."
+            cat "$report"
+            exit 1
+          fi
+          echo "MigrationIntegrationTest executed against Postgres. ✓"
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-test-report
+          path: backend/build/reports/tests/test
+          if-no-files-found: ignore
+
   web:
     name: Web build
     runs-on: ubuntu-latest
