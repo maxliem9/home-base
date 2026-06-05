@@ -62,7 +62,10 @@ abstract class ReconnectingWebSocketClient<E>(
     fun connect(token: String) = synchronized(lock) {
         this.token = token
         closedByUs = false
+        reconnectJob?.cancel()
+        reconnectJob = null
         attempt = 0
+        webSocket?.close(NORMAL_CLOSURE, null)
         openLocked()
     }
 
@@ -109,7 +112,10 @@ abstract class ReconnectingWebSocketClient<E>(
         attempt++
         reconnectJob = scope.launch {
             delay(delayMs)
-            synchronized(lock) { if (!closedByUs) openLocked() }
+            // Re-check under the lock: cancel() cannot stop an already-dispatched continuation, so if
+            // disconnect() or an immediate ensureConnected() ran during the delay, the socket is gone
+            // (closedByUs) or already re-opened (webSocket != null) — opening again would leak a socket.
+            synchronized(lock) { if (!closedByUs && webSocket == null) openLocked() }
         }
     }
 
