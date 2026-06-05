@@ -30,6 +30,7 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | [0006](0006-bilder-in-notizen.md) | Bilder in Notizen | feature | low | done | prd.md |
 | [0007](0007-ios-app.md) | iOS-App | feature | low | backlog | prd.md |
 | [0008](0008-json-defaults-leere-arrays.md) | Leere Arrays werden aus JSON weggelassen (encodeDefaults) | bug | medium | backlog | session 2026-06-05 |
+| [0009](0009-batch-merge-mehrwort-zutaten.md) | Mengen-Merge greift nicht bei mehrwortigen Zutatennamen | tech-debt | low | backlog | PR #37 review |
 
 ## Legende
 
