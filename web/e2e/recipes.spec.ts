@@ -104,18 +104,27 @@ test.describe('Recipes', () => {
     await expect(page.getByText('Noch keine Rezepte')).toBeVisible()
   })
 
-  test('adds recipe ingredients to a shopping list', async ({ page }) => {
+  test('adds serving-scaled recipe ingredients to a shopping list', async ({ page }) => {
     const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
       .seedRecipes([PANCAKES])
     await openRecipes(page, mock)
     await page.locator('.hb-recipecard', { hasText: 'Pfannkuchen' }).click()
 
+    // scale to 4 servings so the picker carries doubled amounts onto the list
+    await page.getByRole('button', { name: 'Mehr Portionen' }).click()
+    await page.getByRole('button', { name: 'Mehr Portionen' }).click()
+
     await page.getByRole('button', { name: 'Zutaten zur Liste' }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal).toBeVisible()
+    await expect(modal.getByText('Mengen für 4 Portionen')).toBeVisible()
     // both ingredients preselected → "2 hinzufügen"
     await modal.getByRole('button', { name: /hinzufügen/ }).click()
 
-    await expect(page.getByText(/zur Einkaufsliste hinzugefügt/)).toBeVisible()
+    // toast confirms the add, then the scaled, unit-labelled items show on the list
+    await expect(page.getByText(/hinzugefügt/)).toBeVisible()
+    await page.getByRole('button', { name: 'Einkaufsliste' }).click()
+    await expect(page.getByText('400 g Mehl')).toBeVisible()
+    await expect(page.getByText('1000 ml Milch')).toBeVisible()
   })
 })

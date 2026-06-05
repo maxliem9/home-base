@@ -514,6 +514,73 @@ export class MockApi {
       return this.json(route, item, 201)
     }
 
+    // Shopping: batch add recipe ingredients (mirrors POST /shopping/batch).
+    // Formats each line as a "200 g Mehl" label and merges quantities into an
+    // existing item with the same name + unit; matched before /shopping/{id}.
+    if (path.endsWith('/shopping/batch') && method === 'POST') {
+      const { listId, items = [] } = JSON.parse(req.postData() ?? '{}') as {
+        listId?: string
+        items?: Array<{ name: string; amount?: number; unit?: string }>
+      }
+      const UNITS = new Set(['g', 'kg', 'mg', 'ml', 'l', 'el', 'tl', 'stk', 'stück', 'prise', 'bund', 'dose', 'pkg', 'pck', 'tasse', 'cup', 'msp'])
+      const fmtAmt = (v: number) => String(Math.round(v * 1000) / 1000)
+      const fmt = (a: number | null | undefined, u: string | null | undefined, n: string) =>
+        [a != null ? fmtAmt(a) : null, u && u.trim() ? u : null, n].filter(Boolean).join(' ').trim()
+      const parseQty = (label: string): { amount: number | null; unit: string | null; name: string } => {
+        const t = label.trim().split(/\s+/).filter(Boolean)
+        const a = t.length ? Number(t[0].replace(',', '.')) : NaN
+        if (!t.length || !/^[0-9]/.test(t[0]) || !Number.isFinite(a)) return { amount: null, unit: null, name: label.trim() }
+        let i = 1
+        let unit: string | null = null
+        if (i < t.length) {
+          const c = t[i]
+          const isUnit = UNITS.has(c.toLowerCase()) || (c.length <= 4 && /[a-zA-ZäöüÄÖÜß]/.test(c) && !/[0-9]/.test(c))
+          if (isUnit && i < t.length - 1) { unit = c; i++ }
+        }
+        const name = t.slice(i).join(' ')
+        return name ? { amount: a, unit, name } : { amount: null, unit: null, name: label.trim() }
+      }
+      const unitEq = (a: string | null, b: string | null | undefined) => (a ?? '').toLowerCase() === (b ?? '').toLowerCase()
+      const inList = () => this.shoppingItems.filter((it) => (it.listId ?? undefined) === (listId || undefined))
+      const created: ShoppingItem[] = []
+      const updated: ShoppingItem[] = []
+      let skipped = 0
+      for (const line of items) {
+        const name = (line.name ?? '').trim()
+        if (!name) continue
+        const unit = line.unit && line.unit.trim() ? line.unit.trim() : undefined
+        const amount = line.amount
+        const display = fmt(amount, unit, name)
+        const target = amount != null
+          ? inList().find((it) => {
+              const p = parseQty(it.name)
+              return p.amount != null && p.name.toLowerCase() === name.toLowerCase() && unitEq(p.unit, unit ?? null)
+            })
+          : undefined
+        if (target) {
+          const p = parseQty(target.name)
+          target.name = fmt((p.amount ?? 0) + (amount ?? 0), p.unit ?? unit, p.name)
+          updated.push(target)
+          continue
+        }
+        if (inList().some((it) => it.name.toLowerCase() === display.toLowerCase())) {
+          skipped++
+          continue
+        }
+        const item: ShoppingItem = {
+          id: `shop-${this.nextShopId++}`,
+          name: display,
+          listId: listId || undefined,
+          checked: false,
+          createdBy: 'alice',
+          createdAt: new Date().toISOString(),
+        }
+        this.shoppingItems.unshift(item)
+        created.push(item)
+      }
+      return this.json(route, { added: created.length, merged: updated.length, skipped, items: [...created, ...updated] })
+    }
+
     const shopItemMatch = path.match(/\/shopping\/([^/]+)$/)
     if (shopItemMatch) {
       const id = shopItemMatch[1]
