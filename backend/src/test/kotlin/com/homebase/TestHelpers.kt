@@ -18,7 +18,7 @@ import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import com.homebase.plugins.*
-import com.homebase.security.sha256
+import com.homebase.security.Passwords
 import io.ktor.server.config.*
 import io.ktor.server.testing.*
 import org.jetbrains.exposed.sql.Database
@@ -64,13 +64,13 @@ fun ApplicationTestBuilder.configureTestApplication() {
             UsersTable.insert {
                 it[id] = UUID.fromString("00000000-0000-0000-0000-000000000001")
                 it[username] = "alice"
-                it[passwordHash] = sha256("password123")
+                it[passwordHash] = Passwords.hash("password123")
                 it[createdAt] = Instant.now()
             }
             UsersTable.insert {
                 it[id] = UUID.fromString("00000000-0000-0000-0000-000000000002")
                 it[username] = "bob"
-                it[passwordHash] = sha256("password456")
+                it[passwordHash] = Passwords.hash("password456")
                 it[createdAt] = Instant.now()
             }
         }

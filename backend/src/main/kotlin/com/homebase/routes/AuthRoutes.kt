@@ -6,7 +6,7 @@ import com.homebase.model.ErrorResponse
 import com.homebase.model.LoginRequest
 import com.homebase.model.TokenResponse
 import com.homebase.db.UsersTable
-import com.homebase.security.sha256
+import com.homebase.security.Passwords
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -29,8 +29,7 @@ fun Route.authRoutes() {
             return@post
         }
 
-        val hash = sha256(request.password)
-        if (hash != user[UsersTable.passwordHash]) {
+        if (!Passwords.verify(request.password, user[UsersTable.passwordHash])) {
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
