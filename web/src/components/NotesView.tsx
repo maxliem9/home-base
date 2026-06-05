@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
+import { API_BASE, authFetch, noteImageUrl, withWsToken } from '../api'
 import { t } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -52,6 +52,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [saving, setSaving] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchNotes = useCallback(async (q: string) => {
     try {
@@ -151,6 +155,43 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const listed = tagFilter ? notes.filter((n) => n.tags.includes(tagFilter)) : notes
   const selected = notes.find((n) => n.id === selectedId) ?? null
 
+  // images are managed from the read view; clear any stale upload error on selection change
+  useEffect(() => { setImageError(null) }, [selectedId])
+
+  const handleUploadImage = async (file: File) => {
+    if (!selected) return
+    setImageError(null)
+    setUploadingImage(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images`, { method: 'POST', body: fd })
+      if (res.ok) {
+        const updated: Note = await res.json()
+        setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+      } else if (res.status === 413) {
+        setImageError(t.notes.imageTooLarge)
+      } else if (res.status === 415) {
+        setImageError(t.notes.imageBadType)
+      } else {
+        setImageError(t.notes.imageUploadFailed)
+      }
+    } catch {
+      setImageError(t.notes.imageUploadFailed)
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleDeleteImage = async (imageId: string) => {
+    if (!selected) return
+    const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
+    if (res.ok) {
+      const updated: Note = await res.json()
+      setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+    }
+  }
+
   return (
     <div className="hb-page">
       <PageHead
@@ -198,7 +239,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     <span className="hb-noteitem__title">{note.title}</span>
                   </div>
                   {note.content && <div className="hb-noteitem__preview">{note.content.replace(/[#*`>_-]/g, '').trim()}</div>}
-                  <div className="hb-noteitem__meta">{relTime(note.updatedAt)}</div>
+                  <div className="hb-noteitem__meta">
+                    {relTime(note.updatedAt)}
+                    {note.images.length > 0 && (
+                      <span className="hb-noteitem__imgcount">
+                        <Icon name="image" size={13} stroke={2} /> {note.images.length}
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -264,12 +312,70 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 </div>
               </div>
               <div className="hb-md">{renderMarkdown(selected.content)}</div>
+
+              <div className="hb-note-images">
+                <div className="hb-note-images__head">
+                  <span className="hb-field__label">
+                    {t.notes.images}{selected.images.length > 0 ? ` (${selected.images.length})` : ''}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon="plus"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingImage}
+                  >
+                    {uploadingImage ? t.notes.uploading : t.notes.addImage}
+                  </Button>
+                </div>
+                {imageError && <p className="hb-note-images__error">{imageError}</p>}
+                {selected.images.length > 0 && (
+                  <div className="hb-note-images__grid">
+                    {selected.images.map((img) => (
+                      <div key={img.id} className="hb-note-thumb">
+                        <img
+                          src={noteImageUrl(selected.id, img.id, token)}
+                          alt={img.originalName}
+                          loading="lazy"
+                          onClick={() => setLightbox(noteImageUrl(selected.id, img.id, token))}
+                        />
+                        <button
+                          type="button"
+                          className="hb-note-thumb__del"
+                          title={t.notes.removeImage}
+                          aria-label={t.notes.removeImage}
+                          onClick={() => handleDeleteImage(img.id)}
+                        >
+                          <Icon name="x" size={14} stroke={2.4} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) handleUploadImage(f)
+                    e.target.value = '' // allow re-selecting the same file
+                  }}
+                />
+              </div>
             </Card>
           ) : (
             <Card className="hb-card--pad"><EmptyState icon="note" title={t.notes.title} hint={t.notes.selectHint} /></Card>
           )}
         </div>
       </div>
+
+      {lightbox && (
+        <div className="hb-lightbox" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   )
 }

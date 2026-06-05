@@ -117,6 +117,13 @@ export const de = {
     visibility: 'Sichtbarkeit:',
     private: 'Privat',
     shared: 'Geteilt',
+    images: 'Bilder',
+    addImage: 'Bild hinzufügen',
+    removeImage: 'Bild entfernen',
+    uploading: 'Wird hochgeladen…',
+    imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
+    imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
+    imageUploadFailed: 'Upload fehlgeschlagen.',
   },
   inbox: {
     headerTitle: 'HomeBase — Inbox',

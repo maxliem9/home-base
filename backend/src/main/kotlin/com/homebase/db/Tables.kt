@@ -136,6 +136,21 @@ object NotesTable : Table("notes") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object NoteImagesTable : Table("note_images") {
+    val id = uuid("id")
+    val noteId = reference("note_id", NotesTable.id, onDelete = ReferenceOption.CASCADE)
+    // name of the file on disk (e.g. "<uuid>.jpg"); the original bytes are stored
+    // outside the DB under the configured upload directory.
+    val filename = text("filename")
+    val originalName = text("original_name")
+    val contentType = varchar("content_type", 100)
+    val sizeBytes = long("size_bytes")
+    val sortOrder = integer("sort_order")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object RecipesTable : Table("recipes") {
     val id = uuid("id")
     val title = text("title")

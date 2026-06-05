@@ -3,6 +3,7 @@ package com.homebase.android
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
+import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
@@ -27,6 +28,11 @@ class NotesRepositoryTest {
     private fun note(id: String = "1", title: String = "Titel") = NoteDto(
         id = id, title = title, content = "", tags = emptyList(), visibility = "SHARED",
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
+    )
+
+    private fun image(id: String = "img-1", noteId: String = "1") = NoteImageDto(
+        id = id, noteId = noteId, originalName = "p.png", contentType = "image/png",
+        sizeBytes = 3, sortOrder = 0, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
     @Before
@@ -118,5 +124,38 @@ class NotesRepositoryTest {
         val result = repository.deleteNote("1")
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `uploadImage delegates to api and returns updated note`() = runTest {
+        val expected = note().copy(images = listOf(image()))
+        coEvery { api.uploadNoteImage(eq("1"), any()) } returns expected
+
+        val result = repository.uploadImage("1", byteArrayOf(1, 2, 3), "p.png", "image/png")
+
+        assertTrue(result.isSuccess)
+        assertEquals(expected, result.getOrNull())
+        coVerify { api.uploadNoteImage(eq("1"), any()) }
+    }
+
+    @Test
+    fun `uploadImage returns failure on api exception`() = runTest {
+        coEvery { api.uploadNoteImage(any(), any()) } throws RuntimeException("too large")
+
+        val result = repository.uploadImage("1", byteArrayOf(1), "p.png", "image/png")
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `deleteImage delegates to api and returns updated note`() = runTest {
+        val expected = note()
+        coEvery { api.deleteNoteImage("1", "img-1") } returns expected
+
+        val result = repository.deleteImage("1", "img-1")
+
+        assertTrue(result.isSuccess)
+        assertEquals(expected, result.getOrNull())
+        coVerify { api.deleteNoteImage("1", "img-1") }
     }
 }

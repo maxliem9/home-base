@@ -27,3 +27,9 @@ export function withWsToken(url: string, token: string) {
   wsUrl.searchParams.set('token', token)
   return wsUrl.toString()
 }
+
+// <img> tags can't send an Authorization header, so the image endpoint accepts the
+// JWT via the same `?token=` fallback used for WebSocket upgrades.
+export function noteImageUrl(noteId: string, imageId: string, token: string) {
+  return `${API_BASE}/notes/${noteId}/images/${imageId}?token=${encodeURIComponent(token)}`
+}

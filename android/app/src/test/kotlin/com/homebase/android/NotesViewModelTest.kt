@@ -2,6 +2,7 @@ package com.homebase.android
 
 import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
+import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
@@ -34,6 +35,11 @@ class NotesViewModelTest {
     ) = NoteDto(
         id = id, title = title, content = content, tags = emptyList(), visibility = visibility,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
+    )
+
+    private fun image(id: String = "img-1", noteId: String = "1") = NoteImageDto(
+        id = id, noteId = noteId, originalName = "p.png", contentType = "image/png",
+        sizeBytes = 3, sortOrder = 0, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
     @Before
@@ -205,6 +211,52 @@ class NotesViewModelTest {
 
         assertEquals(1, vm.uiState.value.notes.size)
         assertEquals("Neu", vm.uiState.value.notes[0].title)
+    }
+
+    @Test
+    fun `uploadImage upserts the returned note`() = runTest {
+        val original = note(id = "1")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(original))
+        coEvery { repository.uploadImage(eq("1"), any(), any(), any()) } returns
+            Result.success(original.copy(images = listOf(image())))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.uploadImage("1", byteArrayOf(1, 2, 3), "p.png", "image/png")
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.notes[0].images.size)
+    }
+
+    @Test
+    fun `removeImage upserts the returned note`() = runTest {
+        val withImage = note(id = "1").copy(images = listOf(image()))
+        coEvery { repository.getNotes("") } returns Result.success(listOf(withImage))
+        coEvery { repository.deleteImage("1", "img-1") } returns Result.success(note(id = "1"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.removeImage("1", "img-1")
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.notes[0].images.isEmpty())
+    }
+
+    @Test
+    fun `uploadImage failure sets error`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
+        coEvery { repository.uploadImage(any(), any(), any(), any()) } returns
+            Result.failure(RuntimeException("image exceeds the 10 MB limit"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.uploadImage("1", byteArrayOf(1), "p.png", "image/png")
+        advanceUntilIdle()
+
+        assertEquals("image exceeds the 10 MB limit", vm.uiState.value.error)
     }
 
     @Test

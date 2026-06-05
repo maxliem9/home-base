@@ -18,6 +18,11 @@ services:
     expose:
       - "8080"
     env_file: .env
+    environment:
+      # note image storage — persisted in the named volume below; back it up with pgdata
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -48,3 +53,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

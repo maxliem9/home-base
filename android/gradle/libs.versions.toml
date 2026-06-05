@@ -9,6 +9,7 @@ retrofit = "2.11.0"
 okhttp = "4.12.0"
 coroutines = "1.9.0"
 moshi = "1.15.1"
+coil = "2.7.0"
 junit = "4.13.2"
 mockk = "1.13.10"
 coroutinesTest = "1.9.0"
@@ -37,6 +38,7 @@ retrofit-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", v
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }

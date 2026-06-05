@@ -148,12 +148,24 @@ export interface AbsenceState {
 
 export type NoteVisibility = 'PRIVATE' | 'SHARED'
 
+export interface NoteImage {
+  id: string
+  noteId: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  sortOrder: number
+  createdBy: string
+  createdAt: string
+}
+
 export interface Note {
   id: string
   title: string
   content: string
   tags: string[]
   visibility: NoteVisibility
+  images: NoteImage[]
   createdBy: string
   createdAt: string
   updatedAt: string

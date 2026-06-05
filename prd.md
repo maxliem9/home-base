@@ -51,6 +51,7 @@ Todo-Felder:
 - Markdown-Inhalt
 - Tags + Volltextsuche
 - Sichtbarkeit: privat oder geteilt
+- Bilder als Anhang (Upload, Galerie, Vollbild) ✅
 
 ### 4. Täglicher Digest (Telegram) ✅
 - Jeden Abend zur konfigurierbaren Uhrzeit (`DIGEST_TIME`)
@@ -114,7 +115,7 @@ Felder Schritt: id, recipe_id, step_number, description
   *(In-App-Auswertung pro Projekt/Woche ist umgesetzt ✅)*
 - Angebote zu Einkaufsitems (Rewe/Kaufland) 🔜
 - Wiederkehrende Todos 🔜
-- Bilder in Notizen 🔜
+- Bilder in Notizen ✅
 - iOS-App 🔜
 
 ---

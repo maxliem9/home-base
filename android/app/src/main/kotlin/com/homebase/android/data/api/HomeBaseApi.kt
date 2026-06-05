@@ -1,6 +1,7 @@
 package com.homebase.android.data.api
 
 import com.homebase.android.data.model.*
+import okhttp3.MultipartBody
 import retrofit2.http.*
 
 interface HomeBaseApi {
@@ -95,6 +96,14 @@ interface HomeBaseApi {
 
     @DELETE("notes/{id}")
     suspend fun deleteNote(@Path("id") id: String)
+
+    // upload / delete return the updated note with its images embedded
+    @Multipart
+    @POST("notes/{id}/images")
+    suspend fun uploadNoteImage(@Path("id") id: String, @Part file: MultipartBody.Part): NoteDto
+
+    @DELETE("notes/{id}/images/{imageId}")
+    suspend fun deleteNoteImage(@Path("id") id: String, @Path("imageId") imageId: String): NoteDto
 
     // --- Time tracking ---
 

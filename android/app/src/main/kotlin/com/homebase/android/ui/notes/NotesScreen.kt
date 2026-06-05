@@ -1,6 +1,13 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.homebase.android.ui.notes
 
+import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +15,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -19,9 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +41,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.homebase.android.data.model.NoteImageDto
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -47,6 +65,7 @@ import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbDotSep
 import com.homebase.android.ui.components.HbEmpty
@@ -81,6 +100,16 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
     // currentUser is part of the shared screen signature; notes are authored server-side.
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // Surface upload/network errors (e.g. "image too large") as a transient toast, then clear
+    // so it doesn't re-fire on recomposition.
+    val context = LocalContext.current
+    LaunchedEffect(state.error) {
+        state.error?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            viewModel.clearError()
+        }
+    }
+
     var selectedTag by remember { mutableStateOf<String?>(null) }
     var selectedNoteId by remember { mutableStateOf<String?>(null) }
     var editor by remember { mutableStateOf<Editor?>(null) }
@@ -96,6 +125,11 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             note = openNote,
             onBack = { selectedNoteId = null },
             onEdit = { editor = Editor.Edit(openNote) },
+            imageUrl = viewModel::imageUrl,
+            onAddImage = { bytes, filename, contentType ->
+                viewModel.uploadImage(openNote.id, bytes, filename, contentType)
+            },
+            onRemoveImage = { imageId -> viewModel.removeImage(openNote.id, imageId) },
         )
     } else {
         NoteList(
@@ -284,8 +318,30 @@ private fun NoteCard(note: NoteDto, onClick: () -> Unit) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun NoteDetail(note: NoteDto, onBack: () -> Unit, onEdit: () -> Unit) {
+private fun NoteDetail(
+    note: NoteDto,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    imageUrl: (NoteImageDto) -> String,
+    onAddImage: (bytes: ByteArray, filename: String, contentType: String) -> Unit,
+    onRemoveImage: (imageId: String) -> Unit,
+) {
     BackHandler(onBack = onBack)
+
+    val context = LocalContext.current
+    var lightbox by remember { mutableStateOf<String?>(null) }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val resolver = context.contentResolver
+            val type = resolver.getType(uri) ?: "image/jpeg"
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            } ?: "image"
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) onAddImage(bytes, name, type)
+        }
+    }
 
     HbScreenScaffold(
         appBar = {
@@ -342,9 +398,19 @@ private fun NoteDetail(note: NoteDto, onBack: () -> Unit, onEdit: () -> Unit) {
             // Rendered markdown body
             MarkdownText(note.content)
 
+            NoteImagesSection(
+                images = note.images,
+                imageUrl = imageUrl,
+                onAdd = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onRemove = onRemoveImage,
+                onOpen = { lightbox = it },
+            )
+
             Spacer(Modifier.size(8.dp))
         }
     }
+
+    lightbox?.let { url -> ImageLightbox(url = url, onDismiss = { lightbox = null }) }
 }
 
 /** Small badge with a leading glyph (HbBadge has no icon slot). */
@@ -360,6 +426,99 @@ private fun VisibilityBadge(icon: ImageVector, label: String) {
     ) {
         HbIcon(icon, size = 13.dp, tint = Hb.accentInk)
         Text(label, style = HbType.small.copy(fontWeight = FontWeight.SemiBold), color = Hb.accentInk)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Image attachments
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun NoteImagesSection(
+    images: List<NoteImageDto>,
+    imageUrl: (NoteImageDto) -> String,
+    onAdd: () -> Unit,
+    onRemove: (imageId: String) -> Unit,
+    onOpen: (url: String) -> Unit,
+) {
+    Column(Modifier.padding(top = 20.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                if (images.isEmpty()) "Bilder" else "Bilder (${images.size})",
+                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                color = Hb.ink2,
+            )
+            HbButton(
+                "Bild hinzufügen",
+                onClick = onAdd,
+                variant = HbButtonVariant.Secondary,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.plus,
+            )
+        }
+        if (images.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                images.forEach { img ->
+                    Box(
+                        Modifier
+                            .size(104.dp)
+                            .clip(HbRadius)
+                            .background(Hb.surface2)
+                            .border(1.dp, Hb.lineSoft, HbRadius)
+                            .clickable { onOpen(imageUrl(img)) },
+                    ) {
+                        AsyncImage(
+                            model = imageUrl(img),
+                            contentDescription = img.originalName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .clickable { onRemove(img.id) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            HbIcon(HbIcons.x, size = 14.dp, tint = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageLightbox(url: String, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .clickable { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            )
+        }
     }
 }
 

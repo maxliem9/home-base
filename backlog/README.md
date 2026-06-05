@@ -27,8 +27,9 @@ abgelegt — statt den Scope der aktuellen Änderung aufzublähen oder den Fund 
 | [0003](0003-zeiterfassung-reports-csv.md) | Zeiterfassung: server-seitige Reports / CSV-Export | feature | low | backlog | prd.md |
 | [0004](0004-einkauf-angebote.md) | Angebote zu Einkaufsitems (Rewe/Kaufland) | feature | low | backlog | prd.md |
 | [0005](0005-wiederkehrende-todos.md) | Wiederkehrende Todos | feature | medium | backlog | prd.md |
-| [0006](0006-bilder-in-notizen.md) | Bilder in Notizen | feature | low | backlog | prd.md |
+| [0006](0006-bilder-in-notizen.md) | Bilder in Notizen | feature | low | done | prd.md |
 | [0007](0007-ios-app.md) | iOS-App | feature | low | backlog | prd.md |
+| [0008](0008-json-defaults-leere-arrays.md) | Leere Arrays werden aus JSON weggelassen (encodeDefaults) | bug | medium | backlog | session 2026-06-05 |
 
 ## Legende
 

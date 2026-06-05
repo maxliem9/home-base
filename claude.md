@@ -137,6 +137,24 @@ berechnet.
 - Deutsche Feiertage werden pro Bundesland aus Ostern (Gauß-Algorithmus) +
   festen Daten berechnet (holidays.ts), nicht gespeichert.
 
+## Notizen-Domänenmodell
+Markdown-Notizen mit Tags, Volltextsuche und Sichtbarkeit (PRIVATE|SHARED).
+- Note: id, title, content (Markdown), tags (CSV), visibility, created_by,
+  created_at, updated_at. Geteilte Notizen sind für beide Nutzer sicht- und
+  editierbar; die Sichtbarkeit darf nur der Ersteller ändern.
+- NoteImage (1:n Anhang-Galerie): id, note_id (FK ON DELETE CASCADE), filename
+  (auf Platte), original_name, content_type, size_bytes, sort_order, created_by,
+  created_at — immer als images-Array in NoteDto eingebettet.
+- Bilder liegen als Datei unter UPLOAD_DIR (nicht in der DB); das Original wird
+  ausgeliefert, Thumbnails skaliert der Client. Erlaubt: JPEG/PNG/WebP/GIF bis
+  MAX_UPLOAD_MB (default 10).
+- Endpunkte unter /api/v1/notes: CRUD + POST/GET/DELETE
+  /notes/{id}/images[/{imageId}] (Upload als multipart, Auslieferung via ?token=
+  wie bei den WS-Endpunkten; Upload und Delete geben die aktualisierte Note
+  zurück). WebSocket /api/v1/ws/notes (Channel "notes"):
+  NOTE_CREATED|UPDATED|DELETED; Bildänderungen senden NOTE_UPDATED. Private
+  Notizen werden nie über den geteilten Kanal gesendet.
+
 ## Umgebungsvariablen (.env)
 DB_URL              — jdbc:postgresql://db:5432/homebase
 DB_USER
@@ -146,11 +164,13 @@ TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
 DIGEST_TIME         — z.B. "20:00"
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
+UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
+MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 
 ## Docker Services
 Produktion (docker-compose.yml):
 nginx    — Port 80+443, Reverse Proxy, bindet Synology-Zertifikat ein
-backend  — expose 8080 (nur intern)
+backend  — expose 8080 (nur intern), Volume uploads (Notizbilder)
 web      — expose 3000 (nur intern)
 db       — postgres:16, Volume pgdata
 
