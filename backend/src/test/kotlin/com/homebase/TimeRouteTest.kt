@@ -256,18 +256,30 @@ class TimeRouteTest {
     }
 
     @Test
-    fun `start on archived project returns 409`() = testApplication {
+    fun `start on archived project returns 409 and leaves the running timer untouched`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
-        val projectId = createProject(token)
-        client.patch("/api/v1/time/projects/$projectId/archive") { bearerAuth(token) }
+        val active = createProject(token, "Aktiv", "#111111")
+        val archived = createProject(token, "Archiv", "#222222")
+        client.patch("/api/v1/time/projects/$archived/archive") { bearerAuth(token) }
+
+        // a timer is already running on an active project
+        val runningId = Json.parseToJsonElement(client.post("/api/v1/time/entries/start") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$active"}""")
+        }.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
 
         val res = client.post("/api/v1/time/entries/start") {
             bearerAuth(token); contentType(ContentType.Application.Json)
-            setBody("""{"projectId":"$projectId"}""")
+            setBody("""{"projectId":"$archived"}""")
         }
         assertEquals(HttpStatusCode.Conflict, res.status)
         assertEquals("PROJECT_ARCHIVED", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+
+        // the rejected start must not have stopped the still-running timer
+        val running = client.get("/api/v1/time/running") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, running.status)
+        assertEquals(runningId, Json.parseToJsonElement(running.bodyAsText()).jsonObject["id"]?.jsonPrimitive?.content)
     }
 
     @Test
