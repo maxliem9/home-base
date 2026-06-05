@@ -14,7 +14,29 @@ homebase/
 ├── docker-compose.yml        — Produktion (Synology NAS)
 ├── docker-compose.dev.yml    — Lokale Entwicklung (nur DB)
 ├── .env.example
+├── backlog/                  — dateibasiertes Backlog (ein File pro Vorhaben)
 └── CLAUDE.md
+
+## Backlog & Out-of-Scope-Funde
+Geplante, aber noch nicht umgesetzte Features sowie Funde, die nicht zur gerade
+laufenden Aufgabe gehören, leben im Ordner `backlog/` — ein Markdown-File pro Vorhaben,
+Index und Konventionen in `backlog/README.md`.
+
+**Regel für alle (Menschen wie KI-Agenten):** Wenn dir während einer Aufgabe etwas
+auffällt, das nicht zur laufenden Änderung gehört — ein Bug in fremdem Code, eine
+Refactoring-Gelegenheit, eine Feature-Idee, fehlende Tests/Doku, technische Schuld —
+dann blähe nicht den Scope der aktuellen Aufgabe auf und lass den Fund nicht fallen,
+sondern leg ein Backlog-Item an:
+1. In `backlog/README.md` prüfen, ob es das schon gibt (keine Duplikate).
+2. `backlog/TEMPLATE.md` nach `backlog/NNNN-kurzer-slug.md` kopieren (nächste freie ID).
+3. Frontmatter + Abschnitte ausfüllen; unter `source` festhalten, woher der Fund stammt
+   (z. B. `"PR #30"`, `"session 2026-06-05"`).
+4. Eine Zeile in die Tabelle in `backlog/README.md` eintragen.
+
+Sofort miterledigen nur, wenn der Fund trivial ist **und** vom Auftrag gedeckt — sonst
+ins Backlog; ein ausdrückliches „mach das gleich mit" geht vor. Beim Abarbeiten `status`
+pflegen (`backlog` → `in-progress` → `done`/`wont-do`); die Item-Datei bleibt erhalten,
+nur die Tabelle wird nachgezogen.
 
 ## Deployment
 - Synology NAS, DSM 7.x, Container Manager (Docker)
