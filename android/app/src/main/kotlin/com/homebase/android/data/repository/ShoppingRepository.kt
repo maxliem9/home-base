@@ -48,5 +48,6 @@ class ShoppingRepository(
     suspend fun deleteList(id: String): Result<Unit> = runCatching { api.deleteShoppingList(id) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
+    fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 }

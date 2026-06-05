@@ -26,7 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
@@ -105,6 +107,18 @@ class MainActivity : ComponentActivity() {
         val timeVm: TimeViewModel = viewModel(key = "time-$token", factory = timeFactory(token, currentUser))
         val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
         val absenceVm: AbsenceViewModel = viewModel(key = "absence-$token", factory = absenceFactory(token))
+
+        // A socket can be silently killed while the app is backgrounded (Doze, mobile-network change,
+        // backend restart). OkHttp does not reconnect on its own, so on every return to the foreground
+        // we ask each channel to re-open if it dropped — the clients no-op when already connected.
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            todoVm.ensureConnected()
+            shoppingVm.ensureConnected()
+            notesVm.ensureConnected()
+            timeVm.ensureConnected()
+            recipesVm.ensureConnected()
+            absenceVm.ensureConnected()
+        }
 
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
         var drawerOpen by remember { mutableStateOf(false) }

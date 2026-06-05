@@ -25,6 +25,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.time.Duration
 
 class AppContainer(context: Context) {
 
@@ -42,6 +43,9 @@ class AppContainer(context: Context) {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
                     else HttpLoggingInterceptor.Level.NONE
         })
+        // Keep WebSockets alive and surface dead connections quickly: OkHttp pings every 30s and
+        // reports a failure (→ client reconnect) when a pong is missed. Harmless for REST calls.
+        .pingInterval(Duration.ofSeconds(30))
         .build()
 
     private val api: HomeBaseApi = Retrofit.Builder()
