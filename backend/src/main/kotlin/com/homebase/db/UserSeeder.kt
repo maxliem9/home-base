@@ -1,6 +1,6 @@
 package com.homebase.db
 
-import com.homebase.security.sha256
+import com.homebase.security.Passwords
 import io.ktor.server.config.*
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.insert
@@ -62,7 +62,6 @@ object UserSeeder {
     fun seed(users: List<SeedUser>) {
         transaction {
             users.forEach { user ->
-                val hash = sha256(user.password)
                 val existing = UsersTable
                     .selectAll()
                     .where { UsersTable.username eq user.username }
@@ -72,13 +71,16 @@ object UserSeeder {
                     UsersTable.insert {
                         it[id] = UUID.randomUUID()
                         it[username] = user.username
-                        it[passwordHash] = hash
+                        it[passwordHash] = Passwords.hash(user.password)
                         it[createdAt] = Instant.now()
                     }
                     log.info("Seeded new user '{}'.", user.username)
-                } else if (existing[UsersTable.passwordHash] != hash) {
+                } else if (!Passwords.verify(user.password, existing[UsersTable.passwordHash])) {
+                    // Each bcrypt hash carries a random salt, so equal passwords don't yield
+                    // equal hashes — detect a changed (or legacy SHA-256) password via verify,
+                    // not string comparison, and re-hash only then.
                     UsersTable.update({ UsersTable.username eq user.username }) {
-                        it[passwordHash] = hash
+                        it[passwordHash] = Passwords.hash(user.password)
                     }
                     log.info("Updated password for existing user '{}'.", user.username)
                 }

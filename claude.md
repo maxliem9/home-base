@@ -59,6 +59,14 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
 - Alle Endpunkte unter /api/v1/
 - Fehlerbehandlung: einheitliche ErrorResponse(code, message)
 - Konfiguration ausschließlich über Umgebungsvariablen
+- JSON-Serialisierung (`plugins/Serialization.kt`) nutzt `encodeDefaults = false`:
+  Felder, deren Wert dem Default entspricht — inkl. `null` und leerer Listen mit
+  `= emptyList()` — werden aus der Antwort **weggelassen**. Das ist die gewollte
+  Konvention (kompakte Payloads, „null = nicht gesendet"). **Konsequenz für Clients:**
+  jedes optionale Feld kann fehlen; Listenfelder, die immer als Array erwartet werden,
+  müssen client-seitig sowohl ein fehlendes Feld als auch ein leeres Array vertragen
+  (Web: beim Einlesen normalisieren bzw. `?? []`; Android: Moshi-DTOs deklarieren
+  Listen als `= emptyList()`, fehlende Keys werden so zu leeren Listen). Siehe Issue #46.
 
 ## Todo-Domänenmodell
 Status-Flow: INBOX → PLANNED → DONE

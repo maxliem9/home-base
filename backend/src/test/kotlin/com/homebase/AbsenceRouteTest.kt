@@ -5,6 +5,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
+import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -152,6 +153,79 @@ class AbsenceRouteTest {
             setBody("""{"from":"2026-07-27","to":"2026-08-02","label":"Sommerschließung"}""")
         }
         assertEquals(5, state(token)["kitaClosures"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `kita range re-run is idempotent and does not duplicate closures`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val body = """{"from":"2026-07-27","to":"2026-08-02","label":"Sommerschließung"}"""
+        repeat(2) {
+            client.post("/api/v1/absence/kita/range") {
+                bearerAuth(token); contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        }
+        assertEquals(5, state(token)["kitaClosures"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `kita range rejects an oversized span with 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.post("/api/v1/absence/kita/range") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"from":"2026-01-01","to":"2029-01-01"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertTrue(state(token)["kitaClosures"]!!.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `kita range accepts the maximum span and rejects one day past it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val from = LocalDate.of(2026, 1, 1)
+        // inclusive span of exactly the cap (731 days) is allowed…
+        val ok = client.post("/api/v1/absence/kita/range") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"from":"$from","to":"${from.plusDays(730)}"}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, ok.status)
+        // …one day more is rejected.
+        val tooLong = client.post("/api/v1/absence/kita/range") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"from":"$from","to":"${from.plusDays(731)}"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooLong.status)
+    }
+
+    @Test
+    fun `batch accepts exactly the maximum number of dates`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val dates = (0 until 366).map { LocalDate.of(2026, 1, 1).plusDays(it.toLong()).toString() }
+        val datesJson = dates.joinToString(",", "[", "]") { "\"$it\"" }
+        val res = client.post("/api/v1/absence/entries/batch") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","type":"URLAUB","dates":$datesJson}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, res.status)
+        assertEquals(366, state(token)["absences"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `batch rejects too many dates with 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val dates = (1..400).map { LocalDate.of(2026, 1, 1).plusDays(it.toLong()).toString() }
+        val datesJson = dates.joinToString(",", "[", "]") { "\"$it\"" }
+        val res = client.post("/api/v1/absence/entries/batch") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","type":"URLAUB","dates":$datesJson}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertTrue(state(token)["absences"]!!.jsonArray.isEmpty())
     }
 
     @Test

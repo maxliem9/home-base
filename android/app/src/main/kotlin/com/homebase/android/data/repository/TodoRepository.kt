@@ -55,5 +55,6 @@ class TodoRepository(
         runCatching { api.deleteSubtask(todoId, subtaskId) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
+    fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 }

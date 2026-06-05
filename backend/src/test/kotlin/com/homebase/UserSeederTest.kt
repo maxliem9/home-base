@@ -2,15 +2,20 @@ package com.homebase
 
 import com.homebase.db.UserSeeder
 import com.homebase.db.UsersTable
-import com.homebase.security.sha256
+import com.homebase.security.Passwords
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
+import java.time.Instant
+import java.util.UUID
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -78,7 +83,10 @@ class UserSeederTest {
         UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "secret")))
 
         assertEquals(1, userCount())
-        assertEquals(sha256("secret"), hashOf("alice"))
+        val stored = hashOf("alice")!!
+        // Stored as a bcrypt hash, never the plaintext, and it verifies against the password.
+        assertTrue(stored.startsWith("\$2"))
+        assertTrue(Passwords.verify("secret", stored))
     }
 
     @Test
@@ -96,7 +104,43 @@ class UserSeederTest {
         UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "new")))
 
         assertEquals(1, userCount())
-        assertEquals(sha256("new"), hashOf("alice"))
+        val stored = hashOf("alice")!!
+        assertTrue(Passwords.verify("new", stored))
+        assertFalse(Passwords.verify("old", stored))
+    }
+
+    @Test
+    fun `seed upgrades a legacy SHA-256 hash to bcrypt`() {
+        // Simulate the pre-bcrypt state: a row whose password_hash is a raw SHA-256 hex
+        // (here sha256("password")). The next seed must verify-fail against it and re-hash
+        // to bcrypt — the automatic upgrade that makes a manual re-seed unnecessary (#51).
+        val legacySha256 = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = "alice"
+                it[passwordHash] = legacySha256
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "password")))
+
+        assertEquals(1, userCount())
+        val stored = hashOf("alice")!!
+        assertNotEquals(legacySha256, stored)
+        assertTrue(stored.startsWith("\$2"))
+        assertTrue(Passwords.verify("password", stored))
+    }
+
+    @Test
+    fun `seed leaves the stored hash untouched when the password is unchanged`() {
+        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "secret")))
+        val first = hashOf("alice")!!
+        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "secret")))
+
+        // Unchanged password must not trigger a re-hash (which would alter the stored salt).
+        assertEquals(first, hashOf("alice"))
     }
 
     @Test

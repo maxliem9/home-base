@@ -45,7 +45,10 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:1.5.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
+    implementation("at.favre.lib:bcrypt:0.10.2")
+
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-websockets:$ktorVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.0")
     testImplementation("com.h2database:h2:2.2.224")
     testImplementation("io.mockk:mockk:1.13.10")
@@ -69,4 +72,11 @@ ktor {
     fatJar {
         archiveFileName.set("homebase-backend.jar")
     }
+}
+
+tasks.test {
+    // bcrypt at the production cost (12) would dominate the suite — every test that
+    // seeds users hashes passwords. Drop the work factor to bcrypt's minimum for tests
+    // only; production never sets this property and keeps the default cost of 12.
+    systemProperty("homebase.bcrypt.cost", "4")
 }

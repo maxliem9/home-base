@@ -22,6 +22,15 @@ const categoryLabel = (c: RecipeCategory) => CATEGORIES.find((x) => x.id === c)?
 const totalTime = (r: Recipe) => (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0)
 const fmtAmount = (n: number) => String(Math.round(n * 100) / 100)
 
+// The backend omits empty collections from its JSON (encodeDefaults=false), so a recipe
+// without ingredients or steps arrives with those keys missing. Coerce them to [] on the
+// way in so the rest of the view can treat ingredients/steps as always-present arrays.
+const normalizeRecipe = (r: Recipe): Recipe => ({
+  ...r,
+  ingredients: r.ingredients ?? [],
+  steps: r.steps ?? [],
+})
+
 // deterministic warm hue (≈20–80) per recipe for the photo placeholder band
 const recipeHue = (id: string) => {
   let h = 0
@@ -85,7 +94,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         return
       }
       if (!res.ok) return
-      setRecipes(await res.json())
+      const list = (await res.json()) as Recipe[]
+      setRecipes(list.map(normalizeRecipe))
     } finally {
       setLoading(false)
     }
@@ -104,12 +114,14 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
       if (msg.type === 'RECIPE_CREATED') {
-        setRecipes((prev) => (prev.some((r) => r.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
+        const incoming = normalizeRecipe(msg.payload)
+        setRecipes((prev) => (prev.some((r) => r.id === incoming.id) ? prev : [incoming, ...prev]))
       } else if (msg.type === 'RECIPE_UPDATED') {
+        const incoming = normalizeRecipe(msg.payload)
         setRecipes((prev) =>
-          prev.some((r) => r.id === msg.payload.id) ? prev.map((r) => (r.id === msg.payload.id ? msg.payload : r)) : [msg.payload, ...prev],
+          prev.some((r) => r.id === incoming.id) ? prev.map((r) => (r.id === incoming.id ? incoming : r)) : [incoming, ...prev],
         )
-        setSelected((cur) => (cur && cur.id === msg.payload.id ? msg.payload : cur))
+        setSelected((cur) => (cur && cur.id === incoming.id ? incoming : cur))
       } else if (msg.type === 'RECIPE_DELETED') {
         setRecipes((prev) => prev.filter((r) => r.id !== msg.payload.id))
         setSelected((cur) => (cur && cur.id === msg.payload.id ? null : cur))
@@ -146,7 +158,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         body,
       })
       if (res.ok) {
-        const saved: Recipe = await res.json()
+        const saved = normalizeRecipe(await res.json())
         setRecipes((prev) => (prev.some((r) => r.id === saved.id) ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev]))
         setDraft(null)
         setSelected(saved)

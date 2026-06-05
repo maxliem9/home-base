@@ -199,6 +199,9 @@ class TodoViewModel(
         }
     }
 
+    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
+    fun ensureConnected() = repository.ensureWebSocketConnected()
+
     override fun onCleared() {
         super.onCleared()
         repository.disconnectWebSocket()

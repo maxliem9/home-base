@@ -381,6 +381,64 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `other user cannot rename a private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val listId = createList(alice, "Geheim", "PRIVATE")
+
+        // Bob knows the UUID but must not be able to touch Alice's private list (404, not 403,
+        // so its existence stays hidden).
+        val res = client.put("/api/v1/todos/lists/$listId") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Hijacked"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+
+        // The list is unchanged for its owner.
+        val name = Json.parseToJsonElement(
+            client.get("/api/v1/todos/lists") { bearerAuth(alice) }.bodyAsText()
+        ).jsonArray.single().jsonObject["name"]?.jsonPrimitive?.content
+        assertEquals("Geheim", name)
+    }
+
+    @Test
+    fun `other user cannot delete a private list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val listId = createList(alice, "Geheim", "PRIVATE")
+
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.delete("/api/v1/todos/lists/$listId") { bearerAuth(bob) }.status,
+        )
+        assertEquals(
+            1,
+            Json.parseToJsonElement(
+                client.get("/api/v1/todos/lists") { bearerAuth(alice) }.bodyAsText()
+            ).jsonArray.size,
+        )
+    }
+
+    @Test
+    fun `other user can still edit a shared list`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val listId = createList(alice, "Haushalt", "SHARED")
+
+        val res = client.put("/api/v1/todos/lists/$listId") {
+            bearerAuth(bob)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Wohnung"}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals("Wohnung", Json.parseToJsonElement(res.bodyAsText()).jsonObject["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `POST todo with listId stores it`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

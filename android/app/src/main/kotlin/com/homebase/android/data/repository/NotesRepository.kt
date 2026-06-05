@@ -46,5 +46,6 @@ class NotesRepository(
         runCatching { api.deleteNoteImage(noteId, imageId) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
+    fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 }
