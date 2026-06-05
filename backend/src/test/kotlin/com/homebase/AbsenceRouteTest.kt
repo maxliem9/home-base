@@ -171,8 +171,36 @@ class AbsenceRouteTest {
             setBody(body)
         }
         assertEquals(HttpStatusCode.OK, second.status)
+        // The second POST returns the existing closure, unchanged.
+        assertEquals("Heiligabend", Json.parseToJsonElement(second.bodyAsText()).jsonObject["label"]?.jsonPrimitive?.content)
         val closures = state(token)["kitaClosures"]!!.jsonArray
         assertEquals(1, closures.size)
+    }
+
+    @Test
+    fun `moving a kita closure onto an occupied date returns 409`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        suspend fun postKita(date: String) = client.post("/api/v1/absence/kita") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"date":"$date"}""")
+        }
+        postKita("2026-12-24")
+        val b = Json.parseToJsonElement(postKita("2026-12-25").bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        // Move B onto B's own date → fine (no-op against itself); onto A's date → 409.
+        val ok = client.put("/api/v1/absence/kita/$b") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"date":"2026-12-25"}""")
+        }
+        assertEquals(HttpStatusCode.OK, ok.status)
+        val conflict = client.put("/api/v1/absence/kita/$b") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"date":"2026-12-24"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, conflict.status)
+        // Both closures still intact on their original dates.
+        assertEquals(2, state(token)["kitaClosures"]!!.jsonArray.size)
     }
 
     @Test

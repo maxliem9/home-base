@@ -229,6 +229,9 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             val date = parseDate(req.date) ?: return@post call.invalidDate()
             // Idempotent: one closure per date (enforced by the unique index). If the
             // day is already marked closed, return that closure instead of duplicating it.
+            // (Two truly-concurrent posts for the same new date can still race here; the
+            // unique index is the backstop — the loser's insert rolls back rather than
+            // creating a duplicate.)
             val (dto, created) = transaction {
                 val existing = KitaClosuresTable.selectAll()
                     .where { KitaClosuresTable.date eq date }
@@ -273,14 +276,22 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             val req = call.receive<UpdateKitaRequest>()
             val date = req.date?.let { parseDate(it) ?: return@put call.invalidDate() }
 
-            val dto = transaction {
-                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@transaction null
+            // dto==null → not found; conflict==true → target date already taken by another closure.
+            val (dto, conflict) = transaction {
+                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@transaction null to false
+                // Moving onto a date another closure occupies would violate unique(date) → clean 409.
+                if (date != null && !KitaClosuresTable.selectAll()
+                        .where { (KitaClosuresTable.date eq date) and (KitaClosuresTable.id neq id) }
+                        .empty()
+                ) return@transaction null to true
                 KitaClosuresTable.update({ KitaClosuresTable.id eq id }) {
                     date?.let { v -> it[KitaClosuresTable.date] = v }
                     req.label?.let { v -> it[label] = v }
                 }
-                KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.single().toKitaDto()
-            } ?: return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Kita closure not found"))
+                KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.single().toKitaDto() to false
+            }
+            if (conflict) return@put call.respond(HttpStatusCode.Conflict, ErrorResponse("DATE_CONFLICT", "Another closure already exists on that date"))
+            if (dto == null) return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Kita closure not found"))
 
             notify()
             call.respond(dto)
