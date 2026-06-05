@@ -9,6 +9,8 @@ import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -313,6 +315,14 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
     // Upsert per-person settings; the row is created with defaults on first edit.
     put("/settings/{userId}") {
         val userId = call.parameters["userId"]!!
+        // Settings (allowance, carryover, Bundesland, kind-krank cap) are personal config:
+        // only the authenticated user may edit their own row, unlike the shared calendar days.
+        if (userId != call.username()) {
+            return@put call.respond(
+                HttpStatusCode.Forbidden,
+                ErrorResponse("FORBIDDEN", "you may only edit your own settings"),
+            )
+        }
         val req = call.receive<UpdateAbsSettingsRequest>()
         if (req.state != null && req.state !in STATE_CODES) {
             return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_STATE", "state must be a German Bundesland code"))
@@ -351,6 +361,9 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
 }
 
 // ---------- shared helpers ----------
+
+private fun ApplicationCall.username(): String =
+    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
 private fun userExists(username: String): Boolean =
     !UsersTable.selectAll().where { UsersTable.username eq username }.empty()

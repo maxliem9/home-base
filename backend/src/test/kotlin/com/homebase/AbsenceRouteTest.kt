@@ -312,4 +312,54 @@ class AbsenceRouteTest {
         }
         assertEquals(HttpStatusCode.BadRequest, res.status)
     }
+
+    @Test
+    fun `editing someone else's settings is forbidden`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+
+        // alice tries to overwrite bob's personal allowance/state → 403, and nothing is persisted.
+        val res = client.put("/api/v1/absence/settings/bob") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"state":"BY","allowance":1}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, res.status)
+        assertTrue(state(alice)["settings"]!!.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `each user may edit their own settings`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/alice") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"state":"BY"}""")
+        }.status)
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/bob") {
+            bearerAuth(bob); contentType(ContentType.Application.Json)
+            setBody("""{"state":"HH"}""")
+        }.status)
+
+        val settings = state(alice)["settings"]!!.jsonArray
+            .associate { it.jsonObject["userId"]!!.jsonPrimitive.content to it.jsonObject["state"]!!.jsonPrimitive.content }
+        assertEquals(mapOf("alice" to "BY", "bob" to "HH"), settings)
+    }
+
+    @Test
+    fun `the shared calendar lets one user edit another's days`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+
+        // The household planner is intentionally shared: alice may set bob's absence.
+        val res = client.post("/api/v1/absence/entries") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"bob","date":"2026-04-06","type":"URLAUB"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        val absences = state(alice)["absences"]!!.jsonArray
+        assertEquals(1, absences.size)
+        assertEquals("bob", absences[0].jsonObject["userId"]?.jsonPrimitive?.content)
+    }
 }
