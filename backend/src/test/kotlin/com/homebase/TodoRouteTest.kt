@@ -437,26 +437,44 @@ class TodoRouteTest {
     }
 
     @Test
-    fun `DELETE list detaches its todos`() = testApplication {
+    fun `DELETE list deletes its todos and their subtasks, leaving other lists untouched`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val listId = createList(token, "Arbeit")
+        val keepListId = createList(token, "Privat")
+
         val created = client.post("/api/v1/todos") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody("""{"title":"Report","listId":"$listId"}""")
         }
         val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        // give it a subtask so we cover the subtask cascade too
+        client.post("/api/v1/todos/$id/subtasks") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Teilschritt"}""")
+        }
+        // a todo in another list must survive the delete
+        val survivor = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Bleibt","listId":"$keepListId"}""")
+        }
+        val survivorId = Json.parseToJsonElement(survivor.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
 
         assertEquals(
             HttpStatusCode.NoContent,
             client.delete("/api/v1/todos/lists/$listId") { bearerAuth(token) }.status,
         )
 
-        val todo = Json.parseToJsonElement(
+        val todos = Json.parseToJsonElement(
             client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
-        ).jsonArray.single { it.jsonObject["id"]?.jsonPrimitive?.content == id }
-        assertTrue(todo.jsonObject["listId"].isNullJson())
+        ).jsonArray
+        // the list's todo is gone, not merely detached
+        assertTrue(todos.none { it.jsonObject["id"]?.jsonPrimitive?.content == id })
+        // the unrelated todo is still there
+        assertTrue(todos.any { it.jsonObject["id"]?.jsonPrimitive?.content == survivorId })
     }
 
     // ---- Subtasks ----

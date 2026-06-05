@@ -17,6 +17,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
@@ -114,8 +115,14 @@ fun Route.todoRoutes() {
                 val deleted = transaction {
                     val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
                         ?: return@transaction null
-                    // detach todos from the list (mirrors ON DELETE SET NULL for the H2 test DB)
-                    TodosTable.update({ TodosTable.listId eq id }) { it[listId] = null }
+                    // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for
+                    // the H2 test DB, which models list_id without a FK; real Postgres cascades via V12)
+                    val todoIds = TodosTable.selectAll().where { TodosTable.listId eq id }
+                        .map { it[TodosTable.id] }
+                    if (todoIds.isNotEmpty()) {
+                        TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId inList todoIds }
+                        TodosTable.deleteWhere { TodosTable.listId eq id }
+                    }
                     TodoListsTable.deleteWhere { TodoListsTable.id eq id }
                     existing.toListDto()
                 }
