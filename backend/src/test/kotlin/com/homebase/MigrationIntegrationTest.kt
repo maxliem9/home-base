@@ -1,10 +1,13 @@
 package com.homebase
 
 import com.homebase.db.DatabaseFactory
+import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import io.ktor.server.config.MapApplicationConfig
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -103,6 +106,74 @@ class MigrationIntegrationTest {
                 .where { TodoSubtasksTable.todoId eq todoUuid }
                 .count()
             assertEquals(1L, subtaskCount)
+        }
+    }
+
+    /**
+     * Guards the V12 `todos.list_id ... ON DELETE CASCADE` swap (issue #58). The H2 unit suite
+     * models list_id without a FK, so only the real Postgres schema can prove the cascade. Deleting
+     * a list row must take its todos — and their subtasks — with it.
+     */
+    @Test
+    fun `deleting a list cascades to its todos and their subtasks`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_cascade_${UUID.randomUUID().toString().take(8)}"
+        val listUuid = UUID.randomUUID()
+        val todoUuid = UUID.randomUUID()
+        val subtaskUuid = UUID.randomUUID()
+
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            TodoListsTable.insert {
+                it[id] = listUuid
+                it[name] = "Cascade-Liste"
+                it[visibility] = "SHARED"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            TodosTable.insert {
+                it[id] = todoUuid
+                it[title] = "in der Liste"
+                it[status] = "INBOX"
+                it[listId] = listUuid
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            TodoSubtasksTable.insert {
+                it[id] = subtaskUuid
+                it[todoId] = todoUuid
+                it[title] = "Teilschritt"
+                it[done] = false
+                it[sortOrder] = 0
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        transaction { TodoListsTable.deleteWhere { TodoListsTable.id eq listUuid } }
+
+        transaction {
+            assertEquals(
+                0L,
+                TodosTable.selectAll().where { TodosTable.id eq todoUuid }.count(),
+                "todo should be cascade-deleted with its list",
+            )
+            assertEquals(
+                0L,
+                TodoSubtasksTable.selectAll().where { TodoSubtasksTable.id eq subtaskUuid }.count(),
+                "subtask should be cascade-deleted with its todo",
+            )
         }
     }
 }

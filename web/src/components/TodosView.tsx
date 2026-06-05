@@ -57,6 +57,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
   const [doneOpen, setDoneOpen] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -229,15 +230,17 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     }
   }
 
+  // confirmed via the delete-list modal — removes the list and its todos (backend cascades)
   const removeList = async () => {
     if (!active || lists.length <= 1) return
-    if (!confirm(`${t.todos.deleteListConfirm}\n\n„${active.name}"`)) return
-    const idx = lists.findIndex((l) => l.id === active.id)
+    const removedId = active.id
+    const idx = lists.findIndex((l) => l.id === removedId)
     const next = lists[idx + 1] ?? lists[idx - 1]
-    setLists((prev) => prev.filter((l) => l.id !== active.id))
-    setTodos((prev) => prev.filter((x) => x.listId !== active.id))
+    setConfirmDelete(false)
+    setLists((prev) => prev.filter((l) => l.id !== removedId))
+    setTodos((prev) => prev.filter((x) => x.listId !== removedId))
     setActiveId(next ? next.id : null)
-    await authFetch(token, `${API_BASE}/todos/lists/${active.id}`, { method: 'DELETE' })
+    await authFetch(token, `${API_BASE}/todos/lists/${removedId}`, { method: 'DELETE' })
   }
 
   const active = lists.find((l) => l.id === activeId) ?? null
@@ -372,7 +375,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           )}
 
           {lists.length > 1 && (
-            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={removeList}>
+            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDelete(true)}>
               <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
               {t.todos.deleteList} „{active.name}"
             </button>
@@ -413,6 +416,33 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      <Modal
+        open={confirmDelete && !!active}
+        onClose={() => setConfirmDelete(false)}
+        title={t.todos.deleteListTitle}
+        width={440}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>{t.common.cancel}</Button>
+            <Button variant="danger" icon="trash" onClick={removeList}>{t.todos.deleteListConfirm}</Button>
+          </>
+        }
+      >
+        {active && (
+          <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
+            {listTodos.length === 0 ? (
+              <>Die leere Liste „<strong>{active.name}</strong>" wird gelöscht.</>
+            ) : (
+              <>
+                „<strong>{active.name}</strong>" und{' '}
+                <strong>{listTodos.length} {listTodos.length === 1 ? t.todos.taskOne : t.todos.taskMany}</strong>{' '}
+                darin werden gelöscht. {t.todos.deleteListWarn}
+              </>
+            )}
+          </p>
+        )}
+      </Modal>
     </div>
   )
 }

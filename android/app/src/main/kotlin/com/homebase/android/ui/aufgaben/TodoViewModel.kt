@@ -187,7 +187,13 @@ class TodoViewModel(
                     is TodoWebSocketClient.WsEvent.ListCreated -> upsertList(event.list)
                     is TodoWebSocketClient.WsEvent.ListUpdated -> upsertList(event.list)
                     is TodoWebSocketClient.WsEvent.ListDeleted ->
-                        _uiState.update { s -> s.copy(lists = s.lists.filter { it.id != event.list.id }) }
+                        // a deleted list takes its todos with it (backend cascade) — drop both
+                        _uiState.update { s ->
+                            s.copy(
+                                lists = s.lists.filter { it.id != event.list.id },
+                                todos = s.todos.filter { it.listId != event.list.id },
+                            )
+                        }
                 }
             }
         }

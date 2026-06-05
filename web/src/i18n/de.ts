@@ -59,8 +59,12 @@ export const de = {
     visibility: 'Sichtbarkeit',
     visShared: 'Geteilt',
     visPrivate: 'Privat',
-    deleteList: 'Liste löschen', // rendered as `Liste „{name}" löschen`
-    deleteListConfirm: 'Liste und alle Aufgaben darin löschen?', // rendered with the list name
+    deleteList: 'Liste löschen', // link label, rendered as `Liste „{name}" löschen`
+    deleteListTitle: 'Liste löschen?', // confirm-modal title
+    deleteListConfirm: 'Endgültig löschen', // danger button in the confirm modal
+    deleteListWarn: 'Das kann nicht rückgängig gemacht werden.', // shown when the list has todos
+    taskOne: 'Aufgabe', // count noun, e.g. „1 Aufgabe"
+    taskMany: 'Aufgaben', // count noun, e.g. „3 Aufgaben"
     noLists: 'Noch keine Liste',
     noListsHint: 'Lege oben deine erste Aufgabenliste an.',
     quickAddPlaceholder: 'Neue Aufgabe …', // rendered as `Neue Aufgabe in „{name}" …`

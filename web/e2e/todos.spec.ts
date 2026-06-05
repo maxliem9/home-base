@@ -162,8 +162,10 @@ test.describe('Todo lists', () => {
     await page.getByRole('tab', { name: 'Garten' }).click()
     await expect(page.getByText('Rasen mähen')).toBeVisible()
 
-    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: /Liste löschen „Garten/ }).click()
+    // a confirmation modal must appear first — no immediate delete
+    await expect(page.getByRole('heading', { name: 'Liste löschen?' })).toBeVisible()
+    await page.getByRole('button', { name: 'Endgültig löschen' }).click()
 
     await expect(page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' })).toHaveCount(0)
     await expect(page.getByText('Rasen mähen')).toHaveCount(0)
