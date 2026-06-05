@@ -104,6 +104,42 @@ test.describe('Recipes', () => {
     await expect(page.getByText('Noch keine Rezepte')).toBeVisible()
   })
 
+  test('opens a recipe whose JSON omits empty ingredients/steps (issue #46)', async ({ page }) => {
+    const mock = new MockApi()
+    await mock.install(page)
+    // The backend serializes with encodeDefaults=false, so a recipe that has no
+    // ingredients and no steps comes back WITHOUT those keys (not as empty arrays).
+    // Serve exactly that raw shape and make sure opening it does not crash the
+    // detail page on r.ingredients.length / r.steps.map.
+    await page.route('**/api/v1/recipes', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          id: 'r-bare',
+          title: 'Leitungswasser',
+          servings: 1,
+          category: 'DRINK',
+          createdBy: 'alice',
+          createdAt: '2026-06-01T08:00:00Z',
+          updatedAt: '2026-06-01T08:00:00Z',
+        }]),
+      })
+    })
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Rezepte' }).click()
+    await expect(page.getByRole('heading', { name: 'Rezepte' })).toBeVisible()
+
+    // opening the card renders the detail page (heading visible) instead of
+    // blanking out on an undefined ingredients/steps array
+    await page.locator('.hb-recipecard', { hasText: 'Leitungswasser' }).click()
+    await expect(page.getByRole('heading', { name: 'Leitungswasser' })).toBeVisible()
+    await expect(page.locator('.hb-ing')).toHaveCount(0)
+    await expect(page.locator('.hb-step')).toHaveCount(0)
+  })
+
   test('adds serving-scaled recipe ingredients to a shopping list', async ({ page }) => {
     const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
       .seedRecipes([PANCAKES])
