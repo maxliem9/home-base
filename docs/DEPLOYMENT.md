@@ -117,6 +117,12 @@ DIGEST_TIME=20:00
 > timezone**. If your digest fires at the wrong moment, add `TZ=Europe/Berlin`
 > to the `backend` service environment (in `docker-compose.yml` or `.env`).
 
+> **Note images:** uploads are stored in the `uploads` Docker volume, wired up
+> automatically by `docker-compose.yml` (mounted at `/data/uploads`), so there's
+> nothing to configure for a default setup. To change the 10 MB per-image cap,
+> set `MAX_UPLOAD_MB` in `.env`. Remember to back up the `uploads` volume — see
+> Part 10.
+
 ---
 
 ## 4. TLS certificate (DSM Let's Encrypt)
@@ -361,12 +367,22 @@ sudo docker compose logs -f backend
 # Restart proxy after a cert renewal
 sudo docker restart homebase-nginx-1
 
-# Back up the database (data lives in the pgdata volume)
+# Back up the database (todos, notes, recipes, … live in the pgdata volume)
 sudo docker compose exec db pg_dump -U "$DB_USER" homebase > homebase-$(date +%F).sql
+
+# Back up uploaded note images — these live in the `uploads` volume, NOT in the
+# SQL dump above. (Volume name is <project>_uploads; check with `docker volume ls`.)
+sudo docker run --rm -v homebase_uploads:/data -v "$PWD":/backup alpine \
+  tar czf /backup/homebase-uploads-$(date +%F).tar.gz -C /data .
 ```
 
-The Postgres data persists in the `pgdata` Docker volume across restarts and
-rebuilds. Don't delete that volume unless you intend to wipe all data.
+Two Docker volumes hold all persistent state and survive restarts/rebuilds:
+- **`pgdata`** — the Postgres database (todos, notes, recipes, time entries, …).
+- **`uploads`** — the original note image files (added with the "Bilder in
+  Notizen" feature). These are **not** part of the `pg_dump`, so back this volume
+  up separately (command above) or you'll lose all note images on a rebuild.
+
+Don't delete either volume unless you intend to wipe that data.
 
 ---
 
@@ -382,4 +398,6 @@ rebuilds. Don't delete that volume unless you intend to wipe all data.
 | Real-time sync not updating | WebSocket blocked — confirm the `/api/` proxy in `nginx/nginx.conf` keeps the `Upgrade`/`Connection` headers (it does by default) and that you reach the site over HTTPS. |
 | Android app can't connect | `BASE_URL` still the placeholder, missing `/api/v1/` suffix, or you built `assembleDebug` without repointing the debug `BASE_URL` (Path A). |
 | Telegram digest never arrives | `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` empty, wrong chat id, or nothing to report that day (empty digests are skipped by design). |
+| Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB), or nginx `client_max_body_size` (12m by default in `nginx/nginx.conf`) is lower than a raised cap. |
+| Note images vanish after a rebuild | The `uploads` volume wasn't backed up/restored — images live there, not in the SQL dump (Part 10). |
 ```

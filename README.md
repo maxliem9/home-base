@@ -121,6 +121,8 @@ curl https://home.example.com/api/v1/health
 | `TELEGRAM_CHAT_ID`  | Empfänger-Chat-ID (optional)          | `-1001234567890`                      |
 | `DIGEST_TIME`       | Uhrzeit des täglichen Digests         | `20:00`                               |
 | `HOUSEHOLD_NAME`    | Anzeigename in der Sidebar (optional) | `Mäxchen`                             |
+| `UPLOAD_DIR`        | Speicherort der Notizbilder (prod: per Volume gesetzt) | `/data/uploads`      |
+| `MAX_UPLOAD_MB`     | Max. Größe pro Notizbild in MB (optional) | `10`                              |
 
 JWT-Secret generieren:
 
