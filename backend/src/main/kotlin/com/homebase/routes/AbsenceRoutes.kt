@@ -227,9 +227,17 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
         post {
             val req = call.receive<CreateKitaRequest>()
             val date = parseDate(req.date) ?: return@post call.invalidDate()
-            val dto = transaction { insertKita(date, req.label) }
-            notify()
-            call.respond(HttpStatusCode.Created, dto)
+            // Idempotent: one closure per date (enforced by the unique index). If the
+            // day is already marked closed, return that closure instead of duplicating it.
+            val (dto, created) = transaction {
+                val existing = KitaClosuresTable.selectAll()
+                    .where { KitaClosuresTable.date eq date }
+                    .singleOrNull()
+                if (existing != null) existing.toKitaDto() to false
+                else insertKita(date, req.label) to true
+            }
+            if (created) notify()
+            call.respond(if (created) HttpStatusCode.Created else HttpStatusCode.OK, dto)
         }
 
         // Add a closure for each weekday in the range (weekends are skipped).
@@ -243,7 +251,8 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             }
 
             transaction {
-                // Skip dates that already have a closure so a re-run stays idempotent.
+                // Skip dates that already have a closure so a re-run stays idempotent
+                // and doesn't trip the unique(date) index (the DB is the hard backstop).
                 val existing = KitaClosuresTable
                     .selectAll()
                     .where { (KitaClosuresTable.date greaterEq from) and (KitaClosuresTable.date lessEq to) }

@@ -156,6 +156,26 @@ class AbsenceRouteTest {
     }
 
     @Test
+    fun `posting a kita closure twice on the same date is idempotent`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val body = """{"date":"2026-12-24","label":"Heiligabend"}"""
+        val first = client.post("/api/v1/absence/kita") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        assertEquals(HttpStatusCode.Created, first.status)
+        // Same date again → no duplicate row, returns the existing closure with 200.
+        val second = client.post("/api/v1/absence/kita") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        assertEquals(HttpStatusCode.OK, second.status)
+        val closures = state(token)["kitaClosures"]!!.jsonArray
+        assertEquals(1, closures.size)
+    }
+
+    @Test
     fun `kita range re-run is idempotent and does not duplicate closures`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
