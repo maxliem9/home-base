@@ -354,8 +354,13 @@ private data class ParsedQty(val amount: Double?, val unit: String?, val name: S
 
 /**
  * Split a label like "200 g Mehl" into amount / unit / name. A leading number (comma decimals
- * allowed) is the amount; a following short token recognised as a unit is the unit; the rest is the
- * name. Without a leading number the whole string is the name (amount/unit null).
+ * allowed) is the amount; a following token that is a known unit (KNOWN_UNITS) is the unit; the rest
+ * is the name. Without a leading number the whole string is the name (amount/unit null).
+ *
+ * Only KNOWN_UNITS count as a unit — earlier we also treated any short letter-only token as one,
+ * which swallowed the first word of a multi-word name ("2 rote Paprika" → unit="rote") and broke the
+ * merge for such ingredients. Our own labels always carry structured units, so the whitelist is
+ * enough. See issue #47.
  */
 private fun parseQty(line: String): ParsedQty {
     val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -366,9 +371,7 @@ private fun parseQty(line: String): ParsedQty {
     var unit: String? = null
     if (idx < tokens.size) {
         val candidate = tokens[idx]
-        val isUnit = candidate.lowercase() in KNOWN_UNITS ||
-            (candidate.length <= 4 && candidate.any { it.isLetter() } && candidate.none { it.isDigit() })
-        if (isUnit && idx < tokens.size - 1) { unit = candidate; idx++ }
+        if (candidate.lowercase() in KNOWN_UNITS && idx < tokens.size - 1) { unit = candidate; idx++ }
     }
     val name = tokens.drop(idx).joinToString(" ")
     return if (name.isBlank()) ParsedQty(null, null, line.trim()) else ParsedQty(amount, unit, name)

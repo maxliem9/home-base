@@ -376,6 +376,40 @@ class ShoppingRouteTest {
     }
 
     @Test
+    fun `POST shopping batch merges multi-word names whose first word is short`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"rote Paprika","amount":2}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"rote Paprika","amount":3}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("5 rote Paprika", names[0])
+    }
+
+    @Test
+    fun `POST shopping batch merges multi-word name with unit`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Bio Eier","amount":6,"unit":"stk"}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Bio Eier","amount":4,"unit":"stk"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("10 stk Bio Eier", names[0])
+    }
+
+    @Test
     fun `POST shopping batch skips an exact duplicate name`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
