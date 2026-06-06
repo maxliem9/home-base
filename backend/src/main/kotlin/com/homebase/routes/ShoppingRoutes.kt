@@ -5,8 +5,6 @@ import com.homebase.db.ShoppingListsTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
-import io.ktor.server.auth.jwt.*
-import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -44,8 +42,7 @@ fun Route.shoppingRoutes() {
             }
 
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val req = call.receive<CreateShoppingListRequest>()
                 if (req.name.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
@@ -111,8 +108,7 @@ fun Route.shoppingRoutes() {
         // existing item when name + unit match (e.g. "500 g Mehl" + "200 g Mehl" → "700 g Mehl");
         // otherwise the line is added on its own. Amounts arrive already scaled by the client.
         post("/batch") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<BatchAddShoppingRequest>()
 
             val listId = req.listId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
@@ -209,8 +205,7 @@ fun Route.shoppingRoutes() {
         }
 
         post {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<CreateShoppingItemRequest>()
             if (req.name.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SHOPPING_ITEM", "name must not be blank"))
