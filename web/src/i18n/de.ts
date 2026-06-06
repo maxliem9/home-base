@@ -42,7 +42,6 @@ export const de = {
     eyebrow: 'Gemeinsam · Echtzeit',
     open: 'offen', // rendered as "{n} offen"
     plan: 'Planen',
-    edit: 'Bearbeiten', // aria-label of the per-row edit (pencil) button
     markDone: 'Erledigt',
     planTitle: 'Aufgabe planen',
     planHint: 'Mindestens Zuständige:r oder Fälligkeit angeben.',
