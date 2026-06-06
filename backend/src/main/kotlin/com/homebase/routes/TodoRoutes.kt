@@ -6,8 +6,6 @@ import com.homebase.db.TodosTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
-import io.ktor.server.auth.jwt.*
-import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -38,8 +36,7 @@ fun Route.todoRoutes() {
         // ---- Lists (registered before /{id} so the static segment wins) ----
         route("/lists") {
             get {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val lists = transaction {
                     // shared lists are visible to everyone; private lists only to their creator
                     TodoListsTable.selectAll()
@@ -51,8 +48,7 @@ fun Route.todoRoutes() {
             }
 
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val req = call.receive<CreateTodoListRequest>()
                 if (req.name.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
@@ -79,8 +75,7 @@ fun Route.todoRoutes() {
             }
 
             put("/{id}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val id = call.uuidParam() ?: return@put
                 val req = call.receive<UpdateTodoListRequest>()
                 if (req.visibility != null && req.visibility !in VALID_LIST_VISIBILITIES) {
@@ -124,8 +119,7 @@ fun Route.todoRoutes() {
             }
 
             delete("/{id}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val id = call.uuidParam() ?: return@delete
                 val deleted = transaction {
                     val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
@@ -155,8 +149,7 @@ fun Route.todoRoutes() {
         }
 
         get {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val todos = transaction {
                 // hide todos that live in someone else's private list
                 val hiddenListIds = TodoListsTable.selectAll()
@@ -171,8 +164,7 @@ fun Route.todoRoutes() {
         }
 
         post {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<CreateTodoRequest>()
             val validationError = validateTodoInput(
                 title = req.title,
@@ -227,8 +219,7 @@ fun Route.todoRoutes() {
         }
 
         put("/{id}") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTodoRequest>()
             // null = unchanged, "" = clear, else target list id (must exist)
@@ -296,8 +287,7 @@ fun Route.todoRoutes() {
         }
 
         delete("/{id}") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val id = call.uuidParam() ?: return@delete
             val result = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
@@ -322,8 +312,7 @@ fun Route.todoRoutes() {
         // ---- Subtasks ----
         route("/{id}/subtasks") {
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@post
                 val req = call.receive<CreateSubtaskRequest>()
                 if (req.title.isBlank()) {
@@ -354,8 +343,7 @@ fun Route.todoRoutes() {
             }
 
             put("/{subtaskId}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@put
                 val subtaskId = call.uuidParam("subtaskId") ?: return@put
                 val req = call.receive<UpdateSubtaskRequest>()
@@ -385,8 +373,7 @@ fun Route.todoRoutes() {
             }
 
             delete("/{subtaskId}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@delete
                 val subtaskId = call.uuidParam("subtaskId") ?: return@delete
                 val result = transaction {
