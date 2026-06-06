@@ -22,6 +22,20 @@ export function authFetch(token: string, input: RequestInfo | URL, init: Request
   return fetch(input, { ...init, headers })
 }
 
+// Pull a user-facing message out of a failed response. The backend reports
+// errors as ErrorResponse { code, message } (backend model/Models.kt); we prefer
+// that message and fall back to the given default when the body is empty or not
+// the expected shape. Lets views surface write failures consistently — see #84.
+export async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { message?: unknown }
+    if (typeof body?.message === 'string' && body.message.trim()) return body.message
+  } catch {
+    // empty body or not JSON — fall through to the default
+  }
+  return fallback
+}
+
 export function withWsToken(url: string, token: string) {
   const wsUrl = new URL(url, window.location.href)
   wsUrl.searchParams.set('token', token)

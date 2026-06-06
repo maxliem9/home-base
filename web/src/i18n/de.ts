@@ -196,6 +196,9 @@ export const de = {
     date: 'Datum',
     from: 'Von',
     to: 'Bis',
+    startFailed: 'Timer konnte nicht gestartet werden',
+    stopFailed: 'Timer konnte nicht gestoppt werden',
+    saveFailed: 'Konnte nicht gespeichert werden',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',
