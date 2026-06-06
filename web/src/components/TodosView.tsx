@@ -606,6 +606,7 @@ function TodoRow({
             <Avatar user={null} size={28} />
           )}
           <div className="hb-row__actions">
+            {!isDone && <IconButton icon="edit" label={t.common.edit} size={16} onClick={onPlan} />}
             <IconButton icon="trash" label={t.common.delete} danger size={16} onClick={onDelete} />
           </div>
         </div>
