@@ -152,7 +152,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
     const params = new URLSearchParams()
     if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString())
-    if (to) params.set('to', new Date(`${to}T23:59:59`).toISOString())
+    if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString())
     if (projectId) params.set('project_id', projectId)
     const qs = params.toString()
     const res = await authFetch(token, `${API_BASE}/time/export.csv${qs ? `?${qs}` : ''}`)

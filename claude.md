@@ -190,7 +190,9 @@ DB_PASSWORD
 JWT_SECRET
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
-DIGEST_TIME         — z.B. "20:00"
+DIGEST_TIME         — z.B. "20:00" (interpretiert in TZ)
+TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
+                      ZoneId.systemDefault(): Digest-Uhrzeit und CSV-Export-Zeitstempel
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
