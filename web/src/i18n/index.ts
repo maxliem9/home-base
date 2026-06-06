@@ -12,3 +12,10 @@ export type Messages = typeof de
 //      based on the user's saved preference, and expose it via a hook.
 // Components already read everything through `t`, so only this file changes.
 export const t: Messages = de
+
+// Map a backend ErrorResponse `code` (see api `errorCode`) to a localized
+// message, falling back to the given per-action default for missing/unknown
+// codes. Shared by all views so write failures read consistently — issue #84.
+export function errorText(code: string | null | undefined, fallback: string): string {
+  return (code && t.errors[code]) || fallback
+}

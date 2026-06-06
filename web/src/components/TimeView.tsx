@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, errorMessage, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
@@ -108,13 +108,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       body: JSON.stringify({ projectId, description: description.trim() || undefined }),
     })
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(await errorMessage(res, t.time.startFailed))
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.startFailed))
   }
 
   const stopTimer = async () => {
     const res = await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(await errorMessage(res, t.time.stopFailed))
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.stopFailed))
   }
 
   const saveDescription = async () => {
@@ -125,7 +125,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       body: JSON.stringify({ description: desc }),
     })
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(await errorMessage(res, t.time.saveFailed))
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.saveFailed))
   }
 
   const deleteEntry = async (id: string) => {
@@ -164,7 +164,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorMessage(res, t.time.saveFailed)
+    if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
     setShowManual(false)
     return null
   }

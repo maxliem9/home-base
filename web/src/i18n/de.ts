@@ -15,6 +15,21 @@ export const de = {
     titlePlaceholder: 'Titel…',
     descriptionOptional: 'Beschreibung (optional)…',
   },
+  // Backend ErrorResponse codes → German text. Shared across views so write
+  // failures read consistently; falls back to a per-action default when a code
+  // is missing/unknown (see i18n `errorText` and issue #84).
+  errors: {
+    PROJECT_ARCHIVED: 'Das Projekt ist archiviert.',
+    INVALID_RANGE: 'Das Ende muss nach dem Start liegen.',
+    INVALID_DATE: 'Ungültiges Datum.',
+    INVALID_ID: 'Ungültige Auswahl.',
+    INVALID_PROJECT: 'Projektname darf nicht leer sein.',
+    INVALID_COLOR: 'Ungültige Farbe.',
+    NOT_FOUND: 'Nicht gefunden – bitte neu laden.',
+    NO_RUNNING_TIMER: 'Es läuft gerade kein Timer.',
+    BAD_REQUEST: 'Ungültige Anfrage.',
+    INTERNAL_ERROR: 'Serverfehler – bitte später erneut versuchen.',
+  } as Record<string, string>,
   shell: {
     brandSub: 'Mäxchen', // default household label; overridable in settings
     syncActive: 'Echtzeit-Sync aktiv',
