@@ -29,6 +29,38 @@ export const de = {
     NO_RUNNING_TIMER: 'Es läuft gerade kein Timer.',
     BAD_REQUEST: 'Ungültige Anfrage.',
     INTERNAL_ERROR: 'Serverfehler – bitte später erneut versuchen.',
+    FORBIDDEN: 'Dazu fehlt dir die Berechtigung.',
+    MISSING_PARAM: 'Pflichtangabe fehlt.',
+    // Todos / Lists
+    INVALID_TODO: 'Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.',
+    INVALID_STATUS: 'Ungültiger Status.',
+    INVALID_PRIORITY: 'Ungültige Priorität.',
+    INVALID_DUE_DATE: 'Ungültiges Fälligkeitsdatum.',
+    INVALID_RECURRENCE: 'Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben.',
+    INVALID_SUBTASK: 'Titel der Unteraufgabe darf nicht leer sein.',
+    INVALID_LIST: 'Listenname darf nicht leer sein.',
+    INVALID_VISIBILITY: 'Ungültige Sichtbarkeit.',
+    // Shopping
+    INVALID_SHOPPING_ITEM: 'Name darf nicht leer sein.',
+    // Notes
+    INVALID_NOTE: 'Titel darf nicht leer sein.',
+    VISIBILITY_FORBIDDEN: 'Nur der Ersteller darf die Sichtbarkeit ändern.',
+    IMAGE_TOO_LARGE: 'Bild ist zu groß.',
+    UNSUPPORTED_TYPE: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
+    EMPTY_IMAGE: 'Das hochgeladene Bild war leer.',
+    NO_IMAGE: 'Keine Bilddatei in der Anfrage.',
+    // Recipes
+    INVALID_RECIPE: 'Rezeptangaben ungültig – Titel, Portionen und Zeiten prüfen.',
+    INVALID_INGREDIENT: 'Zutatenmenge muss ≥ 0 sein.',
+    INVALID_CATEGORY: 'Unbekannte Kategorie.',
+    // Abwesenheit
+    INVALID_TYPE: 'Ungültige Art.',
+    INVALID_HALF: 'Ungültige Tageshälfte.',
+    INVALID_WEEKDAY: 'Ungültiger Wochentag.',
+    INVALID_STATE: 'Ungültiges Bundesland.',
+    DATE_CONFLICT: 'An diesem Tag gibt es bereits einen Schließtag.',
+    RANGE_TOO_LARGE: 'Der Zeitraum ist zu lang.',
+    TOO_MANY_DATES: 'Zu viele Tage im Zeitraum.',
   } as Record<string, string>,
   shell: {
     brandSub: 'Mäxchen', // default household label; overridable in settings
@@ -117,6 +149,16 @@ export const de = {
     // Subtasks
     subtasks: 'Unteraufgaben',
     addSubtask: 'Unteraufgabe hinzufügen …',
+    // write-error fallbacks (issue #96)
+    addFailed: 'Aufgabe konnte nicht hinzugefügt werden.',
+    saveFailed: 'Änderung konnte nicht gespeichert werden.',
+    deleteFailed: 'Aufgabe konnte nicht gelöscht werden.',
+    subAddFailed: 'Unteraufgabe konnte nicht hinzugefügt werden.',
+    subSaveFailed: 'Unteraufgabe konnte nicht gespeichert werden.',
+    subDeleteFailed: 'Unteraufgabe konnte nicht gelöscht werden.',
+    listCreateFailed: 'Liste konnte nicht erstellt werden.',
+    listSaveFailed: 'Liste konnte nicht gespeichert werden.',
+    listDeleteFailed: 'Liste konnte nicht gelöscht werden.',
   },
   shopping: {
     headerTitle: 'HomeBase — Einkaufslisten',
@@ -139,6 +181,13 @@ export const de = {
     namePlaceholder: 'Was fehlt? …', // rendered as `Was fehlt in „{name}"? …`
     inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
     clearChecked: 'Abgehakte entfernen',
+    // write-error fallbacks (issue #96)
+    addFailed: 'Produkt konnte nicht hinzugefügt werden.',
+    saveFailed: 'Änderung konnte nicht gespeichert werden.',
+    deleteFailed: 'Produkt konnte nicht gelöscht werden.',
+    clearFailed: 'Abgehakte konnten nicht entfernt werden.',
+    listCreateFailed: 'Liste konnte nicht erstellt werden.',
+    listDeleteFailed: 'Liste konnte nicht gelöscht werden.',
   },
   notes: {
     headerTitle: 'HomeBase — Notizen',
@@ -164,6 +213,10 @@ export const de = {
     imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
     imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
     imageUploadFailed: 'Upload fehlgeschlagen.',
+    // write-error fallbacks (issue #96)
+    saveFailed: 'Notiz konnte nicht gespeichert werden.',
+    deleteFailed: 'Notiz konnte nicht gelöscht werden.',
+    imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
   },
   inbox: {
     headerTitle: 'HomeBase — Inbox',
@@ -280,6 +333,9 @@ export const de = {
     pickerTargetList: 'Liste',
     pickerAdd: 'hinzufügen', // rendered as "{n} hinzufügen"
     pickerNoList: 'Lege zuerst eine Einkaufsliste an.',
+    // write-error fallbacks (issue #96)
+    saveFailed: 'Rezept konnte nicht gespeichert werden.',
+    deleteFailed: 'Rezept konnte nicht gelöscht werden.',
     // keys match the RecipeCategory enum values from the backend
     categories: {
       BREAKFAST: 'Frühstück',
@@ -384,5 +440,11 @@ export const de = {
     kitaRangeHint: 'Wochenenden werden beim Zeitraum automatisch übersprungen.',
     delete: 'Löschen',
     weekdaysShort: ['Mo', 'Di', 'Mi', 'Do', 'Fr'],
+    // write-error fallbacks (issue #96)
+    saveFailed: 'Eintrag konnte nicht gespeichert werden.',
+    deleteFailed: 'Eintrag konnte nicht gelöscht werden.',
+    settingsFailed: 'Einstellung konnte nicht gespeichert werden.',
+    kitaFailed: 'Kita-Schließtag konnte nicht gespeichert werden.',
+    partTimeFailed: 'Teilzeit-Regel konnte nicht gespeichert werden.',
   },
 }

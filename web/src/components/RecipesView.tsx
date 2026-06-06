@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
+import { useErrorToast } from '../ui/ErrorToast'
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -84,7 +85,9 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [picking, setPicking] = useState<Recipe | null>(null)
   const [pickServings, setPickServings] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchRecipes = useCallback(async () => {
     try {
@@ -134,6 +137,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const handleSave = async () => {
     if (!draft || !draft.title.trim()) return
     setSaving(true)
+    setSaveError(null)
     try {
       const body = JSON.stringify({
         title: draft.title.trim(),
@@ -157,11 +161,15 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body,
       })
+      if (res.status === 401) return onLogout()
       if (res.ok) {
         const saved = normalizeRecipe(await res.json())
         setRecipes((prev) => (prev.some((r) => r.id === saved.id) ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev]))
         setDraft(null)
         setSelected(saved)
+      } else {
+        // keep the editor modal open and show the reason inline so the user can retry
+        setSaveError(errorText(await errorCode(res), t.recipes.saveFailed))
       }
     } finally {
       setSaving(false)
@@ -169,10 +177,16 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   }
 
   const handleDelete = async (id: string) => {
+    const prevRecipes = recipes
     setRecipes((prev) => prev.filter((r) => r.id !== id))
     setDraft(null)
     setSelected(null)
-    await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    const res = await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      setRecipes(prevRecipes)
+      flashError(errorText(await errorCode(res), t.recipes.deleteFailed))
+    }
   }
 
   // hand the chosen (already serving-scaled) ingredients to the batch endpoint, which formats
@@ -282,7 +296,16 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         </div>
       )}
 
-      {draft && <RecipeEditor draft={draft} setDraft={setDraft} saving={saving} onSave={handleSave} onCancel={() => setDraft(null)} />}
+      {draft && (
+        <RecipeEditor
+          draft={draft}
+          setDraft={setDraft}
+          saving={saving}
+          error={saveError}
+          onSave={handleSave}
+          onCancel={() => { setDraft(null); setSaveError(null) }}
+        />
+      )}
 
       {toast && (
         <div className="hb-toast">
@@ -290,6 +313,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           {toast}
         </div>
       )}
+
+      {errorToast}
     </div>
   )
 }
@@ -459,10 +484,11 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   )
 }
 
-function RecipeEditor({ draft, setDraft, saving, onSave, onCancel }: {
+function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
   draft: Draft
   setDraft: (d: Draft) => void
   saving: boolean
+  error: string | null
   onSave: () => void
   onCancel: () => void
 }) {
@@ -544,6 +570,8 @@ function RecipeEditor({ draft, setDraft, saving, onSave, onCancel }: {
           ))}
         </div>
       </div>
+
+      {error && <p className="hb-modal-error">{error}</p>}
     </Modal>
   )
 }
