@@ -18,4 +18,5 @@ fun Application.module() {
     configureCORS()
     configureRouting()
     configureDigest()
+    configureRecurringTodos()
 }

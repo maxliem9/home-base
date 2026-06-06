@@ -22,6 +22,21 @@ export function authFetch(token: string, input: RequestInfo | URL, init: Request
   return fetch(input, { ...init, headers })
 }
 
+// Read the `code` off a failed response. The backend reports errors as
+// ErrorResponse { code, message } (backend model/Models.kt); we surface the
+// stable code rather than the English `message` so the UI can show a localized
+// string (see i18n `errorText`). Returns null when the body is empty / not the
+// expected shape. Lets views surface write failures consistently — see #84.
+export async function errorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { code?: unknown }
+    if (typeof body?.code === 'string' && body.code) return body.code
+  } catch {
+    // empty body or not JSON — no code available
+  }
+  return null
+}
+
 export function withWsToken(url: string, token: string) {
   const wsUrl = new URL(url, window.location.href)
   wsUrl.searchParams.set('token', token)

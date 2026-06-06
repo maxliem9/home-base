@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
@@ -43,6 +43,15 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [showExport, setShowExport] = useState(false)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Surface a write failure to the user. The backend cleanly rejects the
+  // mutation (no data loss), but without this the action would just silently
+  // not happen — see issue #84.
+  const flashError = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3500)
+  }, [])
 
   const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
   const running = useMemo(() => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null, [entries, me])
@@ -94,24 +103,30 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   })
 
   const startTimer = async (projectId: string, description = '') => {
-    await authFetch(token, `${API_BASE}/time/entries/start`, {
+    const res = await authFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, description: description.trim() || undefined }),
     })
+    if (res.status === 401) return onLogout()
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.startFailed))
   }
 
   const stopTimer = async () => {
-    await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    const res = await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    if (res.status === 401) return onLogout()
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.stopFailed))
   }
 
   const saveDescription = async () => {
     if (!running || desc === (running.description ?? '')) return
-    await authFetch(token, `${API_BASE}/time/entries/${running.id}`, {
+    const res = await authFetch(token, `${API_BASE}/time/entries/${running.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: desc }),
     })
+    if (res.status === 401) return onLogout()
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.saveFailed))
   }
 
   const deleteEntry = async (id: string) => {
@@ -138,13 +153,21 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     setProjectDraft(null)
   }
 
-  const createManual = async (body: object) => {
-    await authFetch(token, `${API_BASE}/time/entries`, {
+  // Returns null on success, or an error message the modal shows inline (so it
+  // stays open for a retry) — e.g. 400 INVALID_RANGE or 409 PROJECT_ARCHIVED.
+  const createManual = async (body: object): Promise<string | null> => {
+    const res = await authFetch(token, `${API_BASE}/time/entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (res.status === 401) {
+      onLogout()
+      return null
+    }
+    if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
     setShowManual(false)
+    return null
   }
 
   // Fetch the server-rendered CSV with the JWT in the Authorization header (keeping
@@ -375,6 +398,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           onClose={() => setDetailProject(null)}
         />
       )}
+
+      {toast && (
+        <div className="hb-toast hb-toast--error" role="alert">
+          <Icon name="x" size={18} stroke={2.4} />
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
@@ -583,7 +613,7 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onClose }
 
 function ManualEntryModal({ projects, onCreate, onClose }: {
   projects: Project[]
-  onCreate: (body: object) => void
+  onCreate: (body: object) => Promise<string | null>
   onClose: () => void
 }) {
   const today = dayKey(new Date())
@@ -595,7 +625,7 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   const [error, setError] = useState<string | null>(null)
   const submitRef = useRef(false)
 
-  const submit = () => {
+  const submit = async () => {
     if (!projectId || submitRef.current) return
     const startedAt = new Date(`${date}T${start}`)
     const stoppedAt = new Date(`${date}T${end}`)
@@ -604,12 +634,24 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
       return
     }
     submitRef.current = true
-    onCreate({
-      projectId,
-      startedAt: startedAt.toISOString(),
-      stoppedAt: stoppedAt.toISOString(),
-      description: description.trim() || undefined,
-    })
+    setError(null)
+    // On failure the modal stays open; re-enable submit and show the reason.
+    // The catch covers transport errors (offline) so the button can't get stuck.
+    try {
+      const err = await onCreate({
+        projectId,
+        startedAt: startedAt.toISOString(),
+        stoppedAt: stoppedAt.toISOString(),
+        description: description.trim() || undefined,
+      })
+      if (err) {
+        submitRef.current = false
+        setError(err)
+      }
+    } catch {
+      submitRef.current = false
+      setError(t.time.saveFailed)
+    }
   }
 
   return (

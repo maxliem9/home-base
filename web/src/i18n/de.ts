@@ -15,6 +15,21 @@ export const de = {
     titlePlaceholder: 'Titel…',
     descriptionOptional: 'Beschreibung (optional)…',
   },
+  // Backend ErrorResponse codes → German text. Shared across views so write
+  // failures read consistently; falls back to a per-action default when a code
+  // is missing/unknown (see i18n `errorText` and issue #84).
+  errors: {
+    PROJECT_ARCHIVED: 'Das Projekt ist archiviert.',
+    INVALID_RANGE: 'Das Ende muss nach dem Start liegen.',
+    INVALID_DATE: 'Ungültiges Datum.',
+    INVALID_ID: 'Ungültige Auswahl.',
+    INVALID_PROJECT: 'Projektname darf nicht leer sein.',
+    INVALID_COLOR: 'Ungültige Farbe.',
+    NOT_FOUND: 'Nicht gefunden – bitte neu laden.',
+    NO_RUNNING_TIMER: 'Es läuft gerade kein Timer.',
+    BAD_REQUEST: 'Ungültige Anfrage.',
+    INTERNAL_ERROR: 'Serverfehler – bitte später erneut versuchen.',
+  } as Record<string, string>,
   shell: {
     brandSub: 'Mäxchen', // default household label; overridable in settings
     syncActive: 'Echtzeit-Sync aktiv',
@@ -50,6 +65,22 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
+    // Recurrence (issue #44)
+    recurrence: 'Wiederholung',
+    recurrenceNone: 'Keine',
+    recurrenceNeedsDue: 'Für eine Wiederholung ein Fälligkeitsdatum angeben.',
+    recurrenceEvery: 'Alle', // rendered as "Alle {n} Wochen"
+    recurrenceDaily: 'Täglich',
+    recurrenceWeekly: 'Wöchentlich',
+    recurrenceMonthly: 'Monatlich',
+    recurUnitDay: 'Tage',
+    recurUnitWeek: 'Wochen',
+    recurUnitMonth: 'Monate',
+    // compact badge on a recurring todo row
+    recurBadgeDaily: 'täglich',
+    recurBadgeWeekly: 'wöchentl.',
+    recurBadgeMonthly: 'monatl.',
+    recurBadgeEvery: 'alle', // "alle {n} {unit}"
     // Lists (tabs)
     newList: 'Neue Liste',
     newListTitle: 'Neue Liste',
@@ -201,6 +232,9 @@ export const de = {
     exportHint: 'Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.',
     exportAllProjects: 'Alle Projekte',
     exportSubmit: 'Exportieren',
+    startFailed: 'Timer konnte nicht gestartet werden',
+    stopFailed: 'Timer konnte nicht gestoppt werden',
+    saveFailed: 'Konnte nicht gespeichert werden',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

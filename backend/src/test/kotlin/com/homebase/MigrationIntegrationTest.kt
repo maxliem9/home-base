@@ -6,6 +6,7 @@ import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import io.ktor.server.config.MapApplicationConfig
+import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
@@ -13,22 +14,26 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.junit.Assume.assumeTrue
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 /**
  * Runs the real Flyway migrations against a throwaway PostgreSQL and exercises the writes
  * the unit suite can't. The other tests build their schema from Exposed via SchemaUtils on
  * H2 (see [configureTestApplication]), which silently diverges from the Flyway/Postgres
- * schema the app actually deploys against. That divergence hid three production-breaking
- * bugs (fixed in the V7/V9/V10 migrations):
+ * schema the app actually deploys against. That divergence once hid three production-breaking
+ * schema/code mismatches; the migrations now create the right schema directly, and this test
+ * keeps them honest:
  *
- *  1. V7 ALTERed tables no earlier migration created, so a fresh DB couldn't migrate at all.
- *  2. todo_subtasks was modelled in Exposed but never migrated, so the first subtask write 500'd.
- *  3. todos.status / todos.priority were PG ENUM types that reject Exposed's varchar bindings
- *     on write, so every "create todo" 500'd (reads worked via PG's implicit enum->text cast).
+ *  1. todo_lists / todos.list_id must actually be created (V7), or a fresh DB can't migrate.
+ *  2. todo_subtasks must be migrated (V10), or the first subtask write 500's.
+ *  3. todos.status / todos.priority must be VARCHAR, not PG ENUM (V2) — an enum rejects
+ *     Exposed's varchar bindings on write, so every "create todo" 500's (reads survive via
+ *     PG's implicit enum->text cast, which is why H2-only tests never caught it).
  *
  * This test reproduces the real deploy path — migrate, then insert a todo with status/priority
  * and a subtask — so the same class of schema/code drift fails CI instead of production.
@@ -53,9 +58,9 @@ class MigrationIntegrationTest {
     }
 
     @Test
-    fun `migrations apply on a fresh DB and the app can write todos, enum columns and subtasks`() {
-        // Mirrors production startup: DatabaseFactory.init runs flyway.repair() + migrate()
-        // and connects Exposed. On a fresh DB this throws loudly if any migration is broken
+    fun `migrations apply on a fresh DB and the app can write todos, status priority and subtasks`() {
+        // Mirrors production startup: DatabaseFactory.init runs flyway.migrate() and connects
+        // Exposed. On a fresh DB this throws loudly if any migration is broken
         // (this is what catches a V7-style missing-prerequisite regression).
         DatabaseFactory.init(
             MapApplicationConfig(
@@ -76,8 +81,9 @@ class MigrationIntegrationTest {
                 it[passwordHash] = "x"
                 it[createdAt] = Instant.now()
             }
-            // status/priority are the columns that were PG ENUMs before V9. If they ever
-            // revert to enum types, these varchar bindings fail here exactly as they did in prod.
+            // status/priority are the columns V2 deliberately keeps as VARCHAR (not PG ENUM).
+            // If they ever revert to enum types, these varchar bindings fail here exactly as they
+            // did in prod before that was fixed.
             TodosTable.insert {
                 it[id] = todoUuid
                 it[title] = "migration smoke test"
@@ -110,8 +116,8 @@ class MigrationIntegrationTest {
     }
 
     /**
-     * Guards the V12 `todos.list_id ... ON DELETE CASCADE` swap (issue #58). The H2 unit suite
-     * models list_id without a FK, so only the real Postgres schema can prove the cascade. Deleting
+     * Guards V7's `todos.list_id ... ON DELETE CASCADE` (issue #58). The H2 unit suite models
+     * list_id without a FK, so only the real Postgres schema can prove the cascade. Deleting
      * a list row must take its todos — and their subtasks — with it.
      */
     @Test
@@ -174,6 +180,68 @@ class MigrationIntegrationTest {
                 TodoSubtasksTable.selectAll().where { TodoSubtasksTable.id eq subtaskUuid }.count(),
                 "subtask should be cascade-deleted with its todo",
             )
+        }
+    }
+
+    /**
+     * Guards the V14 recurrence CHECK constraints (issue #44). The H2 unit suite builds its schema
+     * from Exposed via SchemaUtils, which carries none of these CHECKs, so only the real Postgres
+     * schema can prove them. A valid recurring todo must insert; a recurring todo without a due_date
+     * anchor must be rejected by `todos_recurrence_due_chk`.
+     */
+    @Test
+    fun `V14 recurrence CHECK constraints hold on Postgres`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_rec_${UUID.randomUUID().toString().take(8)}"
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        // valid: recurrence + interval + due_date anchor
+        val okId = UUID.randomUUID()
+        transaction {
+            TodosTable.insert {
+                it[id] = okId
+                it[title] = "every 2 weeks"
+                it[status] = "PLANNED"
+                it[dueDate] = LocalDate.of(2026, 6, 8)
+                it[recurrence] = "WEEKLY"
+                it[recurrenceInterval] = 2
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+        }
+        transaction {
+            val row = TodosTable.selectAll().where { TodosTable.id eq okId }.single()
+            assertEquals("WEEKLY", row[TodosTable.recurrence])
+            assertEquals(2, row[TodosTable.recurrenceInterval])
+        }
+
+        // invalid: recurrence set but no due_date anchor -> todos_recurrence_due_chk rejects it
+        assertFailsWith<ExposedSQLException> {
+            transaction {
+                TodosTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[title] = "no anchor"
+                    it[status] = "INBOX"
+                    it[recurrence] = "DAILY"
+                    it[recurrenceInterval] = 1
+                    it[createdBy] = userName
+                    it[createdAt] = Instant.now()
+                }
+            }
         }
     }
 }

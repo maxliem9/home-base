@@ -9,8 +9,6 @@ import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
-import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -361,9 +359,6 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
 }
 
 // ---------- shared helpers ----------
-
-private fun ApplicationCall.username(): String =
-    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
 private fun userExists(username: String): Boolean =
     !UsersTable.selectAll().where { UsersTable.username eq username }.empty()

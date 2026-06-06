@@ -4,10 +4,9 @@ import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.model.*
+import com.homebase.recurrence.Recurrence
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
-import io.ktor.server.auth.jwt.*
-import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -38,8 +37,7 @@ fun Route.todoRoutes() {
         // ---- Lists (registered before /{id} so the static segment wins) ----
         route("/lists") {
             get {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val lists = transaction {
                     // shared lists are visible to everyone; private lists only to their creator
                     TodoListsTable.selectAll()
@@ -51,8 +49,7 @@ fun Route.todoRoutes() {
             }
 
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val req = call.receive<CreateTodoListRequest>()
                 if (req.name.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
@@ -79,8 +76,7 @@ fun Route.todoRoutes() {
             }
 
             put("/{id}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val id = call.uuidParam() ?: return@put
                 val req = call.receive<UpdateTodoListRequest>()
                 if (req.visibility != null && req.visibility !in VALID_LIST_VISIBILITIES) {
@@ -110,7 +106,7 @@ fun Route.todoRoutes() {
                     val revealedTodos = if (!wasShared && updated.visibility != VISIBILITY_PRIVATE) {
                         TodosTable.selectAll().where { TodosTable.listId eq id }
                             .orderBy(TodosTable.createdAt to SortOrder.ASC)
-                            .map { it.toDto() }
+                            .map { it.toTodoDto() }
                     } else emptyList()
                     Triple(wasShared, updated, revealedTodos)
                 }
@@ -124,8 +120,7 @@ fun Route.todoRoutes() {
             }
 
             delete("/{id}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val id = call.uuidParam() ?: return@delete
                 val deleted = transaction {
                     val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
@@ -135,7 +130,7 @@ fun Route.todoRoutes() {
                         return@transaction null
                     }
                     // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for
-                    // the H2 test DB, which models list_id without a FK; real Postgres cascades via V12)
+                    // the H2 test DB, which models list_id without a FK; real Postgres cascades via V7)
                     val todoIds = TodosTable.selectAll().where { TodosTable.listId eq id }
                         .map { it[TodosTable.id] }
                     if (todoIds.isNotEmpty()) {
@@ -155,8 +150,7 @@ fun Route.todoRoutes() {
         }
 
         get {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val todos = transaction {
                 // hide todos that live in someone else's private list
                 val hiddenListIds = TodoListsTable.selectAll()
@@ -164,15 +158,14 @@ fun Route.todoRoutes() {
                     .map { it[TodoListsTable.id] }
                     .toSet()
                 TodosTable.selectAll()
-                    .map { it.toDto() }
+                    .map { it.toTodoDto() }
                     .filter { it.listId == null || UUID.fromString(it.listId) !in hiddenListIds }
             }
             call.respond(todos)
         }
 
         post {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<CreateTodoRequest>()
             val validationError = validateTodoInput(
                 title = req.title,
@@ -180,6 +173,8 @@ fun Route.todoRoutes() {
                 assignee = req.assignee,
                 dueDate = req.dueDate,
                 priority = req.priority,
+                recurrenceFreq = req.recurrence?.freq,
+                recurrenceInterval = req.recurrence?.interval,
             )
             if (validationError != null) {
                 call.respond(HttpStatusCode.BadRequest, validationError)
@@ -208,10 +203,12 @@ fun Route.todoRoutes() {
                     it[dueDate] = req.dueDate?.let { d -> LocalDate.parse(d) }
                     it[priority] = req.priority
                     it[TodosTable.listId] = listId
+                    it[recurrence] = req.recurrence?.freq
+                    it[recurrenceInterval] = req.recurrence?.let { r -> r.interval.coerceAtLeast(1) }
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
-                val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toDto()
+                val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toTodoDto()
                 val shared = listVisibility != VISIBILITY_PRIVATE
                 TodoMutation(dto, wasShared = shared, isShared = shared)
             }
@@ -227,8 +224,7 @@ fun Route.todoRoutes() {
         }
 
         put("/{id}") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTodoRequest>()
             // null = unchanged, "" = clear, else target list id (must exist)
@@ -249,17 +245,30 @@ fun Route.todoRoutes() {
                 val nextStatus = req.status ?: existing[TodosTable.status]
                 val nextAssignee = req.assignee ?: existing[TodosTable.assignee]
                 val nextDueDate = req.dueDate ?: existing[TodosTable.dueDate]?.toString()
+                // merge the recurrence rule: absent = unchanged, freq "NONE" = clear, else set/replace
+                val (nextRecFreq, nextRecInterval) = when {
+                    req.recurrence == null -> existing[TodosTable.recurrence] to existing[TodosTable.recurrenceInterval]
+                    req.recurrence.freq == Recurrence.CLEAR -> null to null
+                    else -> req.recurrence.freq to req.recurrence.interval.coerceAtLeast(1)
+                }
                 validateTodoInput(
                     title = req.title ?: existing[TodosTable.title],
                     status = nextStatus,
                     assignee = nextAssignee,
                     dueDate = nextDueDate,
                     priority = req.priority ?: existing[TodosTable.priority],
+                    recurrenceFreq = nextRecFreq,
+                    recurrenceInterval = nextRecInterval,
                 )?.let { return@transaction it }
                 // moving into a list requires it to be writable: unknown or foreign-private -> 404 (#73)
                 if (targetListId != null && writableListVisibility(targetListId, username) == null) {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
+                // null = unchanged keeps the old list; "" cleared it (targetListId == null)
+                val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
+                // a recurring todo spawns its successor the moment it first transitions into DONE
+                val becomingDone = req.status == "DONE" && existing[TodosTable.status] != "DONE"
+                val spawnNext = becomingDone && nextRecFreq != null
 
                 TodosTable.update({ TodosTable.id eq id }) {
                     req.title?.let { v -> it[title] = v }
@@ -268,15 +277,61 @@ fun Route.todoRoutes() {
                     req.dueDate?.let { v -> it[dueDate] = LocalDate.parse(v) }
                     req.priority?.let { v -> it[priority] = v }
                     req.listId?.let { _ -> it[listId] = targetListId }
+                    req.recurrence?.let { r ->
+                        if (r.freq == Recurrence.CLEAR) { it[recurrence] = null; it[recurrenceInterval] = null }
+                        else { it[recurrence] = r.freq; it[recurrenceInterval] = r.interval.coerceAtLeast(1) }
+                    }
                     req.status?.let { v ->
                         it[status] = v
                         it[doneAt] = if (v == "DONE") Instant.now() else null
                     }
+                    // the rule moves to the freshly spawned successor; the completed instance becomes
+                    // plain history so the safety-net scheduler never re-spawns from it
+                    if (spawnNext) { it[recurrence] = null; it[recurrenceInterval] = null }
                 }
-                // null = unchanged keeps the old list; "" cleared it (targetListId == null)
-                val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
-                val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toDto()
-                TodoMutation(dto, wasShared = wasShared, isShared = listIsShared(newListId))
+
+                var spawned: TodoDto? = null
+                var spawnedShared = false
+                if (spawnNext) {
+                    val anchor = req.dueDate?.let { LocalDate.parse(it) } ?: existing[TodosTable.dueDate]!!
+                    val successorDue = Recurrence.nextDueAfterCompletion(
+                        anchor, nextRecFreq!!, nextRecInterval ?: 1, LocalDate.now(),
+                    )
+                    val newId = UUID.randomUUID()
+                    val now = Instant.now()
+                    TodosTable.insert {
+                        it[TodosTable.id] = newId
+                        it[title] = req.title ?: existing[TodosTable.title]
+                        it[description] = req.description ?: existing[TodosTable.description]
+                        it[status] = "PLANNED" // always has a dueDate, so PLANNED is valid
+                        it[assignee] = nextAssignee
+                        it[dueDate] = successorDue
+                        it[priority] = req.priority ?: existing[TodosTable.priority]
+                        it[listId] = newListId
+                        it[recurrence] = nextRecFreq
+                        it[recurrenceInterval] = nextRecInterval ?: 1
+                        it[createdBy] = existing[TodosTable.createdBy]
+                        it[createdAt] = now
+                    }
+                    // carry the subtasks over as a fresh, unchecked checklist for the new instance
+                    TodoSubtasksTable.selectAll().where { TodoSubtasksTable.todoId eq id }
+                        .orderBy(TodoSubtasksTable.sortOrder to SortOrder.ASC)
+                        .forEach { sub ->
+                            TodoSubtasksTable.insert {
+                                it[TodoSubtasksTable.id] = UUID.randomUUID()
+                                it[todoId] = newId
+                                it[title] = sub[TodoSubtasksTable.title]
+                                it[done] = false
+                                it[sortOrder] = sub[TodoSubtasksTable.sortOrder]
+                                it[createdAt] = now
+                            }
+                        }
+                    spawned = TodosTable.selectAll().where { TodosTable.id eq newId }.single().toTodoDto()
+                    spawnedShared = listIsShared(newListId)
+                }
+
+                val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toTodoDto()
+                TodoMutation(dto, wasShared = wasShared, isShared = listIsShared(newListId), spawned = spawned, spawnedShared = spawnedShared)
             }
 
             if (result == null) {
@@ -292,12 +347,13 @@ fun Route.todoRoutes() {
 
             result as TodoMutation
             broadcastTodoUpdate(json, result.wasShared, result.isShared, result.todo)
+            // the recurrence successor (if any) reaches the other client as a fresh create
+            result.spawned?.let { broadcastTodoCreate(json, result.spawnedShared, it) }
             call.respond(result.todo)
         }
 
         delete("/{id}") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val id = call.uuidParam() ?: return@delete
             val result = transaction {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
@@ -308,7 +364,7 @@ fun Route.todoRoutes() {
                 // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                 TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
                 TodosTable.deleteWhere { TodosTable.id eq id }
-                existing.toDto() to shared
+                existing.toTodoDto() to shared
             }
             if (result == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Todo not found"))
@@ -322,8 +378,7 @@ fun Route.todoRoutes() {
         // ---- Subtasks ----
         route("/{id}/subtasks") {
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@post
                 val req = call.receive<CreateSubtaskRequest>()
                 if (req.title.isBlank()) {
@@ -354,8 +409,7 @@ fun Route.todoRoutes() {
             }
 
             put("/{subtaskId}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@put
                 val subtaskId = call.uuidParam("subtaskId") ?: return@put
                 val req = call.receive<UpdateSubtaskRequest>()
@@ -385,8 +439,7 @@ fun Route.todoRoutes() {
             }
 
             delete("/{subtaskId}") {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val todoId = call.uuidParam() ?: return@delete
                 val subtaskId = call.uuidParam("subtaskId") ?: return@delete
                 val result = transaction {
@@ -420,15 +473,24 @@ fun Route.todoRoutes() {
     }
 }
 
-/** A todo plus the visibility of its list before and after a mutation. */
-private class TodoMutation(val todo: TodoDto, val wasShared: Boolean, val isShared: Boolean)
+/**
+ * A todo plus the visibility of its list before and after a mutation. [spawned] carries the next
+ * recurrence instance created when a recurring todo is completed (issue #44), to broadcast separately.
+ */
+private class TodoMutation(
+    val todo: TodoDto,
+    val wasShared: Boolean,
+    val isShared: Boolean,
+    val spawned: TodoDto? = null,
+    val spawnedShared: Boolean = false,
+)
 
 /**
  * The "todos" WS channel reaches both users, so a todo in someone else's private list must never be
  * pushed over it. A todo's visibility is its list's: a todo with no list or in a SHARED list is
  * visible to both; a todo in a PRIVATE list only to that list's owner. Must run inside a transaction.
  */
-private fun listIsShared(listId: UUID?): Boolean {
+internal fun listIsShared(listId: UUID?): Boolean {
     if (listId == null) return true
     return TodoListsTable.selectAll().where { TodoListsTable.id eq listId }
         .singleOrNull()?.get(TodoListsTable.visibility) != VISIBILITY_PRIVATE
@@ -478,7 +540,7 @@ private fun todoWithVisibility(todoId: UUID): TodoMutation {
     val row = TodosTable.selectAll().where { TodosTable.id eq todoId }.single()
     val shared = listIsShared(row[TodosTable.listId])
     // a subtask edit never moves the todo between lists, so visibility is unchanged
-    return TodoMutation(row.toDto(), wasShared = shared, isShared = shared)
+    return TodoMutation(row.toTodoDto(), wasShared = shared, isShared = shared)
 }
 
 private suspend fun broadcastTodoCreate(json: Json, shared: Boolean, todo: TodoDto) {
@@ -492,7 +554,7 @@ private suspend fun broadcastTodoCreate(json: Json, shared: Boolean, todo: TodoD
  * *other* client: a todo entering a private list looks like a deletion; a todo that is (or becomes)
  * shared looks like an upsert; a todo that stays private is never sent.
  */
-private suspend fun broadcastTodoUpdate(json: Json, wasShared: Boolean, isShared: Boolean, todo: TodoDto) {
+internal suspend fun broadcastTodoUpdate(json: Json, wasShared: Boolean, isShared: Boolean, todo: TodoDto) {
     val type = when {
         isShared -> "TODO_UPDATED"   // other client upserts (covers private -> shared too)
         wasShared -> "TODO_DELETED"  // shared -> private: remove it for the other client
@@ -553,6 +615,8 @@ private fun validateTodoInput(
     assignee: String?,
     dueDate: String?,
     priority: String?,
+    recurrenceFreq: String? = null,
+    recurrenceInterval: Int? = null,
 ): ErrorResponse? {
     if (title.isBlank()) return ErrorResponse("INVALID_TODO", "title must not be blank")
     if (status !in VALID_TODO_STATUSES) {
@@ -567,6 +631,18 @@ private fun validateTodoInput(
     if (dueDate != null) {
         runCatching { LocalDate.parse(dueDate) }.getOrElse {
             return ErrorResponse("INVALID_DUE_DATE", "dueDate must be in YYYY-MM-DD format")
+        }
+    }
+    // recurrenceFreq/Interval are the *merged* (post-update) values; null means "no recurrence".
+    if (recurrenceFreq != null) {
+        if (recurrenceFreq !in Recurrence.FREQUENCIES) {
+            return ErrorResponse("INVALID_RECURRENCE", "recurrence.freq must be DAILY, WEEKLY or MONTHLY")
+        }
+        if (recurrenceInterval != null && recurrenceInterval !in 1..Recurrence.MAX_INTERVAL) {
+            return ErrorResponse("INVALID_RECURRENCE", "recurrence.interval must be between 1 and ${Recurrence.MAX_INTERVAL}")
+        }
+        if (dueDate.isNullOrBlank()) {
+            return ErrorResponse("INVALID_RECURRENCE", "a recurring todo needs a dueDate as its schedule anchor")
         }
     }
     return null
@@ -587,7 +663,7 @@ private fun ResultRow.toListDto() = TodoListDto(
     createdAt = this[TodoListsTable.createdAt].toString(),
 )
 
-private fun ResultRow.toDto(): TodoDto {
+internal fun ResultRow.toTodoDto(): TodoDto {
     val todoId = this[TodosTable.id]
     val subtasks = TodoSubtasksTable.selectAll()
         .where { TodoSubtasksTable.todoId eq todoId }
@@ -602,6 +678,7 @@ private fun ResultRow.toDto(): TodoDto {
         dueDate = this[TodosTable.dueDate]?.toString(),
         priority = this[TodosTable.priority],
         listId = this[TodosTable.listId]?.toString(),
+        recurrence = this[TodosTable.recurrence]?.let { RecurrenceDto(it, this[TodosTable.recurrenceInterval] ?: 1) },
         subtasks = subtasks,
         createdBy = this[TodosTable.createdBy],
         createdAt = this[TodosTable.createdAt].toString(),

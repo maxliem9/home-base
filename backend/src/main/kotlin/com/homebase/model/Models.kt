@@ -25,6 +25,17 @@ data class SubtaskDto(
     val sortOrder: Int
 )
 
+/**
+ * A lightweight recurrence rule on a todo (issue #44). [freq] is DAILY|WEEKLY|MONTHLY, [interval]
+ * means "every N units" (default 1, omitted from the payload). On an UpdateTodoRequest a freq of
+ * "NONE" clears the recurrence; on a response/create it is always one of the three frequencies.
+ */
+@Serializable
+data class RecurrenceDto(
+    val freq: String,
+    val interval: Int = 1
+)
+
 @Serializable
 data class TodoDto(
     val id: String,
@@ -35,6 +46,7 @@ data class TodoDto(
     val dueDate: String? = null,
     val priority: String? = null,
     val listId: String? = null,
+    val recurrence: RecurrenceDto? = null,
     val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
@@ -48,7 +60,8 @@ data class CreateTodoRequest(
     val assignee: String? = null,
     val dueDate: String? = null,
     val priority: String? = null,
-    val listId: String? = null
+    val listId: String? = null,
+    val recurrence: RecurrenceDto? = null
 )
 
 @Serializable
@@ -60,7 +73,9 @@ data class UpdateTodoRequest(
     val dueDate: String? = null,
     val priority: String? = null,
     // null = unchanged; empty string = remove from list; otherwise the target list id
-    val listId: String? = null
+    val listId: String? = null,
+    // null = unchanged; freq "NONE" clears it; otherwise sets/updates the rule
+    val recurrence: RecurrenceDto? = null
 )
 
 @Serializable

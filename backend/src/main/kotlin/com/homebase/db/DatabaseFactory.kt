@@ -27,11 +27,6 @@ object DatabaseFactory {
         val flyway = Flyway.configure()
             .dataSource(dataSource)
             .load()
-        // V7 was edited to repair its own missing-prerequisite bug; that changes its
-        // checksum. repair() realigns the stored checksum on databases where V7 is
-        // already applied (and clears any failed attempt) so the following migrate()
-        // doesn't abort with a checksum-mismatch validation error. No-op on a fresh DB.
-        flyway.repair()
         flyway.migrate()
 
         Database.connect(dataSource)

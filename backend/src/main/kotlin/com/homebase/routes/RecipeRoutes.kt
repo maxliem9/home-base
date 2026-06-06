@@ -6,8 +6,6 @@ import com.homebase.db.RecipesTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
-import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -188,9 +186,6 @@ fun Route.recipeRoutes() {
         }
     }
 }
-
-private fun ApplicationCall.username(): String =
-    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
 private fun validate(
     title: String? = null,

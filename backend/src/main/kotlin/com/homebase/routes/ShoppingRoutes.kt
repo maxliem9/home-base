@@ -5,8 +5,6 @@ import com.homebase.db.ShoppingListsTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
-import io.ktor.server.auth.jwt.*
-import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -44,8 +42,7 @@ fun Route.shoppingRoutes() {
             }
 
             post {
-                val principal = call.principal<JWTPrincipal>()!!
-                val username = principal.payload.getClaim("username").asString()
+                val username = call.username()
                 val req = call.receive<CreateShoppingListRequest>()
                 if (req.name.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
@@ -111,8 +108,7 @@ fun Route.shoppingRoutes() {
         // existing item when name + unit match (e.g. "500 g Mehl" + "200 g Mehl" → "700 g Mehl");
         // otherwise the line is added on its own. Amounts arrive already scaled by the client.
         post("/batch") {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<BatchAddShoppingRequest>()
 
             val listId = req.listId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
@@ -209,8 +205,7 @@ fun Route.shoppingRoutes() {
         }
 
         post {
-            val principal = call.principal<JWTPrincipal>()!!
-            val username = principal.payload.getClaim("username").asString()
+            val username = call.username()
             val req = call.receive<CreateShoppingItemRequest>()
             if (req.name.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SHOPPING_ITEM", "name must not be blank"))
@@ -354,8 +349,13 @@ private data class ParsedQty(val amount: Double?, val unit: String?, val name: S
 
 /**
  * Split a label like "200 g Mehl" into amount / unit / name. A leading number (comma decimals
- * allowed) is the amount; a following short token recognised as a unit is the unit; the rest is the
- * name. Without a leading number the whole string is the name (amount/unit null).
+ * allowed) is the amount; a following token that is a known unit (KNOWN_UNITS) is the unit; the rest
+ * is the name. Without a leading number the whole string is the name (amount/unit null).
+ *
+ * Only KNOWN_UNITS count as a unit — earlier we also treated any short letter-only token as one,
+ * which swallowed the first word of a multi-word name ("2 rote Paprika" → unit="rote") and broke the
+ * merge for such ingredients. Our own labels always carry structured units, so the whitelist is
+ * enough. See issue #47.
  */
 private fun parseQty(line: String): ParsedQty {
     val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -366,9 +366,7 @@ private fun parseQty(line: String): ParsedQty {
     var unit: String? = null
     if (idx < tokens.size) {
         val candidate = tokens[idx]
-        val isUnit = candidate.lowercase() in KNOWN_UNITS ||
-            (candidate.length <= 4 && candidate.any { it.isLetter() } && candidate.none { it.isDigit() })
-        if (isUnit && idx < tokens.size - 1) { unit = candidate; idx++ }
+        if (candidate.lowercase() in KNOWN_UNITS && idx < tokens.size - 1) { unit = candidate; idx++ }
     }
     val name = tokens.drop(idx).joinToString(" ")
     return if (name.isBlank()) ParsedQty(null, null, line.trim()) else ParsedQty(amount, unit, name)

@@ -376,6 +376,61 @@ class ShoppingRouteTest {
     }
 
     @Test
+    fun `POST shopping batch merges multi-word names whose first word is short`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"rote Paprika","amount":2}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"rote Paprika","amount":3}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("5 rote Paprika", names[0])
+    }
+
+    @Test
+    fun `POST shopping batch merges multi-word name with unit`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Bio Eier","amount":6,"unit":"stk"}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Bio Eier","amount":4,"unit":"stk"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(0, body["added"]!!.jsonPrimitive.int)
+        assertEquals(1, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(1, names.size)
+        assertEquals("10 stk Bio Eier", names[0])
+    }
+
+    @Test
+    fun `POST shopping batch keeps a short unknown unit as a separate line`() = testApplication {
+        // Only KNOWN_UNITS are re-parsed back out of a label; an unknown short unit ("Glas") stays
+        // part of the name, so the same ingredient lands on its own line instead of merging. This is
+        // the accepted fallback from issue #47 (priority:low) — pinned so it stays intentional.
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listId = createList(token, "Wocheneinkauf")
+        batchAdd(token, """{"listId":"$listId","items":[{"name":"Milch","amount":2,"unit":"Glas"}]}""")
+
+        val res = batchAdd(token, """{"listId":"$listId","items":[{"name":"Milch","amount":1,"unit":"Glas"}]}""")
+
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(1, body["added"]!!.jsonPrimitive.int)
+        assertEquals(0, body["merged"]!!.jsonPrimitive.int)
+        val names = itemNames(token)
+        assertEquals(2, names.size)
+        assertTrue("2 Glas Milch" in names)
+        assertTrue("1 Glas Milch" in names)
+    }
+
+    @Test
     fun `POST shopping batch skips an exact duplicate name`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

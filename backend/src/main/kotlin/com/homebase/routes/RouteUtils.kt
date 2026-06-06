@@ -3,6 +3,8 @@ package com.homebase.routes
 import com.homebase.model.ErrorResponse
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.response.*
 import java.util.UUID
 
@@ -19,3 +21,15 @@ suspend fun ApplicationCall.uuidParam(name: String = "id"): UUID? {
     }
     return uuid
 }
+
+/**
+ * The authenticated caller's username, read from the JWT "username" claim.
+ *
+ * Routes calling this must sit under `authenticate("auth-jwt")` (the principal is
+ * asserted non-null). The claim itself is validated to be present at login
+ * (see `configureAuthentication`); the `?:` guard fails loudly rather than
+ * smuggling a null into the non-null return type if that ever changes.
+ */
+fun ApplicationCall.username(): String =
+    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
+        ?: error("JWT is missing the required \"username\" claim")
