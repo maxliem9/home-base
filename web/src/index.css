@@ -493,6 +493,9 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-ingpick__name { font-size: 14.5px; }
 
 .hb-toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 11px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-lg); padding: 12px 16px 12px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; z-index: 80; animation: hb-pop 0.2s ease; }
+.hb-toast--error { border-color: oklch(0.55 0.16 32 / 0.5); color: oklch(0.5 0.16 32); }
+[data-theme="dark"] .hb-toast--error { color: oklch(0.82 0.12 32); }
+.hb-toast--error svg { color: oklch(0.55 0.16 32); }
 
 /* ---------- editor rows ---------- */
 .hb-editrow { display: flex; gap: 8px; align-items: center; }
