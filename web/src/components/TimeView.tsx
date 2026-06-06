@@ -602,16 +602,22 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
     }
     submitRef.current = true
     setError(null)
-    const err = await onCreate({
-      projectId,
-      startedAt: startedAt.toISOString(),
-      stoppedAt: stoppedAt.toISOString(),
-      description: description.trim() || undefined,
-    })
     // On failure the modal stays open; re-enable submit and show the reason.
-    if (err) {
+    // The catch covers transport errors (offline) so the button can't get stuck.
+    try {
+      const err = await onCreate({
+        projectId,
+        startedAt: startedAt.toISOString(),
+        stoppedAt: stoppedAt.toISOString(),
+        description: description.trim() || undefined,
+      })
+      if (err) {
+        submitRef.current = false
+        setError(err)
+      }
+    } catch {
       submitRef.current = false
-      setError(err)
+      setError(t.time.saveFailed)
     }
   }
 
