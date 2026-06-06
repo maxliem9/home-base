@@ -578,6 +578,47 @@ export class MockApi {
       }
     }
 
+    // ---- Time: CSV export (stub mirroring GET /time/export.csv) ----
+    // Returns text/csv + a Content-Disposition filename so the in-app blob
+    // download flow can be exercised end-to-end. Only completed entries are
+    // exported; honours the project_id/from/to filters like the backend.
+    if (path.endsWith('/time/export.csv') && method === 'GET') {
+      const projectId = url.searchParams.get('project_id')
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      const names = Object.fromEntries(this.projects.map((p) => [p.id, p.name]))
+      let rows = this.entries.filter((e) => e.stoppedAt)
+      if (projectId) rows = rows.filter((e) => e.projectId === projectId)
+      if (from) rows = rows.filter((e) => e.startedAt >= from)
+      if (to) rows = rows.filter((e) => e.startedAt <= to)
+      const esc = (v: string) => (/[;"\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
+      const fmtH = (s: number) => (s / 3600).toFixed(2).replace('.', ',')
+      const fmtHm = (s: number) =>
+        `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`
+      const lines = rows.map((e) =>
+        [
+          names[e.projectId] ?? '—',
+          e.userId,
+          e.startedAt,
+          e.stoppedAt ?? '',
+          fmtH(e.durationSeconds ?? 0),
+          fmtHm(e.durationSeconds ?? 0),
+          e.description ?? '',
+        ]
+          .map(esc)
+          .join(';'),
+      )
+      const csv = '\uFEFF' + ['Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung', ...lines].join('\r\n') + '\r\n'
+      const filename =
+        from && to ? `zeiterfassung_${from.slice(0, 10)}_${to.slice(0, 10)}.csv` : 'zeiterfassung_export.csv'
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/csv; charset=UTF-8',
+        headers: { 'content-disposition': `attachment; filename="${filename}"` },
+        body: csv,
+      })
+    }
+
     // ---- Time: projects (checked before /time/entries matchers) ----
     if (path.endsWith('/time/projects') && method === 'GET') {
       return this.json(route, this.projects)
