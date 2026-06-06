@@ -78,8 +78,9 @@ class MigrationIntegrationTest {
                 it[passwordHash] = "x"
                 it[createdAt] = Instant.now()
             }
-            // status/priority are the columns that were PG ENUMs before V9. If they ever
-            // revert to enum types, these varchar bindings fail here exactly as they did in prod.
+            // status/priority are the columns V2 deliberately keeps as VARCHAR (not PG ENUM).
+            // If they ever revert to enum types, these varchar bindings fail here exactly as they
+            // did in prod before that was fixed.
             TodosTable.insert {
                 it[id] = todoUuid
                 it[title] = "migration smoke test"
