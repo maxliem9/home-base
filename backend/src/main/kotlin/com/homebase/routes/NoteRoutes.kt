@@ -7,8 +7,6 @@ import com.homebase.ws.WsSessionManager
 import io.ktor.server.application.*
 import io.ktor.http.*
 import io.ktor.http.content.*
-import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -383,9 +381,6 @@ private sealed interface NoteUpdateResult {
 }
 
 private enum class ImageRejection { UnsupportedType, TooLarge, Empty }
-
-private fun ApplicationCall.username(): String =
-    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
 // A note is visible to a user if it is shared or they created it.
 private fun SqlExpressionBuilder.visibleTo(username: String): Op<Boolean> =

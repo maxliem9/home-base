@@ -6,8 +6,6 @@ import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
-import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -385,9 +383,6 @@ private fun Route.entryRoutes(json: Json) {
         }
     }
 }
-
-private fun ApplicationCall.username(): String =
-    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
 
 /** Accepts both plain instants ("…Z") and offset timestamps ("…+02:00"). */
 private fun parseInstant(value: String): Instant? =

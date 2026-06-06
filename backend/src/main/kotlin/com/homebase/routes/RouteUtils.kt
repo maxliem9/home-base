@@ -3,6 +3,8 @@ package com.homebase.routes
 import com.homebase.model.ErrorResponse
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.response.*
 import java.util.UUID
 
@@ -19,3 +21,7 @@ suspend fun ApplicationCall.uuidParam(name: String = "id"): UUID? {
     }
     return uuid
 }
+
+/** The authenticated caller's username, read from the JWT "username" claim. */
+fun ApplicationCall.username(): String =
+    principal<JWTPrincipal>()!!.payload.getClaim("username").asString()
