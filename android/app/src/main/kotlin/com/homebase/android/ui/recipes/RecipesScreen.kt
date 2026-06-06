@@ -850,10 +850,15 @@ private fun parseIngredients(text: String): List<IngredientInput> =
 
 /**
  * Parse a single ingredient line. A leading numeric token (comma decimals allowed) becomes the
- * amount; a following short token recognised as a unit becomes the unit; the rest is the name.
- * Lines without a leading number become a name-only ingredient.
+ * amount; a following token that is a known unit (KNOWN_UNITS) becomes the unit; the rest is the
+ * name. Lines without a leading number become a name-only ingredient.
+ *
+ * Only KNOWN_UNITS count as a unit — earlier we also treated any short letter-only token as one,
+ * which swallowed the first word of a multi-word name ("2 rote Paprika" → unit="rote") and mis-parsed
+ * the ingredient. The whitelist is enough for our short-unit notation. Mirrors the backend
+ * parseQty fix. See issues #92 / #47.
  */
-private fun parseIngredientLine(line: String): IngredientInput {
+internal fun parseIngredientLine(line: String): IngredientInput {
     val tokens = line.split(Regex("\\s+")).filter { it.isNotBlank() }
     if (tokens.isEmpty()) return IngredientInput(name = line)
 
@@ -864,9 +869,7 @@ private fun parseIngredientLine(line: String): IngredientInput {
     var unit: String? = null
     if (idx < tokens.size) {
         val candidate = tokens[idx]
-        val isUnit = candidate.lowercase() in KNOWN_UNITS ||
-            (candidate.length <= 4 && candidate.any { it.isLetter() } && candidate.none { it.isDigit() })
-        if (isUnit && idx < tokens.size - 1) {
+        if (candidate.lowercase() in KNOWN_UNITS && idx < tokens.size - 1) {
             unit = candidate
             idx++
         }
