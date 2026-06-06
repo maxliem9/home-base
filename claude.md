@@ -148,6 +148,10 @@ description?, created_at, updated_at
 - Beide Nutzer sehen alle Einträge aller Projekte.
 - Endpunkte unter /api/v1/time/ (projects, entries, entries/start,
   entries/stop, running). WebSocket: /api/v1/ws/time (Channel "time").
+- CSV-Export: GET /api/v1/time/export.csv (Filter project_id/from/to wie bei
+  entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
+  `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
+  Dezimalstunden und hh:mm. Siehe Issue #42.
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 
@@ -202,8 +206,10 @@ DB_PASSWORD
 JWT_SECRET
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
-DIGEST_TIME         — z.B. "20:00"
-RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30")
+DIGEST_TIME         — z.B. "20:00" (interpretiert in TZ)
+RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30", in TZ)
+TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
+                      ZoneId.systemDefault(): Digest-/Scheduler-Uhrzeit und CSV-Export-Zeitstempel
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)

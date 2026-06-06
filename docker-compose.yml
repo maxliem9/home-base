@@ -7,6 +7,10 @@ services:
       - "8080"
     env_file: .env
     environment:
+      # Local timezone for the container's JVM. Drives ZoneId.systemDefault(), i.e.
+      # the Telegram digest's firing time/day boundaries and the time-tracking CSV
+      # export's rendered timestamps. Override via TZ in .env.
+      TZ: ${TZ:-Europe/Berlin}
       # note image storage — persisted in the named volume below; back it up with pgdata
       UPLOAD_DIR: /data/uploads
     volumes:
