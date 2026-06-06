@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.data.model.RecurrenceDto
 import com.homebase.android.data.model.SubtaskDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
@@ -43,6 +44,7 @@ import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbBadge
+import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
@@ -336,7 +338,7 @@ private fun TaskRow(
             Column(Modifier.weight(1f)) {
                 Text(todo.title, style = HbType.rowTitle, color = Hb.ink)
                 val badge = Format.dueBadge(todo.dueDate)
-                val hasMeta = todo.priority != null || badge != null || !todo.description.isNullOrBlank()
+                val hasMeta = todo.priority != null || badge != null || todo.recurrence != null || !todo.description.isNullOrBlank()
                 if (hasMeta) {
                     Row(
                         Modifier.padding(top = 4.dp),
@@ -345,6 +347,7 @@ private fun TaskRow(
                     ) {
                         HbPriority(todo.priority)
                         badge?.let { HbBadge(it.label, it.tone) }
+                        todo.recurrence?.let { HbBadge("↻ ${recurrenceLabel(it)}", HbTone.Neutral) }
                         if (!todo.description.isNullOrBlank()) {
                             Text(
                                 todo.description!!,
@@ -570,6 +573,10 @@ private fun EditSheet(
     var assignee by remember { mutableStateOf(todo?.assignee) }
     var dueText by remember { mutableStateOf(todo?.dueDate ?: "") }
     var priority by remember { mutableStateOf(todo?.priority) }
+    // recurrence (issue #44): null freq = no repetition; needs a due date as its anchor
+    var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
+    var intervalText by remember { mutableStateOf((todo?.recurrence?.interval ?: 1).toString()) }
+    val recurrenceNeedsDue = recurrenceFreq != null && dueText.isBlank()
 
     HbBottomSheet(
         onDismiss = onDismiss,
@@ -590,6 +597,7 @@ private fun EditSheet(
             HbButton(text = "Abbrechen", onClick = onDismiss, variant = HbButtonVariant.Secondary)
             HbButton(
                 text = "Speichern",
+                enabled = !recurrenceNeedsDue,
                 onClick = {
                     if (title.isNotBlank()) {
                         if (isEdit) {
@@ -602,6 +610,10 @@ private fun EditSheet(
                                     dueDate = dueText.ifBlank { null },
                                     priority = priority,
                                     status = if (assignee != null || dueText.isNotBlank()) "PLANNED" else "INBOX",
+                                    // "NONE" clears any existing rule; otherwise set/replace it
+                                    recurrence = recurrenceFreq
+                                        ?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) }
+                                        ?: RecurrenceDto("NONE"),
                                 ),
                             )
                         } else {
@@ -671,6 +683,37 @@ private fun EditSheet(
                 PriorityPick("LOW", "Niedrig", Hb.prioLow, priority) { priority = it }
                 PriorityPick("MEDIUM", "Mittel", Hb.prioMedium, priority) { priority = it }
                 PriorityPick("HIGH", "Hoch", Hb.prioHigh, priority) { priority = it }
+            }
+        }
+        HbField("Wiederholung") {
+            val freqOptions = listOf<String?>(null, "DAILY", "WEEKLY", "MONTHLY")
+            HbSegmented(
+                options = listOf("Keine", "Täglich", "Wöchentl.", "Monatl."),
+                selectedIndex = freqOptions.indexOf(recurrenceFreq).coerceAtLeast(0),
+                onSelect = { recurrenceFreq = freqOptions[it] },
+            )
+            if (recurrenceFreq != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Alle", style = HbType.label.copy(fontSize = 13.5.sp), color = Hb.ink2)
+                    HbTextField(
+                        value = intervalText,
+                        onValueChange = { intervalText = it.filter(Char::isDigit).take(4) },
+                        mono = true,
+                        modifier = Modifier.width(64.dp),
+                    )
+                    Text(
+                        when (recurrenceFreq) { "DAILY" -> "Tage"; "WEEKLY" -> "Wochen"; else -> "Monate" },
+                        style = HbType.label.copy(fontSize = 13.5.sp),
+                        color = Hb.ink2,
+                    )
+                }
+                if (dueText.isBlank()) {
+                    Text(
+                        "Für eine Wiederholung ein Fälligkeitsdatum angeben.",
+                        style = HbType.small,
+                        color = Hb.clay,
+                    )
+                }
             }
         }
     }
@@ -752,6 +795,27 @@ private fun NewListSheet(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Compact German label for a recurrence rule, e.g. "wöchentl." or "alle 2 Wochen". */
+private fun recurrenceLabel(rec: RecurrenceDto): String {
+    val n = rec.interval.coerceAtLeast(1)
+    return if (n <= 1) {
+        when (rec.freq) {
+            "DAILY" -> "täglich"
+            "WEEKLY" -> "wöchentl."
+            "MONTHLY" -> "monatl."
+            else -> rec.freq.lowercase()
+        }
+    } else {
+        val unit = when (rec.freq) {
+            "DAILY" -> "Tage"
+            "WEEKLY" -> "Wochen"
+            "MONTHLY" -> "Monate"
+            else -> ""
+        }
+        "alle $n $unit"
+    }
+}
 
 /** Draw a 2dp bottom underline (active tab accent). */
 private fun Modifier.bottomBorder2dp(color: Color): Modifier = drawBehind {

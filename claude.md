@@ -81,8 +81,24 @@ Status-Flow: INBOX → PLANNED → DONE
 - DONE:    done_at gesetzt
 
 Felder: id, title, description?, status, assignee?,
-due_date?, priority (LOW|MEDIUM|HIGH)?,
-created_by, created_at, done_at?
+due_date?, priority (LOW|MEDIUM|HIGH)?, list_id?,
+recurrence?, created_by, created_at, done_at?
+
+### Wiederkehrende Todos (Issue #44)
+Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine RRULE):
+- `recurrence` (DTO `{freq, interval}`): freq DAILY|WEEKLY|MONTHLY, interval = alle N Einheiten
+  (default 1). DB-Spalten `recurrence` + `recurrence_interval`; auf dem Update-DTO löscht
+  freq `"NONE"` die Regel. Ein wiederkehrendes Todo braucht immer ein `due_date` als Anker
+  (per Validierung + DB-CHECK erzwungen).
+- **Abschluss-getrieben:** Wird ein wiederkehrendes Todo auf DONE gesetzt, erzeugt das Backend
+  sofort die nächste Instanz (due_date = nächste Fälligkeit, festes Schema ab altem due_date;
+  Subtasks werden unerledigt mitkopiert). Die Regel wandert auf den Nachfolger; das erledigte
+  Todo wird zu schlichter Historie (recurrence geleert) und als TODO_CREATED gesendet.
+- **Safety-Net-Scheduler** (`recurrence/RecurringTodoScheduler`, analog Telegram-Digest, täglich
+  zu RECURRING_TIME, default 00:30): rollt ein verpasstes, noch offenes wiederkehrendes Todo
+  (due_date in der Vergangenheit) auf die aktuelle Periode vor — überspringt nur ganz
+  verstrichene Perioden, erzeugt **keine** zweite Zeile, sendet TODO_UPDATED. So bleibt genau
+  eine offene Instanz, kein Auflaufen.
 
 ## Rezepte-Domänenmodell
 Recipe mit eingebetteten Ingredients + RecipeSteps (1:n, werden
@@ -187,6 +203,7 @@ JWT_SECRET
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
 DIGEST_TIME         — z.B. "20:00"
+RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30")
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)

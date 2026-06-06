@@ -819,4 +819,156 @@ class TodoRouteTest {
         }
         assertEquals(HttpStatusCode.NotFound, res.status)
     }
+
+    // ---- Recurring todos (issue #44) ----
+
+    @Test
+    fun `POST todo with recurrence stores the rule`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll rausbringen","dueDate":"2026-06-15","recurrence":{"freq":"WEEKLY","interval":2}}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        val rec = Json.parseToJsonElement(res.bodyAsText()).jsonObject["recurrence"]!!.jsonObject
+        assertEquals("WEEKLY", rec["freq"]?.jsonPrimitive?.content)
+        assertEquals(2, rec["interval"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `POST recurring todo without a dueDate returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Ohne Anker","recurrence":{"freq":"DAILY"}}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `POST recurring todo with invalid frequency returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"X","dueDate":"2026-06-15","recurrence":{"freq":"YEARLY"}}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `completing a recurring todo spawns the next instance and clears the rule on the done one`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        // a future anchor makes the successor due date deterministic (anchor + 1 week)
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll","dueDate":"2999-01-01","recurrence":{"freq":"WEEKLY"}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val done = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"DONE"}""")
+        }
+        assertEquals(HttpStatusCode.OK, done.status)
+        val doneBody = Json.parseToJsonElement(done.bodyAsText()).jsonObject
+        assertEquals("DONE", doneBody["status"]?.jsonPrimitive?.content)
+        // the completed instance is now plain history — its recurrence rule moved to the successor
+        assertTrue(doneBody["recurrence"].isNullJson())
+
+        val todos = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(2, todos.size)
+        val successor = todos.single { it.jsonObject["id"]?.jsonPrimitive?.content != id }.jsonObject
+        assertEquals("PLANNED", successor["status"]?.jsonPrimitive?.content)
+        assertEquals("2999-01-08", successor["dueDate"]?.jsonPrimitive?.content)
+        assertEquals("WEEKLY", successor["recurrence"]?.jsonObject?.get("freq")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `the spawned recurrence instance carries the subtasks unchecked`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Wochenputz","dueDate":"2999-01-01","recurrence":{"freq":"WEEKLY"}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        val subId = createSubtask(token, id, "Bad")
+        // tick the subtask done on the original
+        client.put("/api/v1/todos/$id/subtasks/$subId") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"done":true}""")
+        }
+
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"DONE"}""")
+        }
+
+        val todos = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        val successor = todos.single { it.jsonObject["id"]?.jsonPrimitive?.content != id }.jsonObject
+        val subs = successor["subtasks"]!!.jsonArray
+        assertEquals(1, subs.size)
+        assertEquals("Bad", subs[0].jsonObject["title"]?.jsonPrimitive?.content)
+        assertEquals(false, subs[0].jsonObject["done"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `PUT recurrence freq NONE clears the rule`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"X","dueDate":"2999-01-01","recurrence":{"freq":"WEEKLY"}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val cleared = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"recurrence":{"freq":"NONE"}}""")
+        }
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        assertTrue(Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["recurrence"].isNullJson())
+    }
+
+    @Test
+    fun `completing a non-recurring todo does not spawn anything`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val id = createTodo(token, "Einmalig")
+
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"DONE"}""")
+        }
+
+        val todos = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, todos.size)
+    }
 }

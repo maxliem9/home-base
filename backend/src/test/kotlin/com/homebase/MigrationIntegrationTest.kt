@@ -6,6 +6,7 @@ import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import io.ktor.server.config.MapApplicationConfig
+import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
@@ -13,10 +14,12 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.junit.Assume.assumeTrue
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 /**
  * Runs the real Flyway migrations against a throwaway PostgreSQL and exercises the writes
@@ -177,6 +180,68 @@ class MigrationIntegrationTest {
                 TodoSubtasksTable.selectAll().where { TodoSubtasksTable.id eq subtaskUuid }.count(),
                 "subtask should be cascade-deleted with its todo",
             )
+        }
+    }
+
+    /**
+     * Guards the V14 recurrence CHECK constraints (issue #44). The H2 unit suite builds its schema
+     * from Exposed via SchemaUtils, which carries none of these CHECKs, so only the real Postgres
+     * schema can prove them. A valid recurring todo must insert; a recurring todo without a due_date
+     * anchor must be rejected by `todos_recurrence_due_chk`.
+     */
+    @Test
+    fun `V14 recurrence CHECK constraints hold on Postgres`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_rec_${UUID.randomUUID().toString().take(8)}"
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        // valid: recurrence + interval + due_date anchor
+        val okId = UUID.randomUUID()
+        transaction {
+            TodosTable.insert {
+                it[id] = okId
+                it[title] = "every 2 weeks"
+                it[status] = "PLANNED"
+                it[dueDate] = LocalDate.of(2026, 6, 8)
+                it[recurrence] = "WEEKLY"
+                it[recurrenceInterval] = 2
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+        }
+        transaction {
+            val row = TodosTable.selectAll().where { TodosTable.id eq okId }.single()
+            assertEquals("WEEKLY", row[TodosTable.recurrence])
+            assertEquals(2, row[TodosTable.recurrenceInterval])
+        }
+
+        // invalid: recurrence set but no due_date anchor -> todos_recurrence_due_chk rejects it
+        assertFailsWith<ExposedSQLException> {
+            transaction {
+                TodosTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[title] = "no anchor"
+                    it[status] = "INBOX"
+                    it[recurrence] = "DAILY"
+                    it[recurrenceInterval] = 1
+                    it[createdBy] = userName
+                    it[createdAt] = Instant.now()
+                }
+            }
         }
     }
 }

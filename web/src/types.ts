@@ -1,5 +1,12 @@
 export type TodoStatus = 'INBOX' | 'PLANNED' | 'DONE'
 export type TodoPriority = 'LOW' | 'MEDIUM' | 'HIGH'
+export type RecurrenceFreq = 'DAILY' | 'WEEKLY' | 'MONTHLY'
+
+// Recurrence rule on a todo (issue #44). `interval` may be omitted by the backend when it is 1.
+export interface Recurrence {
+  freq: RecurrenceFreq
+  interval?: number
+}
 
 export interface Subtask {
   id: string
@@ -27,6 +34,7 @@ export interface Todo {
   dueDate?: string
   priority?: TodoPriority
   listId?: string
+  recurrence?: Recurrence
   subtasks?: Subtask[]
   createdBy: string
   createdAt: string
