@@ -25,11 +25,13 @@ object Recurrence {
     private const val MAX_STEPS = 100_000
 
     /**
-     * One step of the rule: the calendar date [interval] units after [from]. MONTHLY clamps to the
-     * last valid day of the target month (java.time semantics: Jan 31 + 1 month = Feb 28/29).
+     * The occurrence [steps] whole periods after [from] (so steps = 1 is the next occurrence).
+     * Always an absolute offset from the *original* [from], never re-fed from a previous result, so
+     * MONTHLY keeps its day-of-month across skips: Jan 31 + 1 = Feb 28 but + 3 = Apr 30, not Apr 28.
+     * java.time clamps each absolute offset to the last valid day of the target month.
      */
-    fun nextOccurrence(from: LocalDate, freq: String, interval: Int): LocalDate {
-        val n = interval.toLong().coerceAtLeast(1)
+    fun occurrence(from: LocalDate, freq: String, interval: Int, steps: Long): LocalDate {
+        val n = interval.toLong().coerceAtLeast(1) * steps
         return when (freq) {
             DAILY -> from.plusDays(n)
             WEEKLY -> from.plusWeeks(n)
@@ -38,18 +40,20 @@ object Recurrence {
         }
     }
 
+    /** The next occurrence one whole period after [from]. */
+    fun nextOccurrence(from: LocalDate, freq: String, interval: Int): LocalDate =
+        occurrence(from, freq, interval, 1)
+
     /**
      * Due date for the instance that follows the one anchored at [from], guaranteed to be strictly
      * after [today]. For an on-time completion this is just one step on; completing a long-overdue
-     * todo skips the periods that already elapsed so the successor still lands in the future.
+     * todo skips the periods that already elapsed so the successor still lands in the future. Each
+     * candidate is an absolute offset from [from], so the day-of-month stays anchored (no 31→28 drift).
      */
     fun nextDueAfterCompletion(from: LocalDate, freq: String, interval: Int, today: LocalDate): LocalDate {
-        var next = nextOccurrence(from, freq, interval)
-        var steps = 0
-        while (!next.isAfter(today) && steps++ < MAX_STEPS) {
-            next = nextOccurrence(next, freq, interval)
-        }
-        return next
+        var steps = 1L
+        while (!occurrence(from, freq, interval, steps).isAfter(today) && steps < MAX_STEPS) steps++
+        return occurrence(from, freq, interval, steps)
     }
 
     /**
@@ -57,14 +61,12 @@ object Recurrence {
      * elapsed by advancing [due] while the period after it has also already passed. Only whole
      * missed periods are skipped — the current period's occurrence is kept — so a chore stays on
      * schedule without ever piling up more than the single open instance. Returns [due] unchanged
-     * when nothing has fully elapsed (e.g. only a day or two late).
+     * when nothing has fully elapsed (e.g. only a day or two late). Candidates are absolute offsets
+     * from the original [due], so a last-of-month monthly rule does not drift to the 28th.
      */
     fun rollOpenDueForward(due: LocalDate, freq: String, interval: Int, today: LocalDate): LocalDate {
-        var d = due
-        var steps = 0
-        while (!nextOccurrence(d, freq, interval).isAfter(today) && steps++ < MAX_STEPS) {
-            d = nextOccurrence(d, freq, interval)
-        }
-        return d
+        var steps = 0L
+        while (!occurrence(due, freq, interval, steps + 1).isAfter(today) && steps < MAX_STEPS) steps++
+        return occurrence(due, freq, interval, steps)
     }
 }

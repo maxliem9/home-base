@@ -72,6 +72,18 @@ class RecurrenceTest {
         assertEquals(LocalDate.of(2026, 6, 15), Recurrence.rollOpenDueForward(due, Recurrence.WEEKLY, 1, today))
     }
 
+    @Test
+    fun `monthly last-of-month anchor does not drift when skipping periods`() {
+        // Jan 31, monthly: each skipped period must stay anchored to the original day-of-month,
+        // i.e. clamp per absolute offset (Feb 28, Mar 31, Apr 30, May 31) — never collapse to the 28th.
+        val anchor = LocalDate.of(2026, 1, 31)
+        val today = LocalDate.of(2026, 5, 15)
+        // next future occurrence after May 15 is May 31, not May 28
+        assertEquals(LocalDate.of(2026, 5, 31), Recurrence.nextDueAfterCompletion(anchor, Recurrence.MONTHLY, 1, today))
+        // current-period occurrence (≤ today) is Apr 30, not Apr 28
+        assertEquals(LocalDate.of(2026, 4, 30), Recurrence.rollOpenDueForward(anchor, Recurrence.MONTHLY, 1, today))
+    }
+
     // ---- service: roll-forward over the DB -------------------------------
 
     @BeforeTest
