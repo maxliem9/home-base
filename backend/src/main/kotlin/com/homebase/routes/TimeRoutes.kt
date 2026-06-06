@@ -23,6 +23,9 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
@@ -36,6 +39,7 @@ fun Route.timeRoutes() {
     route("/time") {
         projectRoutes(json)
         entryRoutes(json)
+        exportRoutes()
 
         get("/running") {
             val username = call.username()
@@ -385,6 +389,107 @@ private fun Route.entryRoutes(json: Json) {
         }
     }
 }
+
+/**
+ * Server-side CSV export of completed time entries for external processing
+ * (Excel/LibreOffice). Reuses the same `project_id` / `from` / `to` filters as the
+ * entry list. See issue #42 for the format decisions:
+ *  - delimiter `;` and a UTF-8 BOM so German Excel opens it correctly (comma is the
+ *    decimal separator there);
+ *  - timestamps rendered in the server's local zone (same convention as the digest);
+ *  - duration offered both as decimal hours ("1,50") and as hh:mm so either workflow works.
+ * Running (not-yet-stopped) entries are omitted — a report covers finished work.
+ */
+private fun Route.exportRoutes() {
+    val zone = ZoneId.systemDefault()
+
+    get("/export.csv") {
+        val projectId = call.request.queryParameters["project_id"]?.let {
+            runCatching { UUID.fromString(it) }.getOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "project_id must be a valid UUID"))
+        }
+        val from = call.request.queryParameters["from"]?.let {
+            parseInstant(it) ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "from must be an ISO-8601 timestamp"))
+        }
+        val to = call.request.queryParameters["to"]?.let {
+            parseInstant(it) ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "to must be an ISO-8601 timestamp"))
+        }
+
+        val rows = transaction {
+            val projectNames = ProjectsTable.selectAll()
+                .associate { it[ProjectsTable.id] to it[ProjectsTable.name] }
+            val query = TimeEntriesTable.selectAll()
+                .andWhere { TimeEntriesTable.stoppedAt.isNotNull() }
+            projectId?.let { pid -> query.andWhere { TimeEntriesTable.projectId eq pid } }
+            from?.let { f -> query.andWhere { TimeEntriesTable.startedAt greaterEq f } }
+            to?.let { t -> query.andWhere { TimeEntriesTable.startedAt lessEq t } }
+            query.orderBy(TimeEntriesTable.startedAt, SortOrder.ASC).map { row ->
+                CsvRow(
+                    project = projectNames[row[TimeEntriesTable.projectId]] ?: "—",
+                    user = row[TimeEntriesTable.userId],
+                    startedAt = row[TimeEntriesTable.startedAt],
+                    stoppedAt = row[TimeEntriesTable.stoppedAt]!!,
+                    description = row[TimeEntriesTable.description] ?: "",
+                )
+            }
+        }
+
+        val csv = buildTimeCsv(rows, zone)
+        val filename = exportFilename(from, to, zone)
+        call.response.header(
+            HttpHeaders.ContentDisposition,
+            ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
+        )
+        call.respondText(csv, ContentType.parse("text/csv; charset=UTF-8"))
+    }
+}
+
+private data class CsvRow(
+    val project: String,
+    val user: String,
+    val startedAt: Instant,
+    val stoppedAt: Instant,
+    val description: String,
+)
+
+private val CSV_DATETIME = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+private val FILENAME_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+/** Builds the CSV body: UTF-8 BOM, `;`-separated, CRLF line endings (Excel-friendly). */
+private fun buildTimeCsv(rows: List<CsvRow>, zone: ZoneId): String {
+    val sb = StringBuilder()
+    sb.append('\uFEFF') // BOM → Excel detects UTF-8 and renders umlauts correctly
+    sb.append("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung\r\n")
+    for (r in rows) {
+        val seconds = Duration.between(r.startedAt, r.stoppedAt).seconds
+        val cells = listOf(
+            r.project,
+            r.user,
+            CSV_DATETIME.format(r.startedAt.atZone(zone)),
+            CSV_DATETIME.format(r.stoppedAt.atZone(zone)),
+            String.format(Locale.GERMANY, "%.2f", seconds / 3600.0),
+            "%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60),
+            r.description,
+        )
+        sb.append(cells.joinToString(";") { csvField(it) }).append("\r\n")
+    }
+    return sb.toString()
+}
+
+/** RFC-4180 escaping: quote fields containing the delimiter, quotes or newlines. */
+private fun csvField(value: String): String =
+    if (value.any { it == ';' || it == '"' || it == '\n' || it == '\r' }) {
+        "\"" + value.replace("\"", "\"\"") + "\""
+    } else {
+        value
+    }
+
+private fun exportFilename(from: Instant?, to: Instant?, zone: ZoneId): String =
+    if (from != null && to != null) {
+        "zeiterfassung_${FILENAME_DATE.format(from.atZone(zone))}_${FILENAME_DATE.format(to.atZone(zone))}.csv"
+    } else {
+        "zeiterfassung_export.csv"
+    }
 
 private fun ApplicationCall.username(): String =
     principal<JWTPrincipal>()!!.payload.getClaim("username").asString()

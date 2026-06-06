@@ -132,6 +132,10 @@ description?, created_at, updated_at
 - Beide Nutzer sehen alle Einträge aller Projekte.
 - Endpunkte unter /api/v1/time/ (projects, entries, entries/start,
   entries/stop, running). WebSocket: /api/v1/ws/time (Channel "time").
+- CSV-Export: GET /api/v1/time/export.csv (Filter project_id/from/to wie bei
+  entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
+  `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
+  Dezimalstunden und hh:mm. Siehe Issue #42.
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 
