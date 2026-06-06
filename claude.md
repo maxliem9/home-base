@@ -49,6 +49,12 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
   (ghcr.io/maxliem9/homebase-{backend,web}); die NAS **zieht** sie nur, baut
   nichts aus dem Quellcode. Tag über IMAGE_TAG (default latest). Privates Repo
   ⇒ private Packages ⇒ `docker login ghcr.io` auf der NAS nötig.
+- Beide Container laufen **non-root** (backend uid 10001, web nginx uid 101).
+  Das `uploads`-Volume muss dem Backend-User gehören: `scripts/deploy.sh` chownt
+  es automatisch. Wer ein **bestehendes** (noch root-owned) Volume von Hand
+  startet (z. B. Container-Manager-UI statt deploy.sh), muss es einmalig fixen:
+  `docker compose run --rm --no-deps --user root --entrypoint chown backend -R 10001:10001 /data/uploads`
+  — sonst schlägt der erste Bild-Upload mit AccessDenied fehl.
 
 ## Backend-Konventionen
 - Kotlin, Ktor Framework
