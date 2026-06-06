@@ -135,7 +135,7 @@ fun Route.todoRoutes() {
                         return@transaction null
                     }
                     // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for
-                    // the H2 test DB, which models list_id without a FK; real Postgres cascades via V12)
+                    // the H2 test DB, which models list_id without a FK; real Postgres cascades via V7)
                     val todoIds = TodosTable.selectAll().where { TodosTable.listId eq id }
                         .map { it[TodosTable.id] }
                     if (todoIds.isNotEmpty()) {
