@@ -34,7 +34,9 @@ CREATE TABLE kita_closures (
     label TEXT  NOT NULL
 );
 
-CREATE INDEX kita_closures_date_idx ON kita_closures(date);
+-- One closure per date — a closure is a household-wide marker, so a second row for
+-- the same day is meaningless. The unique index also serves date lookups.
+CREATE UNIQUE INDEX kita_closures_date_uniq ON kita_closures(date);
 
 -- Per-person calendar settings (one row per user). Created lazily on first edit.
 CREATE TABLE abs_settings (

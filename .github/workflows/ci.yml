@@ -52,7 +52,7 @@ jobs:
     # The unit suite builds its schema from Exposed via SchemaUtils on H2, bypassing Flyway
     # and the Postgres-specific types entirely — which is exactly how three schema/code-drift
     # bugs reached production (a fresh DB couldn't migrate, and todo writes 500'd; see the
-    # V7/V9/V10 migrations). This job runs the real migrations against a throwaway Postgres
+    # V2/V7/V10 migrations). This job runs the real migrations against a throwaway Postgres
     # and exercises the writes H2 can't, so that class of drift fails CI instead of the NAS.
     services:
       postgres:
