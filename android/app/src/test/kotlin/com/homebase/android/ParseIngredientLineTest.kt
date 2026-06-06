@@ -50,4 +50,18 @@ class ParseIngredientLineTest {
         assertNull(parsed.unit)
         assertNull(parsed.amount)
     }
+
+    /**
+     * A short token that is NOT in KNOWN_UNITS stays part of the name — the accepted fallback from
+     * the #92 / #47 whitelist change (we no longer guess units). "Glas" is not a recognised unit,
+     * so it must remain in the name instead of being swallowed. Mirrors the backend test
+     * "keeps a short unknown unit as a separate line" (PR #89).
+     */
+    @Test
+    fun `unknown short unit stays in the name`() {
+        val parsed = parseIngredientLine("2 Glas Milch")
+        assertEquals("Glas Milch", parsed.name)
+        assertNull(parsed.unit)
+        assertEquals(2.0, parsed.amount!!, 0.0)
+    }
 }

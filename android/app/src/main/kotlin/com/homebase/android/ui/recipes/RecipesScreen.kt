@@ -859,11 +859,12 @@ private fun parseIngredients(text: String): List<IngredientInput> =
  * parseQty fix. See issues #92 / #47.
  */
 internal fun parseIngredientLine(line: String): IngredientInput {
-    val tokens = line.split(Regex("\\s+")).filter { it.isNotBlank() }
-    if (tokens.isEmpty()) return IngredientInput(name = line)
+    val trimmed = line.trim()
+    val tokens = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return IngredientInput(name = trimmed)
 
     val amount = tokens[0].replace(',', '.').toDoubleOrNull()
-        ?: return IngredientInput(name = line)
+        ?: return IngredientInput(name = trimmed)
 
     var idx = 1
     var unit: String? = null
@@ -877,7 +878,7 @@ internal fun parseIngredientLine(line: String): IngredientInput {
 
     val name = tokens.drop(idx).joinToString(" ")
     return if (name.isBlank()) {
-        IngredientInput(name = line)
+        IngredientInput(name = trimmed)
     } else {
         IngredientInput(name = name, amount = amount, unit = unit)
     }
