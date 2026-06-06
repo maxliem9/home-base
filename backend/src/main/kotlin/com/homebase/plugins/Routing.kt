@@ -13,6 +13,8 @@ import com.homebase.routes.todoRoutes
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
+import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 
 fun Application.configureRouting() {
@@ -20,6 +22,7 @@ fun Application.configureRouting() {
     val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
     val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
+    verifyUploadDirWritable(noteImageConfig.uploadDir)
     routing {
         route("/api/v1") {
             healthRoutes()
@@ -34,5 +37,26 @@ fun Application.configureRouting() {
                 absenceRoutes()
             }
         }
+    }
+}
+
+// The backend runs as a non-root user (uid 10001, see backend/Dockerfile), so
+// note-image uploads need a writable UPLOAD_DIR. Surface a misconfigured/
+// root-owned volume loudly at startup instead of only on the first failed upload.
+// Non-fatal on purpose: the rest of the API (todos, recipes, …) must keep working.
+private fun Application.verifyUploadDirWritable(dir: Path) {
+    val created = runCatching { Files.createDirectories(dir) }
+    if (created.isFailure) {
+        log.warn(
+            "UPLOAD_DIR '{}' could not be created: {} — note-image uploads will fail until it exists and is writable by the backend user (uid 10001).",
+            dir.toAbsolutePath(), created.exceptionOrNull()?.message
+        )
+        return
+    }
+    if (!Files.isWritable(dir)) {
+        log.warn(
+            "UPLOAD_DIR '{}' is not writable by the backend user (uid 10001) — note-image uploads will fail. For an existing root-owned volume run: chown -R 10001:10001 {}",
+            dir.toAbsolutePath(), dir.toAbsolutePath()
+        )
     }
 }
