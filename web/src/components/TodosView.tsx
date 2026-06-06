@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, withWsToken } from '../api'
 import { t } from '../i18n'
-import { Todo, TodoList, TodoPriority, Subtask, ListVisibility } from '../types'
+import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import {
@@ -38,6 +38,18 @@ interface PlanDraft {
   assignee: string
   dueDate: string
   priority: '' | TodoPriority
+  recurrenceFreq: '' | RecurrenceFreq // '' = no recurrence
+  recurrenceInterval: number
+}
+
+// short label for the recurrence badge on a todo row, e.g. "wöchentl." or "alle 2 Wochen"
+function recurrenceBadge(rec: { freq: RecurrenceFreq; interval?: number }): string {
+  const n = rec.interval ?? 1
+  if (n <= 1) {
+    return { DAILY: t.todos.recurBadgeDaily, WEEKLY: t.todos.recurBadgeWeekly, MONTHLY: t.todos.recurBadgeMonthly }[rec.freq]
+  }
+  const unit = { DAILY: t.todos.recurUnitDay, WEEKLY: t.todos.recurUnitWeek, MONTHLY: t.todos.recurUnitMonth }[rec.freq]
+  return `${t.todos.recurBadgeEvery} ${n} ${unit}`
 }
 
 interface TodosViewProps {
@@ -173,11 +185,17 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const handlePlan = async () => {
     if (!plan) return
     if (!plan.assignee.trim() && !plan.dueDate) return
+    // a recurrence needs a due date as its schedule anchor (backend enforces this too)
+    if (plan.recurrenceFreq && !plan.dueDate) return
     await patchTodo(plan.id, {
       status: 'PLANNED',
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
+      // freq "NONE" clears any existing rule; otherwise set/replace it
+      recurrence: plan.recurrenceFreq
+        ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
+        : { freq: 'NONE' },
     })
     setPlan(null)
   }
@@ -354,7 +372,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         draft={subDrafts[todo.id] ?? ''}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
                         onDelete={() => deleteTodo(todo.id)}
                         onToggleSub={(s) => toggleSubtask(todo.id, s)}
                         onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -386,7 +404,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         draft={subDrafts[todo.id] ?? ''}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '' })}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
                         onDelete={() => deleteTodo(todo.id)}
                         onToggleSub={(s) => toggleSubtask(todo.id, s)}
                         onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -422,7 +440,12 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         footer={
           <>
             <Button variant="ghost" onClick={() => setPlan(null)}>{t.common.cancel}</Button>
-            <Button onClick={handlePlan} disabled={!plan || (!plan.assignee.trim() && !plan.dueDate)}>{t.todos.plan}</Button>
+            <Button
+              onClick={handlePlan}
+              disabled={!plan || (!plan.assignee.trim() && !plan.dueDate) || (!!plan.recurrenceFreq && !plan.dueDate)}
+            >
+              {t.todos.plan}
+            </Button>
           </>
         }
       >
@@ -442,6 +465,36 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                 <option value="MEDIUM">MEDIUM</option>
                 <option value="HIGH">HIGH</option>
               </Select>
+            </Field>
+            <Field
+              label={t.todos.recurrence}
+              hint={plan.recurrenceFreq && !plan.dueDate ? t.todos.recurrenceNeedsDue : undefined}
+            >
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Select
+                  value={plan.recurrenceFreq}
+                  onChange={(v) => setPlan({ ...plan, recurrenceFreq: v as PlanDraft['recurrenceFreq'] })}
+                >
+                  <option value="">{t.todos.recurrenceNone}</option>
+                  <option value="DAILY">{t.todos.recurrenceDaily}</option>
+                  <option value="WEEKLY">{t.todos.recurrenceWeekly}</option>
+                  <option value="MONTHLY">{t.todos.recurrenceMonthly}</option>
+                </Select>
+                {plan.recurrenceFreq && (
+                  <>
+                    <span className="hb-muted" style={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>{t.todos.recurrenceEvery}</span>
+                    <TextInput
+                      type="number"
+                      value={String(plan.recurrenceInterval)}
+                      onChange={(v) => setPlan({ ...plan, recurrenceInterval: Math.max(1, Math.min(1000, Number(v) || 1)) })}
+                      style={{ width: 72 }}
+                    />
+                    <span className="hb-muted" style={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>
+                      {{ DAILY: t.todos.recurUnitDay, WEEKLY: t.todos.recurUnitWeek, MONTHLY: t.todos.recurUnitMonth }[plan.recurrenceFreq]}
+                    </span>
+                  </>
+                )}
+              </div>
             </Field>
           </>
         )}
@@ -524,6 +577,12 @@ function TodoRow({
               <span style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.description}</span>
             )}
             {todo.priority && !isDone && <PriorityDot priority={todo.priority} withLabel />}
+            {todo.recurrence && !isDone && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="repeat" size={12} stroke={2} />
+                {recurrenceBadge(todo.recurrence)}
+              </span>
+            )}
             {isDone && todo.doneAt && <span>{t.todos.markDone.toLowerCase()} {relTime(todo.doneAt)}</span>}
           </div>
         </div>

@@ -27,6 +27,13 @@ data class SubtaskDto(
     val sortOrder: Int,
 )
 
+/** Recurrence rule on a todo (issue #44). freq DAILY|WEEKLY|MONTHLY; on an update "NONE" clears it. */
+@JsonClass(generateAdapter = true)
+data class RecurrenceDto(
+    val freq: String,
+    val interval: Int = 1,
+)
+
 @JsonClass(generateAdapter = true)
 data class TodoDto(
     val id: String,
@@ -37,6 +44,7 @@ data class TodoDto(
     val dueDate: String? = null,
     val priority: String? = null,
     val listId: String? = null,
+    val recurrence: RecurrenceDto? = null,
     val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
@@ -51,6 +59,7 @@ data class CreateTodoRequest(
     val dueDate: String? = null,
     val priority: String? = null,
     val listId: String? = null,
+    val recurrence: RecurrenceDto? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -63,6 +72,8 @@ data class UpdateTodoRequest(
     val priority: String? = null,
     // null = unchanged, "" = remove from list, UUID = move to that list
     val listId: String? = null,
+    // null = unchanged; freq "NONE" clears it; otherwise sets/updates the rule
+    val recurrence: RecurrenceDto? = null,
 )
 
 @JsonClass(generateAdapter = true)

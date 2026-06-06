@@ -50,6 +50,22 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
+    // Recurrence (issue #44)
+    recurrence: 'Wiederholung',
+    recurrenceNone: 'Keine',
+    recurrenceNeedsDue: 'Für eine Wiederholung ein Fälligkeitsdatum angeben.',
+    recurrenceEvery: 'Alle', // rendered as "Alle {n} Wochen"
+    recurrenceDaily: 'Täglich',
+    recurrenceWeekly: 'Wöchentlich',
+    recurrenceMonthly: 'Monatlich',
+    recurUnitDay: 'Tage',
+    recurUnitWeek: 'Wochen',
+    recurUnitMonth: 'Monate',
+    // compact badge on a recurring todo row
+    recurBadgeDaily: 'täglich',
+    recurBadgeWeekly: 'wöchentl.',
+    recurBadgeMonthly: 'monatl.',
+    recurBadgeEvery: 'alle', // "alle {n} {unit}"
     // Lists (tabs)
     newList: 'Neue Liste',
     newListTitle: 'Neue Liste',

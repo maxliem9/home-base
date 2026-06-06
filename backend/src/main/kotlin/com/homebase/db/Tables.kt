@@ -31,6 +31,9 @@ object TodosTable : Table("todos") {
     val dueDate = date("due_date").nullable()
     val priority = varchar("priority", 10).nullable()
     val listId = uuid("list_id").nullable()
+    // Recurrence (issue #44): frequency DAILY|WEEKLY|MONTHLY + every-N interval; both NULL = one-off.
+    val recurrence = varchar("recurrence", 10).nullable()
+    val recurrenceInterval = integer("recurrence_interval").nullable()
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     val doneAt = timestamp("done_at").nullable()
