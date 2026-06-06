@@ -138,6 +138,13 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # Run the Vitest unit suite (format.ts boundary/timezone helpers). The script
+      # pins TZ=UTC via a shell prefix so the deterministic fake-timer assertions hold
+      # on the runner; a red test fails the job and blocks the PR.
+      - name: Unit tests
+        working-directory: web
+        run: npm run test:unit
+
       - name: Type-check and build
         working-directory: web
         run: npm run build
