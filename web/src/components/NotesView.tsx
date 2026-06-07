@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { API_BASE, authFetch, noteImageUrl, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, noteImageUrl, safeFetch, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
+import { useErrorToast } from '../ui/ErrorToast'
 import {
   Avatar,
   Badge,
@@ -50,12 +51,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchNotes = useCallback(async (q: string) => {
     try {
@@ -103,6 +106,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const handleSave = async () => {
     if (!draft || !draft.title.trim()) return
     setSaving(true)
+    setSaveError(null)
     try {
       const body = JSON.stringify({
         title: draft.title.trim(),
@@ -110,30 +114,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         tags: parseTags(draft.tags),
         visibility: draft.visibility,
       })
-      if (draft.id) {
-        const res = await authFetch(token, `${API_BASE}/notes/${draft.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-        })
-        if (res.ok) {
-          const updated: Note = await res.json()
-          setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
-          setSelectedId(updated.id)
-        }
+      const res = draft.id
+        ? await authFetch(token, `${API_BASE}/notes/${draft.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+        : await authFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      if (res.status === 401) return onLogout()
+      if (res.ok) {
+        const saved: Note = await res.json()
+        setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
+        setSelectedId(saved.id)
+        setDraft(null)
       } else {
-        const res = await authFetch(token, `${API_BASE}/notes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-        })
-        if (res.ok) {
-          const created: Note = await res.json()
-          setNotes((prev) => [created, ...prev])
-          setSelectedId(created.id)
-        }
+        // keep the editor open and show the reason inline so the user can retry
+        setSaveError(errorText(await errorCode(res), t.notes.saveFailed))
       }
-      setDraft(null)
     } finally {
       setSaving(false)
     }
@@ -143,7 +136,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     setNotes((prev) => prev.filter((n) => n.id !== id))
     setDraft(null)
     setSelectedId(null)
-    await authFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchNotes(query)
+      return flashError(errorText(null, t.notes.deleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchNotes(query)
+      flashError(errorText(await errorCode(res), t.notes.deleteFailed))
+    }
   }
 
   const allTags = useMemo(() => {
@@ -158,6 +163,9 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // images are managed from the read view; clear any stale upload error on selection change
   useEffect(() => { setImageError(null) }, [selectedId])
 
+  // clear a stale save error whenever the editor opens on a different note (or closes)
+  useEffect(() => { setSaveError(null) }, [draft?.id, draft === null])
+
   const handleUploadImage = async (file: File) => {
     if (!selected) return
     setImageError(null)
@@ -166,6 +174,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       const fd = new FormData()
       fd.append('file', file)
       const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images`, { method: 'POST', body: fd })
+      if (res.status === 401) return onLogout()
       if (res.ok) {
         const updated: Note = await res.json()
         setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
@@ -174,7 +183,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       } else if (res.status === 415) {
         setImageError(t.notes.imageBadType)
       } else {
-        setImageError(t.notes.imageUploadFailed)
+        setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
       }
     } catch {
       setImageError(t.notes.imageUploadFailed)
@@ -185,10 +194,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
   const handleDeleteImage = async (imageId: string) => {
     if (!selected) return
+    setImageError(null)
     const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
+    if (res.status === 401) return onLogout()
     if (res.ok) {
       const updated: Note = await res.json()
       setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+    } else {
+      setImageError(errorText(await errorCode(res), t.notes.imageDeleteFailed))
     }
   }
 
@@ -282,6 +295,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   {draft.visibility === 'PRIVATE' ? t.notes.private : t.notes.shared}
                 </Button>
               </div>
+              {saveError && <p className="hb-modal-error" style={{ marginTop: 8 }}>{saveError}</p>}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
                 {draft.id ? (
                   <Button variant="danger" icon="trash" onClick={() => handleDelete(draft.id!)}>{t.common.delete}</Button>
@@ -376,6 +390,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+
+      {errorToast}
     </div>
   )
 }

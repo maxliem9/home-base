@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
+import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
@@ -72,6 +73,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const [newListOpen, setNewListOpen] = useState(false)
   const [editListOpen, setEditListOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -143,16 +145,25 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     }
   })
 
-  const patchTodo = async (id: string, body: Record<string, unknown>) => {
+  // Returns true on success so callers (e.g. the plan modal) can decide whether
+  // to close. On failure a toast is shown and the call resolves false.
+  const patchTodo = async (id: string, body: Record<string, unknown>, fallback = t.todos.saveFailed): Promise<boolean> => {
     const res = await authFetch(token, `${API_BASE}/todos/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (res.status === 401) {
+      onLogout()
+      return false
+    }
     if (res.ok) {
       const updated: Todo = await res.json()
       setTodos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+      return true
     }
+    flashError(errorText(await errorCode(res), fallback))
+    return false
   }
 
   const handleAdd = async () => {
@@ -164,11 +175,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle.trim(), listId: active.id }),
       })
+      if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: Todo = await res.json()
         setTodos((prev) => [created, ...prev])
+        setNewTitle('')
+      } else {
+        flashError(errorText(await errorCode(res), t.todos.addFailed))
       }
-      setNewTitle('')
     } finally {
       setSubmitting(false)
     }
@@ -187,7 +201,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     if (!plan.assignee.trim() && !plan.dueDate) return
     // a recurrence needs a due date as its schedule anchor (backend enforces this too)
     if (plan.recurrenceFreq && !plan.dueDate) return
-    await patchTodo(plan.id, {
+    const ok = await patchTodo(plan.id, {
       status: 'PLANNED',
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
@@ -197,12 +211,25 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
         : { freq: 'NONE' },
     })
-    setPlan(null)
+    // keep the modal open on failure (toast shows the reason) so the user can retry
+    if (ok) setPlan(null)
   }
 
   const deleteTodo = async (id: string) => {
     setTodos((prev) => prev.filter((x) => x.id !== id))
-    await authFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
+    // On failure (transport reject or HTTP error) refetch to resync rather than
+    // restoring a captured snapshot, which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchTodos()
+      return flashError(errorText(null, t.todos.deleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchTodos()
+      flashError(errorText(await errorCode(res), t.todos.deleteFailed))
+    }
   }
 
   // --- Subtasks ---
@@ -216,9 +243,12 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
     })
+    if (res.status === 401) return onLogout()
     if (res.ok) {
       applyTodo(await res.json())
       setSubDrafts((d) => ({ ...d, [todoId]: '' }))
+    } else {
+      flashError(errorText(await errorCode(res), t.todos.subAddFailed))
     }
   }
 
@@ -228,12 +258,16 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done: !sub.done }),
     })
+    if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
+    else flashError(errorText(await errorCode(res), t.todos.subSaveFailed))
   }
 
   const deleteSubtask = async (todoId: string, subId: string) => {
     const res = await authFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${subId}`, { method: 'DELETE' })
+    if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
+    else flashError(errorText(await errorCode(res), t.todos.subDeleteFailed))
   }
 
   const toggleExpand = (id: string) =>
@@ -244,34 +278,45 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     })
 
   // --- Lists ---
-  const createList = async (name: string, visibility: ListVisibility) => {
+  // Modal-based create/edit return an error message (null on success) so the
+  // modal can show it inline and stay open for a retry — mirrors TimeView's
+  // ManualEntryModal (issue #96).
+  const createList = async (name: string, visibility: ListVisibility): Promise<string | null> => {
     const res = await authFetch(token, `${API_BASE}/todos/lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, visibility }),
     })
-    if (res.ok) {
-      const created: TodoList = await res.json()
-      setLists((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]))
-      setActiveId(created.id)
-      setNewListOpen(false)
+    if (res.status === 401) {
+      onLogout()
+      return null
     }
+    if (!res.ok) return errorText(await errorCode(res), t.todos.listCreateFailed)
+    const created: TodoList = await res.json()
+    setLists((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]))
+    setActiveId(created.id)
+    setNewListOpen(false)
+    return null
   }
 
   // rename and/or change a list's visibility. private→shared reveals the list (and its todos via the
   // backend replay) to the other user; shared→private hides it again. (issue #75)
-  const updateList = async (name: string, visibility: ListVisibility) => {
-    if (!active) return
+  const updateList = async (name: string, visibility: ListVisibility): Promise<string | null> => {
+    if (!active) return null
     const res = await authFetch(token, `${API_BASE}/todos/lists/${active.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, visibility }),
     })
-    if (res.ok) {
-      const updated: TodoList = await res.json()
-      setLists((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-      setEditListOpen(false)
+    if (res.status === 401) {
+      onLogout()
+      return null
     }
+    if (!res.ok) return errorText(await errorCode(res), t.todos.listSaveFailed)
+    const updated: TodoList = await res.json()
+    setLists((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+    setEditListOpen(false)
+    return null
   }
 
   // confirmed via the delete-list modal — removes the list and its todos (backend cascades)
@@ -284,7 +329,19 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     setLists((prev) => prev.filter((l) => l.id !== removedId))
     setTodos((prev) => prev.filter((x) => x.listId !== removedId))
     setActiveId(next ? next.id : null)
-    await authFetch(token, `${API_BASE}/todos/lists/${removedId}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/todos/lists/${removedId}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchTodos()
+      return flashError(errorText(null, t.todos.listDeleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchTodos()
+      flashError(errorText(await errorCode(res), t.todos.listDeleteFailed))
+    }
   }
 
   const active = lists.find((l) => l.id === activeId) ?? null
@@ -532,6 +589,8 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           </p>
         )}
       </Modal>
+
+      {errorToast}
     </div>
   )
 }
@@ -636,10 +695,25 @@ function TodoRow({
   )
 }
 
-function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, visibility: ListVisibility) => void }) {
+function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, visibility: ListVisibility) => Promise<string | null> }) {
   const [name, setName] = useState('')
   const [visibility, setVisibility] = useState<ListVisibility>('SHARED')
-  const create = () => { if (name.trim()) onCreate(name.trim(), visibility) }
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  // On failure the modal stays open and shows the reason inline (issue #96).
+  const create = async () => {
+    if (!name.trim() || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const err = await onCreate(name.trim(), visibility)
+      if (err) setError(err)
+    } catch {
+      setError(t.todos.listCreateFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <Modal
@@ -650,7 +724,7 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim()}>{t.todos.createList}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t.todos.createList}</Button>
         </>
       }
     >
@@ -660,6 +734,7 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
       <Field label={t.todos.visibility}>
         <VisibilityPicker visibility={visibility} onChange={setVisibility} />
       </Field>
+      {error && <p className="hb-modal-error">{error}</p>}
     </Modal>
   )
 }
@@ -671,12 +746,27 @@ function EditListModal({
 }: {
   list: TodoList
   onClose: () => void
-  onSave: (name: string, visibility: ListVisibility) => void
+  onSave: (name: string, visibility: ListVisibility) => Promise<string | null>
 }) {
   const [name, setName] = useState(list.name)
   const [visibility, setVisibility] = useState<ListVisibility>(list.visibility)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const dirty = name.trim() !== list.name || visibility !== list.visibility
-  const save = () => { if (name.trim() && dirty) onSave(name.trim(), visibility) }
+  // On failure the modal stays open and shows the reason inline (issue #96).
+  const save = async () => {
+    if (!name.trim() || !dirty || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const err = await onSave(name.trim(), visibility)
+      if (err) setError(err)
+    } catch {
+      setError(t.todos.listSaveFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <Modal
@@ -687,7 +777,7 @@ function EditListModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || !dirty}>{t.todos.saveList}</Button>
+          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || !dirty || busy}>{t.todos.saveList}</Button>
         </>
       }
     >
@@ -697,6 +787,7 @@ function EditListModal({
       <Field label={t.todos.visibility} hint={visibility === 'SHARED' ? t.todos.visSharedHint : t.todos.visPrivateHint}>
         <VisibilityPicker visibility={visibility} onChange={setVisibility} />
       </Field>
+      {error && <p className="hb-modal-error">{error}</p>}
     </Modal>
   )
 }

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
+import { useErrorToast } from '../ui/ErrorToast'
 import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -22,6 +23,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchAll = useCallback(async () => {
     try {
@@ -90,11 +92,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim(), listId: active.id }),
       })
+      if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: ShoppingItem = await res.json()
         setItems((prev) => (prev.some((i) => i.id === created.id) ? prev : [created, ...prev]))
+        setNewName('')
+      } else {
+        flashError(errorText(await errorCode(res), t.shopping.addFailed))
       }
-      setNewName('')
     } finally {
       setSubmitting(false)
     }
@@ -102,37 +107,73 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const toggleChecked = async (item: ShoppingItem) => {
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)))
-    await authFetch(token, `${API_BASE}/shopping/${item.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ checked: !item.checked }),
     })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.saveFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t.shopping.saveFailed))
+    }
   }
 
   const handleDelete = async (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id))
-    await authFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.deleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t.shopping.deleteFailed))
+    }
   }
 
   const clearChecked = async () => {
     if (!active) return
     const checkedHere = items.filter((i) => i.checked && i.listId === active.id)
     setItems((prev) => prev.filter((i) => !(i.checked && i.listId === active.id)))
-    await Promise.all(checkedHere.map((i) => authFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })))
+    const results = await Promise.all(
+      checkedHere.map((i) => safeFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })),
+    )
+    if (results.some((r) => r.ok && r.res.status === 401)) return onLogout()
+    // Any transport reject or HTTP error → refetch to resync the list.
+    if (results.some((r) => !r.ok || !r.res.ok)) {
+      await fetchAll()
+      flashError(t.shopping.clearFailed)
+    }
   }
 
-  const createList = async (name: string) => {
+  // Modal-based create returns an error message (null on success) so the modal
+  // can show it inline and stay open for a retry (issue #96).
+  const createList = async (name: string): Promise<string | null> => {
     const res = await authFetch(token, `${API_BASE}/shopping/lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     })
-    if (res.ok) {
-      const created: ShoppingList = await res.json()
-      setLists((prev) => (prev.some((l) => l.id === created.id) ? prev : [...prev, created]))
-      setActiveId(created.id)
-      setNewListOpen(false)
+    if (res.status === 401) {
+      onLogout()
+      return null
     }
+    if (!res.ok) return errorText(await errorCode(res), t.shopping.listCreateFailed)
+    const created: ShoppingList = await res.json()
+    setLists((prev) => (prev.some((l) => l.id === created.id) ? prev : [...prev, created]))
+    setActiveId(created.id)
+    setNewListOpen(false)
+    return null
   }
 
   const removeList = async () => {
@@ -143,7 +184,19 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     setLists((prev) => prev.filter((l) => l.id !== active.id))
     setItems((prev) => prev.filter((i) => i.listId !== active.id))
     setActiveId(next ? next.id : null)
-    await authFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.listDeleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t.shopping.listDeleteFailed))
+    }
   }
 
   const active = lists.find((l) => l.id === activeId) ?? null
@@ -255,13 +308,30 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       )}
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      {errorToast}
     </div>
   )
 }
 
-function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
+function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<string | null> }) {
   const [name, setName] = useState('')
-  const create = () => { if (name.trim()) onCreate(name.trim()) }
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  // On failure the modal stays open and shows the reason inline (issue #96).
+  const create = async () => {
+    if (!name.trim() || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const err = await onCreate(name.trim())
+      if (err) setError(err)
+    } catch {
+      setError(t.shopping.listCreateFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <Modal
       open
@@ -271,13 +341,14 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim()}>{t.shopping.createList}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t.shopping.createList}</Button>
         </>
       }
     >
       <Field label={t.shopping.listName}>
         <TextInput value={name} onChange={setName} placeholder={t.shopping.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
       </Field>
+      {error && <p className="hb-modal-error">{error}</p>}
     </Modal>
   )
 }

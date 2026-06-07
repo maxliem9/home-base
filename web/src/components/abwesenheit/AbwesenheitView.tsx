@@ -1,11 +1,13 @@
 // Abwesenheit / Familienkalender — shared household absence planner.
 // Ported from the design handoff (views_abwesenheit.jsx) to the HomeBase web stack.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../../api'
-import { t } from '../../i18n'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../../api'
+import type { FetchResult } from '../../api'
+import { t, errorText } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
+import { useErrorToast } from '../../ui/ErrorToast'
 import { Avatar, Button, Card, Field, IconButton, Modal, Select, SegmentedControl, TextInput } from '../../ui/primitives'
 import { userMeta } from '../../ui/format'
 import * as C from './holidays'
@@ -71,6 +73,7 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
   const [anchor, setAnchor] = useState<string | null>(null)
   const [rangeOpen, setRangeOpen] = useState(false)
   const [rangePrefill, setRangePrefill] = useState<{ von: string; bis: string } | null>(null)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchState = useCallback(async () => {
     const res = await authFetch(token, `${API_BASE}/absence`)
@@ -95,57 +98,69 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  // Run a mutation via safeFetch, then refetch on success. A transport reject
+  // (offline/DNS — issue #93) surfaces the German fallback; on 401 → logout; on
+  // any other HTTP failure show the reason as an error toast and skip the refetch
+  // (the backend cleanly refused the change, so the snapshot is unchanged) — #96.
+  const mutate = async (req: () => Promise<FetchResult>, fallback: string): Promise<boolean> => {
+    const result = await req()
+    if (!result.ok) {
+      flashError(errorText(null, fallback))
+      return false
+    }
+    const { res } = result
+    if (res.status === 401) {
+      onLogout()
+      return false
+    }
+    if (!res.ok) {
+      flashError(errorText(await errorCode(res), fallback))
+      return false
+    }
+    await fetchState()
+    return true
+  }
   const api: Api = {
     setAbsence: async (userId, date, type, half) => {
-      await authFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) }), t.abwesenheit.saveFailed)
     },
     clearAbsence: async (userId, date) => {
-      await authFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
     setAbsenceRange: async (userId, type, from, to, half) => {
       const dates = type
         ? eachDate(from, to).filter((ds) => isWorkdayFor(data, userId, ds))
         : eachDate(from, to)
-      await authFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) }), t.abwesenheit.saveFailed)
     },
     toggleKita: async (date, label, keep = false) => {
       const existing = data.kitaClosures.find((k) => k.date === date)
       if (label == null) {
-        if (existing) await authFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' })
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
       } else if (keep) {
-        if (existing) await authFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) })
-        else await authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) })
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) }), t.abwesenheit.kitaFailed)
+        else await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
       } else if (!existing) {
-        await authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) })
+        await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
       }
-      await fetchState()
     },
     addKita: async (date, label) => {
-      await authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
     },
     addKitaRange: async (from, to, label) => {
-      await authFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) }), t.abwesenheit.kitaFailed)
     },
     updateKita: async (id, patch) => {
-      await authFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.kitaFailed)
     },
     removeKita: async (id) => {
-      await authFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
     updateAbsSettings: async (userId, patch) => {
-      await authFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}`, { method: 'PUT', ...json(patch) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
     },
     addPartTime: async (rule) => {
-      await authFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t.abwesenheit.partTimeFailed)
     },
     updatePartTime: async (id, patch) => {
       const rule = data.partTime.find((r) => r.id === id)
@@ -155,12 +170,10 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
         start: patch.start ?? rule.start,
         end: 'end' in patch ? patch.end ?? null : rule.end ?? null,
       }
-      await authFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) }), t.abwesenheit.partTimeFailed)
     },
     removePartTime: async (id) => {
-      await authFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' })
-      await fetchState()
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
   }
 
@@ -251,6 +264,8 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
       {editDs ? <AbwDayEditor ctx={ctx} ds={editDs} api={api} userIds={userIds} onClose={() => setEditDs(null)} /> : null}
       {rangeOpen ? <AbwRangeModal data={data} api={api} userIds={userIds} prefill={rangePrefill} onClose={() => setRangeOpen(false)} /> : null}
       {showSettings ? <AbwSettings ctx={ctx} data={data} api={api} userIds={userIds} year={year} onClose={() => setShowSettings(false)} /> : null}
+
+      {errorToast}
     </div>
   )
 }

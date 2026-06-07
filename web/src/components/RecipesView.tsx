@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, withWsToken } from '../api'
-import { t } from '../i18n'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { t, errorText } from '../i18n'
 import { Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
+import { useErrorToast } from '../ui/ErrorToast'
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -84,7 +85,9 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [picking, setPicking] = useState<Recipe | null>(null)
   const [pickServings, setPickServings] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const { flashError, errorToast } = useErrorToast()
 
   const fetchRecipes = useCallback(async () => {
     try {
@@ -134,6 +137,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const handleSave = async () => {
     if (!draft || !draft.title.trim()) return
     setSaving(true)
+    setSaveError(null)
     try {
       const body = JSON.stringify({
         title: draft.title.trim(),
@@ -157,11 +161,15 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body,
       })
+      if (res.status === 401) return onLogout()
       if (res.ok) {
         const saved = normalizeRecipe(await res.json())
         setRecipes((prev) => (prev.some((r) => r.id === saved.id) ? prev.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...prev]))
         setDraft(null)
         setSelected(saved)
+      } else {
+        // keep the editor modal open and show the reason inline so the user can retry
+        setSaveError(errorText(await errorCode(res), t.recipes.saveFailed))
       }
     } finally {
       setSaving(false)
@@ -172,7 +180,19 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     setRecipes((prev) => prev.filter((r) => r.id !== id))
     setDraft(null)
     setSelected(null)
-    await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchRecipes()
+      return flashError(errorText(null, t.recipes.deleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchRecipes()
+      flashError(errorText(await errorCode(res), t.recipes.deleteFailed))
+    }
   }
 
   // hand the chosen (already serving-scaled) ingredients to the batch endpoint, which formats
@@ -183,19 +203,23 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       setToast(msg)
       setTimeout(() => setToast(null), 2600)
     }
-    const res = await authFetch(token, `${API_BASE}/shopping/batch`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ listId, items }),
     })
-    if (!res.ok) {
-      flash(t.recipes.nothingToAdd)
-      return
-    }
+    // transport reject → no Response; surface the generic German fallback
+    if (!result.ok) return flashError(errorText(null, t.recipes.addToListFailed))
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    // a genuine write failure routes through the error toast (was wrongly shown
+    // as the success-styled "nothing to add" message before — issue #96)
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.recipes.addToListFailed))
     const summary = (await res.json()) as { added: number; merged: number; skipped: number }
     const parts: string[] = []
     if (summary.added > 0) parts.push(`${summary.added} ${t.recipes.added}`)
     if (summary.merged > 0) parts.push(`${summary.merged} ${t.recipes.merged}`)
+    // success/empty case keeps the genuine "nothing to add" confirmation
     flash(parts.length ? parts.join(' · ') : t.recipes.nothingToAdd)
   }
 
@@ -282,7 +306,16 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         </div>
       )}
 
-      {draft && <RecipeEditor draft={draft} setDraft={setDraft} saving={saving} onSave={handleSave} onCancel={() => setDraft(null)} />}
+      {draft && (
+        <RecipeEditor
+          draft={draft}
+          setDraft={setDraft}
+          saving={saving}
+          error={saveError}
+          onSave={handleSave}
+          onCancel={() => { setDraft(null); setSaveError(null) }}
+        />
+      )}
 
       {toast && (
         <div className="hb-toast">
@@ -290,6 +323,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           {toast}
         </div>
       )}
+
+      {errorToast}
     </div>
   )
 }
@@ -459,10 +494,11 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   )
 }
 
-function RecipeEditor({ draft, setDraft, saving, onSave, onCancel }: {
+function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
   draft: Draft
   setDraft: (d: Draft) => void
   saving: boolean
+  error: string | null
   onSave: () => void
   onCancel: () => void
 }) {
@@ -544,6 +580,8 @@ function RecipeEditor({ draft, setDraft, saving, onSave, onCancel }: {
           ))}
         </div>
       </div>
+
+      {error && <p className="hb-modal-error">{error}</p>}
     </Modal>
   )
 }
