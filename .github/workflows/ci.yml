@@ -115,8 +115,17 @@ jobs:
             echo "::error::No result file for MigrationIntegrationTest — it never ran."
             exit 1
           fi
-          # Read the <testsuite> counters via XPath so we depend on the attributes, not on text.
-          attr() { xmllint --xpath "string(/testsuite/@$1)" "$report"; }
+          # Read the <testsuite> opening-tag counters with grep — no xmllint/libxml2-utils
+          # dependency (xmllint is not installed on the ubuntu runners). We still parse the
+          # attributes, not full-file text: only the <testsuite> tag is scanned, so a literal
+          # skipped="0" inside an assertion/error message can't mask a real skip.
+          suite=$(grep -o '<testsuite[^>]*>' "$report" | head -1 || true)
+          if [ -z "$suite" ]; then
+            echo "::error::Could not find a <testsuite> element in $report."
+            cat "$report"
+            exit 1
+          fi
+          attr() { printf '%s' "$suite" | grep -oE " $1=\"[0-9]+\"" | grep -oE '[0-9]+' | head -1 || true; }
           tests=$(attr tests)
           skipped=$(attr skipped)
           failures=$(attr failures)
