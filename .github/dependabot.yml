@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions (see .github/workflows/*) up to date.
+  # Third-party actions are pinned to full commit SHAs for supply-chain safety
+  # (issue #56); Dependabot bumps the SHA + the trailing # vX comment when a
+  # new release lands, so pinning doesn't mean going stale.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
