@@ -95,17 +95,36 @@ jobs:
       # Guard against a silent skip re-creating the very blind spot this job exists to close:
       # if the gate weren't satisfied the tests would be reported as skipped and the job would
       # still go green. Fail unless the suite actually executed with nothing skipped.
+      #
+      # Parse the <testsuite> attributes precisely (xmllint ships on ubuntu runners) rather than
+      # grepping the whole file: full-text grep would go false-RED the moment a second migration
+      # test joins the class (the old hardcoded tests="1"/tests="0" assumption), and a literal
+      # `skipped="0"` inside an assertion message could mask a real skip. We assert tests>=1 AND
+      # skipped==0 (the original intent: an assumption-not-met run turns the job RED), plus
+      # failures==0 && errors==0 as belt-and-suspenders. The count check is decoupled from any
+      # fixed total, so future migration tests don't need this step touched.
       - name: Verify the migration test was not skipped
         if: always()
         working-directory: backend
         run: |
+          set -euo pipefail
+          # Gradle writes exactly one file per test class with --tests; this path is a literal,
+          # not a glob — so a plain existence check is the right "it never ran" detector.
           report="build/test-results/test/TEST-com.homebase.MigrationIntegrationTest.xml"
           if [ ! -f "$report" ]; then
             echo "::error::No result file for MigrationIntegrationTest — it never ran."
             exit 1
           fi
-          if grep -q 'tests="0"' "$report" || ! grep -q 'skipped="0"' "$report"; then
-            echo "::error::MigrationIntegrationTest was skipped or never ran (DB_URL gate unmet?)."
+          # Read the <testsuite> counters via XPath so we depend on the attributes, not on text.
+          attr() { xmllint --xpath "string(/testsuite/@$1)" "$report"; }
+          tests=$(attr tests)
+          skipped=$(attr skipped)
+          failures=$(attr failures)
+          errors=$(attr errors)
+          echo "testsuite: tests=$tests skipped=$skipped failures=$failures errors=$errors"
+          if [ "${tests:-0}" -lt 1 ] || [ "${skipped:-0}" -ne 0 ] \
+             || [ "${failures:-0}" -ne 0 ] || [ "${errors:-0}" -ne 0 ]; then
+            echo "::error::MigrationIntegrationTest was skipped or did not pass (DB_URL gate unmet?)."
             cat "$report"
             exit 1
           fi
