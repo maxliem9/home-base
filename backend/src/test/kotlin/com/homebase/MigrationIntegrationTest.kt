@@ -8,6 +8,7 @@ import com.homebase.db.UsersTable
 import io.ktor.server.config.MapApplicationConfig
 import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -16,6 +17,7 @@ import org.junit.Assume.assumeTrue
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -49,12 +51,45 @@ class MigrationIntegrationTest {
     private val dbUser: String? = System.getenv("DB_USER")
     private val dbPassword: String? = System.getenv("DB_PASSWORD")
 
+    private val hasPostgres: Boolean
+        get() = dbUrl?.startsWith("jdbc:postgresql") == true && dbUser != null && dbPassword != null
+
+    // Usernames each test seeds (mig_it_* / mig_cascade_* / mig_rec_*). Tracked so [cleanup]
+    // can remove exactly the rows this test created — harmless on the throwaway CI Postgres,
+    // but keeps a persistent local DB tidy instead of accumulating orphan rows every run.
+    private val createdUsers = mutableListOf<String>()
+
     @BeforeTest
     fun requirePostgres() {
         assumeTrue(
             "Set DB_URL (jdbc:postgresql://...), DB_USER and DB_PASSWORD to run the migration IT",
-            dbUrl?.startsWith("jdbc:postgresql") == true && dbUser != null && dbPassword != null,
+            hasPostgres,
         )
+    }
+
+    /**
+     * Removes the rows the test body seeded, in FK order (subtasks → todos → lists → users).
+     * JUnit instantiates the class once per `@Test`, so [createdUsers] holds only the user(s)
+     * the just-finished method created. Runs even if the test failed; never fails the build —
+     * a skipped run (gate unmet) has nothing to clean, and a best-effort delete that finds
+     * nothing (or hits a half-initialised DB) must not turn a green test red.
+     */
+    @AfterTest
+    fun cleanup() {
+        if (!hasPostgres || createdUsers.isEmpty()) return
+        runCatching {
+            transaction {
+                val todoIds = TodosTable.selectAll()
+                    .where { TodosTable.createdBy inList createdUsers }
+                    .map { it[TodosTable.id] }
+                if (todoIds.isNotEmpty()) {
+                    TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId inList todoIds }
+                }
+                TodosTable.deleteWhere { TodosTable.createdBy inList createdUsers }
+                TodoListsTable.deleteWhere { TodoListsTable.createdBy inList createdUsers }
+                UsersTable.deleteWhere { UsersTable.username inList createdUsers }
+            }
+        }
     }
 
     @Test
@@ -72,6 +107,7 @@ class MigrationIntegrationTest {
 
         // Unique per run so the test is also re-runnable against a persistent local Postgres.
         val userName = "mig_it_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
         val todoUuid = UUID.randomUUID()
 
         transaction {
@@ -131,6 +167,7 @@ class MigrationIntegrationTest {
         )
 
         val userName = "mig_cascade_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
         val listUuid = UUID.randomUUID()
         val todoUuid = UUID.randomUUID()
         val subtaskUuid = UUID.randomUUID()
@@ -200,6 +237,7 @@ class MigrationIntegrationTest {
         )
 
         val userName = "mig_rec_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
         transaction {
             UsersTable.insert {
                 it[id] = UUID.randomUUID()
