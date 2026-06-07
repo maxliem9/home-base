@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -102,29 +102,39 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     }
   })
 
+  // The three click-driven write paths use safeFetch so a rejected fetch
+  // (offline/DNS/aborted — issue #93) shows the per-action fallback toast
+  // instead of an unhandled rejection. On a transport failure no backend code
+  // exists, so errorText(null, fallback) resolves to the German fallback.
   const startTimer = async (projectId: string, description = '') => {
-    const res = await authFetch(token, `${API_BASE}/time/entries/start`, {
+    const result = await safeFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, description: description.trim() || undefined }),
     })
+    if (!result.ok) return flashError(errorText(null, t.time.startFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.startFailed))
   }
 
   const stopTimer = async () => {
-    const res = await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    if (!result.ok) return flashError(errorText(null, t.time.stopFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.stopFailed))
   }
 
   const saveDescription = async () => {
     if (!running || desc === (running.description ?? '')) return
-    const res = await authFetch(token, `${API_BASE}/time/entries/${running.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/time/entries/${running.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: desc }),
     })
+    if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.saveFailed))
   }
