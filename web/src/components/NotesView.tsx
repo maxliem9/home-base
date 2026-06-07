@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { API_BASE, authFetch, errorCode, noteImageUrl, safeFetch, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -63,7 +63,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const fetchNotes = useCallback(async (q: string) => {
     try {
       const url = q.trim() ? `${API_BASE}/notes?q=${encodeURIComponent(q.trim())}` : `${API_BASE}/notes`
-      const res = await authFetch(token, url)
+      const result = await safeFetch(token, url)
+      // transport reject → fire the global toast once, keep existing data
+      if (!result.ok) {
+        notifyTransportError()
+        return
+      }
+      const { res } = result
       if (res.status === 401) {
         onLogout()
         return
@@ -114,9 +120,15 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         tags: parseTags(draft.tags),
         visibility: draft.visibility,
       })
-      const res = draft.id
-        ? await authFetch(token, `${API_BASE}/notes/${draft.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
-        : await authFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      const result = draft.id
+        ? await safeFetch(token, `${API_BASE}/notes/${draft.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+        : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      // transport reject → keep the editor open and show the inline error so the user can retry
+      if (!result.ok) {
+        setSaveError(errorText(null, t.notes.saveFailed))
+        return
+      }
+      const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const saved: Note = await res.json()
@@ -195,7 +207,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const handleDeleteImage = async (imageId: string) => {
     if (!selected) return
     setImageError(null)
-    const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
+    // transport reject → no Response; surface the inline image error
+    if (!result.ok) {
+      setImageError(errorText(null, t.notes.imageDeleteFailed))
+      return
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) {
       const updated: Note = await res.json()

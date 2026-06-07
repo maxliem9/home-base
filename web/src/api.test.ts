@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { errorCode, safeFetch } from './api'
+import { errorCode, notifyTransportError, onTransportError, safeFetch } from './api'
 import { errorText, t } from './i18n'
 
 // Build a minimal Response stand-in whose .json() resolves/rejects like fetch's.
@@ -99,5 +99,54 @@ describe('safeFetch', () => {
     await safeFetch('mytoken', '/x')
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(new Headers(init.headers).get('Authorization')).toBe('Bearer mytoken')
+  })
+
+  // safeFetch must NOT auto-fire the global notifier: write paths show their own
+  // per-action toast on a transport reject, and double-toasting would be wrong.
+  // The notifier only fires when a read-path caller explicitly calls it (#93).
+  it('does NOT fire the global transport notifier on a reject', async () => {
+    const listener = vi.fn()
+    const unsubscribe = onTransportError(listener)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const result = await safeFetch('tok', '/x')
+    expect(result.ok).toBe(false)
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+})
+
+describe('transport notifier', () => {
+  it('notifies every subscribed listener', () => {
+    const a = vi.fn()
+    const b = vi.fn()
+    const offA = onTransportError(a)
+    const offB = onTransportError(b)
+    notifyTransportError()
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledTimes(1)
+    offA()
+    offB()
+  })
+
+  it('stops notifying after unsubscribe', () => {
+    const listener = vi.fn()
+    const unsubscribe = onTransportError(listener)
+    notifyTransportError()
+    unsubscribe()
+    notifyTransportError()
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  // A read-path caller wires safeFetch's transport reject to the notifier; verify
+  // that explicit wiring reaches every listener (mirrors fetchState / fetchAll).
+  it('fires once when a read path forwards a safeFetch transport reject', async () => {
+    const listener = vi.fn()
+    const unsubscribe = onTransportError(listener)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const result = await safeFetch('tok', '/notes')
+    if (!result.ok) notifyTransportError()
+    expect(listener).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+    unsubscribe()
   })
 })

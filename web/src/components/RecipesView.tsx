@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -91,7 +91,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
 
   const fetchRecipes = useCallback(async () => {
     try {
-      const res = await authFetch(token, `${API_BASE}/recipes`)
+      const result = await safeFetch(token, `${API_BASE}/recipes`)
+      // transport reject → fire the global toast once, keep existing data
+      if (!result.ok) {
+        notifyTransportError()
+        return
+      }
+      const { res } = result
       if (res.status === 401) {
         onLogout()
         return
@@ -105,7 +111,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   }, [onLogout, token])
 
   const fetchShoppingLists = useCallback(async () => {
-    const res = await authFetch(token, `${API_BASE}/shopping/lists`)
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists`)
+    // transport reject → fire the global toast once, keep existing data
+    if (!result.ok) {
+      notifyTransportError()
+      return
+    }
+    const { res } = result
     if (res.ok) setShoppingLists(await res.json())
   }, [token])
 
@@ -156,11 +168,17 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         steps: draft.steps.filter((s) => s.trim()).map((s) => ({ description: s.trim() })),
       })
       const url = draft.id ? `${API_BASE}/recipes/${draft.id}` : `${API_BASE}/recipes`
-      const res = await authFetch(token, url, {
+      const result = await safeFetch(token, url, {
         method: draft.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       })
+      // transport reject → keep the editor modal open and show the inline error so the user can retry
+      if (!result.ok) {
+        setSaveError(errorText(null, t.recipes.saveFailed))
+        return
+      }
+      const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const saved = normalizeRecipe(await res.json())

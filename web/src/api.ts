@@ -44,6 +44,25 @@ export async function safeFetch(token: string, input: RequestInfo | URL, init: R
   }
 }
 
+// Global transport-error notifier (issue #93). Write paths already show a
+// per-action toast on a transport reject, so they DON'T use this — that would
+// double-toast. It exists for the background GET/read paths (initial loads,
+// refreshes, CSV export) which have no per-action message: on a transport
+// reject they fire this once and a single global TransportErrorToast appears.
+// safeFetch deliberately does NOT fire it automatically; callers decide.
+const transportListeners = new Set<() => void>()
+
+export function onTransportError(listener: () => void): () => void {
+  transportListeners.add(listener)
+  return () => {
+    transportListeners.delete(listener)
+  }
+}
+
+export function notifyTransportError(): void {
+  transportListeners.forEach((l) => l())
+}
+
 // Read the `code` off a failed response. The backend reports errors as
 // ErrorResponse { code, message } (backend model/Models.kt); we surface the
 // stable code rather than the English `message` so the UI can show a localized
