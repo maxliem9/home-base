@@ -14,6 +14,7 @@ export const de = {
     by: 'von', // rendered as "von {name}"
     titlePlaceholder: 'Titel…',
     descriptionOptional: 'Beschreibung (optional)…',
+    networkError: 'Keine Verbindung – bitte später erneut versuchen.',
   },
   // Backend ErrorResponse codes → German text. Shared across views so write
   // failures read consistently; falls back to a per-action default when a code
@@ -288,6 +289,8 @@ export const de = {
     startFailed: 'Timer konnte nicht gestartet werden',
     stopFailed: 'Timer konnte nicht gestoppt werden',
     saveFailed: 'Konnte nicht gespeichert werden',
+    deleteFailed: 'Eintrag konnte nicht gelöscht werden',
+    archiveFailed: 'Projekt konnte nicht aktualisiert werden',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -58,10 +58,17 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [pRes, eRes] = await Promise.all([
-        authFetch(token, `${API_BASE}/time/projects`),
-        authFetch(token, `${API_BASE}/time/entries`),
+      const [pResult, eResult] = await Promise.all([
+        safeFetch(token, `${API_BASE}/time/projects`),
+        safeFetch(token, `${API_BASE}/time/entries`),
       ])
+      // a transport reject on either → fire the global toast once, keep existing data
+      if (!pResult.ok || !eResult.ok) {
+        notifyTransportError()
+        return
+      }
+      const { res: pRes } = pResult
+      const { res: eRes } = eResult
       if (pRes.status === 401 || eRes.status === 401) {
         onLogout()
         return
@@ -141,25 +148,42 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
   const deleteEntry = async (id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id))
-    await authFetch(token, `${API_BASE}/time/entries/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/time/entries/${id}`, { method: 'DELETE' })
+    // On failure refetch to resync (the optimistic removal may be wrong) and toast.
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.time.deleteFailed))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t.time.deleteFailed))
+    }
   }
 
   const setArchived = async (p: Project, archived: boolean) => {
-    await authFetch(token, `${API_BASE}/time/projects/${p.id}/archive`, {
+    const result = await safeFetch(token, `${API_BASE}/time/projects/${p.id}/archive`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ archived }),
     })
+    if (!result.ok) return flashError(errorText(null, t.time.archiveFailed))
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) flashError(errorText(await errorCode(res), t.time.archiveFailed))
   }
 
   const saveProject = async (d: ProjectDraft) => {
     if (!d.name.trim()) return
     const body = JSON.stringify({ name: d.name.trim(), color: d.color })
-    if (d.id) {
-      await authFetch(token, `${API_BASE}/time/projects/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
-    } else {
-      await authFetch(token, `${API_BASE}/time/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-    }
+    const result = d.id
+      ? await safeFetch(token, `${API_BASE}/time/projects/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+      : await safeFetch(token, `${API_BASE}/time/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.saveFailed))
     setProjectDraft(null)
   }
 
@@ -188,7 +212,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString())
     if (projectId) params.set('project_id', projectId)
     const qs = params.toString()
-    const res = await authFetch(token, `${API_BASE}/time/export.csv${qs ? `?${qs}` : ''}`)
+    const result = await safeFetch(token, `${API_BASE}/time/export.csv${qs ? `?${qs}` : ''}`)
+    // transport reject → fire the global toast once and abort the download
+    if (!result.ok) {
+      notifyTransportError()
+      return
+    }
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return

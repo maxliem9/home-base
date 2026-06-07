@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -27,10 +27,17 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [itemRes, listRes] = await Promise.all([
-        authFetch(token, `${API_BASE}/shopping`),
-        authFetch(token, `${API_BASE}/shopping/lists`),
+      const [itemResult, listResult] = await Promise.all([
+        safeFetch(token, `${API_BASE}/shopping`),
+        safeFetch(token, `${API_BASE}/shopping/lists`),
       ])
+      // a transport reject on either → fire the global toast once, keep existing data
+      if (!itemResult.ok || !listResult.ok) {
+        notifyTransportError()
+        return
+      }
+      const { res: itemRes } = itemResult
+      const { res: listRes } = listResult
       if (itemRes.status === 401 || listRes.status === 401) {
         onLogout()
         return
@@ -87,11 +94,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     if (!newName.trim() || !active) return
     setSubmitting(true)
     try {
-      const res = await authFetch(token, `${API_BASE}/shopping`, {
+      const result = await safeFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim(), listId: active.id }),
       })
+      if (!result.ok) return flashError(errorText(null, t.shopping.addFailed))
+      const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: ShoppingItem = await res.json()
@@ -159,11 +168,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // Modal-based create returns an error message (null on success) so the modal
   // can show it inline and stay open for a retry (issue #96).
   const createList = async (name: string): Promise<string | null> => {
-    const res = await authFetch(token, `${API_BASE}/shopping/lists`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     })
+    // transport reject → no Response; surface the inline create error so the modal stays open
+    if (!result.ok) return errorText(null, t.shopping.listCreateFailed)
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return null

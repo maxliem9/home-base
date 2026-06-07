@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
@@ -77,10 +77,17 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
   const fetchTodos = useCallback(async () => {
     try {
-      const [todoRes, listRes] = await Promise.all([
-        authFetch(token, `${API_BASE}/todos`),
-        authFetch(token, `${API_BASE}/todos/lists`),
+      const [todoResult, listResult] = await Promise.all([
+        safeFetch(token, `${API_BASE}/todos`),
+        safeFetch(token, `${API_BASE}/todos/lists`),
       ])
+      // a transport reject on either → fire the global toast once, keep existing data
+      if (!todoResult.ok || !listResult.ok) {
+        notifyTransportError()
+        return
+      }
+      const { res: todoRes } = todoResult
+      const { res: listRes } = listResult
       if (todoRes.status === 401 || listRes.status === 401) {
         onLogout()
         return
@@ -148,11 +155,16 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   // Returns true on success so callers (e.g. the plan modal) can decide whether
   // to close. On failure a toast is shown and the call resolves false.
   const patchTodo = async (id: string, body: Record<string, unknown>, fallback = t.todos.saveFailed): Promise<boolean> => {
-    const res = await authFetch(token, `${API_BASE}/todos/${id}`, {
+    const result = await safeFetch(token, `${API_BASE}/todos/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (!result.ok) {
+      flashError(errorText(null, fallback))
+      return false
+    }
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return false
@@ -170,11 +182,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     if (!newTitle.trim() || !active) return
     setSubmitting(true)
     try {
-      const res = await authFetch(token, `${API_BASE}/todos`, {
+      const result = await safeFetch(token, `${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTitle.trim(), listId: active.id }),
       })
+      if (!result.ok) return flashError(errorText(null, t.todos.addFailed))
+      const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: Todo = await res.json()
@@ -238,11 +252,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const addSubtask = async (todoId: string) => {
     const title = (subDrafts[todoId] ?? '').trim()
     if (!title) return
-    const res = await authFetch(token, `${API_BASE}/todos/${todoId}/subtasks`, {
+    const result = await safeFetch(token, `${API_BASE}/todos/${todoId}/subtasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
     })
+    if (!result.ok) return flashError(errorText(null, t.todos.subAddFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) {
       applyTodo(await res.json())
@@ -253,18 +269,22 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }
 
   const toggleSubtask = async (todoId: string, sub: Subtask) => {
-    const res = await authFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${sub.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${sub.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done: !sub.done }),
     })
+    if (!result.ok) return flashError(errorText(null, t.todos.subSaveFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
     else flashError(errorText(await errorCode(res), t.todos.subSaveFailed))
   }
 
   const deleteSubtask = async (todoId: string, subId: string) => {
-    const res = await authFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${subId}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${subId}`, { method: 'DELETE' })
+    if (!result.ok) return flashError(errorText(null, t.todos.subDeleteFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
     else flashError(errorText(await errorCode(res), t.todos.subDeleteFailed))
@@ -282,11 +302,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   // modal can show it inline and stay open for a retry — mirrors TimeView's
   // ManualEntryModal (issue #96).
   const createList = async (name: string, visibility: ListVisibility): Promise<string | null> => {
-    const res = await authFetch(token, `${API_BASE}/todos/lists`, {
+    const result = await safeFetch(token, `${API_BASE}/todos/lists`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, visibility }),
     })
+    // transport reject → no Response; surface the inline create error so the modal stays open
+    if (!result.ok) return errorText(null, t.todos.listCreateFailed)
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return null
@@ -303,11 +326,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   // backend replay) to the other user; shared→private hides it again. (issue #75)
   const updateList = async (name: string, visibility: ListVisibility): Promise<string | null> => {
     if (!active) return null
-    const res = await authFetch(token, `${API_BASE}/todos/lists/${active.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/todos/lists/${active.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, visibility }),
     })
+    // transport reject → no Response; surface the inline edit error so the modal stays open
+    if (!result.ok) return errorText(null, t.todos.listSaveFailed)
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return null

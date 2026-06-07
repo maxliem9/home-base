@@ -3,6 +3,7 @@ import { API_BASE, authFetch, login, withWsToken } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Icon } from './ui/Icon'
+import { TransportErrorToast } from './ui/TransportErrorToast'
 import { Avatar, Button, Card, Field, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
 import { TodosView } from './components/TodosView'
@@ -163,6 +164,9 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
         {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
       </main>
+
+      {/* Single global toast for background GET/read transport failures (issue #93). */}
+      <TransportErrorToast />
     </div>
   )
 }
