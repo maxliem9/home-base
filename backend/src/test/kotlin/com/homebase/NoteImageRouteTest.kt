@@ -6,6 +6,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -156,17 +157,41 @@ class NoteImageRouteTest {
         assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
     }
 
+    // test config caps uploads at 1 MB
+    private val maxBytes = 1024 * 1024
+
     @Test
     fun `upload exceeding the size limit returns 413`() = testApplication {
+        val uploadDir = configureTestApplication()
+        val token = loginAndGetToken()
+        val noteId = createNote(token, """{"title":"Mit Bild"}""")
+
+        // one byte over the cap must be rejected — the boundary is enforced exactly
+        val tooBig = ByteArray(maxBytes + 1) { 0x10 }
+        val response = uploadImage(token, noteId, tooBig)
+
+        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        // the over-limit body is streamed to a temp file and aborted mid-stream; nothing must be
+        // left behind on disk (proves the partial upload is discarded, not buffered then dropped)
+        assertTrue(
+            Files.list(uploadDir).use { it.toList() }.isEmpty(),
+            "rejected oversized upload must not leave any file in the upload dir",
+        )
+    }
+
+    @Test
+    fun `upload exactly at the size limit succeeds`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val noteId = createNote(token, """{"title":"Mit Bild"}""")
 
-        // test config caps uploads at 1 MB
-        val tooBig = ByteArray(1_100_000) { 0x10 }
-        val response = uploadImage(token, noteId, tooBig)
+        val atLimit = ByteArray(maxBytes) { 0x10 }
+        val response = uploadImage(token, noteId, atLimit)
 
-        assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
+        assertEquals(HttpStatusCode.Created, response.status)
+        val image = Json.parseToJsonElement(response.bodyAsText())
+            .jsonObject["images"]!!.jsonArray[0].jsonObject
+        assertEquals(maxBytes, image["sizeBytes"]?.jsonPrimitive?.int)
     }
 
     @Test
