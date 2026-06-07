@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, login, withWsToken } from './api'
+import { API_BASE, authFetch, safeFetch, login, withWsToken } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Icon } from './ui/Icon'
@@ -37,9 +37,13 @@ function useNavBadges(token: string): NavBadges {
   const [badges, setBadges] = useState<NavBadges>({ inbox: 0, shopping: 0, timerRunning: false })
 
   const refreshTodos = useCallback(async () => {
-    const res = await authFetch(token, `${API_BASE}/todos`)
-    if (!res.ok) return
-    const todos: { status: string; dueDate?: string }[] = await res.json()
+    // Badges are a non-critical background poll (initial effect + WS callback); on a
+    // transport reject (offline/DNS) bail silently rather than throwing an unhandled
+    // rejection. No toast — these fire often and the view-level reads already surface
+    // connectivity issues via the global transport toast. (#114)
+    const result = await safeFetch(token, `${API_BASE}/todos`)
+    if (!result.ok || !result.res.ok) return
+    const todos: { status: string; dueDate?: string }[] = await result.res.json()
     const today = new Date().toISOString().slice(0, 10)
     // badge counts open todos that are due today or overdue
     const due = todos.filter((x) => x.status !== 'DONE' && x.dueDate && x.dueDate <= today).length
@@ -47,16 +51,16 @@ function useNavBadges(token: string): NavBadges {
   }, [token])
 
   const refreshShopping = useCallback(async () => {
-    const res = await authFetch(token, `${API_BASE}/shopping`)
-    if (!res.ok) return
-    const items: { checked: boolean }[] = await res.json()
+    const result = await safeFetch(token, `${API_BASE}/shopping`)
+    if (!result.ok || !result.res.ok) return
+    const items: { checked: boolean }[] = await result.res.json()
     setBadges((b) => ({ ...b, shopping: items.filter((x) => !x.checked).length }))
   }, [token])
 
   const refreshRunning = useCallback(async () => {
-    const res = await authFetch(token, `${API_BASE}/time/running`)
-    if (!res.ok) return
-    const running = await res.json().catch(() => null)
+    const result = await safeFetch(token, `${API_BASE}/time/running`)
+    if (!result.ok || !result.res.ok) return
+    const running = await result.res.json().catch(() => null)
     setBadges((b) => ({ ...b, timerRunning: running != null && !!running.id }))
   }, [token])
 
