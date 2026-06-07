@@ -83,6 +83,13 @@ import com.homebase.android.ui.util.Format
 private val CATEGORIES = listOf("Alle", "Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
 
 /** Short units recognised when parsing a "200 g Mehl" ingredient line. */
+//
+// ACHTUNG — bewusst gespiegelt: Diese Liste ist absichtlich identisch mit der KNOWN_UNITS-Liste
+// (und der parseQty/parseIngredientLine-Heuristik) auf der Backend-Seite:
+//   backend/src/main/kotlin/com/homebase/routes/ShoppingRoutes.kt
+// Es gibt keinen Mechanismus, der das erzwingt — wer hier eine Einheit ergänzt/entfernt oder die
+// Parse-Heuristik ändert, MUSS die andere Datei mitziehen, sonst driften Android (Rezept-Freitext)
+// und Backend (Shopping-Merge) still auseinander. Web hat keinen Freitext-Parser. Siehe Issue #103.
 private val KNOWN_UNITS = setOf(
     "g", "kg", "mg", "ml", "l", "el", "tl", "stk", "stück", "prise",
     "bund", "dose", "pkg", "pck", "tasse", "cup", "msp",
@@ -857,6 +864,9 @@ private fun parseIngredients(text: String): List<IngredientInput> =
  * which swallowed the first word of a multi-word name ("2 rote Paprika" → unit="rote") and mis-parsed
  * the ingredient. The whitelist is enough for our short-unit notation. Mirrors the backend
  * parseQty fix. See issues #92 / #47.
+ *
+ * Diese Heuristik ist bewusst mit `parseQty` auf der Backend-Seite gespiegelt
+ * (ShoppingRoutes.kt) — Änderungen hier dort mitziehen. Siehe Issue #103.
  */
 internal fun parseIngredientLine(line: String): IngredientInput {
     val trimmed = line.trim()
