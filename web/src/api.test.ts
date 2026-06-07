@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { errorCode } from './api'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { errorCode, safeFetch } from './api'
 import { errorText, t } from './i18n'
 
 // Build a minimal Response stand-in whose .json() resolves/rejects like fetch's.
@@ -60,5 +60,36 @@ describe('errorText', () => {
       expect(t.errors[code], `missing German text for ${code}`).toBeTruthy()
       expect(errorText(code, 'FALLBACK'), `${code} fell through to fallback`).toBe(t.errors[code])
     }
+  })
+})
+
+describe('safeFetch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the Response when the fetch resolves (any HTTP status)', async () => {
+    const response = { ok: false, status: 409 } as Response
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const result = await safeFetch('tok', '/x', { method: 'POST' })
+    expect(result.ok).toBe(true)
+    // an HTTP error response is still ok:true — the caller inspects res.ok itself
+    if (result.ok) expect(result.res).toBe(response)
+  })
+
+  it('catches a rejected fetch (transport error) instead of throwing', async () => {
+    const error = new TypeError('Failed to fetch')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error))
+    const result = await safeFetch('tok', '/x')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe(error)
+  })
+
+  it('adds the Authorization header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    await safeFetch('mytoken', '/x')
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer mytoken')
   })
 })

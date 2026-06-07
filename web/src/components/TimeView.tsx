@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -40,6 +40,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [showArchived, setShowArchived] = useState(false)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -101,29 +102,39 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     }
   })
 
+  // The three click-driven write paths use safeFetch so a rejected fetch
+  // (offline/DNS/aborted — issue #93) shows the per-action fallback toast
+  // instead of an unhandled rejection. On a transport failure no backend code
+  // exists, so errorText(null, fallback) resolves to the German fallback.
   const startTimer = async (projectId: string, description = '') => {
-    const res = await authFetch(token, `${API_BASE}/time/entries/start`, {
+    const result = await safeFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, description: description.trim() || undefined }),
     })
+    if (!result.ok) return flashError(errorText(null, t.time.startFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.startFailed))
   }
 
   const stopTimer = async () => {
-    const res = await authFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+    if (!result.ok) return flashError(errorText(null, t.time.stopFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.stopFailed))
   }
 
   const saveDescription = async () => {
     if (!running || desc === (running.description ?? '')) return
-    const res = await authFetch(token, `${API_BASE}/time/entries/${running.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/time/entries/${running.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: desc }),
     })
+    if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) flashError(errorText(await errorCode(res), t.time.saveFailed))
   }
@@ -169,6 +180,33 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return null
   }
 
+  // Fetch the server-rendered CSV with the JWT in the Authorization header (keeping
+  // the token out of the URL), then trigger a download from the returned blob.
+  const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
+    const params = new URLSearchParams()
+    if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString())
+    if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString())
+    if (projectId) params.set('project_id', projectId)
+    const qs = params.toString()
+    const res = await authFetch(token, `${API_BASE}/time/export.csv${qs ? `?${qs}` : ''}`)
+    if (res.status === 401) {
+      onLogout()
+      return
+    }
+    if (!res.ok) return
+    const blob = await res.blob()
+    const filename = res.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1] ?? 'zeiterfassung.csv'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    setShowExport(false)
+  }
+
   // total finished time per project
   const totalsByProject = useMemo(() => {
     const m: Record<string, number> = {}
@@ -194,6 +232,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         title={t.time.title}
         actions={
           <>
+            <Button variant="ghost" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.exportCsv}</Button>
             <Button variant="secondary" size="sm" icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
             <Button icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
           </>
@@ -353,6 +392,10 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
       {showManual && (
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
+      )}
+
+      {showExport && (
+        <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
       )}
 
       {detailProject && (
@@ -649,6 +692,47 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
         <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
       </Field>
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
+    </Modal>
+  )
+}
+
+// CSV export with optional date-range and project filters. All fields are optional;
+// an empty form exports every completed entry. Includes archived projects so their
+// history can still be exported.
+function ExportModal({ projects, onExport, onClose }: {
+  projects: Project[]
+  onExport: (opts: { from?: string; to?: string; projectId?: string }) => void
+  onClose: () => void
+}) {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [projectId, setProjectId] = useState('')
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.time.exportTitle}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button icon="download" onClick={() => onExport({ from: from || undefined, to: to || undefined, projectId: projectId || undefined })}>
+            {t.time.exportSubmit}
+          </Button>
+        </>
+      }
+    >
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.exportHint}</p>
+      <div className="hb-formgrid">
+        <Field label={t.time.from}><TextInput type="date" value={from} onChange={setFrom} /></Field>
+        <Field label={t.time.to}><TextInput type="date" value={to} onChange={setTo} /></Field>
+      </div>
+      <Field label={t.time.project}>
+        <Select value={projectId} onChange={setProjectId}>
+          <option value="">{t.time.exportAllProjects}</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+      </Field>
     </Modal>
   )
 }

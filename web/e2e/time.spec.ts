@@ -107,4 +107,61 @@ test.describe('Time tracking', () => {
     await expect(modal).toBeVisible()
     await expect(modal).toContainText('2 Std 0 Min') // total
   })
+
+  test('exports entries as a CSV download with the server-supplied filename', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', description: 'Meeting', durationSeconds: 5400 })])
+    await openTime(page, mock)
+
+    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal).toBeVisible()
+
+    // Clicking export must trigger a real browser download whose name is parsed
+    // from the response's Content-Disposition header (unfiltered → default name).
+    const downloadPromise = page.waitForEvent('download')
+    await modal.getByRole('button', { name: 'Exportieren' }).click()
+    const download = await downloadPromise
+
+    expect(download.suggestedFilename()).toBe('zeiterfassung_export.csv')
+    // the filter modal closes once the download is kicked off
+    await expect(modal).toBeHidden()
+  })
+
+  test('scopes the export to the selected project and date range', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([
+        project({ id: 'p1', name: 'ProjektEins', color: '#4F7A52' }),
+        project({ id: 'p2', name: 'ProjektZwei', color: '#B4654A' }),
+      ])
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T09:00:00Z' }),
+        timeEntry({ id: 'e2', projectId: 'p2', startedAt: '2026-06-10T10:00:00Z', stoppedAt: '2026-06-10T11:00:00Z' }),
+      ])
+    await openTime(page, mock)
+
+    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByLabel('Von').fill('2026-06-01')
+    await modal.getByLabel('Bis').fill('2026-06-30')
+    await modal.locator('select').selectOption({ label: 'ProjektEins' })
+
+    const requestPromise = page.waitForRequest((r) => r.url().includes('/time/export.csv'))
+    const downloadPromise = page.waitForEvent('download')
+    await modal.getByRole('button', { name: 'Exportieren' }).click()
+    const [request, download] = await Promise.all([requestPromise, downloadPromise])
+
+    // The modal inputs become query params: the chosen project + an ISO instant
+    // range (the backend reuses the entry-list filters to scope the rows).
+    const params = new URL(request.url()).searchParams
+    expect(params.get('project_id')).toBe('p1')
+    const from = params.get('from')
+    const to = params.get('to')
+    expect(from).toBeTruthy()
+    expect(to).toBeTruthy()
+    expect(new Date(from!).getTime()).toBeLessThan(new Date(to!).getTime())
+    // and the ranged filename from the server header is applied (zone-independent shape)
+    expect(download.suggestedFilename()).toMatch(/^zeiterfassung_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/)
+  })
 })

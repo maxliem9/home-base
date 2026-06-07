@@ -22,6 +22,28 @@ export function authFetch(token: string, input: RequestInfo | URL, init: Request
   return fetch(input, { ...init, headers })
 }
 
+// Result of safeFetch: either the fetch resolved to a Response (any HTTP
+// status, including errors — inspect `res.ok` / `res.status` as usual), or the
+// fetch itself REJECTED — a transport error (offline, DNS, aborted connection).
+// `ok: false` here means "no response at all", distinct from an HTTP error
+// response (which is `ok: true` + a non-2xx `res`). See issue #93.
+export type FetchResult =
+  | { ok: true; res: Response }
+  | { ok: false; error: unknown }
+
+// authFetch that can't reject. #84/#91 handle HTTP error responses (!res.ok),
+// but a rejected fetch in an onClick handler became an unhandled rejection and
+// the action silently failed. This wrapper centralizes the try/catch so every
+// write path can show feedback instead. Reusable by all views (issue #93).
+export async function safeFetch(token: string, input: RequestInfo | URL, init: RequestInit = {}): Promise<FetchResult> {
+  try {
+    return { ok: true, res: await authFetch(token, input, init) }
+  } catch (error) {
+    // transport failure — no Response exists; caller surfaces a generic message
+    return { ok: false, error }
+  }
+}
+
 // Read the `code` off a failed response. The backend reports errors as
 // ErrorResponse { code, message } (backend model/Models.kt); we surface the
 // stable code rather than the English `message` so the UI can show a localized

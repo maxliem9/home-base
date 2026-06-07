@@ -342,6 +342,105 @@ class TimeRouteTest {
     }
 
     @Test
+    fun `CSV export without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/time/export.csv").status)
+    }
+
+    @Test
+    fun `CSV export returns header, entry and computed durations`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token, "Garten", "#10B981")
+        client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:30:00Z","description":"Rasen"}""")
+        }
+
+        val res = client.get("/api/v1/time/export.csv") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertTrue(res.contentType()?.match(ContentType.parse("text/csv")) == true, "expected text/csv, got ${res.contentType()}")
+        assertTrue(
+            res.headers[HttpHeaders.ContentDisposition]?.contains("zeiterfassung") == true,
+            "missing filename in ${res.headers[HttpHeaders.ContentDisposition]}",
+        )
+        val body = res.bodyAsText()
+        assertTrue(body.startsWith("\uFEFF"), "CSV must start with a UTF-8 BOM for Excel")
+        assertTrue(body.contains("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung"), "missing header row")
+        assertTrue(body.contains("Garten"), "missing project name")
+        assertTrue(body.contains("Rasen"), "missing description")
+        // 90 minutes → 1,50 decimal hours and 01:30
+        assertTrue(body.contains("1,50"), "missing decimal-hours duration in: $body")
+        assertTrue(body.contains("01:30"), "missing hh:mm duration in: $body")
+    }
+
+    @Test
+    fun `CSV export omits the running timer`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token, "Laufend", "#222222")
+        client.post("/api/v1/time/entries/start") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId"}""")
+        }
+
+        val body = client.get("/api/v1/time/export.csv") { bearerAuth(token) }.bodyAsText()
+        // only the header row, no data line for the still-running entry
+        assertEquals(1, body.trim().lines().size, "running entry leaked into export: $body")
+    }
+
+    @Test
+    fun `CSV export quotes fields containing the delimiter or quotes`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // Project name carries both the delimiter and a quote; the quote is JSON-escaped
+        // in the request body so the stored name is exactly: A;B "C"
+        val projectId = Json.parseToJsonElement(client.post("/api/v1/time/projects") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"name":"A;B \"C\"","color":"#333333"}""")
+        }.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z","description":"hat; Semikolon"}""")
+        }
+
+        val body = client.get("/api/v1/time/export.csv") { bearerAuth(token) }.bodyAsText()
+        // project name `A;B "C"` → quoted with doubled inner quotes
+        assertTrue(body.contains("\"A;B \"\"C\"\"\""), "project name not RFC-4180 escaped in: $body")
+        assertTrue(body.contains("\"hat; Semikolon\""), "description not quoted in: $body")
+    }
+
+    @Test
+    fun `CSV export can be filtered by project_id`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectA = createProject(token, "ProjektEins", "#111111")
+        val projectB = createProject(token, "ProjektZwei", "#222222")
+        client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectA","startedAt":"2026-06-01T08:00:00Z","stoppedAt":"2026-06-01T09:00:00Z"}""")
+        }
+        client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectB","startedAt":"2026-06-01T10:00:00Z","stoppedAt":"2026-06-01T11:00:00Z"}""")
+        }
+
+        val body = client.get("/api/v1/time/export.csv?project_id=$projectA") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("ProjektEins"), "filtered project missing")
+        assertTrue(!body.contains("ProjektZwei"), "other project leaked into filtered export")
+    }
+
+    @Test
+    fun `CSV export rejects an invalid date filter`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/time/export.csv?from=notadate") { bearerAuth(token) }.status,
+        )
+    }
+
+    @Test
     fun `running timers are tracked per user independently`() = testApplication {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
