@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -177,14 +177,20 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   }
 
   const handleDelete = async (id: string) => {
-    const prevRecipes = recipes
     setRecipes((prev) => prev.filter((r) => r.id !== id))
     setDraft(null)
     setSelected(null)
-    const res = await authFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/recipes/${id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchRecipes()
+      return flashError(errorText(null, t.recipes.deleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      setRecipes(prevRecipes)
+      await fetchRecipes()
       flashError(errorText(await errorCode(res), t.recipes.deleteFailed))
     }
   }
@@ -197,19 +203,23 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       setToast(msg)
       setTimeout(() => setToast(null), 2600)
     }
-    const res = await authFetch(token, `${API_BASE}/shopping/batch`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ listId, items }),
     })
-    if (!res.ok) {
-      flash(t.recipes.nothingToAdd)
-      return
-    }
+    // transport reject → no Response; surface the generic German fallback
+    if (!result.ok) return flashError(errorText(null, t.recipes.addToListFailed))
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    // a genuine write failure routes through the error toast (was wrongly shown
+    // as the success-styled "nothing to add" message before — issue #96)
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.recipes.addToListFailed))
     const summary = (await res.json()) as { added: number; merged: number; skipped: number }
     const parts: string[] = []
     if (summary.added > 0) parts.push(`${summary.added} ${t.recipes.added}`)
     if (summary.merged > 0) parts.push(`${summary.merged} ${t.recipes.merged}`)
+    // success/empty case keeps the genuine "nothing to add" confirmation
     flash(parts.length ? parts.join(' · ') : t.recipes.nothingToAdd)
   }
 

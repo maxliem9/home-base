@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -106,42 +106,52 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }
 
   const toggleChecked = async (item: ShoppingItem) => {
-    const prevItems = items
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)))
-    const res = await authFetch(token, `${API_BASE}/shopping/${item.id}`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ checked: !item.checked }),
     })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.saveFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      setItems(prevItems)
+      await fetchAll()
       flashError(errorText(await errorCode(res), t.shopping.saveFailed))
     }
   }
 
   const handleDelete = async (id: string) => {
-    const prevItems = items
     setItems((prev) => prev.filter((i) => i.id !== id))
-    const res = await authFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.deleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      setItems(prevItems)
+      await fetchAll()
       flashError(errorText(await errorCode(res), t.shopping.deleteFailed))
     }
   }
 
   const clearChecked = async () => {
     if (!active) return
-    const prevItems = items
     const checkedHere = items.filter((i) => i.checked && i.listId === active.id)
     setItems((prev) => prev.filter((i) => !(i.checked && i.listId === active.id)))
     const results = await Promise.all(
-      checkedHere.map((i) => authFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })),
+      checkedHere.map((i) => safeFetch(token, `${API_BASE}/shopping/${i.id}`, { method: 'DELETE' })),
     )
-    if (results.some((r) => r.status === 401)) return onLogout()
-    if (results.some((r) => !r.ok)) {
-      setItems(prevItems)
+    if (results.some((r) => r.ok && r.res.status === 401)) return onLogout()
+    // Any transport reject or HTTP error → refetch to resync the list.
+    if (results.some((r) => !r.ok || !r.res.ok)) {
+      await fetchAll()
       flashError(t.shopping.clearFailed)
     }
   }
@@ -171,18 +181,20 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     if (!confirm(`${t.shopping.deleteListConfirm}\n\n„${active.name}"`)) return
     const idx = lists.findIndex((l) => l.id === active.id)
     const next = lists[idx + 1] ?? lists[idx - 1]
-    const prevLists = lists
-    const prevItems = items
-    const prevActiveId = activeId
     setLists((prev) => prev.filter((l) => l.id !== active.id))
     setItems((prev) => prev.filter((i) => i.listId !== active.id))
     setActiveId(next ? next.id : null)
-    const res = await authFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t.shopping.listDeleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      setLists(prevLists)
-      setItems(prevItems)
-      setActiveId(prevActiveId)
+      await fetchAll()
       flashError(errorText(await errorCode(res), t.shopping.listDeleteFailed))
     }
   }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { API_BASE, authFetch, errorCode, noteImageUrl, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, noteImageUrl, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -133,14 +133,20 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   }
 
   const handleDelete = async (id: string) => {
-    const prevNotes = notes
     setNotes((prev) => prev.filter((n) => n.id !== id))
     setDraft(null)
     setSelectedId(null)
-    const res = await authFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchNotes(query)
+      return flashError(errorText(null, t.notes.deleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      setNotes(prevNotes)
+      await fetchNotes(query)
       flashError(errorText(await errorCode(res), t.notes.deleteFailed))
     }
   }

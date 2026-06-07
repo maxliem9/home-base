@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../api'
 import { t, errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
@@ -216,13 +216,18 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }
 
   const deleteTodo = async (id: string) => {
-    const prevTodos = todos
     setTodos((prev) => prev.filter((x) => x.id !== id))
-    const res = await authFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/todos/${id}`, { method: 'DELETE' })
+    // On failure (transport reject or HTTP error) refetch to resync rather than
+    // restoring a captured snapshot, which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchTodos()
+      return flashError(errorText(null, t.todos.deleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
-    // restore the optimistic removal if the backend refused it
     if (!res.ok) {
-      setTodos(prevTodos)
+      await fetchTodos()
       flashError(errorText(await errorCode(res), t.todos.deleteFailed))
     }
   }
@@ -320,20 +325,21 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     const removedId = active.id
     const idx = lists.findIndex((l) => l.id === removedId)
     const next = lists[idx + 1] ?? lists[idx - 1]
-    const prevLists = lists
-    const prevTodos = todos
-    const prevActiveId = activeId
     setConfirmDelete(false)
     setLists((prev) => prev.filter((l) => l.id !== removedId))
     setTodos((prev) => prev.filter((x) => x.listId !== removedId))
     setActiveId(next ? next.id : null)
-    const res = await authFetch(token, `${API_BASE}/todos/lists/${removedId}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/todos/lists/${removedId}`, { method: 'DELETE' })
+    // On failure refetch to resync rather than restoring a captured snapshot,
+    // which could clobber a concurrent WS update.
+    if (!result.ok) {
+      await fetchTodos()
+      return flashError(errorText(null, t.todos.listDeleteFailed))
+    }
+    const { res } = result
     if (res.status === 401) return onLogout()
-    // restore the optimistic removal if the backend refused it
     if (!res.ok) {
-      setLists(prevLists)
-      setTodos(prevTodos)
-      setActiveId(prevActiveId)
+      await fetchTodos()
       flashError(errorText(await errorCode(res), t.todos.listDeleteFailed))
     }
   }

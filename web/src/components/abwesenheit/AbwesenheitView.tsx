@@ -1,7 +1,8 @@
 // Abwesenheit / Familienkalender — shared household absence planner.
 // Ported from the design handoff (views_abwesenheit.jsx) to the HomeBase web stack.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { API_BASE, authFetch, errorCode, withWsToken } from '../../api'
+import { API_BASE, authFetch, errorCode, safeFetch, withWsToken } from '../../api'
+import type { FetchResult } from '../../api'
 import { t, errorText } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -97,11 +98,17 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  // Run a mutation, then refetch on success. On 401 → logout; on any other
-  // failure show the reason as an error toast and skip the refetch (the backend
-  // cleanly refused the change, so the snapshot is unchanged) — see issue #96.
-  const mutate = async (req: () => Promise<Response>, fallback: string): Promise<boolean> => {
-    const res = await req()
+  // Run a mutation via safeFetch, then refetch on success. A transport reject
+  // (offline/DNS — issue #93) surfaces the German fallback; on 401 → logout; on
+  // any other HTTP failure show the reason as an error toast and skip the refetch
+  // (the backend cleanly refused the change, so the snapshot is unchanged) — #96.
+  const mutate = async (req: () => Promise<FetchResult>, fallback: string): Promise<boolean> => {
+    const result = await req()
+    if (!result.ok) {
+      flashError(errorText(null, fallback))
+      return false
+    }
+    const { res } = result
     if (res.status === 401) {
       onLogout()
       return false
@@ -115,45 +122,45 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
   }
   const api: Api = {
     setAbsence: async (userId, date, type, half) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) }), t.abwesenheit.saveFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) }), t.abwesenheit.saveFailed)
     },
     clearAbsence: async (userId, date) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
     setAbsenceRange: async (userId, type, from, to, half) => {
       const dates = type
         ? eachDate(from, to).filter((ds) => isWorkdayFor(data, userId, ds))
         : eachDate(from, to)
-      await mutate(() => authFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) }), t.abwesenheit.saveFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) }), t.abwesenheit.saveFailed)
     },
     toggleKita: async (date, label, keep = false) => {
       const existing = data.kitaClosures.find((k) => k.date === date)
       if (label == null) {
-        if (existing) await mutate(() => authFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
       } else if (keep) {
-        if (existing) await mutate(() => authFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) }), t.abwesenheit.kitaFailed)
-        else await mutate(() => authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) }), t.abwesenheit.kitaFailed)
+        else await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
       } else if (!existing) {
-        await mutate(() => authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+        await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
       }
     },
     addKita: async (date, label) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
     },
     addKitaRange: async (from, to, label) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) }), t.abwesenheit.kitaFailed)
     },
     updateKita: async (id, patch) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.kitaFailed)
     },
     removeKita: async (id) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
     updateAbsSettings: async (userId, patch) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
     },
     addPartTime: async (rule) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t.abwesenheit.partTimeFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t.abwesenheit.partTimeFailed)
     },
     updatePartTime: async (id, patch) => {
       const rule = data.partTime.find((r) => r.id === id)
@@ -163,10 +170,10 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
         start: patch.start ?? rule.start,
         end: 'end' in patch ? patch.end ?? null : rule.end ?? null,
       }
-      await mutate(() => authFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) }), t.abwesenheit.partTimeFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) }), t.abwesenheit.partTimeFailed)
     },
     removePartTime: async (id) => {
-      await mutate(() => authFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
   }
 

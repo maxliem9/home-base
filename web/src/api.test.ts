@@ -32,8 +32,16 @@ describe('errorText', () => {
 
   it('uses the fallback for unknown or absent codes', () => {
     expect(errorText('NOPE', 'fallback')).toBe('fallback')
+    // transport rejects (safeFetch ok:false) pass null → German per-action fallback
     expect(errorText(null, 'fallback')).toBe('fallback')
     expect(errorText(undefined, 'fallback')).toBe('fallback')
+  })
+
+  // The recipes "add to shopping" write path (issue #96) routes real failures
+  // through the error toast with this per-action German fallback.
+  it('exposes the recipes add-to-list write-error fallback', () => {
+    expect(t.recipes.addToListFailed).toBeTruthy()
+    expect(errorText(null, t.recipes.addToListFailed)).toBe(t.recipes.addToListFailed)
   })
 
   // The domain views added in issue #96 surface these backend codes; every one

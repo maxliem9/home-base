@@ -341,6 +341,7 @@ export const de = {
     // write-error fallbacks (issue #96)
     saveFailed: 'Rezept konnte nicht gespeichert werden.',
     deleteFailed: 'Rezept konnte nicht gelöscht werden.',
+    addToListFailed: 'Zutaten konnten nicht zur Einkaufsliste hinzugefügt werden.',
     // keys match the RecipeCategory enum values from the backend
     categories: {
       BREAKFAST: 'Frühstück',
