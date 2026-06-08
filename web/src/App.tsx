@@ -6,6 +6,7 @@ import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
 import { Avatar, Button, Card, Field, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
+import { DashboardView } from './components/DashboardView'
 import { TodosView } from './components/TodosView'
 import { NotesView } from './components/NotesView'
 import { ShoppingView } from './components/ShoppingView'
@@ -13,9 +14,10 @@ import { TimeView } from './components/TimeView'
 import { RecipesView } from './components/RecipesView'
 import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 
-type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
+type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
 const NAV: { id: Tab; label: string; icon: string }[] = [
+  { id: 'heute', label: t.nav.dashboard, icon: 'home' },
   { id: 'todos', label: t.nav.todos, icon: 'checkCircle' },
   { id: 'shopping', label: t.nav.shopping, icon: 'cart' },
   { id: 'notes', label: t.nav.notes, icon: 'note' },
@@ -93,7 +95,7 @@ async function fetchHouseholdName(token: string): Promise<string> {
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('homebase_token') ?? '')
-  const [tab, setTab] = useState<Tab>('todos')
+  const [tab, setTab] = useState<Tab>('heute')
 
   if (!token) {
     return (
@@ -161,6 +163,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       </aside>
 
       <main className="hb-main">
+        {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={setTab} />}
         {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
         {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
         {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}

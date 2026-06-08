@@ -69,6 +69,7 @@ export const de = {
     timerRunning: 'Timer läuft',
   },
   nav: {
+    dashboard: 'Dashboard',
     todos: 'Aufgaben',
     shopping: 'Einkaufsliste',
     notes: 'Notizen',
@@ -83,6 +84,47 @@ export const de = {
     password: 'Passwort',
     submit: 'Anmelden',
     failed: 'Login fehlgeschlagen',
+  },
+  dashboard: {
+    headerTitle: 'HomeBase — Heute',
+    // greeting head — thresholds mirror the mock (views_heute.jsx)
+    greetingNight: 'Gute Nacht',
+    greetingMorning: 'Guten Morgen',
+    greetingDay: 'Hallo',
+    greetingEvening: 'Guten Abend',
+    // quick-add (lands in the Inbox — no list)
+    quickAddPlaceholder: 'Schnell erfassen – landet in der Inbox …',
+    add: 'Hinzufügen',
+    addFailed: 'Aufgabe konnte nicht hinzugefügt werden.',
+    saveFailed: 'Änderung konnte nicht gespeichert werden.',
+    // stat tiles
+    statDueToday: 'Heute fällig',
+    statInbox: 'In der Inbox',
+    statDueTomorrow: 'Morgen fällig',
+    statDoneToday: 'Heute erledigt',
+    // "Heute dran" card
+    todayTitle: 'Heute dran',
+    allTasks: 'Alle Aufgaben',
+    todayEmpty: 'Für heute nichts geplant',
+    todayEmptyHint: 'Genieß den Tag — oder leere die Inbox.',
+    // time card
+    timeTitle: 'Zeiterfassung',
+    open: 'Öffnen',
+    timerRunningHint: 'Läuft …',
+    stop: 'Stoppen',
+    noTimer: 'Kein Timer läuft',
+    noTimerHint: 'Starte einen Timer in der Zeiterfassung.',
+    // shopping peek card
+    shoppingTitle: 'Einkaufsliste',
+    shoppingEmpty: 'Alles eingekauft',
+    moreItems: 'weitere', // rendered as "+ {n} weitere"
+    // digest preview card
+    digestTitle: 'Abend-Digest',
+    digestBadge: 'Vorschau', // DIGEST_TIME isn't exposed via /config, so no hard-coded time
+    digestSub: 'Vorschau der Telegram-Nachricht, die ihr beide bekommt.',
+    digestDone: 'Heute erledigt',
+    digestInbox: 'Neu in der Inbox',
+    digestTomorrow: 'Morgen fällig',
   },
   todos: {
     headerTitle: 'HomeBase — Aufgaben',

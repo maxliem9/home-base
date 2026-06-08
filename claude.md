@@ -115,7 +115,12 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 
 ## Web-Konventionen
 - React 18 + TypeScript + Vite + Tailwind CSS
-- Startseite: Inbox-View (alle INBOX-Todos beider Nutzer)
+- Startseite: Dashboard-/„Heute"-View (`components/DashboardView.tsx`, erster Nav-Eintrag,
+  Default-Tab) — zeitabhängige Begrüßung, Quick-Add → Inbox-Todo, 4 Stat-Kacheln
+  (heute fällig / Inbox / morgen fällig / heute erledigt), „Heute dran", laufender
+  Timer, Einkaufs-Peek und Digest-Vorschau; aggregiert die bestehenden Reads
+  (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
+  + Android `HeuteScreen`. Siehe Issue #131.
 - WebSocket-Hook für Echtzeit-Updates
 - Kein Redux — useState/useContext reicht für MVP
 
