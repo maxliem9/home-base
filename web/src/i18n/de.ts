@@ -82,7 +82,7 @@ export const de = {
       notes: 'Notizen',
       time: 'Zeit',
       recipes: 'Rezepte',
-      abwesenheit: 'Frei',
+      abwesenheit: 'Kalender',
     },
   },
   login: {
