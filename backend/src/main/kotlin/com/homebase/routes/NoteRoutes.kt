@@ -7,13 +7,13 @@ import com.homebase.ws.WsSessionManager
 import io.ktor.server.application.*
 import io.ktor.http.*
 import io.ktor.http.content.*
+import io.ktor.server.http.content.LocalFileContent
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
-import kotlinx.io.readByteArray
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
@@ -207,29 +207,31 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                 return@post
             }
 
-            var fileBytes: ByteArray? = null
-            var originalName = "image"
-            var contentType: String? = null
+            var pending: PendingUpload? = null
             var rejected: ImageRejection? = null
 
             val multipart = call.receiveMultipart()
             while (true) {
                 val part = multipart.readPart() ?: break
-                if (part is PartData.FileItem && fileBytes == null && rejected == null) {
+                if (part is PartData.FileItem && pending == null && rejected == null) {
                     val ct = (part.contentType?.let { "${it.contentType}/${it.contentSubtype}" }
                         ?: part.originalFileName?.let { contentTypeFromName(it) })?.lowercase()
                     if (ct == null || ct !in ALLOWED_IMAGE_TYPES) {
                         rejected = ImageRejection.UnsupportedType
                     } else {
-                        val bytes = part.provider().readRemaining().readByteArray()
-                        when {
-                            bytes.isEmpty() -> rejected = ImageRejection.Empty
-                            bytes.size > imageConfig.maxBytes -> rejected = ImageRejection.TooLarge
-                            else -> {
-                                fileBytes = bytes
-                                contentType = ct
-                                part.originalFileName?.takeIf { it.isNotBlank() }?.let { originalName = it }
-                            }
+                        // Stream the part to a temp file, enforcing the size cap as the bytes
+                        // arrive: an oversized upload is aborted mid-stream (and its partial temp
+                        // file deleted) instead of being fully buffered in the heap and only then
+                        // rejected. See issue #48.
+                        when (val outcome = part.streamToTempFile(imageConfig)) {
+                            StreamOutcome.Empty -> rejected = ImageRejection.Empty
+                            StreamOutcome.TooLarge -> rejected = ImageRejection.TooLarge
+                            is StreamOutcome.Ok -> pending = PendingUpload(
+                                tempFile = outcome.file,
+                                contentType = ct,
+                                originalName = part.originalFileName?.takeIf { it.isNotBlank() } ?: "image",
+                                size = outcome.size,
+                            )
                         }
                     }
                 }
@@ -259,16 +261,16 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                 null -> Unit
             }
 
-            val bytes = fileBytes
-            val ct = contentType
-            if (bytes == null || ct == null) {
+            val upload = pending
+            if (upload == null) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("NO_IMAGE", "no image file in request"))
                 return@post
             }
 
             val imageId = UUID.randomUUID()
-            val storedName = "$imageId.${ALLOWED_IMAGE_TYPES.getValue(ct)}"
-            writeImageFile(imageConfig, storedName, bytes)
+            val storedName = "$imageId.${ALLOWED_IMAGE_TYPES.getValue(upload.contentType)}"
+            // The bytes are already streamed to a temp file; promote it to its final name.
+            finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
             val result = transaction {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
@@ -280,9 +282,9 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                     it[NoteImagesTable.id] = imageId
                     it[NoteImagesTable.noteId] = noteId
                     it[filename] = storedName
-                    it[NoteImagesTable.originalName] = originalName
-                    it[NoteImagesTable.contentType] = ct
-                    it[sizeBytes] = bytes.size.toLong()
+                    it[NoteImagesTable.originalName] = upload.originalName
+                    it[NoteImagesTable.contentType] = upload.contentType
+                    it[sizeBytes] = upload.size
                     it[sortOrder] = nextOrder
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
@@ -330,7 +332,9 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
             // sniffed/validated to be a real image. Tell the browser not to MIME-sniff so a
             // crafted file (e.g. HTML mislabelled image/png) can never be reinterpreted as markup.
             call.response.headers.append("X-Content-Type-Options", "nosniff")
-            call.respondBytes(Files.readAllBytes(file), ContentType.parse(row[NoteImagesTable.contentType]))
+            // Stream the file straight from disk (LocalFileContent) instead of reading the whole
+            // image into the heap; it also adds Content-Length and supports range requests.
+            call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[NoteImagesTable.contentType])))
         }
 
         // Remove an image from a note. Returns the updated note.
@@ -381,6 +385,20 @@ private sealed interface NoteUpdateResult {
 }
 
 private enum class ImageRejection { UnsupportedType, TooLarge, Empty }
+
+// An accepted upload whose bytes already live in a temp file on disk, ready to be promoted.
+private class PendingUpload(
+    val tempFile: Path,
+    val contentType: String,
+    val originalName: String,
+    val size: Long,
+)
+
+private sealed interface StreamOutcome {
+    data class Ok(val file: Path, val size: Long) : StreamOutcome
+    data object Empty : StreamOutcome
+    data object TooLarge : StreamOutcome
+}
 
 // A note is visible to a user if it is shared or they created it.
 private fun SqlExpressionBuilder.visibleTo(username: String): Op<Boolean> =
@@ -441,9 +459,78 @@ private fun loadImagesFor(noteIds: List<UUID>): Map<UUID, List<NoteImageDto>> {
 
 // --- Filesystem helpers -------------------------------------------------------
 
-private fun writeImageFile(config: NoteImageConfig, filename: String, bytes: ByteArray) {
+private const val STREAM_BUFFER_BYTES = 64 * 1024
+
+// In-progress uploads are streamed to a "upload-<random>.tmp" file and only renamed to their
+// final name once fully received. The glob matches the createTempFile() prefix + suffix below.
+private const val TEMP_UPLOAD_PREFIX = "upload-"
+private const val TEMP_UPLOAD_SUFFIX = ".tmp"
+private const val TEMP_UPLOAD_GLOB = "$TEMP_UPLOAD_PREFIX*$TEMP_UPLOAD_SUFFIX"
+
+/**
+ * Stream this file part to a temp file in the upload dir, enforcing [NoteImageConfig.maxBytes]
+ * as the bytes arrive. The whole body is never held in the heap: as soon as the running total
+ * would exceed the limit we stop, drop the partial temp file and report [StreamOutcome.TooLarge]
+ * instead of buffering everything first. An empty part is reported as [StreamOutcome.Empty].
+ */
+private suspend fun PartData.FileItem.streamToTempFile(config: NoteImageConfig): StreamOutcome {
     Files.createDirectories(config.uploadDir)
-    Files.write(config.uploadDir.resolve(filename), bytes)
+    val temp = Files.createTempFile(config.uploadDir, TEMP_UPLOAD_PREFIX, TEMP_UPLOAD_SUFFIX)
+    val channel = provider()
+    var total = 0L
+    var tooLarge = false
+    try {
+        Files.newOutputStream(temp).use { out ->
+            val buffer = ByteArray(STREAM_BUFFER_BYTES)
+            while (true) {
+                val read = channel.readAvailable(buffer, 0, buffer.size)
+                if (read < 0) break
+                if (total + read > config.maxBytes) {
+                    tooLarge = true
+                    break
+                }
+                out.write(buffer, 0, read)
+                total += read
+            }
+        }
+    } catch (e: Throwable) {
+        Files.deleteIfExists(temp)
+        throw e
+    }
+    return when {
+        tooLarge -> { Files.deleteIfExists(temp); StreamOutcome.TooLarge }
+        total == 0L -> { Files.deleteIfExists(temp); StreamOutcome.Empty }
+        else -> StreamOutcome.Ok(temp, total)
+    }
+}
+
+/**
+ * Delete orphaned upload temp files left behind when a stream was interrupted before its rename
+ * (process killed mid-upload, or the engine threw between streaming and [finalizeImageFile]).
+ * Meant to run once at startup before any request is served, so it can't race a live upload.
+ * Returns the number of files removed. Never throws — a failed sweep must not block startup.
+ */
+fun sweepStaleImageUploads(config: NoteImageConfig): Int {
+    if (!Files.isDirectory(config.uploadDir)) return 0
+    return runCatching {
+        var swept = 0
+        Files.newDirectoryStream(config.uploadDir, TEMP_UPLOAD_GLOB).use { stream ->
+            for (path in stream) {
+                if (runCatching { Files.deleteIfExists(path) }.getOrDefault(false)) swept++
+            }
+        }
+        swept
+    }.getOrDefault(0)
+}
+
+// Promote a fully-streamed temp file to its final stored name (same dir, so a plain move is atomic).
+private fun finalizeImageFile(config: NoteImageConfig, tempFile: Path, filename: String) {
+    try {
+        Files.move(tempFile, config.uploadDir.resolve(filename))
+    } catch (e: Throwable) {
+        Files.deleteIfExists(tempFile)
+        throw e
+    }
 }
 
 private fun deleteImageFile(config: NoteImageConfig, filename: String) {
