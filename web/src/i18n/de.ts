@@ -75,6 +75,15 @@ export const de = {
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
     abwesenheit: 'Abwesenheit',
+    // Short labels for the mobile bottom tab bar (6 items must fit on a 360px phone).
+    short: {
+      todos: 'Aufgaben',
+      shopping: 'Einkauf',
+      notes: 'Notizen',
+      time: 'Zeit',
+      recipes: 'Rezepte',
+      abwesenheit: 'Frei',
+    },
   },
   login: {
     title: 'HomeBase',

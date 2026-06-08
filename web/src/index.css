@@ -135,6 +135,56 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   box-shadow: 0 0 0 0 var(--accent); animation: hb-pulse 2.6s infinite; }
 @keyframes hb-pulse { 0% { box-shadow: 0 0 0 0 oklch(0.6 0.08 var(--accent-hue) / 0.5); } 70% { box-shadow: 0 0 0 7px oklch(0.6 0.08 var(--accent-hue) / 0); } 100% { box-shadow: 0 0 0 0 oklch(0.6 0.08 var(--accent-hue) / 0); } }
 
+/* ---------- Mobile top bar + bottom tab bar (≤860px; hidden on desktop) ---------- */
+/* Rendered always in the markup; the 860px media query below reveals them in the
+   same breakpoint that hides the sidebar, so navigation never disappears. (#138) */
+.hb-topbar { display: none; }
+.hb-tabbar { display: none; }
+
+.hb-topbar {
+  align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 18px; border-bottom: 1px solid var(--line-soft);
+  background: var(--surface);
+  position: sticky; top: 0; z-index: 40;
+}
+.hb-topbar .hb-brand { padding: 0; }
+.hb-topbar .hb-brand__mark { width: 34px; height: 34px; border-radius: 11px; }
+.hb-topbar .hb-brand__name { font-size: 19px; }
+.hb-topbar__logout { width: 34px; height: 34px; flex-shrink: 0; }
+
+.hb-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  grid-template-columns: repeat(6, 1fr); align-items: stretch;
+  background: var(--surface); border-top: 1px solid var(--line-soft);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -1px 10px oklch(0 0 0 / 0.04);
+}
+.hb-tabbar__item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 0; padding: 4px 2px; border: none; background: transparent; cursor: pointer;
+  color: var(--ink-3); font-family: inherit; border-radius: var(--radius-sm);
+  transition: color 0.14s, background 0.14s;
+}
+.hb-tabbar__item:hover { color: var(--ink-2); }
+.hb-tabbar__icon { position: relative; display: grid; place-items: center; }
+.hb-tabbar__label {
+  font-size: 10.5px; font-weight: 600; line-height: 1; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hb-tabbar__item.is-active { color: var(--accent-ink); }
+.hb-tabbar__item.is-active .hb-tabbar__icon svg { color: var(--accent); }
+.hb-tabbar__badge {
+  position: absolute; top: -6px; left: calc(50% + 7px);
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700;
+  display: grid; place-items: center; line-height: 1;
+}
+.hb-tabbar__dot {
+  position: absolute; top: -3px; left: calc(50% + 7px);
+  width: 7px; height: 7px; border-radius: 50%; background: var(--clay);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
 /* ---------- Main ---------- */
 .hb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .hb-page { width: 100%; max-width: 1120px; margin: 0 auto; padding: 34px 40px 80px; flex: 1; }
@@ -517,7 +567,23 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
   .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {
+  /* Swap the sidebar for the mobile top bar + bottom tab bar (#138). */
   .hb-sidebar { display: none; }
-  .hb-page { padding: 22px 18px 90px; }
-  .hb-pagehead h1 { font-size: 34px; }
+  .hb-topbar { display: flex; }
+  .hb-tabbar { display: grid; }
+
+  /* Bottom padding clears the fixed tab bar (~60px + safe-area) so it never
+     covers content; top padding tightens now that the top bar carries the brand. */
+  .hb-page {
+    padding: 20px 18px;
+    padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  }
+  .hb-pagehead { gap: 14px; margin-bottom: 22px; }
+  .hb-pagehead h1 { font-size: 30px; }
+}
+
+@media (max-width: 420px) {
+  .hb-page { padding-left: 14px; padding-right: 14px; padding-top: 16px; }
+  .hb-pagehead h1 { font-size: 27px; }
+  .hb-tabbar__label { font-size: 10px; }
 }

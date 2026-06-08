@@ -15,13 +15,13 @@ import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 
 type Tab = 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
-const NAV: { id: Tab; label: string; icon: string }[] = [
-  { id: 'todos', label: t.nav.todos, icon: 'checkCircle' },
-  { id: 'shopping', label: t.nav.shopping, icon: 'cart' },
-  { id: 'notes', label: t.nav.notes, icon: 'note' },
-  { id: 'time', label: t.nav.time, icon: 'clock' },
-  { id: 'recipes', label: t.nav.recipes, icon: 'chef' },
-  { id: 'abwesenheit', label: t.nav.abwesenheit, icon: 'calendar' },
+const NAV: { id: Tab; label: string; shortLabel: string; icon: string }[] = [
+  { id: 'todos', label: t.nav.todos, shortLabel: t.nav.short.todos, icon: 'checkCircle' },
+  { id: 'shopping', label: t.nav.shopping, shortLabel: t.nav.short.shopping, icon: 'cart' },
+  { id: 'notes', label: t.nav.notes, shortLabel: t.nav.short.notes, icon: 'note' },
+  { id: 'time', label: t.nav.time, shortLabel: t.nav.short.time, icon: 'clock' },
+  { id: 'recipes', label: t.nav.recipes, shortLabel: t.nav.short.recipes, icon: 'chef' },
+  { id: 'abwesenheit', label: t.nav.abwesenheit, shortLabel: t.nav.short.abwesenheit, icon: 'calendar' },
 ]
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -161,6 +161,21 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       </aside>
 
       <main className="hb-main">
+        {/* Mobile top bar — only visible ≤860px (CSS), where the sidebar is hidden.
+            Surfaces the brand + logout, since the sidebar foot chip is gone. (#138) */}
+        <header className="hb-topbar">
+          <div className="hb-brand">
+            <div className="hb-brand__mark"><Icon name="home" size={19} stroke={2.2} /></div>
+            <div>
+              <div className="hb-brand__name">HomeBase</div>
+              <div className="hb-brand__sub">{household}</div>
+            </div>
+          </div>
+          <button className="hb-iconbtn hb-topbar__logout" onClick={onLogout} title={t.common.logout} aria-label={t.common.logout}>
+            <Avatar user={me} size={30} />
+          </button>
+        </header>
+
         {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
         {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
         {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
@@ -168,6 +183,28 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
         {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
       </main>
+
+      {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
+          navigation. Same tab state, badges and running-timer dot as the sidebar. (#138) */}
+      <nav className="hb-tabbar" aria-label="Hauptnavigation">
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            className={`hb-tabbar__item${tab === n.id ? ' is-active' : ''}`}
+            onClick={() => setTab(n.id)}
+            aria-current={tab === n.id ? 'page' : undefined}
+          >
+            <span className="hb-tabbar__icon">
+              <Icon name={n.icon} size={22} stroke={2} />
+              {n.id === 'time' && badges.timerRunning && (
+                <span className="hb-tabbar__dot" title={t.shell.timerRunning} />
+              )}
+              {count[n.id] ? <span className="hb-tabbar__badge">{count[n.id]}</span> : null}
+            </span>
+            <span className="hb-tabbar__label">{n.shortLabel}</span>
+          </button>
+        ))}
+      </nav>
 
       {/* Single global toast for background GET/read transport failures (issue #93). */}
       <TransportErrorToast />
