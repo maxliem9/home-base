@@ -151,9 +151,9 @@ DIGEST_TIME=20:00
 
 > **Non-root containers:** both images run unprivileged (backend uid 10001, web
 > nginx uid 101), so the `uploads` volume has to be writable by uid 10001.
-> `scripts/deploy.sh` chowns it on every run — if you start the stack that way it
-> just works. Starting straight from the Container Manager **GUI** skips that step;
-> see the caveat in Part 6.
+> `scripts/deploy.sh` chowns it on every run — start the stack that way and it just
+> works. Any other start path (Container Manager **GUI** or raw `docker compose`)
+> skips that step; see the caveat in Part 6.
 
 ---
 
@@ -231,10 +231,11 @@ from `SEED_USERS`. HTTPS is then served by DSM's reverse proxy (Part 4) — the
 stack itself only listens on `localhost:3000`.
 
 > **Non-root & the uploads volume:** both containers run unprivileged (backend uid
-> 10001, web nginx uid 101). The **CLI way** uses `scripts/deploy.sh`, which chowns
-> the `uploads` volume to uid 10001 on every run. The **GUI way** skips the script,
-> so if you reuse an older, root-owned `uploads` volume the first note-image upload
-> fails with `AccessDenied`. Fix it once (the backend also logs a warning at
+> 10001, web nginx uid 101), so the `uploads` volume must be writable by uid 10001.
+> `scripts/deploy.sh` (Part 10b) chowns it automatically — but the raw `docker
+> compose` commands above and the GUI start do **not**. So if you reuse an older,
+> root-owned `uploads` volume without going through the script, the first note-image
+> upload fails with `AccessDenied`. Fix it once (the backend also logs a warning at
 > startup when `UPLOAD_DIR` isn't writable):
 > ```bash
 > docker compose run --rm --no-deps --user root --entrypoint chown \
