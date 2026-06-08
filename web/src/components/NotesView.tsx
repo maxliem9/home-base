@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch, withWsToken } from '../api'
+import { useState, useEffect, useCallback, useRef, useMemo, type ImgHTMLAttributes } from 'react'
+import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Note, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -56,7 +56,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { flashError, errorToast } = useErrorToast()
 
@@ -88,7 +88,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     return () => clearTimeout(debounce.current)
   }, [query, fetchNotes])
 
-  useWebSocket(withWsToken(WS_URL, token), (raw) => {
+  useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
@@ -365,11 +365,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   <div className="hb-note-images__grid">
                     {selected.images.map((img) => (
                       <div key={img.id} className="hb-note-thumb">
-                        <img
-                          src={noteImageUrl(selected.id, img.id, token)}
+                        <AuthedImage
+                          noteId={selected.id}
+                          imageId={img.id}
+                          token={token}
                           alt={img.originalName}
-                          loading="lazy"
-                          onClick={() => setLightbox(noteImageUrl(selected.id, img.id, token))}
+                          onClick={() => setLightbox({ noteId: selected.id, imageId: img.id })}
                         />
                         <button
                           type="button"
@@ -405,11 +406,41 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
       {lightbox && (
         <div className="hb-lightbox" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="" onClick={(e) => e.stopPropagation()} />
+          <AuthedImage noteId={lightbox.noteId} imageId={lightbox.imageId} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
 
       {errorToast}
     </div>
   )
+}
+
+// Loads a note image through authFetch (Authorization header) into a blob URL, so the JWT never
+// rides in the image URL. The object URL is revoked on unmount / when the target changes.
+function AuthedImage({ noteId, imageId, token, ...imgProps }: {
+  noteId: string
+  imageId: string
+  token: string
+} & ImgHTMLAttributes<HTMLImageElement>) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    let objectUrl: string | null = null
+    // Clear any previous blob before loading a new target, so a prop change in place
+    // never renders the just-revoked object URL for a frame.
+    setSrc(null)
+    authFetch(token, noteImageUrl(noteId, imageId))
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
+      .then((blob) => {
+        if (!active) return
+        objectUrl = URL.createObjectURL(blob)
+        setSrc(objectUrl)
+      })
+      .catch(() => { /* broken/forbidden image → render nothing */ })
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [noteId, imageId, token])
+  return src ? <img src={src} {...imgProps} /> : null
 }

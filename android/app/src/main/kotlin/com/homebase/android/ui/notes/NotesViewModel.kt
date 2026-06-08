@@ -111,8 +111,10 @@ class NotesViewModel(
     }
 
     /**
-     * Authenticated URL for an image. <img>/Coil can't set an Authorization header, so the
-     * backend accepts the JWT via the same `?token=` fallback used for WebSocket upgrades.
+     * Authenticated URL for an image. Coil/<img> can set neither an Authorization header nor a
+     * WebSocket subprotocol, so the backend accepts the JWT via the `?token=` query param for these
+     * image loads only. (The web client moved its WebSocket auth to the Sec-WebSocket-Protocol
+     * header; `?token=` is now the image-only fallback.)
      */
     fun imageUrl(image: NoteImageDto): String =
         BuildConfig.BASE_URL.trimEnd('/') + "/notes/${image.noteId}/images/${image.id}?token=$token"

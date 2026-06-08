@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
@@ -110,7 +110,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     }
   }, [lists, activeId])
 
-  useWebSocket(withWsToken(WS_URL, token), (raw) => {
+  useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return

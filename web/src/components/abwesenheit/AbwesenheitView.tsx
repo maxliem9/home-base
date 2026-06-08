@@ -1,7 +1,7 @@
 // Abwesenheit / Familienkalender — shared household absence planner.
 // Ported from the design handoff (views_abwesenheit.jsx) to the HomeBase web stack.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../../api'
 import type { FetchResult } from '../../api'
 import { t, errorText } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
@@ -96,7 +96,7 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     fetchState()
   }, [fetchState])
 
-  useWebSocket(withWsToken(WS_URL, token), () => {
+  useWebSocket({ url: WS_URL, token }, () => {
     fetchState()
   })
 

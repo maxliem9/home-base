@@ -37,15 +37,19 @@ export const TOKEN = 'test-jwt-token'
  * live under /{todos,shopping}/lists, subtasks under /todos/{id}/subtasks, and
  * every subtask mutation responds with the freshly built parent todo.
  *
- * Todos, shopping, recipes and notes reflect their own mutations from the REST
- * response, so the stubbed socket can stay silent for them. TimeView instead
- * relies entirely on realtime frames, so time mutations attach an `x-ws-frames`
- * response header that the in-page bridge (see install) replays to the socket.
+ * Every view (todos, shopping, recipes, notes and time) reflects its own
+ * mutations from the REST response, so the UI updates without depending on the
+ * socket. Time mutations additionally attach an `x-ws-frames` response header
+ * that the in-page bridge (see install) replays to the socket, so the realtime
+ * dedupe path stays covered. `silenceRealtime()` suppresses those frames to
+ * reproduce a deployment whose WS echo never reaches the originating client and
+ * prove the UI still updates from REST alone (issue: TimeView live update).
  *
  * Todos/shopping data is seeded via the constructor; recipes/notes/time via the
  * fluent seed* helpers so existing call sites keep working unchanged.
  */
 export class MockApi {
+  private silent = false
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -98,6 +102,13 @@ export class MockApi {
     return this
   }
 
+  /** Drop all WebSocket frames — reproduces a deployment where the realtime echo
+   *  never reaches the originating client, so views must update from REST alone. */
+  silenceRealtime(): this {
+    this.silent = true
+    return this
+  }
+
   seedEntries(entries: TimeEntry[]): this {
     this.entries = entries.map((e) => ({ ...e }))
     return this
@@ -126,7 +137,9 @@ export class MockApi {
         onerror: (() => void) | null = null
         readyState = 1
         url: string
-        constructor(url: string) {
+        // The app now opens `new WebSocket(url, ['bearer', token])` — accept and ignore the
+        // subprotocols arg the same way a browser would.
+        constructor(url: string, _protocols?: string | string[]) {
           this.url = String(url)
           sockets.push(this)
         }
@@ -180,6 +193,11 @@ export class MockApi {
   // Like json(), but tags the response with WebSocket frames the in-page bridge
   // replays onto the given channel's socket(s) after the fetch resolves.
   private jsonWithFrames(route: Route, body: unknown, status: number, channel: string, frames: unknown[]) {
+    // silenceRealtime() → behave like a backend whose WS frame never arrives.
+    if (this.silent) {
+      if (status === 204) return route.fulfill({ status: 204, body: '' })
+      return this.json(route, body, status)
+    }
     return route.fulfill({
       status,
       contentType: 'application/json',

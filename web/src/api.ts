@@ -78,14 +78,8 @@ export async function errorCode(res: Response): Promise<string | null> {
   return null
 }
 
-export function withWsToken(url: string, token: string) {
-  const wsUrl = new URL(url, window.location.href)
-  wsUrl.searchParams.set('token', token)
-  return wsUrl.toString()
-}
-
-// <img> tags can't send an Authorization header, so the image endpoint accepts the
-// JWT via the same `?token=` fallback used for WebSocket upgrades.
-export function noteImageUrl(noteId: string, imageId: string, token: string) {
-  return `${API_BASE}/notes/${noteId}/images/${imageId}?token=${encodeURIComponent(token)}`
+// Path to a note image. The JWT is NOT in the URL — callers load it through authFetch
+// (Authorization header) into a blob, e.g. the <AuthedImage> component in NotesView.
+export function noteImageUrl(noteId: string, imageId: string) {
+  return `${API_BASE}/notes/${noteId}/images/${imageId}`
 }

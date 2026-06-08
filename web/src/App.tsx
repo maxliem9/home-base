@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, authFetch, safeFetch, login, withWsToken } from './api'
+import { API_BASE, authFetch, safeFetch, login } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Icon } from './ui/Icon'
@@ -70,9 +70,9 @@ function useNavBadges(token: string): NavBadges {
     refreshRunning()
   }, [refreshTodos, refreshShopping, refreshRunning])
 
-  useWebSocket(withWsToken(wsUrl('todos'), token), refreshTodos)
-  useWebSocket(withWsToken(wsUrl('shopping'), token), refreshShopping)
-  useWebSocket(withWsToken(wsUrl('time'), token), refreshRunning)
+  useWebSocket({ url: wsUrl('todos'), token }, refreshTodos)
+  useWebSocket({ url: wsUrl('shopping'), token }, refreshShopping)
+  useWebSocket({ url: wsUrl('time'), token }, refreshRunning)
 
   return badges
 }

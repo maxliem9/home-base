@@ -46,6 +46,31 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
   })
 
+  // Regression: TimeView must reflect its own writes from the REST response, not
+  // wait for the WebSocket echo. silenceRealtime() drops every WS frame, mirroring
+  // a deployment whose realtime echo never reaches the originating client — the
+  // exact symptom where a started timer / new entry only appeared after a reload.
+  test('reflects writes from REST even when the realtime echo never arrives', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]).silenceRealtime())
+
+    // start a timer → hero must switch to running with no WS frame
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Start' }).click()
+    const hero = page.locator('.hb-timerhero')
+    await expect(hero).toHaveClass(/is-running/)
+
+    // stop it → it lands in the recent list (one row, no duplicate)
+    await hero.getByRole('button', { name: 'Stoppen' }).click()
+    await expect(page.getByText('Kein Timer aktiv')).toBeVisible()
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
+
+    // record a manual entry → appears immediately
+    await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    await expect(modal).toBeHidden()
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(2)
+  })
+
   test('creates a project', async ({ page }) => {
     await openTime(page, new MockApi())
 

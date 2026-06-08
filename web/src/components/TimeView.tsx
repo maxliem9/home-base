@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
+import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Project, TimeEntry } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -53,6 +53,17 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     setTimeout(() => setToast(null), 3500)
   }, [])
 
+  // Apply a write's HTTP response to local state immediately — same convention as
+  // every other view (Todos/Notes/Shopping). The WebSocket echo of our own action
+  // then dedupes to a no-op (it only exists to sync the *other* user). Without this,
+  // our own change wouldn't show until the next reload if the echo is missed/delayed.
+  const upsertEntry = useCallback((e: TimeEntry) => {
+    setEntries((prev) => (prev.some((x) => x.id === e.id) ? prev.map((x) => (x.id === e.id ? e : x)) : [e, ...prev]))
+  }, [])
+  const upsertProject = useCallback((p: Project) => {
+    setProjects((prev) => (prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p]))
+  }, [])
+
   const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
   const running = useMemo(() => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null, [entries, me])
 
@@ -91,7 +102,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return () => clearInterval(id)
   }, [running])
 
-  useWebSocket(withWsToken(WS_URL, token), (raw) => {
+  useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (msg.project) {
@@ -122,7 +133,19 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!result.ok) return flashError(errorText(null, t.time.startFailed))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(errorText(await errorCode(res), t.time.startFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.startFailed))
+    // Show the new timer right away. Starting auto-stops any running timer for this
+    // user on the server (at the same instant), so mirror that locally too — otherwise
+    // the previous entry would linger as "running" until the WS echo arrives.
+    const created: TimeEntry = await res.json()
+    setEntries((prev) => {
+      const stopped = prev.map((e) =>
+        !e.stoppedAt && e.userId === created.userId && e.id !== created.id
+          ? { ...e, stoppedAt: created.startedAt, durationSeconds: elapsedSeconds(e.startedAt, new Date(created.startedAt).getTime()) }
+          : e,
+      )
+      return stopped.some((x) => x.id === created.id) ? stopped.map((x) => (x.id === created.id ? created : x)) : [created, ...stopped]
+    })
   }
 
   const stopTimer = async () => {
@@ -130,7 +153,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!result.ok) return flashError(errorText(null, t.time.stopFailed))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(errorText(await errorCode(res), t.time.stopFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.stopFailed))
+    upsertEntry(await res.json())
   }
 
   const saveDescription = async () => {
@@ -143,7 +167,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(errorText(await errorCode(res), t.time.saveFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.saveFailed))
+    upsertEntry(await res.json())
   }
 
   const deleteEntry = async (id: string) => {
@@ -171,7 +196,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!result.ok) return flashError(errorText(null, t.time.archiveFailed))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) flashError(errorText(await errorCode(res), t.time.archiveFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.archiveFailed))
+    upsertProject(await res.json())
   }
 
   const saveProject = async (d: ProjectDraft) => {
@@ -184,6 +210,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) return flashError(errorText(await errorCode(res), t.time.saveFailed))
+    upsertProject(await res.json())
     setProjectDraft(null)
   }
 
@@ -200,6 +227,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       return null
     }
     if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
+    upsertEntry(await res.json())
     setShowManual(false)
     return null
   }

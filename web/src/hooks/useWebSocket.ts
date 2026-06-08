@@ -1,6 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react'
 
-export function useWebSocket(url: string, onMessage: (data: string) => void) {
+// The JWT is passed as a WebSocket subprotocol (`["bearer", token]`) so it travels in the
+// `Sec-WebSocket-Protocol` handshake header instead of the URL query string — keeping the token
+// out of server access logs and browser history. The backend reads it from that header
+// (see backend/src/main/kotlin/com/homebase/plugins/Authentication.kt).
+export function useWebSocket(target: { url: string; token?: string }, onMessage: (data: string) => void) {
+  const { url, token } = target
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onMessageRef = useRef(onMessage)
@@ -8,7 +13,7 @@ export function useWebSocket(url: string, onMessage: (data: string) => void) {
 
   const connect = useCallback((activeRef: { current: boolean }) => {
     if (!activeRef.current) return null
-    const ws = new WebSocket(url)
+    const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url)
     wsRef.current = ws
 
     ws.onmessage = (e) => onMessageRef.current(e.data)
@@ -19,7 +24,7 @@ export function useWebSocket(url: string, onMessage: (data: string) => void) {
     }
 
     return ws
-  }, [url])
+  }, [url, token])
 
   useEffect(() => {
     const activeRef = { current: true }

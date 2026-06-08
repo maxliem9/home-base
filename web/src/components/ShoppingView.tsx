@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -60,7 +60,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     }
   }, [lists, activeId])
 
-  useWebSocket(withWsToken(WS_URL, token), (raw) => {
+  useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
