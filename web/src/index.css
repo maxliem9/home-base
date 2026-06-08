@@ -158,7 +158,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 
 .hb-tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
-  grid-template-columns: repeat(6, 1fr); align-items: stretch;
+  grid-template-columns: repeat(7, 1fr); align-items: stretch;
   background: var(--surface); border-top: 1px solid var(--line-soft);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -1px 10px oklch(0 0 0 / 0.04);
@@ -403,6 +403,27 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-pick:hover { border-color: var(--accent); color: var(--ink); }
 .hb-pick.is-active { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
 
+/* ---------- Heute / Dashboard ---------- */
+.hb-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap); margin-bottom: var(--gap); }
+.hb-stat { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--line-soft); background: var(--surface); box-shadow: var(--shadow-sm); cursor: pointer; transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s; font-family: inherit; }
+.hb-stat:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--line); }
+.hb-stat__icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); margin-bottom: 10px; }
+.hb-stat__value { font-size: 34px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
+.hb-stat__label { font-size: 13.5px; color: var(--ink-3); font-weight: 500; }
+
+.hb-heute-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--gap); align-items: start; }
+
+.hb-digest { background: linear-gradient(180deg, var(--accent-soft) 0%, var(--surface) 38%); }
+.hb-digest__body { display: flex; flex-direction: column; gap: 9px; }
+.hb-digest__line { display: flex; justify-content: space-between; align-items: center; font-size: 14.5px; font-weight: 500; padding-bottom: 9px; border-bottom: 1px solid var(--line-soft); }
+.hb-digest__line span:last-child { font-family: var(--font-mono); font-weight: 700; color: var(--accent-ink); }
+.hb-digest__k { color: var(--ink-2); }
+.hb-digest__sub { font-size: 13px; color: var(--ink-3); padding-left: 4px; }
+
+.hb-runwidget { display: flex; align-items: center; gap: 13px; padding: 6px 2px; }
+.hb-runwidget__pdot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.hb-runwidget__clock { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+
 /* ---------- Einkauf ---------- */
 .hb-shop-add { display: flex; gap: 12px; align-items: stretch; margin-bottom: 26px; flex-wrap: wrap; }
 .hb-shop-add .hb-quickadd { flex: 1; min-width: 240px; }
@@ -561,6 +582,19 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-editrow .hb-input--unit { flex: none; width: 72px; }
 .hb-formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+/* ---------- recipe editor page (issue #123) ---------- */
+.hb-recipe-form { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+.hb-recipe-form__foot { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line-soft); justify-content: flex-end; }
+/* "+ Zutat/Schritt/Abschnitt" sits below its list so it stays reachable as rows grow */
+.hb-addrow { margin-top: 10px; }
+/* a named ingredient section: boxed only when more than one section exists */
+.hb-ingsec { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 12px; }
+.hb-ingsec__head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hb-ingsec__name { flex: 1; font-weight: 600; }
+/* section sub-heading above its ingredient run on the detail page */
+.hb-ingsubhead { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; }
+.hb-inggroup:first-child .hb-ingsubhead { margin-top: 0; }
+
 /* ---------- Login ---------- */
 .hb-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .hb-login__card { width: 100%; max-width: 380px; padding: 30px 28px; }
@@ -568,7 +602,8 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {
-  .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
+  .hb-heute-grid, .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
+  .hb-stats { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 860px) {
   /* Swap the sidebar for the mobile top bar + bottom tab bar (#138). */

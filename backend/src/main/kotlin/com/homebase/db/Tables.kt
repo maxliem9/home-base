@@ -178,6 +178,7 @@ object IngredientsTable : Table("ingredients") {
     val name = text("name")
     val amount = decimal("amount", 12, 3).nullable()
     val unit = varchar("unit", 50).nullable()
+    val section = text("section").nullable()
     val sortOrder = integer("sort_order")
     override val primaryKey = PrimaryKey(id)
 }

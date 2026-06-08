@@ -116,6 +116,51 @@ class RecipeRouteTest {
     }
 
     @Test
+    fun `POST recipe round-trips ingredient sections and scaling preserves them`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = createRecipe(
+            token,
+            """
+            {
+              "title": "Käsekuchen",
+              "category": "DESSERT",
+              "servings": 2,
+              "ingredients": [
+                {"name": "Mehl", "amount": 200, "unit": "g", "section": "Boden"},
+                {"name": "Butter", "amount": 100, "unit": "g", "section": "Boden"},
+                {"name": "Quark", "amount": 500, "unit": "g", "section": "Füllung"},
+                {"name": "Salz"}
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals(HttpStatusCode.Created, response.status)
+        val id = Json.parseToJsonElement(response.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        // base recipe is 2 servings; request 4 → amounts double, sections stay attached
+        val scaled = client.get("/api/v1/recipes/$id?servings=4") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, scaled.status)
+        val ings = Json.parseToJsonElement(scaled.bodyAsText()).jsonObject["ingredients"]!!.jsonArray
+            .map { it.jsonObject }
+        // sortOrder/section grouping must survive the round-trip: Boden rows stay adjacent, in order
+        assertEquals(
+            listOf("Mehl", "Butter", "Quark", "Salz"),
+            ings.map { it["name"]?.jsonPrimitive?.content },
+        )
+        val mehl = ings.first { it["name"]?.jsonPrimitive?.content == "Mehl" }
+        assertEquals("Boden", mehl["section"]?.jsonPrimitive?.content)
+        assertEquals(400.0, mehl["amount"]?.jsonPrimitive?.double)
+        val quark = ings.first { it["name"]?.jsonPrimitive?.content == "Quark" }
+        assertEquals("Füllung", quark["section"]?.jsonPrimitive?.content)
+        // ungrouped ingredient omits the section key entirely (encodeDefaults=false) — assert
+        // the key is absent, not merely that it reads as null
+        val salz = ings.first { it["name"]?.jsonPrimitive?.content == "Salz" }
+        assertTrue("section" !in salz)
+    }
+
+    @Test
     fun `GET detail scales ingredient amounts by servings`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

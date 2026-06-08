@@ -118,7 +118,7 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
             appBar = {
                 HbAppBar(
                     eyebrow = "Familienkalender",
-                    title = "Abwesenheit",
+                    title = "Kalender",
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.edit, { showSettings = true }) },
                 )

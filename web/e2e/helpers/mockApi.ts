@@ -225,6 +225,7 @@ export class MockApi {
         name: i.name as string,
         amount: i.amount as number | undefined,
         unit: i.unit as string | undefined,
+        section: i.section as string | undefined,
         sortOrder: n,
       })),
       steps: steps.map((s, n) => ({

@@ -73,6 +73,11 @@ export function dayGroupLabel(isoStr: string): string {
   return `${d.getDate()}. ${MON[d.getMonth()]}`
 }
 
+/** "Sonntag, 8. Juni" — long weekday + day + month, for the dashboard eyebrow. */
+export function todayLabel(d: Date = new Date()): string {
+  return `${WD_LONG[d.getDay()]}, ${d.getDate()}. ${MON[d.getMonth()]}`
+}
+
 /** Monday-based start of the week containing `date`. */
 function weekStart(date: Date): Date {
   const dow = (date.getDay() + 6) % 7 // Mon = 0

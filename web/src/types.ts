@@ -86,6 +86,8 @@ export interface Ingredient {
   name: string
   amount?: number
   unit?: string
+  /** optional group label, e.g. "Boden" / "Topping"; absent = ungrouped (top section) */
+  section?: string
   sortOrder: number
 }
 

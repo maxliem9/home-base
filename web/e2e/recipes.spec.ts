@@ -55,18 +55,71 @@ test.describe('Recipes', () => {
     await expect(page.getByText('Pfannkuchen')).toHaveCount(0)
   })
 
-  test('creates a recipe via the editor', async ({ page }) => {
+  test('creates a recipe via the editor page', async ({ page }) => {
     await openRecipes(page, new MockApi())
 
     await page.getByRole('button', { name: 'Neues Rezept' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.getByPlaceholder('Titel…').fill('Omelett')
-    await modal.getByPlaceholder('Zutat').first().fill('Eier')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
+    // the editor is its own full page now (issue #123), not a modal
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    const form = page.locator('.hb-recipe-form')
+    await form.getByPlaceholder('Titel…').fill('Omelett')
+    await form.getByPlaceholder('Zutat').first().fill('Eier')
+    // scope the save to the form (the page header also carries a Speichern button)
+    await form.getByRole('button', { name: 'Speichern' }).click()
 
     // editor closes and the new recipe opens on its detail page
     await expect(page.getByRole('heading', { name: 'Omelett' })).toBeVisible()
     await expect(page.locator('.hb-ing', { hasText: 'Eier' })).toBeVisible()
+  })
+
+  test('groups ingredients into named sections', async ({ page }) => {
+    await openRecipes(page, new MockApi())
+
+    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    const form = page.locator('.hb-recipe-form')
+    await form.getByPlaceholder('Titel…').fill('Käsekuchen')
+
+    // a fresh recipe is a flat list — no section-name field until sections are introduced
+    await expect(form.getByPlaceholder('Abschnitt (optional)')).toHaveCount(0)
+    await form.getByPlaceholder('Zutat').first().fill('Mehl')
+
+    // "+ Abschnitt" reveals name fields on every section (incl. the first) — name them
+    await form.getByRole('button', { name: '+ Abschnitt' }).click()
+    await form.getByPlaceholder('Abschnitt (optional)').first().fill('Boden')
+    await form.getByPlaceholder('Abschnitt (optional)').nth(1).fill('Füllung')
+    await form.getByPlaceholder('Zutat').nth(1).fill('Quark')
+
+    await form.getByRole('button', { name: 'Speichern' }).click()
+
+    // detail page shows both section sub-headings over their ingredient runs
+    await expect(page.getByRole('heading', { name: 'Käsekuchen' })).toBeVisible()
+    await expect(page.locator('.hb-ingsubhead', { hasText: 'Boden' })).toBeVisible()
+    await expect(page.locator('.hb-ingsubhead', { hasText: 'Füllung' })).toBeVisible()
+    await expect(page.locator('.hb-ing', { hasText: 'Mehl' })).toBeVisible()
+    await expect(page.locator('.hb-ing', { hasText: 'Quark' })).toBeVisible()
+  })
+
+  test('section-name field sticks after removing back to a single section', async ({ page }) => {
+    await openRecipes(page, new MockApi())
+
+    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    const form = page.locator('.hb-recipe-form')
+    await form.getByPlaceholder('Titel…').fill('Test')
+
+    // introduce a second section, name the first, then remove the second
+    await form.getByRole('button', { name: '+ Abschnitt' }).click()
+    const nameField = form.getByPlaceholder('Abschnitt (optional)')
+    await nameField.first().fill('Boden')
+    await form.getByRole('button', { name: 'Abschnitt entfernen' }).nth(1).click()
+
+    // back to a single section, but the name field must persist (and keep "Boden"),
+    // not vanish mid-edit just because there is one section again
+    await expect(nameField).toHaveCount(1)
+    await expect(nameField.first()).toHaveValue('Boden')
+
+    // and clearing the name keeps the field present (sticky), no jolt
+    await nameField.first().fill('')
+    await expect(nameField).toHaveCount(1)
   })
 
   test('opens a recipe and scales ingredient amounts by servings', async ({ page }) => {
@@ -88,9 +141,9 @@ test.describe('Recipes', () => {
     await page.locator('.hb-recipecard', { hasText: 'Pfannkuchen' }).click()
 
     await page.getByRole('button', { name: 'Bearbeiten' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.getByPlaceholder('Titel…').fill('Crêpes')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
+    const form = page.locator('.hb-recipe-form')
+    await form.getByPlaceholder('Titel…').fill('Crêpes')
+    await form.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.getByRole('heading', { name: 'Crêpes' })).toBeVisible()
   })
