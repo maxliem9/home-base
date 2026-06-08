@@ -76,7 +76,7 @@ export const de = {
     notes: 'Notizen',
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
-    abwesenheit: 'Abwesenheit',
+    abwesenheit: 'Kalender',
     // Short labels for the mobile bottom tab bar (6 items must fit on a 360px phone).
     short: {
       todos: 'Aufgaben',
@@ -84,7 +84,7 @@ export const de = {
       notes: 'Notizen',
       time: 'Zeit',
       recipes: 'Rezepte',
-      abwesenheit: 'Abw.',
+      abwesenheit: 'Kalender',
     },
   },
   login: {
@@ -367,9 +367,9 @@ export const de = {
     },
   },
   abwesenheit: {
-    headerTitle: 'HomeBase — Abwesenheit',
+    headerTitle: 'HomeBase — Kalender',
     eyebrow: 'Familienkalender',
-    title: 'Abwesenheit',
+    title: 'Kalender',
     layoutYear: 'Jahr',
     layoutMonth: 'Monat',
     period: 'Zeitraum',
