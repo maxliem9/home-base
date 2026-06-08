@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.CreateRecipeRequest
+import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.data.model.IngredientInput
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeStepInput
@@ -96,6 +97,23 @@ private val KNOWN_UNITS = setOf(
 )
 
 private fun totalTime(r: RecipeDto): Int = (r.prepTimeMinutes ?: 0) + (r.cookTimeMinutes ?: 0)
+
+/**
+ * Group ingredients into consecutive runs sharing the same section label (issue #123).
+ * Ingredients arrive ordered by sortOrder (authoring order), so consecutive grouping
+ * faithfully reconstructs the sections. A blank/absent section becomes the header-less
+ * top group (null first).
+ */
+internal fun groupIngredientsBySection(items: List<IngredientDto>): List<Pair<String?, List<IngredientDto>>> {
+    val groups = mutableListOf<Pair<String?, MutableList<IngredientDto>>>()
+    for (ing in items) {
+        val sec = ing.section?.trim()?.takeIf { it.isNotEmpty() }
+        val last = groups.lastOrNull()
+        if (last != null && last.first == sec) last.second.add(ing)
+        else groups.add(sec to mutableListOf(ing))
+    }
+    return groups.map { it.first to it.second.toList() }
+}
 
 /** Map a German category chip label back to the backend enum value. */
 private fun categoryLabelToEnum(label: String): String = when (label) {
@@ -432,15 +450,20 @@ private fun RecipeDetailPage(
             }
             Spacer(Modifier.size(18.dp))
 
-            // Ingredients
+            // Ingredients (optionally grouped into named sections — issue #123)
             if (recipe.ingredients.isNotEmpty()) {
                 HbSectionLabel("Zutaten")
-                recipe.ingredients.forEachIndexed { i, ing ->
-                    IngredientRow(
-                        amountUnit = "${ing.amount?.let { Format.amount(it) } ?: ""} ${ing.unit ?: ""}".trim(),
-                        name = ing.name,
-                        divider = i < recipe.ingredients.lastIndex,
-                    )
+                groupIngredientsBySection(recipe.ingredients).forEach { group ->
+                    val section = group.first
+                    val items = group.second
+                    if (section != null) IngredientSectionHeader(section)
+                    items.forEachIndexed { i, ing ->
+                        IngredientRow(
+                            amountUnit = "${ing.amount?.let { Format.amount(it) } ?: ""} ${ing.unit ?: ""}".trim(),
+                            name = ing.name,
+                            divider = i < items.lastIndex,
+                        )
+                    }
                 }
                 Spacer(Modifier.size(22.dp))
             }
@@ -513,6 +536,16 @@ private fun FactTile(value: String, label: String, modifier: Modifier = Modifier
         )
         Text(label, style = HbType.small.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium), color = Hb.ink3)
     }
+}
+
+@Composable
+private fun IngredientSectionHeader(text: String) {
+    Text(
+        text,
+        style = HbType.small.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+        color = Hb.ink2,
+        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+    )
 }
 
 @Composable
@@ -825,7 +858,7 @@ private fun NewRecipeSheet(onDismiss: () -> Unit, onSave: (CreateRecipeRequest) 
                 mono = true,
             )
             Text(
-                "Eine pro Zeile, z. B. „200 g Mehl“",
+                "Eine pro Zeile, z. B. „200 g Mehl“. „# Boden“ beginnt einen Abschnitt.",
                 style = HbType.small.copy(fontSize = 12.sp),
                 color = Hb.ink3,
                 modifier = Modifier.padding(top = 4.dp, start = 2.dp),
@@ -848,12 +881,26 @@ private fun NewRecipeSheet(onDismiss: () -> Unit, onSave: (CreateRecipeRequest) 
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-/** Parse a free-text textarea into [IngredientInput]s — one ingredient per non-blank line. */
-private fun parseIngredients(text: String): List<IngredientInput> =
-    text.lines()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .map { parseIngredientLine(it) }
+/**
+ * Parse a free-text textarea into [IngredientInput]s — one ingredient per non-blank line.
+ * A line beginning with "#" starts a named section (e.g. "# Boden"); every ingredient after it
+ * carries that section until the next "#"-line. A bare "#" resets to the header-less top group.
+ * Mirrors the web editor's structured sections (issue #123).
+ */
+internal fun parseIngredients(text: String): List<IngredientInput> {
+    val result = mutableListOf<IngredientInput>()
+    var section: String? = null
+    for (raw in text.lines()) {
+        val line = raw.trim()
+        if (line.isEmpty()) continue
+        if (line.startsWith("#")) {
+            section = line.removePrefix("#").trim().takeIf { it.isNotEmpty() }
+            continue
+        }
+        result += parseIngredientLine(line).copy(section = section)
+    }
+    return result
+}
 
 /**
  * Parse a single ingredient line. A leading numeric token (comma decimals allowed) becomes the

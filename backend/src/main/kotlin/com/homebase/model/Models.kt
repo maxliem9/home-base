@@ -305,6 +305,8 @@ data class IngredientDto(
     val name: String,
     val amount: Double? = null,
     val unit: String? = null,
+    // optional group label, e.g. "Boden" / "Topping"; null = ungrouped (top section)
+    val section: String? = null,
     val sortOrder: Int
 )
 
@@ -335,7 +337,8 @@ data class RecipeDto(
 data class IngredientInput(
     val name: String,
     val amount: Double? = null,
-    val unit: String? = null
+    val unit: String? = null,
+    val section: String? = null
 )
 
 @Serializable

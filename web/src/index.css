@@ -528,6 +528,19 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-editrow .hb-input--unit { flex: none; width: 72px; }
 .hb-formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+/* ---------- recipe editor page (issue #123) ---------- */
+.hb-recipe-form { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+.hb-recipe-form__foot { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line-soft); justify-content: flex-end; }
+/* "+ Zutat/Schritt/Abschnitt" sits below its list so it stays reachable as rows grow */
+.hb-addrow { margin-top: 10px; }
+/* a named ingredient section: boxed only when more than one section exists */
+.hb-ingsec { border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 12px; }
+.hb-ingsec__head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hb-ingsec__name { flex: 1; font-weight: 600; }
+/* section sub-heading above its ingredient run on the detail page */
+.hb-ingsubhead { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; }
+.hb-inggroup:first-child .hb-ingsubhead { margin-top: 0; }
+
 /* ---------- Login ---------- */
 .hb-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .hb-login__card { width: 100%; max-width: 380px; padding: 30px 28px; }

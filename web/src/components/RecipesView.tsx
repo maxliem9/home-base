@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Recipe, RecipeCategory, ShoppingList } from '../types'
+import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -40,6 +40,7 @@ const recipeHue = (id: string) => {
 }
 
 interface IngredientDraft { name: string; amount: string; unit: string }
+interface SectionDraft { name: string; ingredients: IngredientDraft[] }
 interface Draft {
   id?: string
   title: string
@@ -48,27 +49,51 @@ interface Draft {
   prepTimeMinutes: string
   cookTimeMinutes: string
   category: RecipeCategory
-  ingredients: IngredientDraft[]
+  sections: SectionDraft[]
   steps: string[]
 }
 
+// Group ingredients into consecutive runs sharing the same section label. Ingredients arrive
+// ordered by sortOrder (the order they were authored), so consecutive grouping faithfully
+// reconstructs the editor's sections — including two distinct sections that happen to share a
+// name. A blank/absent section becomes the header-less top group (null).
+const groupBySection = (items: Ingredient[]): { section: string | null; items: Ingredient[] }[] => {
+  const groups: { section: string | null; items: Ingredient[] }[] = []
+  for (const it of items) {
+    const sec = it.section?.trim() ? it.section.trim() : null
+    const last = groups[groups.length - 1]
+    if (last && (last.section ?? '') === (sec ?? '')) last.items.push(it)
+    else groups.push({ section: sec, items: [it] })
+  }
+  return groups
+}
+
+const emptyIngredient = (): IngredientDraft => ({ name: '', amount: '', unit: '' })
+const emptySection = (): SectionDraft => ({ name: '', ingredients: [emptyIngredient()] })
+
 const emptyDraft = (): Draft => ({
   title: '', description: '', servings: '2', prepTimeMinutes: '', cookTimeMinutes: '',
-  category: 'DINNER', ingredients: [{ name: '', amount: '', unit: '' }], steps: [''],
+  category: 'DINNER', sections: [emptySection()], steps: [''],
 })
-const draftFromRecipe = (r: Recipe): Draft => ({
-  id: r.id,
-  title: r.title,
-  description: r.description ?? '',
-  servings: String(r.servings),
-  prepTimeMinutes: r.prepTimeMinutes != null ? String(r.prepTimeMinutes) : '',
-  cookTimeMinutes: r.cookTimeMinutes != null ? String(r.cookTimeMinutes) : '',
-  category: r.category,
-  ingredients: r.ingredients.length
-    ? r.ingredients.map((i) => ({ name: i.name, amount: i.amount != null ? String(i.amount) : '', unit: i.unit ?? '' }))
-    : [{ name: '', amount: '', unit: '' }],
-  steps: r.steps.length ? r.steps.map((s) => s.description) : [''],
-})
+const draftFromRecipe = (r: Recipe): Draft => {
+  const groups = groupBySection(r.ingredients)
+  return {
+    id: r.id,
+    title: r.title,
+    description: r.description ?? '',
+    servings: String(r.servings),
+    prepTimeMinutes: r.prepTimeMinutes != null ? String(r.prepTimeMinutes) : '',
+    cookTimeMinutes: r.cookTimeMinutes != null ? String(r.cookTimeMinutes) : '',
+    category: r.category,
+    sections: groups.length
+      ? groups.map((g) => ({
+          name: g.section ?? '',
+          ingredients: g.items.map((i) => ({ name: i.name, amount: i.amount != null ? String(i.amount) : '', unit: i.unit ?? '' })),
+        }))
+      : [emptySection()],
+    steps: r.steps.length ? r.steps.map((s) => s.description) : [''],
+  }
+}
 
 interface RecipesViewProps {
   token: string
@@ -158,13 +183,18 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         prepTimeMinutes: draft.prepTimeMinutes ? parseInt(draft.prepTimeMinutes, 10) : undefined,
         cookTimeMinutes: draft.cookTimeMinutes ? parseInt(draft.cookTimeMinutes, 10) : undefined,
         category: draft.category,
-        ingredients: draft.ingredients
-          .filter((i) => i.name.trim())
-          .map((i) => ({
-            name: i.name.trim(),
-            amount: i.amount.trim() ? parseFloat(i.amount.replace(',', '.')) : undefined,
-            unit: i.unit.trim() || undefined,
-          })),
+        // flatten sections back to a flat ingredient list; each row carries its section label
+        // (blank → undefined). List order = section order, so sortOrder reflects the grouping.
+        ingredients: draft.sections.flatMap((sec) =>
+          sec.ingredients
+            .filter((i) => i.name.trim())
+            .map((i) => ({
+              name: i.name.trim(),
+              amount: i.amount.trim() ? parseFloat(i.amount.replace(',', '.')) : undefined,
+              unit: i.unit.trim() || undefined,
+              section: sec.name.trim() || undefined,
+            })),
+        ),
         steps: draft.steps.filter((s) => s.trim()).map((s) => ({ description: s.trim() })),
       })
       const url = draft.id ? `${API_BASE}/recipes/${draft.id}` : `${API_BASE}/recipes`
@@ -245,8 +275,25 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const current = selected ? recipes.find((r) => r.id === selected.id) ?? selected : null
   const visible = filter === 'ALL' ? recipes : recipes.filter((r) => r.category === filter)
 
+  // ---- editor page (full page, not a modal) — issue #123 ----
+  // Takes priority over the detail branch: editing from the detail page sets both `selected`
+  // and `draft`, so cancelling returns to the detail; creating new (no `selected`) returns to
+  // the list. Save success clears the draft and selects the saved recipe → detail page.
+  if (draft) {
+    return (
+      <RecipeEditor
+        draft={draft}
+        setDraft={setDraft}
+        saving={saving}
+        error={saveError}
+        onSave={handleSave}
+        onCancel={() => { setDraft(null); setSaveError(null) }}
+      />
+    )
+  }
+
   // ---- detail page (full page, not a modal) ----
-  if (current && !draft) {
+  if (current) {
     return (
       <>
         <RecipeDetail
@@ -324,17 +371,6 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         </div>
       )}
 
-      {draft && (
-        <RecipeEditor
-          draft={draft}
-          setDraft={setDraft}
-          saving={saving}
-          error={saveError}
-          onSave={handleSave}
-          onCancel={() => { setDraft(null); setSaveError(null) }}
-        />
-      )}
-
       {toast && (
         <div className="hb-toast">
           <Icon name="check" size={18} stroke={2.4} style={{ color: 'var(--accent)' }} />
@@ -406,14 +442,19 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
         {recipe.ingredients.length > 0 && (
           <div>
             <div className="hb-sectionlabel">{t.recipes.ingredients}</div>
-            <div className="hb-ingredients">
-              {recipe.ingredients.map((ing) => (
-                <div key={ing.id} className="hb-ing">
-                  <span className="hb-ing__amt">{ing.amount != null ? `${fmtAmount(ing.amount * factor)} ${ing.unit ?? ''}`.trim() : ''}</span>
-                  <span>{ing.name}</span>
+            {groupBySection(recipe.ingredients).map((group, gi) => (
+              <div key={gi} className="hb-inggroup">
+                {group.section && <div className="hb-ingsubhead">{group.section}</div>}
+                <div className="hb-ingredients">
+                  {group.items.map((ing) => (
+                    <div key={ing.id} className="hb-ing">
+                      <span className="hb-ing__amt">{ing.amount != null ? `${fmtAmount(ing.amount * factor)} ${ing.unit ?? ''}`.trim() : ''}</span>
+                      <span>{ing.name}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         )}
         {recipe.steps.length > 0 && (
@@ -520,86 +561,139 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
   onSave: () => void
   onCancel: () => void
 }) {
-  const setIngredient = (idx: number, patch: Partial<IngredientDraft>) =>
-    setDraft({ ...draft, ingredients: draft.ingredients.map((ing, i) => (i === idx ? { ...ing, ...patch } : ing)) })
-  const addIngredient = () => setDraft({ ...draft, ingredients: [...draft.ingredients, { name: '', amount: '', unit: '' }] })
-  const removeIngredient = (idx: number) => setDraft({ ...draft, ingredients: draft.ingredients.filter((_, i) => i !== idx) })
+  // Whether the optional section-name fields are shown. Sticky for the editor's lifetime: once
+  // sections are in play (an existing recipe already has a named section, or the user clicked
+  // "+ Abschnitt"), the name field stays put — clearing a name must not make it vanish mid-edit.
+  const [sectionsShown, setSectionsShown] = useState(
+    draft.sections.length > 1 || draft.sections.some((s) => s.name.trim() !== ''),
+  )
+
+  // Sections own their ingredient rows; mutations are addressed by (section, row) index.
+  const setSection = (si: number, patch: Partial<SectionDraft>) =>
+    setDraft({ ...draft, sections: draft.sections.map((s, i) => (i === si ? { ...s, ...patch } : s)) })
+  const addSection = () => {
+    setSectionsShown(true)
+    setDraft({ ...draft, sections: [...draft.sections, emptySection()] })
+  }
+  const removeSection = (si: number) => setDraft({ ...draft, sections: draft.sections.filter((_, i) => i !== si) })
+
+  const setIngredient = (si: number, ii: number, patch: Partial<IngredientDraft>) =>
+    setSection(si, { ingredients: draft.sections[si].ingredients.map((ing, i) => (i === ii ? { ...ing, ...patch } : ing)) })
+  const addIngredient = (si: number) => setSection(si, { ingredients: [...draft.sections[si].ingredients, emptyIngredient()] })
+  const removeIngredient = (si: number, ii: number) =>
+    setSection(si, { ingredients: draft.sections[si].ingredients.filter((_, i) => i !== ii) })
 
   const setStep = (idx: number, value: string) => setDraft({ ...draft, steps: draft.steps.map((s, i) => (i === idx ? value : s)) })
   const addStep = () => setDraft({ ...draft, steps: [...draft.steps, ''] })
   const removeStep = (idx: number) => setDraft({ ...draft, steps: draft.steps.filter((_, i) => i !== idx) })
 
+  // remove control only appears once there is more than one section (can't remove the last)
+  const multiSection = draft.sections.length > 1
+  const actions = (
+    <>
+      <Button variant="ghost" onClick={onCancel}>{t.common.cancel}</Button>
+      <Button onClick={onSave} disabled={saving || !draft.title.trim()}>{t.common.save}</Button>
+    </>
+  )
+
   return (
-    <Modal
-      open
-      onClose={onCancel}
-      title={draft.id ? t.recipes.editRecipe : t.recipes.newRecipe}
-      width={620}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onCancel}>{t.common.cancel}</Button>
-          <Button onClick={onSave} disabled={saving || !draft.title.trim()}>{t.common.save}</Button>
-        </>
-      }
-    >
-      <Field label={t.common.titlePlaceholder}>
-        <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t.common.titlePlaceholder} />
-      </Field>
-      <Field label={t.common.descriptionOptional}>
-        <textarea className="hb-input" rows={2} value={draft.description} placeholder={t.common.descriptionOptional} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-      </Field>
+    <div className="hb-page">
+      <button className="hb-backlink" onClick={onCancel}>
+        <Icon name="chevronLeft" size={17} stroke={2.2} />{t.recipes.backToRecipes}
+      </button>
 
-      <div className="hb-formgrid">
-        <Field label={t.recipes.category}>
-          <Select value={draft.category} onChange={(v) => setDraft({ ...draft, category: v as RecipeCategory })}>
-            {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </Select>
-        </Field>
-        <Field label={t.recipes.servings}>
-          <TextInput type="number" value={draft.servings} onChange={(v) => setDraft({ ...draft, servings: v })} />
-        </Field>
-        <Field label={t.recipes.prepLabel}>
-          <TextInput type="number" value={draft.prepTimeMinutes} onChange={(v) => setDraft({ ...draft, prepTimeMinutes: v })} />
-        </Field>
-        <Field label={t.recipes.cookLabel}>
-          <TextInput type="number" value={draft.cookTimeMinutes} onChange={(v) => setDraft({ ...draft, cookTimeMinutes: v })} />
-        </Field>
+      <div className="hb-pagehead">
+        <div>
+          <div className="hb-pagehead__eyebrow">{t.recipes.newRecipeEyebrow}</div>
+          <h1>{draft.id ? t.recipes.editRecipe : t.recipes.newRecipe}</h1>
+        </div>
+        <div className="hb-pagehead__actions">{actions}</div>
       </div>
 
-      <div>
-        <div className="hb-cardhead">
-          <h3 style={{ fontSize: 15 }}>{t.recipes.ingredients}</h3>
-          <button className="hb-link" onClick={addIngredient}>{t.recipes.addIngredient}</button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {draft.ingredients.map((ing, idx) => (
-            <div key={idx} className="hb-editrow">
-              <input className="hb-input" placeholder={t.recipes.ingredientName} value={ing.name} onChange={(e) => setIngredient(idx, { name: e.target.value })} />
-              <input className="hb-input hb-input--amt" placeholder={t.recipes.amount} value={ing.amount} onChange={(e) => setIngredient(idx, { amount: e.target.value })} />
-              <input className="hb-input hb-input--unit" placeholder={t.recipes.unitAbbr} value={ing.unit} onChange={(e) => setIngredient(idx, { unit: e.target.value })} />
-              <IconButton icon="x" label={t.recipes.removeIngredient} onClick={() => removeIngredient(idx)} />
-            </div>
-          ))}
-        </div>
-      </div>
+      <div className="hb-recipe-form">
+        <Field label={t.common.titlePlaceholder}>
+          <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t.common.titlePlaceholder} />
+        </Field>
+        <Field label={t.common.descriptionOptional}>
+          <textarea className="hb-input" rows={2} value={draft.description} placeholder={t.common.descriptionOptional} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+        </Field>
 
-      <div>
-        <div className="hb-cardhead">
-          <h3 style={{ fontSize: 15 }}>{t.recipes.preparation}</h3>
-          <button className="hb-link" onClick={addStep}>{t.recipes.addStep}</button>
+        <div className="hb-formgrid">
+          <Field label={t.recipes.category}>
+            <Select value={draft.category} onChange={(v) => setDraft({ ...draft, category: v as RecipeCategory })}>
+              {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </Select>
+          </Field>
+          <Field label={t.recipes.servings}>
+            <TextInput type="number" value={draft.servings} onChange={(v) => setDraft({ ...draft, servings: v })} />
+          </Field>
+          <Field label={t.recipes.prepLabel}>
+            <TextInput type="number" value={draft.prepTimeMinutes} onChange={(v) => setDraft({ ...draft, prepTimeMinutes: v })} />
+          </Field>
+          <Field label={t.recipes.cookLabel}>
+            <TextInput type="number" value={draft.cookTimeMinutes} onChange={(v) => setDraft({ ...draft, cookTimeMinutes: v })} />
+          </Field>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {draft.steps.map((step, idx) => (
-            <div key={idx} className="hb-editrow" style={{ alignItems: 'flex-start' }}>
-              <span className="hb-step__n" style={{ marginTop: 8 }}>{idx + 1}</span>
-              <textarea className="hb-input" rows={2} placeholder={t.recipes.stepPlaceholder} value={step} onChange={(e) => setStep(idx, e.target.value)} />
-              <IconButton icon="x" label={t.recipes.removeStep} onClick={() => removeStep(idx)} />
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {error && <p className="hb-modal-error">{error}</p>}
-    </Modal>
+        <div>
+          <div className="hb-cardhead">
+            <h3 style={{ fontSize: 15 }}>{t.recipes.ingredients}</h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {draft.sections.map((section, si) => (
+              <div key={si} className={multiSection ? 'hb-ingsec' : undefined}>
+                {/* Section name only appears once sections are in play — a brand-new single
+                    section stays a plain flat list; once shown it sticks (see sectionsShown). */}
+                {sectionsShown && (
+                  <div className="hb-ingsec__head">
+                    <input
+                      className="hb-input hb-ingsec__name"
+                      placeholder={t.recipes.sectionName}
+                      value={section.name}
+                      onChange={(e) => setSection(si, { name: e.target.value })}
+                    />
+                    {multiSection && <IconButton icon="x" label={t.recipes.removeSection} onClick={() => removeSection(si)} />}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {section.ingredients.map((ing, ii) => (
+                    <div key={ii} className="hb-editrow">
+                      <input className="hb-input" placeholder={t.recipes.ingredientName} value={ing.name} onChange={(e) => setIngredient(si, ii, { name: e.target.value })} />
+                      <input className="hb-input hb-input--amt" placeholder={t.recipes.amount} value={ing.amount} onChange={(e) => setIngredient(si, ii, { amount: e.target.value })} />
+                      <input className="hb-input hb-input--unit" placeholder={t.recipes.unitAbbr} value={ing.unit} onChange={(e) => setIngredient(si, ii, { unit: e.target.value })} />
+                      <IconButton icon="x" label={t.recipes.removeIngredient} onClick={() => removeIngredient(si, ii)} />
+                    </div>
+                  ))}
+                </div>
+                {/* add-row below the list so it stays reachable as rows grow (issue #123 part 2) */}
+                <button className="hb-link hb-addrow" onClick={() => addIngredient(si)}>{t.recipes.addIngredient}</button>
+              </div>
+            ))}
+          </div>
+          <button className="hb-link hb-addrow" onClick={addSection}>{t.recipes.addSection}</button>
+        </div>
+
+        <div>
+          <div className="hb-cardhead">
+            <h3 style={{ fontSize: 15 }}>{t.recipes.preparation}</h3>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {draft.steps.map((step, idx) => (
+              <div key={idx} className="hb-editrow" style={{ alignItems: 'flex-start' }}>
+                <span className="hb-step__n" style={{ marginTop: 8 }}>{idx + 1}</span>
+                <textarea className="hb-input" rows={2} placeholder={t.recipes.stepPlaceholder} value={step} onChange={(e) => setStep(idx, e.target.value)} />
+                <IconButton icon="x" label={t.recipes.removeStep} onClick={() => removeStep(idx)} />
+              </div>
+            ))}
+          </div>
+          <button className="hb-link hb-addrow" onClick={addStep}>{t.recipes.addStep}</button>
+        </div>
+
+        {error && <p className="hb-modal-error">{error}</p>}
+
+        {/* repeat the actions at the bottom so a long form doesn't force a scroll back up to save */}
+        <div className="hb-pagehead__actions hb-recipe-form__foot">{actions}</div>
+      </div>
+    </div>
   )
 }

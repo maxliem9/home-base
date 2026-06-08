@@ -214,6 +214,7 @@ private fun insertIngredients(recipeId: UUID, items: List<IngredientInput>) {
             it[name] = ing.name.trim()
             it[amount] = ing.amount?.let { a -> BigDecimal.valueOf(a) }
             it[unit] = ing.unit?.takeIf { u -> u.isNotBlank() }
+            it[section] = ing.section?.trim()?.takeIf { s -> s.isNotBlank() }
             it[sortOrder] = index
         }
     }
@@ -255,6 +256,7 @@ private fun ResultRow.toRecipeDto(): RecipeDto {
                 name = it[IngredientsTable.name],
                 amount = it[IngredientsTable.amount]?.toDouble(),
                 unit = it[IngredientsTable.unit],
+                section = it[IngredientsTable.section],
                 sortOrder = it[IngredientsTable.sortOrder]
             )
         }
