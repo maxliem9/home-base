@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +76,7 @@ import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.util.FileShare
 import com.homebase.android.ui.util.Format
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ fun RecipesScreen(
             onBack = { selectedId = null },
             onDelete = { viewModel.deleteRecipe(selected.id) { selectedId = null } },
             shoppingViewModel = shoppingViewModel,
+            viewModel = viewModel,
         )
     } else {
         RecipeListPage(
@@ -370,16 +373,29 @@ private fun RecipeDetailPage(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     shoppingViewModel: ShoppingViewModel,
+    viewModel: RecipesViewModel,
 ) {
     BackHandler(onBack = onBack)
 
+    val context = LocalContext.current
     val shoppingState by shoppingViewModel.uiState.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(toastMsg) {
         if (toastMsg != null) {
             kotlinx.coroutines.delay(2600)
             toastMsg = null
+        }
+    }
+
+    // Fetch the export bytes, then hand them to the system share sheet as a cached file.
+    val export: (String) -> Unit = { format ->
+        val (ext, mime) = if (format == "pdf") "pdf" to "application/pdf" else "md" to "text/markdown"
+        viewModel.exportRecipe(recipe.id, format) { result ->
+            result
+                .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes) }
+                .onFailure { toastMsg = "Export fehlgeschlagen" }
         }
     }
 
@@ -394,7 +410,21 @@ private fun RecipeDetailPage(
                 bordered = true,
                 leftIcon = HbIcons.chevronLeft,
                 onLeft = onBack,
-                actions = { HbIconButton(HbIcons.more, {}) },
+                actions = {
+                    Box {
+                        HbIconButton(HbIcons.more, { menuOpen = true })
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Als Markdown", style = HbType.body, color = Hb.ink) },
+                                onClick = { menuOpen = false; export("md") },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Als PDF", style = HbType.body, color = Hb.ink) },
+                                onClick = { menuOpen = false; export("pdf") },
+                            )
+                        }
+                    }
+                },
             )
         },
         overlay = {

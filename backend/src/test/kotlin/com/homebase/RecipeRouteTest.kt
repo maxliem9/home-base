@@ -239,6 +239,86 @@ class RecipeRouteTest {
     }
 
     @Test
+    fun `export without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.get("/api/v1/recipes/00000000-0000-0000-0000-000000000000/export").status,
+        )
+    }
+
+    @Test
+    fun `export unknown recipe returns 404`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/recipes/00000000-0000-0000-0000-999999999999/export") { bearerAuth(token) }.status,
+        )
+    }
+
+    @Test
+    fun `export rejects an unknown format`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val id = Json.parseToJsonElement(createRecipe(token, sampleRecipe).bodyAsText())
+            .jsonObject["id"]!!.jsonPrimitive.content
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            client.get("/api/v1/recipes/$id/export?format=docx") { bearerAuth(token) }.status,
+        )
+    }
+
+    @Test
+    fun `export as markdown renders title, ingredients and steps`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val id = Json.parseToJsonElement(createRecipe(token, sampleRecipe).bodyAsText())
+            .jsonObject["id"]!!.jsonPrimitive.content
+
+        // default format is markdown
+        val res = client.get("/api/v1/recipes/$id/export") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertTrue(res.contentType()?.match(ContentType.parse("text/markdown")) == true)
+        assertTrue(res.headers[HttpHeaders.ContentDisposition]?.contains("rezept_pfannkuchen.md") == true)
+        val body = res.bodyAsText()
+        assertTrue(body.startsWith("# Pfannkuchen"))
+        assertTrue(body.contains("## Zutaten"))
+        assertTrue(body.contains("- 200 g Mehl"))
+        assertTrue(body.contains("## Zubereitung"))
+        assertTrue(body.contains("1. Zutaten verrühren"))
+    }
+
+    @Test
+    fun `export scales ingredient amounts by servings`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val id = Json.parseToJsonElement(createRecipe(token, sampleRecipe).bodyAsText())
+            .jsonObject["id"]!!.jsonPrimitive.content
+
+        // base recipe is 2 servings; request 4 → amounts double
+        val body = client.get("/api/v1/recipes/$id/export?servings=4") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("4 Portionen"))
+        assertTrue(body.contains("- 400 g Mehl"))
+    }
+
+    @Test
+    fun `export as pdf returns a pdf body`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val id = Json.parseToJsonElement(createRecipe(token, sampleRecipe).bodyAsText())
+            .jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.get("/api/v1/recipes/$id/export?format=pdf") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertTrue(res.contentType()?.match(ContentType.Application.Pdf) == true)
+        assertTrue(res.headers[HttpHeaders.ContentDisposition]?.contains("rezept_pfannkuchen.pdf") == true)
+        val bytes = res.readRawBytes()
+        // every PDF starts with the "%PDF" magic header
+        assertEquals("%PDF", bytes.copyOfRange(0, 4).decodeToString())
+    }
+
+    @Test
     fun `DELETE removes recipe and its children`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

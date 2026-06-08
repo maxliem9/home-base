@@ -157,6 +157,45 @@ test.describe('Recipes', () => {
     await expect(page.getByText('Noch keine Rezepte')).toBeVisible()
   })
 
+  test('exports a recipe as a Markdown download with the server filename', async ({ page }) => {
+    await openRecipes(page, new MockApi().seedRecipes([PANCAKES]))
+    await page.locator('.hb-recipecard', { hasText: 'Pfannkuchen' }).click()
+
+    await page.getByRole('button', { name: 'Exportieren' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal).toBeVisible()
+
+    const requestPromise = page.waitForRequest((r) => r.url().includes('/recipes/r1/export'))
+    const downloadPromise = page.waitForEvent('download')
+    await modal.getByRole('button', { name: 'Als Markdown' }).click()
+    const [request, download] = await Promise.all([requestPromise, downloadPromise])
+
+    expect(new URL(request.url()).searchParams.get('format')).toBe('md')
+    expect(download.suggestedFilename()).toBe('rezept_pfannkuchen.md')
+    await expect(modal).toBeHidden()
+  })
+
+  test('exports a recipe as a PDF scaled to the chosen servings', async ({ page }) => {
+    await openRecipes(page, new MockApi().seedRecipes([PANCAKES]))
+    await page.locator('.hb-recipecard', { hasText: 'Pfannkuchen' }).click()
+
+    // bump to 4 servings → the export request carries servings=4 so the file matches the view
+    await page.getByRole('button', { name: 'Mehr Portionen' }).click()
+    await page.getByRole('button', { name: 'Mehr Portionen' }).click()
+
+    await page.getByRole('button', { name: 'Exportieren' }).click()
+    const modal = page.locator('.hb-modal')
+    const requestPromise = page.waitForRequest((r) => r.url().includes('/recipes/r1/export'))
+    const downloadPromise = page.waitForEvent('download')
+    await modal.getByRole('button', { name: 'Als PDF' }).click()
+    const [request, download] = await Promise.all([requestPromise, downloadPromise])
+
+    const params = new URL(request.url()).searchParams
+    expect(params.get('format')).toBe('pdf')
+    expect(params.get('servings')).toBe('4')
+    expect(download.suggestedFilename()).toBe('rezept_pfannkuchen.pdf')
+  })
+
   test('opens a recipe whose JSON omits empty ingredients/steps (issue #46)', async ({ page }) => {
     const mock = new MockApi()
     await mock.install(page)

@@ -2,6 +2,7 @@ package com.homebase.android.data.api
 
 import com.homebase.android.data.model.*
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.http.*
 
 interface HomeBaseApi {
@@ -164,6 +165,14 @@ interface HomeBaseApi {
 
     @DELETE("recipes/{id}")
     suspend fun deleteRecipe(@Path("id") id: String)
+
+    // Markdown (format=md) or PDF (format=pdf) export of a single recipe; raw bytes.
+    @GET("recipes/{id}/export")
+    suspend fun exportRecipe(
+        @Path("id") id: String,
+        @Query("format") format: String,
+        @Query("servings") servings: Int? = null,
+    ): ResponseBody
 
     // --- Abwesenheit / Familienkalender ---
 

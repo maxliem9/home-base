@@ -298,9 +298,12 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       <>
         <RecipeDetail
           recipe={current}
+          token={token}
+          onLogout={onLogout}
           onBack={() => setSelected(null)}
           onEdit={() => setDraft(draftFromRecipe(current))}
           onDelete={() => handleDelete(current.id)}
+          onExportError={() => flashError(errorText(null, t.recipes.exportFailed))}
           onAddToShopping={(servings) => { setPickServings(servings); setPicking(current) }}
         />
         {picking && (
@@ -318,6 +321,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
             {toast}
           </div>
         )}
+        {errorToast}
       </>
     )
   }
@@ -383,16 +387,50 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   )
 }
 
-function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
+function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, onLogout, onAddToShopping }: {
   recipe: Recipe
+  token: string
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
+  onExportError: () => void
+  onLogout: () => void
   onAddToShopping: (servings: number) => void
 }) {
   const [servings, setServings] = useState(recipe.servings)
+  const [showExport, setShowExport] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const factor = recipe.servings > 0 ? servings / recipe.servings : 1
   const total = (recipe.prepTimeMinutes ?? 0) + (recipe.cookTimeMinutes ?? 0)
+
+  // Download the recipe via the backend export endpoint. The current servings count is
+  // sent so the file matches what's on screen; the JWT stays in the Authorization header
+  // (never the URL), and the filename comes from the server's Content-Disposition.
+  const exportRecipe = async (format: 'md' | 'pdf') => {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({ format })
+      if (servings !== recipe.servings) params.set('servings', String(servings))
+      const result = await safeFetch(token, `${API_BASE}/recipes/${recipe.id}/export?${params}`)
+      if (!result.ok) return onExportError()
+      const { res } = result
+      if (res.status === 401) return onLogout()
+      if (!res.ok) return onExportError()
+      const blob = await res.blob()
+      const filename = res.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1] ?? `rezept.${format}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setShowExport(false)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div className="hb-page">
@@ -408,9 +446,25 @@ function RecipeDetail({ recipe, onBack, onEdit, onDelete, onAddToShopping }: {
         <div className="hb-pagehead__actions">
           <Button variant="danger" icon="trash" onClick={onDelete}>{t.common.delete}</Button>
           <Button variant="ghost" icon="edit" onClick={onEdit}>{t.recipes.edit}</Button>
+          <Button variant="ghost" icon="download" onClick={() => setShowExport(true)}>{t.recipes.export}</Button>
           <Button variant="soft" icon="cart" onClick={() => onAddToShopping(servings)}>{t.recipes.addToList}</Button>
         </div>
       </div>
+
+      {showExport && (
+        <Modal
+          open
+          onClose={() => setShowExport(false)}
+          title={t.recipes.exportTitle}
+          footer={<Button variant="ghost" onClick={() => setShowExport(false)}>{t.common.cancel}</Button>}
+        >
+          <p className="hb-muted" style={{ marginTop: 0 }}>{t.recipes.exportHint}</p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button icon="download" disabled={exporting} onClick={() => exportRecipe('md')}>{t.recipes.exportMarkdown}</Button>
+            <Button variant="soft" icon="download" disabled={exporting} onClick={() => exportRecipe('pdf')}>{t.recipes.exportPdf}</Button>
+          </div>
+        </Modal>
+      )}
 
       {recipe.description && (
         <p className="hb-muted" style={{ margin: '0 0 18px', fontSize: 16, maxWidth: 640 }}>{recipe.description}</p>

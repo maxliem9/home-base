@@ -525,6 +525,38 @@ export class MockApi {
       return this.json(route, recipe, 201)
     }
 
+    // ---- Recipes: single-recipe export (stub mirroring GET /recipes/{id}/export) ----
+    // Returns markdown or a pdf-magic body plus a Content-Disposition filename, so the
+    // in-app blob download flow can be exercised end-to-end.
+    const recipeExportMatch = path.match(/\/recipes\/([^/]+)\/export$/)
+    if (recipeExportMatch && method === 'GET') {
+      const r = this.recipes.find((x) => x.id === recipeExportMatch[1])
+      if (!r) return this.json(route, { message: 'not found' }, 404)
+      const format = url.searchParams.get('format') ?? 'md'
+      const slug =
+        r.title
+          .toLowerCase()
+          .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'rezept'
+      if (format === 'pdf') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/pdf',
+          headers: { 'content-disposition': `attachment; filename="rezept_${slug}.pdf"` },
+          body: '%PDF-1.4\nmock',
+        })
+      }
+      const lines = r.ingredients.map((i) => `- ${[i.amount, i.unit, i.name].filter(Boolean).join(' ')}`)
+      const md = `# ${r.title}\n\n## Zutaten\n\n${lines.join('\n')}\n`
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/markdown; charset=UTF-8',
+        headers: { 'content-disposition': `attachment; filename="rezept_${slug}.md"` },
+        body: md,
+      })
+    }
+
     const recipeIdMatch = path.match(/\/recipes\/([^/]+)$/)
     if (recipeIdMatch) {
       const id = recipeIdMatch[1]

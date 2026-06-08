@@ -91,6 +91,19 @@ class RecipesViewModel(
         }
     }
 
+    /**
+     * Fetch a recipe export (format "md" or "pdf") as bytes and hand the result to [onResult];
+     * the screen turns success into a file + share-sheet (it owns the Android Context).
+     */
+    fun exportRecipe(
+        id: String,
+        format: String,
+        servings: Int? = null,
+        onResult: (Result<ByteArray>) -> Unit,
+    ) {
+        viewModelScope.launch { onResult(repository.exportRecipe(id, format, servings)) }
+    }
+
     fun clearError() = _uiState.update { it.copy(error = null) }
 
     private fun upsert(recipe: RecipeDto) {

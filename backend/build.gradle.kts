@@ -47,6 +47,10 @@ dependencies {
 
     implementation("at.favre.lib:bcrypt:0.10.2")
 
+    // Server-side PDF generation for the recipe export (issue #136). Pure-JVM, no
+    // native deps; uses java.desktop (AWT Color), present in the temurin JRE image.
+    implementation("com.github.librepdf:openpdf:1.3.43")
+
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
     testImplementation("io.ktor:ktor-client-websockets:$ktorVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.0")

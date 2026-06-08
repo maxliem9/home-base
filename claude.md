@@ -111,6 +111,11 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 - Endpunkte unter /api/v1/recipes (Liste filterbar via ?category=)
 - Portionierung: GET /api/v1/recipes/{id}?servings=N skaliert
   alle Ingredient-Mengen (Faktor N / servings)
+- Einzelrezept-Export: GET /api/v1/recipes/{id}/export?format=md|pdf&servings=N
+  liefert ein Rezept als Markdown (text/markdown) oder PDF (serverseitig via OpenPDF);
+  deutscher Inhalt analog CSV-Export, Content-Disposition-Dateiname rezept_<slug>.<ext>.
+  Web: Download-Button in der Detailansicht; Android: System-Share-Sheet (FileProvider).
+  Siehe Issue #136.
 - WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
 
 ## Web-Konventionen

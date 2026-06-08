@@ -63,6 +63,40 @@ fun Route.recipeRoutes() {
             call.respond(if (targetServings != null) recipe.scaledTo(targetServings) else recipe)
         }
 
+        // Download a single recipe as Markdown (?format=md, default) or PDF (?format=pdf).
+        // Optional ?servings=N scales amounts exactly like the detail endpoint.
+        get("/{id}/export") {
+            val id = call.uuidParam() ?: return@get
+            val format = (call.request.queryParameters["format"] ?: "md").lowercase()
+            if (format != "md" && format != "pdf") {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_FORMAT", "format must be 'md' or 'pdf'"))
+                return@get
+            }
+            val servingsParam = call.request.queryParameters["servings"]
+            val targetServings = servingsParam?.toIntOrNull()
+            if (servingsParam != null && (targetServings == null || targetServings < 1)) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
+                return@get
+            }
+            val recipe = transaction {
+                RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
+            }
+            if (recipe == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
+                return@get
+            }
+            val scaled = if (targetServings != null) recipe.scaledTo(targetServings) else recipe
+            val slug = recipeSlug(scaled.title)
+
+            if (format == "pdf") {
+                call.attachmentHeader("rezept_$slug.pdf")
+                call.respondBytes(buildRecipePdf(scaled), ContentType.Application.Pdf)
+            } else {
+                call.attachmentHeader("rezept_$slug.md")
+                call.respondText(buildRecipeMarkdown(scaled), ContentType.parse("text/markdown; charset=UTF-8"))
+            }
+        }
+
         post {
             val username = call.username()
             val req = call.receive<CreateRecipeRequest>()
@@ -185,6 +219,14 @@ fun Route.recipeRoutes() {
             WsSessionManager.remove(RECIPES_WS_CHANNEL, this)
         }
     }
+}
+
+/** Sets `Content-Disposition: attachment; filename="…"` so the browser downloads the body. */
+private fun ApplicationCall.attachmentHeader(filename: String) {
+    response.header(
+        HttpHeaders.ContentDisposition,
+        ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
+    )
 }
 
 private fun validate(

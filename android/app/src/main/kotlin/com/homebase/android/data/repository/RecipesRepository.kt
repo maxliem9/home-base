@@ -28,6 +28,10 @@ class RecipesRepository(
     suspend fun deleteRecipe(id: String): Result<Unit> =
         runCatching { api.deleteRecipe(id) }
 
+    /** Download a recipe export (format "md" or "pdf") as raw bytes. */
+    suspend fun exportRecipe(id: String, format: String, servings: Int? = null): Result<ByteArray> =
+        runCatching { api.exportRecipe(id, format, servings).use { it.bytes() } }
+
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
