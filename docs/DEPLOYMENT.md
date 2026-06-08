@@ -117,6 +117,10 @@ JWT_SECRET=<64-hex-char-random-string>
 # Re-seeded on every backend start, so you can change a password here later.
 SEED_USERS=max:<password1>,partner:<password2>
 
+# Container timezone — interprets DIGEST_TIME / RECURRING_TIME and the CSV-export
+# timestamps. Defaults to Europe/Berlin; change it if your household is elsewhere.
+TZ=Europe/Berlin
+
 # Telegram daily digest (optional — leave blank to disable)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
@@ -128,17 +132,28 @@ DIGEST_TIME=20:00
 - **Telegram (optional):** create a bot via [@BotFather](https://t.me/BotFather)
   to get `TELEGRAM_BOT_TOKEN`; get your `TELEGRAM_CHAT_ID` by messaging the bot
   and reading `https://api.telegram.org/bot<token>/getUpdates`. The digest fires
-  daily at `DIGEST_TIME` (24h, NAS local time) and is skipped on empty days.
+  daily at `DIGEST_TIME` (24h, in `TZ`) and is skipped on empty days.
+- **Other optional vars** (all carry working defaults in `.env.example`, so you can
+  leave them out): `IMAGE_TAG` (GHCR tag, default `latest`), `HOUSEHOLD_NAME`
+  (sidebar label), `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images, see below), and
+  `RECURRING_TIME` (daily time the recurring-todo safety-net runs, default `00:30`).
 
-> **Timezone:** the digest's "today/tomorrow" boundaries follow the **container's
-> timezone**. If your digest fires at the wrong moment, add `TZ=Europe/Berlin`
-> to the `backend` service environment (in `docker-compose.yml` or `.env`).
+> **Timezone:** the digest's firing time and "today/tomorrow" boundaries — and the
+> time-tracking CSV timestamps — follow the container's `TZ`, which is **preset to
+> `Europe/Berlin`** in `docker-compose.yml`. Override it via `TZ` in `.env` only if
+> your household is in another zone.
 
 > **Note images:** uploads are stored in the `uploads` Docker volume, wired up
 > automatically by `docker-compose.yml` (mounted at `/data/uploads`), so there's
 > nothing to configure for a default setup. To change the 10 MB per-image cap,
 > set `MAX_UPLOAD_MB` in `.env`. Remember to back up the `uploads` volume — see
 > Part 10.
+
+> **Non-root containers:** both images run unprivileged (backend uid 10001, web
+> nginx uid 101), so the `uploads` volume has to be writable by uid 10001.
+> `scripts/deploy.sh` chowns it on every run — if you start the stack that way it
+> just works. Starting straight from the Container Manager **GUI** skips that step;
+> see the caveat in Part 6.
 
 ---
 
@@ -214,6 +229,17 @@ Healthy state: `db` healthy, `backend` and `web` up. The backend runs Flyway
 migrations automatically on first boot (creates the tables) and seeds the users
 from `SEED_USERS`. HTTPS is then served by DSM's reverse proxy (Part 4) — the
 stack itself only listens on `localhost:3000`.
+
+> **Non-root & the uploads volume:** both containers run unprivileged (backend uid
+> 10001, web nginx uid 101). The **CLI way** uses `scripts/deploy.sh`, which chowns
+> the `uploads` volume to uid 10001 on every run. The **GUI way** skips the script,
+> so if you reuse an older, root-owned `uploads` volume the first note-image upload
+> fails with `AccessDenied`. Fix it once (the backend also logs a warning at
+> startup when `UPLOAD_DIR` isn't writable):
+> ```bash
+> docker compose run --rm --no-deps --user root --entrypoint chown \
+>   backend -R 10001:10001 /data/uploads
+> ```
 
 ---
 
@@ -391,7 +417,7 @@ Run them from the project folder; on the NAS prefix with `sudo` if Docker needs 
 | Script | What it does |
 |---|---|
 | `scripts/setup-env.sh` | Creates `.env` — random `JWT_SECRET`/`DB_PASSWORD`, prompts for the two login passwords (blank ⇒ generated & printed). Won't overwrite an existing `.env` without `--force`. |
-| `scripts/deploy.sh` | `docker compose pull && up -d` + status — first start and every later update. |
+| `scripts/deploy.sh` | `docker compose pull && up -d` + status, and chowns the `uploads` volume to the non-root backend (uid 10001) — first start and every later update. |
 | `scripts/backup.sh [dir]` | Dumps the database **and** tars the `uploads` volume (note images) into `./backups/` (or `[dir]`). |
 | `scripts/restore.sh <db.sql> <uploads.tar.gz>` | Restores a backup — **destructive**, asks for confirmation. |
 
@@ -423,5 +449,6 @@ to keep snapshots of both the database and the note images.
 | Android app can't connect | `BASE_URL` still the placeholder, missing `/api/v1/` suffix, or you built `assembleDebug` without repointing the debug `BASE_URL` (Path A). |
 | Telegram digest never arrives | `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` empty, wrong chat id, or nothing to report that day (empty digests are skipped by design). |
 | Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB); or the DSM reverse proxy caps the request body — raise it in the rule's advanced settings (the `web` container itself already allows 12 MB). |
+| Note image upload fails with `AccessDenied` / permission denied | The `uploads` volume is root-owned but the backend runs as uid 10001. Use `scripts/deploy.sh` (it chowns automatically) or run the one-time `chown -R 10001:10001` from Part 6. Backend startup logs warn when `UPLOAD_DIR` isn't writable. |
 | Note images vanish after a rebuild | The `uploads` volume wasn't backed up/restored — images live there, not in the SQL dump (Part 10). |
 ```
