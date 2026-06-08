@@ -313,14 +313,10 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
     // Upsert per-person settings; the row is created with defaults on first edit.
     put("/settings/{userId}") {
         val userId = call.parameters["userId"]!!
-        // Settings (allowance, carryover, Bundesland, kind-krank cap) are personal config:
-        // only the authenticated user may edit their own row, unlike the shared calendar days.
-        if (userId != call.username()) {
-            return@put call.respond(
-                HttpStatusCode.Forbidden,
-                ErrorResponse("FORBIDDEN", "you may only edit your own settings"),
-            )
-        }
+        // The household calendar is intentionally shared: like the calendar days/rules,
+        // either user may edit either person's settings (allowance, carryover, Bundesland,
+        // kind-krank cap). This deliberately reverses the owner-only restriction from #63
+        // for the two-person trusted household (see #127).
         val req = call.receive<UpdateAbsSettingsRequest>()
         if (req.state != null && req.state !in STATE_CODES) {
             return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_STATE", "state must be a German Bundesland code"))

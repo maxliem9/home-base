@@ -314,17 +314,36 @@ class AbsenceRouteTest {
     }
 
     @Test
-    fun `editing someone else's settings is forbidden`() = testApplication {
+    fun `editing the other user's settings is allowed (shared calendar)`() = testApplication {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
 
-        // alice tries to overwrite bob's personal allowance/state → 403, and nothing is persisted.
+        // The calendar is intentionally shared (#127, reverses #63): alice may edit bob's
+        // personal allowance/state, and it is persisted on bob's row.
         val res = client.put("/api/v1/absence/settings/bob") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY","allowance":1}""")
         }
-        assertEquals(HttpStatusCode.Forbidden, res.status)
-        assertTrue(state(alice)["settings"]!!.jsonArray.isEmpty())
+        assertEquals(HttpStatusCode.OK, res.status)
+
+        val settings = state(alice)["settings"]!!.jsonArray
+            .associate { it.jsonObject["userId"]!!.jsonPrimitive.content to it.jsonObject }
+        val bob = settings["bob"]!!
+        assertEquals("BY", bob["state"]?.jsonPrimitive?.content)
+        assertEquals(1.0, bob["allowance"]?.jsonPrimitive?.double)
+    }
+
+    @Test
+    fun `settings for an unknown user returns 404`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+
+        // The userExists guard still applies now that the owner-only 403 is gone (#127).
+        val res = client.put("/api/v1/absence/settings/ghost") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"state":"BY"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
     }
 
     @Test

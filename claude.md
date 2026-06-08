@@ -175,11 +175,12 @@ berechnet.
 - Deutsche Feiertage werden pro Bundesland aus Ostern (Gauß-Algorithmus) +
   festen Daten berechnet (holidays.ts), nicht gespeichert.
 - Berechtigungsmodell: Der Kalender ist bewusst gemeinsam — beide Nutzer dürfen
-  alle Tage/Regeln beider Personen bearbeiten (entries, parttime, kita); die in
-  diesen Routen mitgeschickte userId ist daher die Zielperson, nicht der Aufrufer.
-  Ausnahme ist die persönliche Konfiguration: `PUT /settings/{userId}` erzwingt
-  `userId == JWT-Username` (sonst 403), damit A nicht B's Kontingent/Übertrag/
-  Bundesland/Kind-krank-Cap überschreibt. Siehe Issue #63.
+  alle Tage/Regeln beider Personen bearbeiten (entries, parttime, kita, settings);
+  die in diesen Routen mitgeschickte userId ist daher die Zielperson, nicht der
+  Aufrufer. Auch die persönliche Konfiguration (`PUT /settings/{userId}`:
+  Kontingent/Übertrag/Bundesland/Kind-krank-Cap) ist gemeinsam editierbar; die
+  frühere Eigentümer-Beschränkung (#63) wurde für den 2-Personen-Haushalt bewusst
+  aufgehoben. Siehe Issue #127.
 
 ## Notizen-Domänenmodell
 Markdown-Notizen mit Tags, Volltextsuche und Sichtbarkeit (PRIVATE|SHARED).
