@@ -41,6 +41,15 @@ class PasswordsTest {
     }
 
     @Test
+    fun `verifyDummy always fails closed regardless of input`() {
+        // The unknown-user login path calls this only for its bcrypt timing cost; it must
+        // never authenticate. No input may make it return true.
+        assertFalse(Passwords.verifyDummy("anything"))
+        assertFalse(Passwords.verifyDummy(""))
+        assertFalse(Passwords.verifyDummy("dummy-password-no-account-matches-this"))
+    }
+
+    @Test
     fun `verify handles passwords longer than bcrypt's 72-byte limit`() {
         val long = "x".repeat(200)
         val hash = Passwords.hash(long)

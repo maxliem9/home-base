@@ -30,6 +30,11 @@ object Passwords {
     private val hasher = BCrypt.with(longPasswords)
     private val verifier = BCrypt.verifyer(BCrypt.Version.VERSION_2A, longPasswords)
 
+    // A throwaway bcrypt hash, generated once with the same work factor as real hashes.
+    // The login path verifies against this when the username doesn't exist (see [verifyDummy])
+    // so a missing-user attempt costs the same ~one bcrypt round as a wrong-password attempt.
+    private val dummyHash: String = hash("dummy-password-no-account-matches-this")
+
     /** Hashes [password] into a self-describing bcrypt string (version, cost, salt, digest). */
     fun hash(password: String): String =
         hasher.hashToString(cost, password.toCharArray())
@@ -37,4 +42,18 @@ object Passwords {
     /** True iff [password] matches the bcrypt [stored] hash; false for any non-bcrypt string. */
     fun verify(password: String, stored: String): Boolean =
         verifier.verify(password.toCharArray(), stored.toCharArray()).verified
+
+    /**
+     * Runs a real bcrypt verification of [password] against a fixed dummy hash and then always
+     * returns false. Call this on the "user not found" login branch so it spends roughly the
+     * same time as a wrong-password attempt against an existing user; without it the early
+     * return would make missing usernames measurably faster, leaking which accounts exist
+     * (username enumeration via a timing oracle). The bcrypt result is intentionally discarded:
+     * there is no account here, so it must never authenticate — not even if a caller happens to
+     * send the dummy password itself. See issue #71.
+     */
+    fun verifyDummy(password: String): Boolean {
+        verify(password, dummyHash)
+        return false
+    }
 }

@@ -25,6 +25,11 @@ fun Route.authRoutes() {
             UsersTable.selectAll().where { UsersTable.username eq request.username }
                 .singleOrNull()
         } ?: run {
+            // Unknown user: still run one bcrypt verification (against a dummy hash) so this
+            // path takes about as long as a wrong-password attempt against a real user. Skipping
+            // it would make missing usernames answer faster and leak which accounts exist
+            // (username enumeration via timing). See issue #71.
+            Passwords.verifyDummy(request.password)
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
