@@ -117,6 +117,10 @@ JWT_SECRET=<64-hex-char-random-string>
 # Re-seeded on every backend start, so you can change a password here later.
 SEED_USERS=max:<password1>,partner:<password2>
 
+# Container timezone — interprets DIGEST_TIME / RECURRING_TIME and the CSV-export
+# timestamps. Defaults to Europe/Berlin; change it if your household is elsewhere.
+TZ=Europe/Berlin
+
 # Telegram daily digest (optional — leave blank to disable)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
@@ -128,17 +132,28 @@ DIGEST_TIME=20:00
 - **Telegram (optional):** create a bot via [@BotFather](https://t.me/BotFather)
   to get `TELEGRAM_BOT_TOKEN`; get your `TELEGRAM_CHAT_ID` by messaging the bot
   and reading `https://api.telegram.org/bot<token>/getUpdates`. The digest fires
-  daily at `DIGEST_TIME` (24h, NAS local time) and is skipped on empty days.
+  daily at `DIGEST_TIME` (24h, in `TZ`) and is skipped on empty days.
+- **Other optional vars** (all carry working defaults in `.env.example`, so you can
+  leave them out): `IMAGE_TAG` (GHCR tag, default `latest`), `HOUSEHOLD_NAME`
+  (sidebar label), `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images, see below), and
+  `RECURRING_TIME` (daily time the recurring-todo safety-net runs, default `00:30`).
 
-> **Timezone:** the digest's "today/tomorrow" boundaries follow the **container's
-> timezone**. If your digest fires at the wrong moment, add `TZ=Europe/Berlin`
-> to the `backend` service environment (in `docker-compose.yml` or `.env`).
+> **Timezone:** the digest's firing time and "today/tomorrow" boundaries — and the
+> time-tracking CSV timestamps — follow the container's `TZ`, which is **preset to
+> `Europe/Berlin`** in `docker-compose.yml`. Override it via `TZ` in `.env` only if
+> your household is in another zone.
 
 > **Note images:** uploads are stored in the `uploads` Docker volume, wired up
 > automatically by `docker-compose.yml` (mounted at `/data/uploads`), so there's
 > nothing to configure for a default setup. To change the 10 MB per-image cap,
 > set `MAX_UPLOAD_MB` in `.env`. Remember to back up the `uploads` volume — see
 > Part 10.
+
+> **Non-root containers:** both images run unprivileged (backend uid 10001, web
+> nginx uid 101), so the `uploads` volume has to be writable by uid 10001.
+> `scripts/deploy.sh` chowns it on every run — start the stack that way and it just
+> works. Any other start path (Container Manager **GUI** or raw `docker compose`)
+> skips that step; see the caveat in Part 6.
 
 ---
 
@@ -214,6 +229,18 @@ Healthy state: `db` healthy, `backend` and `web` up. The backend runs Flyway
 migrations automatically on first boot (creates the tables) and seeds the users
 from `SEED_USERS`. HTTPS is then served by DSM's reverse proxy (Part 4) — the
 stack itself only listens on `localhost:3000`.
+
+> **Non-root & the uploads volume:** both containers run unprivileged (backend uid
+> 10001, web nginx uid 101), so the `uploads` volume must be writable by uid 10001.
+> `scripts/deploy.sh` (Part 10b) chowns it automatically — but the raw `docker
+> compose` commands above and the GUI start do **not**. So if you reuse an older,
+> root-owned `uploads` volume without going through the script, the first note-image
+> upload fails with `AccessDenied`. Fix it once (the backend also logs a warning at
+> startup when `UPLOAD_DIR` isn't writable):
+> ```bash
+> docker compose run --rm --no-deps --user root --entrypoint chown \
+>   backend -R 10001:10001 /data/uploads
+> ```
 
 ---
 
@@ -391,7 +418,7 @@ Run them from the project folder; on the NAS prefix with `sudo` if Docker needs 
 | Script | What it does |
 |---|---|
 | `scripts/setup-env.sh` | Creates `.env` — random `JWT_SECRET`/`DB_PASSWORD`, prompts for the two login passwords (blank ⇒ generated & printed). Won't overwrite an existing `.env` without `--force`. |
-| `scripts/deploy.sh` | `docker compose pull && up -d` + status — first start and every later update. |
+| `scripts/deploy.sh` | `docker compose pull && up -d` + status, and chowns the `uploads` volume to the non-root backend (uid 10001) — first start and every later update. |
 | `scripts/backup.sh [dir]` | Dumps the database **and** tars the `uploads` volume (note images) into `./backups/` (or `[dir]`). |
 | `scripts/restore.sh <db.sql> <uploads.tar.gz>` | Restores a backup — **destructive**, asks for confirmation. |
 
@@ -415,13 +442,17 @@ to keep snapshots of both the database and the note images.
 |---|---|
 | `docker compose pull` fails with `unauthorized` / `denied` | NAS not logged in to GHCR (Part 2), PAT missing the `read:packages` scope, or the package is private and not yours. Re-run `docker login ghcr.io`, or make the packages public. |
 | Pull fails with `manifest unknown` / `not found` | CI hasn't published the images yet — merge to `main` once so the `docker` job runs — or `IMAGE_TAG` in `.env` points at a tag that doesn't exist. |
+| `docker login ghcr.io` keeps rejecting the password (`sudo: N incorrect password attempts`) | That `Password:` prompt is **`sudo`** asking for your **NAS account password**, not Docker asking for the token. Type the account password there; the GHCR token is fed in separately through the pipe (`--password-stdin`) and is never typed at a prompt. The account must be in DSM's **administrators** group for `sudo` to work at all. |
+| `deploy.sh` finishes but `docker compose ps` shows nothing running | The script is `set -euo pipefail`, so it aborts on the first error: a failed `docker compose pull` (not logged in to GHCR — Part 2) or a missing `.env` stops it **before** `up -d` ever runs. Fix that cause, then re-run `sudo ./scripts/deploy.sh`. |
 | DSM shows **502 / 503 Bad Gateway** | The reverse-proxy destination is wrong or `web` isn't up. Confirm the rule points at `localhost:3000` and `docker compose ps` shows `web` running. |
 | Browser cert warning / `ERR_CERT` | The reverse-proxy rule's domain ≠ the domain you visit, or it isn't using the Let's Encrypt cert (Part 4). |
+| Cert is still `CN=synology` (self-signed) after issuing Let's Encrypt | Issuing isn't enough — **assign** it in **Control Panel → Security → Certificate → Settings** for your domain / reverse-proxy service. DSM serves whatever cert is mapped to the SNI hostname; unmapped ⇒ the default self-signed one. Check with `openssl s_client -connect <domain>:443 -servername <domain> 2>/dev/null \| openssl x509 -noout -issuer`. |
+| Visiting the domain redirects to DSM itself (`:5000` over HTTP, `:5001` over HTTPS) | No reverse-proxy rule matches that hostname, so DSM's default vhost bounces you to its own UI. Create the rule with **Source hostname = your exact domain** (Part 4b) — a typo or a leftover old hostname won't match. Also confirm DSM's own Login Portal isn't sitting on 443 (Part 5). |
 | Site loads but login fails | `SEED_USERS` not set, or password mismatch. Check `docker compose logs backend` for the seeding line; fix `.env` and `up -d`. |
 | Works at home, not outside | Port forwarding missing/wrong, or **DS-Lite/CGNAT** (Part 7b note). Test the health URL on mobile data. |
 | Real-time sync not updating | WebSocket not enabled on the DSM reverse-proxy rule — add the **WebSocket** custom header (Part 4b) — and confirm you're on HTTPS. |
 | Android app can't connect | `BASE_URL` still the placeholder, missing `/api/v1/` suffix, or you built `assembleDebug` without repointing the debug `BASE_URL` (Path A). |
 | Telegram digest never arrives | `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` empty, wrong chat id, or nothing to report that day (empty digests are skipped by design). |
 | Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB); or the DSM reverse proxy caps the request body — raise it in the rule's advanced settings (the `web` container itself already allows 12 MB). |
+| Note image upload fails with `AccessDenied` / permission denied | The `uploads` volume is root-owned but the backend runs as uid 10001. Use `scripts/deploy.sh` (it chowns automatically) or run the one-time `chown -R 10001:10001` from Part 6. Backend startup logs warn when `UPLOAD_DIR` isn't writable. |
 | Note images vanish after a rebuild | The `uploads` volume wasn't backed up/restored — images live there, not in the SQL dump (Part 10). |
-```
