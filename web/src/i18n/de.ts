@@ -67,6 +67,8 @@ export const de = {
     brandSub: 'Mäxchen', // default household label; overridable in settings
     syncActive: 'Echtzeit-Sync aktiv',
     timerRunning: 'Timer läuft',
+    logoutTitle: 'Abmelden?',
+    logoutBody: 'Du wirst abgemeldet und musst dich danach erneut anmelden.',
   },
   nav: {
     todos: 'Aufgaben',
@@ -82,7 +84,7 @@ export const de = {
       notes: 'Notizen',
       time: 'Zeit',
       recipes: 'Rezepte',
-      abwesenheit: 'Kalender',
+      abwesenheit: 'Abw.',
     },
   },
   login: {

@@ -4,7 +4,7 @@ import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
-import { Avatar, Button, Card, Field, TextInput } from './ui/primitives'
+import { Avatar, Button, Card, Field, Modal, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
 import { TodosView } from './components/TodosView'
 import { NotesView } from './components/NotesView'
@@ -119,6 +119,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   const me = usernameFromToken(token)
   const count: Partial<Record<Tab, number>> = { todos: badges.inbox, shopping: badges.shopping }
   const [household, setHousehold] = useState(t.shell.brandSub)
+  const [confirmLogout, setConfirmLogout] = useState(false)
 
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
@@ -149,7 +150,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         </nav>
 
         <div className="hb-side-foot">
-          <button className="hb-userchip" onClick={onLogout} title={t.common.logout}>
+          <button className="hb-userchip" onClick={() => setConfirmLogout(true)} title={t.common.logout}>
             <Avatar user={me} size={34} />
             <div>
               <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
@@ -171,8 +172,13 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
               <div className="hb-brand__sub">{household}</div>
             </div>
           </div>
-          <button className="hb-iconbtn hb-topbar__logout" onClick={onLogout} title={t.common.logout} aria-label={t.common.logout}>
-            <Avatar user={me} size={30} />
+          <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t.common.logout} aria-label={t.common.logout}>
+            <Avatar user={me} size={32} />
+            <div className="hb-userchip__text">
+              <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
+              <div className="hb-userchip__sub">{t.shell.syncActive}</div>
+            </div>
+            <span className="hb-syncdot" title={t.shell.syncActive} />
           </button>
         </header>
 
@@ -208,6 +214,23 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
       {/* Single global toast for background GET/read transport failures (issue #93). */}
       <TransportErrorToast />
+
+      {/* Confirm before ending the session — guards against an accidental tap on
+          the user chip (sidebar on desktop, top bar on mobile). */}
+      <Modal
+        open={confirmLogout}
+        onClose={() => setConfirmLogout(false)}
+        title={t.shell.logoutTitle}
+        width={400}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmLogout(false)}>{t.common.cancel}</Button>
+            <Button variant="primary" icon="logout" onClick={onLogout}>{t.common.logout}</Button>
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>{t.shell.logoutBody}</p>
+      </Modal>
     </div>
   )
 }

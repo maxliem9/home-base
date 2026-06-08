@@ -147,10 +147,14 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   background: var(--surface);
   position: sticky; top: 0; z-index: 40;
 }
-.hb-topbar .hb-brand { padding: 0; }
-.hb-topbar .hb-brand__mark { width: 34px; height: 34px; border-radius: 11px; }
+.hb-topbar .hb-brand { padding: 0; min-width: 0; }
+.hb-topbar .hb-brand__mark { width: 34px; height: 34px; border-radius: 11px; flex-shrink: 0; }
 .hb-topbar .hb-brand__name { font-size: 19px; }
-.hb-topbar__logout { width: 34px; height: 34px; flex-shrink: 0; }
+.hb-topbar .hb-brand__name, .hb-topbar .hb-brand__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Full user chip (avatar + name + sync sub) in the mobile top bar — parity with
+   the desktop sidebar chip. Stays intact; the brand truncates first if space is tight. */
+.hb-topbar__user { width: auto; flex-shrink: 0; gap: 9px; padding: 5px 8px 5px 6px; }
+.hb-topbar__user .hb-userchip__text { min-width: 0; }
 
 .hb-tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
