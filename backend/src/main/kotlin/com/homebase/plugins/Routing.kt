@@ -1,6 +1,7 @@
 package com.homebase.plugins
 
 import com.homebase.routes.NoteImageConfig
+import com.homebase.routes.sweepStaleImageUploads
 import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
 import com.homebase.routes.configRoutes
@@ -23,6 +24,9 @@ fun Application.configureRouting() {
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
     val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
     verifyUploadDirWritable(noteImageConfig.uploadDir)
+    sweepStaleImageUploads(noteImageConfig).takeIf { it > 0 }?.let {
+        log.info("Swept {} orphaned note-image upload temp file(s) from '{}'.", it, noteImageConfig.uploadDir.toAbsolutePath())
+    }
     routing {
         route("/api/v1") {
             healthRoutes()

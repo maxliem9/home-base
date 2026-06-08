@@ -461,6 +461,12 @@ private fun loadImagesFor(noteIds: List<UUID>): Map<UUID, List<NoteImageDto>> {
 
 private const val STREAM_BUFFER_BYTES = 64 * 1024
 
+// In-progress uploads are streamed to a "upload-<random>.tmp" file and only renamed to their
+// final name once fully received. The glob matches the createTempFile() prefix + suffix below.
+private const val TEMP_UPLOAD_PREFIX = "upload-"
+private const val TEMP_UPLOAD_SUFFIX = ".tmp"
+private const val TEMP_UPLOAD_GLOB = "$TEMP_UPLOAD_PREFIX*$TEMP_UPLOAD_SUFFIX"
+
 /**
  * Stream this file part to a temp file in the upload dir, enforcing [NoteImageConfig.maxBytes]
  * as the bytes arrive. The whole body is never held in the heap: as soon as the running total
@@ -469,7 +475,7 @@ private const val STREAM_BUFFER_BYTES = 64 * 1024
  */
 private suspend fun PartData.FileItem.streamToTempFile(config: NoteImageConfig): StreamOutcome {
     Files.createDirectories(config.uploadDir)
-    val temp = Files.createTempFile(config.uploadDir, "upload-", ".tmp")
+    val temp = Files.createTempFile(config.uploadDir, TEMP_UPLOAD_PREFIX, TEMP_UPLOAD_SUFFIX)
     val channel = provider()
     var total = 0L
     var tooLarge = false
@@ -496,6 +502,25 @@ private suspend fun PartData.FileItem.streamToTempFile(config: NoteImageConfig):
         total == 0L -> { Files.deleteIfExists(temp); StreamOutcome.Empty }
         else -> StreamOutcome.Ok(temp, total)
     }
+}
+
+/**
+ * Delete orphaned upload temp files left behind when a stream was interrupted before its rename
+ * (process killed mid-upload, or the engine threw between streaming and [finalizeImageFile]).
+ * Meant to run once at startup before any request is served, so it can't race a live upload.
+ * Returns the number of files removed. Never throws — a failed sweep must not block startup.
+ */
+fun sweepStaleImageUploads(config: NoteImageConfig): Int {
+    if (!Files.isDirectory(config.uploadDir)) return 0
+    return runCatching {
+        var swept = 0
+        Files.newDirectoryStream(config.uploadDir, TEMP_UPLOAD_GLOB).use { stream ->
+            for (path in stream) {
+                if (runCatching { Files.deleteIfExists(path) }.getOrDefault(false)) swept++
+            }
+        }
+        swept
+    }.getOrDefault(0)
 }
 
 // Promote a fully-streamed temp file to its final stored name (same dir, so a plain move is atomic).
