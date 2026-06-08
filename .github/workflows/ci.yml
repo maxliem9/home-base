@@ -18,42 +18,62 @@ permissions:
   contents: read
 
 jobs:
-  backend:
-    name: Backend tests
+  # Detect which areas a PR touches so we only run the matching jobs — most PRs touch
+  # one area, and there's no reason a web-only change should pay for the Android build
+  # or the backend's Postgres job. On push to main every area job runs regardless (full
+  # validation + image publish), so this filter is consulted only for pull_request events
+  # (see each job's `if:`). Editing this workflow re-runs everything, by design.
+  changes:
+    name: Detect changed areas
     runs-on: ubuntu-latest
+    # On pull_request, dorny/paths-filter reads the changed-file list from the GitHub API
+    # (listFiles), which needs pull-requests:read on top of the workflow's contents:read
+    # default — without it the API returns "Resource not accessible by integration" and the
+    # whole gate fails. On push it diffs via git and doesn't use this scope.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      android: ${{ steps.filter.outputs.android }}
+      compose: ${{ steps.filter.outputs.compose }}
     steps:
       - uses: actions/checkout@v4
 
-      # Backend pins source/target = 21 LTS (build.gradle.kts), so build on JDK 21.
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
         with:
-          distribution: temurin
-          java-version: '21'
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            android:
+              - 'android/**'
+              - '.github/workflows/ci.yml'
+            compose:
+              - 'docker-compose*.yml'
+              - '.env.example'
+              - '.github/workflows/ci.yml'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
-
-      - name: Run tests
-        working-directory: backend
-        run: ./gradlew test --no-daemon
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-report
-          path: backend/build/reports/tests/test
-          if-no-files-found: ignore
-
-  migrations:
-    name: DB migrations (real Postgres)
+  backend:
+    name: Backend tests
+    needs: changes
+    # !cancelled() lifts the implicit "needs succeeded" gate so a failure of the trivial
+    # `changes` job can't silently skip the full push-to-main validation (which would go
+    # green with nothing built); on a real cancel the job still stops.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     # The unit suite builds its schema from Exposed via SchemaUtils on H2, bypassing Flyway
     # and the Postgres-specific types entirely — which is exactly how three schema/code-drift
     # bugs reached production (a fresh DB couldn't migrate, and todo writes 500'd; see the
-    # V2/V7/V10 migrations). This job runs the real migrations against a throwaway Postgres
-    # and exercises the writes H2 can't, so that class of drift fails CI instead of the NAS.
+    # V2/V7/V10 migrations). MigrationIntegrationTest runs the real migrations against this
+    # throwaway Postgres and exercises the writes H2 can't, so that class of drift fails CI
+    # instead of the NAS. It lives in the same suite (gated on a Postgres DB_URL), so a single
+    # `gradle test` covers both layers — no second JDK/Gradle setup or recompile for it.
     services:
       postgres:
         image: postgres:16
@@ -72,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Mirror the backend job: Gradle runs on JDK 21 LTS, matching the build's 21 target.
+      # Backend pins source/target = 21 LTS (build.gradle.kts), so build on JDK 21.
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -82,34 +102,37 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
-      # MigrationIntegrationTest is gated on a Postgres DB_URL (it's skipped in the H2 unit
-      # job and locally). Pointing DB_URL at the service container makes it run here.
-      - name: Run migration integration test
+      # One run, both layers. The unit tests use their own hardcoded H2 (TestHelpers builds a
+      # MapApplicationConfig and bypasses DatabaseFactory, so DB_URL is irrelevant to them),
+      # while MigrationIntegrationTest reads DB_URL from the env and migrates the real Postgres
+      # service. Pointing DB_URL at the service is what makes the migration IT execute here
+      # instead of self-skipping; the verify step below fails the job if it ever doesn't.
+      - name: Run tests
         working-directory: backend
         env:
           DB_URL: jdbc:postgresql://localhost:5432/homebase
           DB_USER: homebase
           DB_PASSWORD: homebase
-        run: ./gradlew test --tests "com.homebase.MigrationIntegrationTest" --no-daemon
+        run: ./gradlew test --no-daemon
 
-      # Guard against a silent skip re-creating the very blind spot this job exists to close:
-      # if the gate weren't satisfied the tests would be reported as skipped and the job would
-      # still go green. Fail unless the suite actually executed with nothing skipped.
+      # Guard against a silent skip re-creating the very blind spot the migration test exists to
+      # close: if the Postgres gate weren't satisfied the test would report as skipped and the
+      # job would still go green. Fail unless the suite actually executed with nothing skipped.
       #
-      # Parse the <testsuite> attributes precisely (xmllint ships on ubuntu runners) rather than
-      # grepping the whole file: full-text grep would go false-RED the moment a second migration
-      # test joins the class (the old hardcoded tests="1"/tests="0" assumption), and a literal
-      # `skipped="0"` inside an assertion message could mask a real skip. We assert tests>=1 AND
-      # skipped==0 (the original intent: an assumption-not-met run turns the job RED), plus
-      # failures==0 && errors==0 as belt-and-suspenders. The count check is decoupled from any
-      # fixed total, so future migration tests don't need this step touched.
+      # Parse the <testsuite> attributes precisely rather than grepping the whole file: full-text
+      # grep would go false-RED the moment a second migration test joins the class (the old
+      # hardcoded tests="1"/tests="0" assumption), and a literal `skipped="0"` inside an assertion
+      # message could mask a real skip. We assert tests>=1 AND skipped==0 (the original intent: an
+      # assumption-not-met run turns the job RED), plus failures==0 && errors==0 as
+      # belt-and-suspenders. The count check is decoupled from any fixed total, so future
+      # migration tests don't need this step touched.
       - name: Verify the migration test was not skipped
         if: always()
         working-directory: backend
         run: |
           set -euo pipefail
-          # Gradle writes exactly one file per test class with --tests; this path is a literal,
-          # not a glob — so a plain existence check is the right "it never ran" detector.
+          # Gradle writes exactly one file per test class; this path is a literal, not a glob —
+          # so a plain existence check is the right "it never ran" detector.
           report="build/test-results/test/TEST-com.homebase.MigrationIntegrationTest.xml"
           if [ ! -f "$report" ]; then
             echo "::error::No result file for MigrationIntegrationTest — it never ran."
@@ -143,12 +166,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: migration-test-report
+          name: backend-test-report
           path: backend/build/reports/tests/test
           if-no-files-found: ignore
 
   web:
     name: Web build
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -179,6 +204,8 @@ jobs:
 
   android:
     name: Android tests
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.android == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -210,10 +237,18 @@ jobs:
 
   docker:
     name: Docker images build
+    needs: changes
+    # On push to main: build and publish both deployment images to GHCR so the NAS pulls them.
+    # On a PR: only validate that the Dockerfile(s) for the area(s) that actually changed still
+    # build — nothing is pushed. A PR touching neither backend/, web/, nor the compose files
+    # skips this job entirely (the backend/web jobs already prove the code itself compiles), and
+    # each image is built only when its own context changed, so a web-only PR never rebuilds the
+    # backend image and vice versa.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.compose == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write   # push images to GHCR
+      packages: write   # push images to GHCR (main only)
     env:
       # ghcr.io/<owner>/<image> — owner must be lowercase
       BACKEND_IMAGE: ghcr.io/maxliem9/homebase-backend
@@ -224,25 +259,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      # On main, publish the deployment images to GHCR so the NAS pulls them
-      # instead of compiling from source. On PRs we still build (loaded locally)
-      # so a broken Dockerfile fails CI, but nothing is pushed.
+      # Login is only needed to push, which only happens on main.
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The backend image compiles inside temurin:21 via the Gradle wrapper —
-      # must match the backend's Java 21 LTS source/target.
+      # The backend image compiles inside temurin:21 via the Gradle wrapper — must match the
+      # backend's Java 21 LTS source/target. Built only when backend/ changed (or on main);
+      # pushed only on main, otherwise built to validate the Dockerfile and discarded.
       - name: Build & push backend image
+        if: ${{ github.event_name == 'push' || needs.changes.outputs.backend == 'true' }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./backend
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
@@ -250,18 +284,21 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: Build & push web image
+        if: ${{ github.event_name == 'push' || needs.changes.outputs.web == 'true' }}
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./web
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
+      # Cheap structural check of the deployment compose file; run on main and on any PR that
+      # touched the compose files or .env.example (the inputs it validates).
       - name: Validate docker-compose.yml
+        if: ${{ github.event_name == 'push' || needs.changes.outputs.compose == 'true' }}
         run: |
           cp .env.example .env   # backend service declares env_file: .env
           docker compose config --quiet
