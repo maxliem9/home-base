@@ -74,6 +74,19 @@ ktor {
     }
 }
 
+// Merge colliding META-INF/services/* files when building the fat jar. Flyway 10
+// discovers its SQL migration resolver/parser via the SPI file
+// META-INF/services/org.flywaydb.core.extensibility.Plugin, and BOTH flyway-core
+// (20 plugins, incl. the SQL resolver) and flyway-database-postgresql (the Postgres
+// dialect) ship their own copy. Shadow's default is last-wins, which dropped
+// flyway-core's entry — so the packaged jar had no SQL resolver, Flyway recognised
+// none of the V*.sql files ("did not follow the filename convention" / "No migrations
+// found"), the schema stayed empty, and the user seeder crash-looped the app on a
+// missing "users" table. Concatenating the service files keeps every plugin.
+tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>().configureEach {
+    mergeServiceFiles()
+}
+
 tasks.test {
     // bcrypt at the production cost (12) would dominate the suite — every test that
     // seeds users hashes passwords. Drop the work factor to bcrypt's minimum for tests
