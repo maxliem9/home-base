@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, errorCode, notifyTransportError, safeFetch, withWsToken } from '../api'
+import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Project, ShoppingItem, TimeEntry, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -99,9 +99,9 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
 
   // Live updates — the dashboard is read-only aggregation, so just refetch the
   // affected resource on any frame rather than fine-grained patching.
-  useWebSocket(withWsToken(wsUrl('todos'), token), fetchTodos)
-  useWebSocket(withWsToken(wsUrl('shopping'), token), fetchShopping)
-  useWebSocket(withWsToken(wsUrl('time'), token), () => {
+  useWebSocket({ url: wsUrl('todos'), token }, fetchTodos)
+  useWebSocket({ url: wsUrl('shopping'), token }, fetchShopping)
+  useWebSocket({ url: wsUrl('time'), token }, () => {
     fetchRunning()
     fetchProjects() // a project rename/color change should re-style the running widget
   })

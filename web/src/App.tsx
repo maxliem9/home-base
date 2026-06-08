@@ -4,7 +4,7 @@ import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
-import { Avatar, Button, Card, Field, TextInput } from './ui/primitives'
+import { Avatar, Button, Card, Field, Modal, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
 import { DashboardView } from './components/DashboardView'
 import { TodosView } from './components/TodosView'
@@ -16,14 +16,14 @@ import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 
 type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
-const NAV: { id: Tab; label: string; icon: string }[] = [
-  { id: 'heute', label: t.nav.dashboard, icon: 'home' },
-  { id: 'todos', label: t.nav.todos, icon: 'checkCircle' },
-  { id: 'shopping', label: t.nav.shopping, icon: 'cart' },
-  { id: 'notes', label: t.nav.notes, icon: 'note' },
-  { id: 'time', label: t.nav.time, icon: 'clock' },
-  { id: 'recipes', label: t.nav.recipes, icon: 'chef' },
-  { id: 'abwesenheit', label: t.nav.abwesenheit, icon: 'calendar' },
+const NAV: { id: Tab; label: string; shortLabel: string; icon: string }[] = [
+  { id: 'heute', label: t.nav.dashboard, shortLabel: t.nav.short.dashboard, icon: 'home' },
+  { id: 'todos', label: t.nav.todos, shortLabel: t.nav.short.todos, icon: 'checkCircle' },
+  { id: 'shopping', label: t.nav.shopping, shortLabel: t.nav.short.shopping, icon: 'cart' },
+  { id: 'notes', label: t.nav.notes, shortLabel: t.nav.short.notes, icon: 'note' },
+  { id: 'time', label: t.nav.time, shortLabel: t.nav.short.time, icon: 'clock' },
+  { id: 'recipes', label: t.nav.recipes, shortLabel: t.nav.short.recipes, icon: 'chef' },
+  { id: 'abwesenheit', label: t.nav.abwesenheit, shortLabel: t.nav.short.abwesenheit, icon: 'calendar' },
 ]
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -121,6 +121,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   const me = usernameFromToken(token)
   const count: Partial<Record<Tab, number>> = { todos: badges.inbox, shopping: badges.shopping }
   const [household, setHousehold] = useState(t.shell.brandSub)
+  const [confirmLogout, setConfirmLogout] = useState(false)
 
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
@@ -151,7 +152,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         </nav>
 
         <div className="hb-side-foot">
-          <button className="hb-userchip" onClick={onLogout} title={t.common.logout}>
+          <button className="hb-userchip" onClick={() => setConfirmLogout(true)} title={t.common.logout}>
             <Avatar user={me} size={34} />
             <div>
               <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
@@ -163,6 +164,26 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       </aside>
 
       <main className="hb-main">
+        {/* Mobile top bar — only visible ≤860px (CSS), where the sidebar is hidden.
+            Surfaces the brand + logout, since the sidebar foot chip is gone. (#138) */}
+        <header className="hb-topbar">
+          <div className="hb-brand">
+            <div className="hb-brand__mark"><Icon name="home" size={19} stroke={2.2} /></div>
+            <div>
+              <div className="hb-brand__name">HomeBase</div>
+              <div className="hb-brand__sub">{household}</div>
+            </div>
+          </div>
+          <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t.common.logout} aria-label={t.common.logout}>
+            <Avatar user={me} size={32} />
+            <div className="hb-userchip__text">
+              <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
+              <div className="hb-userchip__sub">{t.shell.syncActive}</div>
+            </div>
+            <span className="hb-syncdot" title={t.shell.syncActive} />
+          </button>
+        </header>
+
         {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={setTab} />}
         {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
         {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
@@ -172,8 +193,47 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
       </main>
 
+      {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
+          navigation. Same tab state, badges and running-timer dot as the sidebar. (#138) */}
+      <nav className="hb-tabbar" aria-label="Hauptnavigation">
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            className={`hb-tabbar__item${tab === n.id ? ' is-active' : ''}`}
+            onClick={() => setTab(n.id)}
+            aria-current={tab === n.id ? 'page' : undefined}
+          >
+            <span className="hb-tabbar__icon">
+              <Icon name={n.icon} size={22} stroke={2} />
+              {n.id === 'time' && badges.timerRunning && (
+                <span className="hb-tabbar__dot" title={t.shell.timerRunning} />
+              )}
+              {count[n.id] ? <span className="hb-tabbar__badge">{count[n.id]}</span> : null}
+            </span>
+            <span className="hb-tabbar__label">{n.shortLabel}</span>
+          </button>
+        ))}
+      </nav>
+
       {/* Single global toast for background GET/read transport failures (issue #93). */}
       <TransportErrorToast />
+
+      {/* Confirm before ending the session — guards against an accidental tap on
+          the user chip (sidebar on desktop, top bar on mobile). */}
+      <Modal
+        open={confirmLogout}
+        onClose={() => setConfirmLogout(false)}
+        title={t.shell.logoutTitle}
+        width={400}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmLogout(false)}>{t.common.cancel}</Button>
+            <Button variant="primary" icon="logout" onClick={onLogout}>{t.common.logout}</Button>
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>{t.shell.logoutBody}</p>
+      </Modal>
     </div>
   )
 }

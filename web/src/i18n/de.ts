@@ -67,6 +67,8 @@ export const de = {
     brandSub: 'Mäxchen', // default household label; overridable in settings
     syncActive: 'Echtzeit-Sync aktiv',
     timerRunning: 'Timer läuft',
+    logoutTitle: 'Abmelden?',
+    logoutBody: 'Du wirst abgemeldet und musst dich danach erneut anmelden.',
   },
   nav: {
     dashboard: 'Dashboard',
@@ -75,7 +77,17 @@ export const de = {
     notes: 'Notizen',
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
-    abwesenheit: 'Abwesenheit',
+    abwesenheit: 'Kalender',
+    // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
+    short: {
+      dashboard: 'Start',
+      todos: 'Aufgaben',
+      shopping: 'Einkauf',
+      notes: 'Notizen',
+      time: 'Zeit',
+      recipes: 'Rezepte',
+      abwesenheit: 'Kalender',
+    },
   },
   login: {
     title: 'HomeBase',
@@ -402,9 +414,9 @@ export const de = {
     },
   },
   abwesenheit: {
-    headerTitle: 'HomeBase — Abwesenheit',
+    headerTitle: 'HomeBase — Kalender',
     eyebrow: 'Familienkalender',
-    title: 'Abwesenheit',
+    title: 'Kalender',
     layoutYear: 'Jahr',
     layoutMonth: 'Monat',
     period: 'Zeitraum',
