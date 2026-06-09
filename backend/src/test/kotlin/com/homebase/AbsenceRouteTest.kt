@@ -281,7 +281,7 @@ class AbsenceRouteTest {
         configureTestApplication()
         val token = loginAndGetToken()
 
-        val first = client.put("/api/v1/absence/settings/alice") {
+        val first = client.put("/api/v1/absence/settings/alice/2025") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY"}""")
         }
@@ -291,7 +291,7 @@ class AbsenceRouteTest {
         assertEquals(30.0, body1["allowance"]?.jsonPrimitive?.double)
         assertEquals(15, body1["kindKrankCap"]?.jsonPrimitive?.int)
 
-        val second = client.put("/api/v1/absence/settings/alice") {
+        val second = client.put("/api/v1/absence/settings/alice/2025") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody("""{"allowance":24,"carryover":2.5,"carryoverExpires":"2026-03-31"}""")
         }
@@ -359,7 +359,7 @@ class AbsenceRouteTest {
     fun `settings with bad state returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
-        val res = client.put("/api/v1/absence/settings/alice") {
+        val res = client.put("/api/v1/absence/settings/alice/2025") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody("""{"state":"XX"}""")
         }
@@ -373,7 +373,7 @@ class AbsenceRouteTest {
 
         // The calendar is intentionally shared (#127, reverses #63): alice may edit bob's
         // personal allowance/state, and it is persisted on bob's row.
-        val res = client.put("/api/v1/absence/settings/bob") {
+        val res = client.put("/api/v1/absence/settings/bob/2025") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY","allowance":1}""")
         }
@@ -392,7 +392,7 @@ class AbsenceRouteTest {
         val alice = loginAndGetToken("alice", "password123")
 
         // The userExists guard still applies now that the owner-only 403 is gone (#127).
-        val res = client.put("/api/v1/absence/settings/ghost") {
+        val res = client.put("/api/v1/absence/settings/ghost/2025") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY"}""")
         }
@@ -405,11 +405,11 @@ class AbsenceRouteTest {
         val alice = loginAndGetToken("alice", "password123")
         val bob = loginAndGetToken("bob", "password456")
 
-        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/alice") {
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/alice/2025") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY"}""")
         }.status)
-        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/bob") {
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/bob/2025") {
             bearerAuth(bob); contentType(ContentType.Application.Json)
             setBody("""{"state":"HH"}""")
         }.status)
