@@ -225,7 +225,7 @@ object Format {
 
     /**
      * German category labels. DINNER shows as "Hauptgerichte"; LUNCH is kept only as a tolerant
-     * alias so any legacy row not yet collapsed by backend migration V9 still reads nicely instead
+     * alias so any legacy row not yet collapsed by backend migration V17 still reads nicely instead
      * of showing the raw enum — it is no longer an offered category.
      */
     fun recipeCategoryLabel(category: String): String = when (category.uppercase()) {

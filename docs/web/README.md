@@ -229,7 +229,7 @@ DRINK     → "Getränk"
 ```
 This mock originally proposed a single merged `MAIN` category. The implementation
 instead kept the backend enum values and used `DINNER` as the canonical
-"Hauptgerichte". The former `LUNCH` value was dropped — migration `V9` collapses
+"Hauptgerichte". The former `LUNCH` value was dropped — migration `V17` collapses
 any existing `LUNCH` rows into `DINNER` (see `backend/.../db/migration`).
 
 ## Interactions & Behavior

@@ -22,7 +22,7 @@ import java.time.Instant
 import java.util.UUID
 
 private const val RECIPES_WS_CHANNEL = "recipes"
-// LUNCH was dropped (collapsed into DINNER) — see migration V9. Clients only offer these five.
+// LUNCH was dropped (collapsed into DINNER) — see migration V17. Clients only offer these five.
 private val VALID_CATEGORIES = setOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
 
 fun Route.recipeRoutes() {

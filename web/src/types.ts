@@ -79,7 +79,7 @@ export interface TimeEntry {
   updatedAt: string
 }
 
-// LUNCH was dropped (collapsed into DINNER) — see backend migration V9.
+// LUNCH was dropped (collapsed into DINNER) — see backend migration V17.
 export type RecipeCategory = 'BREAKFAST' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
 
 export interface Ingredient {
