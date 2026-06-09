@@ -219,17 +219,18 @@ categories** anymore; each list is a single flat list.
   the recipe to the top and opens its detail view.
 - File: `src/views_rezepte.jsx`.
 
-#### Recipe categories (note the merge!)
+#### Recipe categories
 ```
 BREAKFAST → "Frühstück"
-MAIN      → "Hauptgerichte"   ← lunch + dinner were MERGED into one category
+DINNER    → "Hauptgerichte"
 SNACK     → "Snack"
 DESSERT   → "Dessert"
 DRINK     → "Getränk"
 ```
-Legacy data may still carry `LUNCH` / `DINNER`; the UI normalizes both to `MAIN`
-(`catKey` helper). Implement the model with a single `MAIN` category and migrate
-any old `LUNCH`/`DINNER` rows to it.
+This mock originally proposed a single merged `MAIN` category. The implementation
+instead kept the backend enum values and used `DINNER` as the canonical
+"Hauptgerichte". The former `LUNCH` value was dropped — migration `V9` collapses
+any existing `LUNCH` rows into `DINNER` (see `backend/.../db/migration`).
 
 ## Interactions & Behavior
 - **Sidebar nav** swaps the active view (client-side routing). `route` also
