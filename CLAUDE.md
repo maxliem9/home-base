@@ -68,7 +68,10 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
   (Benutzernamen sind bekannt → Username-Keying ermöglichte Account-Lockout-DoS).
   Die echte Client-IP wird spoofing-resistent aus `X-Forwarded-For` gelesen: die
   rechtesten `TRUSTED_PROXY_COUNT` Einträge (prod: DSM + nginx = 2) stammen von eigenen
-  Proxies, alles weiter links ist client-gefälscht und wird ignoriert. State nur im
+  Proxies, alles weiter links ist client-gefälscht und wird ignoriert. **Setzt voraus,
+  dass der DSM-Reverse-Proxy die echte Client-IP tatsächlich in `X-Forwarded-For`
+  einträgt** (sonst `TRUSTED_PROXY_COUNT` an die real anhängenden Proxies anpassen; ein
+  falscher Wert drosselt eher zu stark, lässt aber kein Spoofing durch). State nur im
   Speicher (Neustart vergibt jedem).
 - REST für CRUD, WebSockets für Echtzeit-Sync
 - Alle Endpunkte unter /api/v1/

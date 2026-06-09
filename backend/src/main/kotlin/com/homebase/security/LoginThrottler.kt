@@ -62,7 +62,13 @@ class LoginThrottler(
         st.failures += 1
         st.lastFailureAt = now
         if (st.failures >= maxFailures) st.lockedUntil = now + lockoutMillisFor(st.failures)
-        if (states.size > PRUNE_THRESHOLD) prune(now)
+        if (states.size > PRUNE_THRESHOLD) {
+            prune(now)
+            // Hard cap: if pruning freed nothing (a sustained flood keeps every key fresh and
+            // unexpired), drop the least-recently-active key so the map can never grow past the
+            // threshold regardless of how many distinct sources attack.
+            if (states.size > PRUNE_THRESHOLD) evictOldest()
+        }
     }
 
     /** A successful login wipes the key's slate so the user starts fresh next time. */
@@ -87,6 +93,10 @@ class LoginThrottler(
         }
     }
 
+    private fun evictOldest() {
+        states.entries.minByOrNull { it.value.lastFailureAt }?.let { states.remove(it.key) }
+    }
+
     companion object {
         const val DEFAULT_MAX_FAILURES = 5
         const val DEFAULT_BASE_LOCKOUT_MILLIS = 60_000L        // 1 min after the free attempts
@@ -106,10 +116,17 @@ class LoginThrottler(
  * observed client), so the real client sits at index `size - trustedProxyCount`; anything further
  * left is attacker-supplied and ignored.
  *
+ * **Deployment requirement:** this is only spoof-resistant if every trusted proxy actually appends
+ * its observed peer. nginx does (`X-Forwarded-For $proxy_add_x_forwarded_for`, see nginx-spa.conf);
+ * the DSM reverse proxy *must* be configured to record the real client IP too — otherwise the
+ * backend sees only `[client-supplied], nginx-peer` and index `size - 2` is the attacker's value.
+ * If DSM cannot add the hop, set `TRUSTED_PROXY_COUNT` to match the real number of appending
+ * proxies. A *wrong* count fails safe toward over-throttling (it lands on an internal/proxy IP that
+ * many clients share), never toward letting a spoofer mint fresh buckets.
+ *
  * Falls back to the direct socket peer when there is no proxy ([trustedProxyCount] ≤ 0, e.g. local
  * `./gradlew run` and tests) or when the header is missing/shorter than expected (don't trust a
- * header that doesn't show the hops we require — a too-low/too-high count over-throttles rather
- * than letting a spoofer slip the limit).
+ * header that doesn't show the hops we require).
  */
 fun clientKey(call: ApplicationCall, trustedProxyCount: Int): String {
     val direct = call.request.origin.remoteAddress

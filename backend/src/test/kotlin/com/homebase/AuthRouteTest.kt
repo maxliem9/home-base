@@ -119,4 +119,22 @@ class AuthRouteTest {
         // A genuinely different client → independent bucket, still allowed (plain 401).
         assertEquals(HttpStatusCode.Unauthorized, attempt("9.9.9.9, 198.51.100.4, 10.0.0.1", "x").status)
     }
+
+    @Test
+    fun `an X-Forwarded-For shorter than the trusted hop count is ignored, not trusted`() = testApplication {
+        configureTestApplication()
+
+        // Default trustedProxyCount = 2. A single-entry XFF doesn't show the hops we require, so it
+        // must fall back to the direct peer — never key on the (spoofable) lone value. Two different
+        // forged single-entry headers therefore land in the *same* bucket (the direct peer), so the
+        // second is already locked: proof the forged value created no fresh bucket.
+        suspend fun attempt(xff: String) = client.post("/api/v1/auth/login") {
+            header("X-Forwarded-For", xff)
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"alice","password":"wrongpassword"}""")
+        }
+
+        repeat(LoginThrottler.DEFAULT_MAX_FAILURES) { attempt("6.6.6.6") }
+        assertEquals(HttpStatusCode.TooManyRequests, attempt("7.7.7.7").status)
+    }
 }
