@@ -25,6 +25,15 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Format an ISO timestamp as the local `YYYY-MM-DDTHH:mm` a <input type="datetime-local">
+// expects. `new Date(value)` parses that back as local time, so a round-trip preserves
+// the wall-clock the user sees.
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 interface ProjectDraft {
   id?: string
   name: string
@@ -42,6 +51,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -256,6 +266,25 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return null
   }
 
+  // Edit an existing entry (start/stop/project/description) or a running timer's
+  // start time. Same inline-error convention as createManual: returns null on
+  // success, or a message the modal shows while staying open for a retry.
+  const updateEntry = async (id: string, body: object): Promise<string | null> => {
+    const res = await authFetch(token, `${API_BASE}/time/entries/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.status === 401) {
+      onLogout()
+      return null
+    }
+    if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
+    upsertEntry(await res.json())
+    setEditEntry(null)
+    return null
+  }
+
   // Fetch the server-rendered CSV with the JWT in the Authorization header (keeping
   // the token out of the URL), then trigger a download from the returned blob.
   const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
@@ -329,6 +358,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
             <div className="hb-timerhero__proj">
               <span className="hb-pdot" style={{ background: runningProject?.color ?? 'var(--ink-3)' }} />
               {runningProject?.name ?? t.time.project}
+              <IconButton icon="edit" label={t.time.editRunning} size={16} onClick={() => setEditEntry(running)} />
             </div>
             <input
               className="hb-timerhero__desc"
@@ -448,7 +478,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
               {recent.length === 0 ? (
                 <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
               ) : (
-                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} showProject />
+                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} onEdit={setEditEntry} showProject />
               )}
             </Card>
           </div>
@@ -495,6 +525,16 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
 
+      {editEntry && (
+        <EditEntryModal
+          key={editEntry.id}
+          entry={editEntry}
+          projects={projects}
+          onSave={updateEntry}
+          onClose={() => setEditEntry(null)}
+        />
+      )}
+
       {showExport && (
         <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
       )}
@@ -506,6 +546,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           projectsById={projectsById}
           me={me}
           onDelete={deleteEntry}
+          onEdit={setEditEntry}
           onClose={() => setDetailProject(null)}
         />
       )}
@@ -599,11 +640,12 @@ function groupByDay(entries: TimeEntry[]) {
   return groups
 }
 
-function EntryRow({ entry, project, me, onDelete, showProject }: {
+function EntryRow({ entry, project, me, onDelete, onEdit, showProject }: {
   entry: TimeEntry
   project?: Project
   me: string | null
   onDelete: (id: string) => void
+  onEdit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
   const own = !me || entry.userId === me
@@ -623,7 +665,10 @@ function EntryRow({ entry, project, me, onDelete, showProject }: {
         <Avatar user={entry.userId} size={24} />
         <span className="hb-mono" style={{ fontWeight: 600, minWidth: 64, textAlign: 'right' }}>{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
         {own ? (
-          <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry.id)} />
+          <>
+            <IconButton icon="edit" label={t.common.edit} onClick={() => onEdit(entry)} />
+            <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry.id)} />
+          </>
         ) : (
           <span className="hb-iconbtn" title={t.time.ownEntriesOnly} style={{ cursor: 'default' }}><Icon name="lock" size={16} stroke={2} /></span>
         )}
@@ -634,11 +679,12 @@ function EntryRow({ entry, project, me, onDelete, showProject }: {
 
 // Reusable day-grouped entry list. `showProject` toggles whether the project
 // name (recent list) or the description (project detail) is the row title.
-function DayGroupedList({ entries, projectsById, me, onDelete, showProject }: {
+function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, showProject }: {
   entries: TimeEntry[]
   projectsById: Record<string, Project>
   me: string | null
   onDelete: (id: string) => void
+  onEdit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
   const groups = groupByDay(entries)
@@ -652,7 +698,7 @@ function DayGroupedList({ entries, projectsById, me, onDelete, showProject }: {
             <span className="hb-daysep__sum hb-mono">{fmtDurationShort(g.seconds)}</span>
           </div>
           {g.entries.map((e) => (
-            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} showProject={showProject} />
+            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} onEdit={onEdit} showProject={showProject} />
           ))}
         </Fragment>
       ))}
@@ -669,12 +715,13 @@ interface WeekBucket {
   byUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, projectsById, me, onDelete, onClose }: {
+function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onClose }: {
   project: Project
   entries: TimeEntry[]
   projectsById: Record<string, Project>
   me: string | null
   onDelete: (id: string) => void
+  onEdit: (entry: TimeEntry) => void
   onClose: () => void
 }) {
   const projEntries = useMemo(
@@ -773,7 +820,7 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onClose }
           </div>
 
           <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
-          <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} showProject={false} />
+          <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} showProject={false} />
         </>
       )}
     </Modal>
@@ -850,6 +897,108 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
       <Field label={t.common.descriptionOptional}>
         <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
       </Field>
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
+    </Modal>
+  )
+}
+
+// Edit an existing entry's project / start / stop / description, or — for a still
+// running timer — just its start time (stop stays open, so only `startedAt` is sent).
+// Mirrors ManualEntryModal's inline-error handling. The project select offers the
+// active projects plus the entry's current one (so an archived project stays
+// selectable as the no-op default, but you can't switch *to* an archived one).
+function EditEntryModal({ entry, projects, onSave, onClose }: {
+  entry: TimeEntry
+  projects: Project[]
+  onSave: (id: string, body: object) => Promise<string | null>
+  onClose: () => void
+}) {
+  const running = !entry.stoppedAt
+  const [projectId, setProjectId] = useState(entry.projectId)
+  const [start, setStart] = useState(toLocalInput(entry.startedAt))
+  const [stop, setStop] = useState(entry.stoppedAt ? toLocalInput(entry.stoppedAt) : '')
+  const [description, setDescription] = useState(entry.description ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const submitRef = useRef(false)
+
+  const projectOptions = projects.filter((p) => !p.archived || p.id === entry.projectId)
+
+  const submit = async () => {
+    if (submitRef.current) return
+    if (!start) {
+      setError(t.errors.INVALID_DATE)
+      return
+    }
+    if (!projectId) return
+    const startedAt = new Date(start)
+    const body: Record<string, unknown> = { startedAt: startedAt.toISOString() }
+    // Only send projectId when it actually changed: re-sending an unchanged but
+    // archived project would trip the backend's PROJECT_ARCHIVED guard and block
+    // a pure time/description edit on an archived project's entry.
+    if (projectId !== entry.projectId) body.projectId = projectId
+    if (running) {
+      // The backend skips its range check while stoppedAt is null, so guard here
+      // against a future start that would freeze the live clock at 00:00:00.
+      if (startedAt.getTime() > Date.now()) {
+        setError(t.time.startInFuture)
+        return
+      }
+    } else {
+      const stoppedAt = new Date(stop)
+      if (!(stoppedAt.getTime() > startedAt.getTime())) {
+        setError(t.time.endAfterStart)
+        return
+      }
+      body.stoppedAt = stoppedAt.toISOString()
+      body.description = description.trim() // sent raw so an emptied field clears it
+    }
+    submitRef.current = true
+    setError(null)
+    // On failure the modal stays open; re-enable submit and show the reason.
+    // The catch covers transport errors (offline) so the button can't get stuck.
+    try {
+      const err = await onSave(entry.id, body)
+      if (err) {
+        submitRef.current = false
+        setError(err)
+      }
+    } catch {
+      submitRef.current = false
+      setError(t.time.saveFailed)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={running ? t.time.editRunning : t.time.editEntry}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button onClick={submit} disabled={!start || !projectId || (!running && !stop)}>{t.common.save}</Button>
+        </>
+      }
+    >
+      {running && <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.editRunningHint}</p>}
+      <Field label={t.time.project}>
+        <Select value={projectId} onChange={setProjectId}>
+          {projectOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+      </Field>
+      <Field label={t.time.startLabel}>
+        <TextInput type="datetime-local" value={start} onChange={setStart} />
+      </Field>
+      {!running && (
+        <Field label={t.time.endLabel}>
+          <TextInput type="datetime-local" value={stop} onChange={setStop} />
+        </Field>
+      )}
+      {!running && (
+        <Field label={t.common.descriptionOptional}>
+          <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
+        </Field>
+      )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
     </Modal>
   )

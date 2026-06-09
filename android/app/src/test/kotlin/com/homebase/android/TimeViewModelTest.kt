@@ -2,6 +2,8 @@ package com.homebase.android
 
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.UpdateTimeEntryRequest
+import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.ui.time.TimeViewModel
@@ -48,6 +50,9 @@ class TimeViewModelTest {
         every { repository.incomingEvents } returns wsEvents
         coEvery { repository.getProjects() } returns Result.success(emptyList())
         coEvery { repository.getEntries() } returns Result.success(emptyList())
+        // #142 added a users fetch to load(); stub it so the relaxed mock doesn't
+        // return a bad default that breaks every test at construction time.
+        coEvery { repository.getUsers() } returns Result.success(emptyList<UserDto>())
     }
 
     @After
@@ -164,6 +169,55 @@ class TimeViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.entries.isEmpty())
+    }
+
+    @Test
+    fun `updateEntry replaces the edited entry in place`() = runTest {
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "e1")))
+        val edited = entry(id = "e1", stoppedAt = "2026-06-03T10:00:00Z", durationSeconds = 7200)
+        coEvery { repository.updateEntry(eq("e1"), any()) } returns Result.success(edited)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateEntry("e1", UpdateTimeEntryRequest(stoppedAt = "2026-06-03T10:00:00Z"))
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.entries.size)
+        assertEquals("2026-06-03T10:00:00Z", vm.uiState.value.entries[0].stoppedAt)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `updateEntry of a running timer keeps it running and surfaces no error`() = runTest {
+        val open = entry(id = "open", stoppedAt = null, durationSeconds = null)
+        coEvery { repository.getEntries() } returns Result.success(listOf(open))
+        val moved = open.copy(startedAt = "2026-06-03T07:30:00Z")
+        coEvery { repository.updateEntry(eq("open"), any()) } returns Result.success(moved)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateEntry("open", UpdateTimeEntryRequest(startedAt = "2026-06-03T07:30:00Z"))
+        advanceUntilIdle()
+
+        assertEquals("open", vm.uiState.value.running?.id)
+        assertEquals("2026-06-03T07:30:00Z", vm.uiState.value.running?.startedAt)
+    }
+
+    @Test
+    fun `updateEntry surfaces the failure message`() = runTest {
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "e1")))
+        coEvery { repository.updateEntry(eq("e1"), any()) } returns
+            Result.failure(IllegalStateException("Das Ende muss nach dem Start liegen."))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateEntry("e1", UpdateTimeEntryRequest(stoppedAt = "2026-06-03T07:00:00Z"))
+        advanceUntilIdle()
+
+        assertEquals("Das Ende muss nach dem Start liegen.", vm.uiState.value.error)
     }
 
     @Test

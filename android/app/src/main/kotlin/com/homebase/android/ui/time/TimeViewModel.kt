@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +86,20 @@ class TimeViewModel(
             repository.createEntry(projectId, startedAt, stoppedAt, description?.trim()?.takeIf { it.isNotEmpty() })
                 .onSuccess { entry -> upsertEntry(entry) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Edit an existing entry, or — for the running timer — just its start time.
+     * Pass only the fields that should change (a null projectId/stoppedAt leaves
+     * that column untouched on the backend), so editing a still-running entry sends
+     * only startedAt and editing an archived-project entry need not resend the project.
+     */
+    fun updateEntry(id: String, request: UpdateTimeEntryRequest) {
+        viewModelScope.launch {
+            repository.updateEntry(id, request)
+                .onSuccess { entry -> upsertEntry(entry) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Konnte nicht gespeichert werden.") } }
         }
     }
 

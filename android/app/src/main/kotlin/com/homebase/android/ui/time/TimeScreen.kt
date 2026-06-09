@@ -16,7 +16,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,9 +46,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBottomSheet
@@ -64,8 +76,11 @@ import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 // ---------------------------------------------------------------------------
 // Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
@@ -79,6 +94,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 
     var showNewProject by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
+    var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     // Cross-person action awaiting confirmation (partner's timer, #142).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
@@ -115,6 +131,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                         running = running,
                         project = projectsById[running.projectId],
                         onStop = { viewModel.stopTimer() },
+                        onEdit = { editEntry = running },
                     )
                 } else {
                     IdleHero()
@@ -227,6 +244,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     currentUser = currentUser,
                     showProjectName = true,
                     onDelete = { viewModel.deleteEntry(it) },
+                    onEdit = { editEntry = it },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
             }
@@ -250,7 +268,21 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 isRunning = state.running?.projectId == detailProject.id,
                 currentUser = currentUser,
                 onDelete = { viewModel.deleteEntry(it) },
+                onEdit = { editEntry = it },
                 onDismiss = { detailProjectId = null },
+            )
+        }
+
+        editEntry?.let { entry ->
+            EditEntrySheet(
+                entry = entry,
+                project = projectsById[entry.projectId],
+                activeProjects = state.activeProjects,
+                onSave = { request ->
+                    viewModel.updateEntry(entry.id, request)
+                    editEntry = null
+                },
+                onDismiss = { editEntry = null },
             )
         }
 
@@ -278,7 +310,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () -> Unit) {
+private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () -> Unit, onEdit: () -> Unit) {
     val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
             value = Format.elapsedSeconds(running.startedAt)
@@ -293,7 +325,7 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () 
             .background(Brush.linearGradient(0f to Hb.accentSoft, 0.78f to Hb.surface))
             .padding(22.dp),
     ) {
-        // "LÄUFT" live row
+        // "LÄUFT" live row (+ edit affordance for the running timer's start time)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(9.dp).clip(HbPill).background(Hb.clay))
             Text(
@@ -301,6 +333,8 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () 
                 style = HbType.eyebrow.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.05.em),
                 color = Hb.accentInk,
             )
+            Spacer(Modifier.weight(1f))
+            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
         }
         // Project dot + name
         Row(
@@ -565,6 +599,7 @@ private fun EntriesByDay(
     currentUser: String?,
     showProjectName: Boolean,
     onDelete: (String) -> Unit,
+    onEdit: (TimeEntryDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // entries arrive already newest-first; preserve that order across day buckets.
@@ -603,6 +638,7 @@ private fun EntriesByDay(
                     currentUser = currentUser,
                     showProjectName = showProjectName,
                     onDelete = { onDelete(entry.id) },
+                    onEdit = { onEdit(entry) },
                 )
             }
         }
@@ -616,6 +652,7 @@ private fun EntryRow(
     currentUser: String?,
     showProjectName: Boolean,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val own = currentUser != null && entry.userId == currentUser
     val duration = Format.entrySeconds(entry.startedAt, entry.stoppedAt)
@@ -668,6 +705,7 @@ private fun EntryRow(
                 color = Hb.ink2,
             )
             if (own) {
+                HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
                 HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
             } else {
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
@@ -740,6 +778,211 @@ private fun NewProjectSheet(onDismiss: () -> Unit, onCreate: (String, String) ->
 }
 
 // ---------------------------------------------------------------------------
+// Edit-entry sheet (project / start / stop / description; running → start only)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun EditEntrySheet(
+    entry: TimeEntryDto,
+    project: ProjectDto?,
+    activeProjects: List<ProjectDto>,
+    onSave: (UpdateTimeEntryRequest) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val running = entry.stoppedAt == null
+    val zone = ZoneId.systemDefault()
+    val startZdt = remember(entry.id) { (Format.parseInstant(entry.startedAt) ?: Instant.now()).atZone(zone) }
+    val stopZdt = remember(entry.id) { Format.parseInstant(entry.stoppedAt)?.atZone(zone) }
+
+    var projectId by remember(entry.id) { mutableStateOf(entry.projectId) }
+    var startDate by remember(entry.id) { mutableStateOf(startZdt.toLocalDate()) }
+    var startTime by remember(entry.id) { mutableStateOf(startZdt.toLocalTime().withSecond(0).withNano(0)) }
+    var stopDate by remember(entry.id) { mutableStateOf((stopZdt ?: startZdt).toLocalDate()) }
+    var stopTime by remember(entry.id) { mutableStateOf((stopZdt ?: startZdt).toLocalTime().withSecond(0).withNano(0)) }
+    var description by remember(entry.id) { mutableStateOf(entry.description ?: "") }
+    var error by remember(entry.id) { mutableStateOf<String?>(null) }
+
+    // Offer the active projects plus the entry's current one (so an archived current
+    // project still shows as the no-op default, but you can't switch *to* one).
+    val options = remember(activeProjects, entry.projectId, project) {
+        if (activeProjects.any { it.id == entry.projectId }) activeProjects
+        else listOfNotNull(project) + activeProjects
+    }
+    val selectedName = options.firstOrNull { it.id == projectId }?.name ?: project?.name ?: "Projekt"
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = if (running) "Laufenden Timer bearbeiten" else "Eintrag bearbeiten",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Speichern",
+                onClick = {
+                    val startInstant = startDate.atTime(startTime).atZone(zone).toInstant()
+                    // Only resend the project when it changed — otherwise an archived
+                    // current project would trip the backend's PROJECT_ARCHIVED guard.
+                    val projectChange = projectId.takeIf { it != entry.projectId }
+                    if (running) {
+                        // The backend skips its range check while stoppedAt is null, so
+                        // guard here against a future start that would freeze the clock.
+                        if (startInstant.isAfter(Instant.now())) {
+                            error = "Beginn darf nicht in der Zukunft liegen"
+                            return@HbButton
+                        }
+                        // Still running: leave stoppedAt open — send project + start only.
+                        onSave(UpdateTimeEntryRequest(projectId = projectChange, startedAt = startInstant.toString()))
+                    } else {
+                        val stopInstant = stopDate.atTime(stopTime).atZone(zone).toInstant()
+                        if (!stopInstant.isAfter(startInstant)) {
+                            error = "Ende muss nach dem Start liegen"
+                            return@HbButton
+                        }
+                        onSave(
+                            UpdateTimeEntryRequest(
+                                projectId = projectChange,
+                                startedAt = startInstant.toString(),
+                                stoppedAt = stopInstant.toString(),
+                                description = description.trim(), // empty clears it server-side
+                            )
+                        )
+                    }
+                },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        if (running) {
+            Text(
+                "Läuft noch – die Stoppzeit wird erst beim Stoppen gesetzt.",
+                style = HbType.meta,
+                color = Hb.ink3,
+            )
+        }
+        HbField("Projekt") {
+            SelectField(value = selectedName, options = options.map { it.name to it.id }, onSelect = { projectId = it })
+        }
+        HbField(if (running) "Startzeit" else "Beginn") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { DateField(startDate) { startDate = it } }
+                Box(Modifier.weight(1f)) { TimeField(startTime) { startTime = it } }
+            }
+        }
+        if (!running) {
+            HbField("Ende") {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) { DateField(stopDate) { stopDate = it } }
+                    Box(Modifier.weight(1f)) { TimeField(stopTime) { stopTime = it } }
+                }
+            }
+            HbField("Beschreibung (optional)") {
+                HbTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    placeholder = "Beschreibung (optional)",
+                )
+            }
+        }
+        error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
+    }
+}
+
+/** Read-only field that opens a dropdown of [options] (label to value). */
+@Composable
+private fun SelectField(value: String, options: List<Pair<String, String>>, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
+                .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(value, style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            HbIcon(HbIcons.chevronDown, size = 16.dp, tint = Hb.ink3)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (label, v) ->
+                DropdownMenuItem(text = { Text(label, style = HbType.body, color = Hb.ink) }, onClick = { onSelect(v); open = false })
+            }
+        }
+    }
+}
+
+/** Date field: shows dd.MM.yyyy, opens a Material date picker on tap. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateField(value: LocalDate, onChange: (LocalDate) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(
+        Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
+            .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text("%02d.%02d.%04d".format(value.dayOfMonth, value.monthValue, value.year), style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink)
+    }
+    if (open) {
+        val initialMillis = value.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { ms ->
+                        onChange(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
+                    }
+                    open = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Time field: shows HH:mm, opens a Material time picker (24h) on tap. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeField(value: LocalTime, onChange: (LocalTime) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(
+        Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
+            .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text("%02d:%02d".format(value.hour, value.minute), style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink)
+    }
+    if (open) {
+        val timeState = rememberTimePickerState(initialHour = value.hour, initialMinute = value.minute, is24Hour = true)
+        Dialog(onDismissRequest = { open = false }) {
+            Surface(shape = HbRadius, color = Hb.surface) {
+                Column(
+                    Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    TimePicker(state = timeState)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { open = false }) { Text("Abbrechen") }
+                        TextButton(onClick = {
+                            onChange(LocalTime.of(timeState.hour, timeState.minute))
+                            open = false
+                        }) { Text("OK") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Project-detail sheet (stats, per-user chips, weekly bars, all entries)
 // ---------------------------------------------------------------------------
 
@@ -750,6 +993,7 @@ private fun ProjectDetailSheet(
     isRunning: Boolean,
     currentUser: String?,
     onDelete: (String) -> Unit,
+    onEdit: (TimeEntryDto) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val finished = remember(entries) { entries.filter { it.stoppedAt != null } }
@@ -859,6 +1103,7 @@ private fun ProjectDetailSheet(
                 currentUser = currentUser,
                 showProjectName = false,
                 onDelete = onDelete,
+                onEdit = onEdit,
             )
         }
     }
