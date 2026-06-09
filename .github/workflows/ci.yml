@@ -201,9 +201,11 @@ jobs:
           trap 'kill "$app_pid" 2>/dev/null || true' EXIT
 
           # /api/v1/health only answers once module() finished — i.e. migrate() AND seeding
-          # both succeeded. Poll up to 60s; bail early (and dump the log) if the jar exits.
+          # both succeeded. The loop returns the instant it's healthy (a warm boot is ~1s), so
+          # the generous 90s budget only ever elapses on a genuine failure — headroom against a
+          # cold/loaded runner's first JIT-cold `java -jar`. Bail early (dump log) if it exits.
           ready=0
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 90); do
             if curl -fsS http://localhost:8080/api/v1/health >/dev/null 2>&1; then
               ready=1; break
             fi
@@ -214,7 +216,7 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then
-            echo "::error::Fat jar never became healthy within 60s."
+            echo "::error::Fat jar never became healthy within 90s."
             cat "$log"; exit 1
           fi
 
