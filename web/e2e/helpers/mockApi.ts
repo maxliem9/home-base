@@ -1028,6 +1028,9 @@ export function kitaClosure(partial: Partial<KitaClosure> & { id: string; date: 
   return { label: 'Kita geschlossen', ...partial }
 }
 
+// year defaults to the fixture year (2026), not the real clock — callers that care
+// about the year should pass it explicitly so the seed never drifts with the calendar
+// (the e2e clock is pinned via page.clock; see abwesenheit.spec.ts, issue #19).
 export function absSettings(partial: Partial<AbsSettings> & { userId: string }): AbsSettings {
-  return { year: new Date().getFullYear(), state: 'BE', allowance: 30, carryover: 0, carryoverExpires: null, kindKrankCap: 15, ...partial }
+  return { year: 2026, state: 'BE', allowance: 30, carryover: 0, carryoverExpires: null, kindKrankCap: 15, ...partial }
 }
