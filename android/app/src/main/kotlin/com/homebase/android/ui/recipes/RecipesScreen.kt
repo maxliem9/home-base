@@ -848,13 +848,16 @@ private fun RecipeFormSheet(
 ) {
     val catChips = listOf("Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
 
+    // The chips merge LUNCH+DINNER into one "Hauptgerichte" label (Format.recipeCategoryLabel),
+    // so the label alone can't tell them apart. Keep the original enum and only re-derive it from
+    // the chip when the user actually picks a *different* label — otherwise editing a web-created
+    // LUNCH recipe would silently collapse it to DINNER on save.
+    val initialCategoryLabel =
+        existing?.let { Format.recipeCategoryLabel(it.category) }?.takeIf { it in catChips }
+            ?: "Hauptgerichte"
+
     var title by remember { mutableStateOf(existing?.title ?: "") }
-    var categoryLabel by remember {
-        mutableStateOf(
-            existing?.let { Format.recipeCategoryLabel(it.category) }?.takeIf { it in catChips }
-                ?: "Hauptgerichte",
-        )
-    }
+    var categoryLabel by remember { mutableStateOf(initialCategoryLabel) }
     var servings by remember { mutableStateOf(existing?.servings?.toString() ?: "") }
     var prep by remember { mutableStateOf(existing?.prepTimeMinutes?.toString() ?: "") }
     var cook by remember { mutableStateOf(existing?.cookTimeMinutes?.toString() ?: "") }
@@ -883,7 +886,11 @@ private fun RecipeFormSheet(
                             servings = servings.toIntOrNull(),
                             prepTimeMinutes = prep.toIntOrNull(),
                             cookTimeMinutes = cook.toIntOrNull(),
-                            category = categoryLabelToEnum(categoryLabel),
+                            category = if (existing != null && categoryLabel == initialCategoryLabel) {
+                                existing.category
+                            } else {
+                                categoryLabelToEnum(categoryLabel)
+                            },
                             ingredients = parseIngredients(ingredientsText),
                             steps = parseSteps(stepsText),
                         ),

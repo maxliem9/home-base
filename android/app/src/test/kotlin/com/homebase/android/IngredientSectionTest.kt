@@ -108,6 +108,13 @@ class IngredientSectionTest {
     }
 
     @Test
+    fun `serialising renders fractional amounts with a decimal point`() {
+        // parseIngredientLine normalises comma to point, so a round-trip survives either way —
+        // pin the serialised text directly so a comma regression in Format.amount can't hide.
+        assertEquals("1.5 EL Butter", ingredientsToText(listOf(ing("Butter", amount = 1.5, unit = "EL"))))
+    }
+
+    @Test
     fun `edit round-trip preserves names, amounts, units and sections`() {
         // Pre-filling the editor (ingredientsToText) and saving it again (parseIngredients) must
         // not lose the sections from issue #123 — the core regression issue #11 guards against.
