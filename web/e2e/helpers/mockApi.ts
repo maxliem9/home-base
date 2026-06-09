@@ -28,6 +28,17 @@ export interface AbsenceSeed {
 
 export const TOKEN = 'test-jwt-token'
 
+// `Buffer` is a Node global present in the Playwright runtime; the e2e tsconfig
+// has no @types/node, so declare just the one call we use here.
+declare const Buffer: { from(input: string, encoding: 'base64'): Uint8Array }
+
+// 1×1 transparent PNG, served for note-image GETs so <AuthedImage>'s
+// authFetch → res.blob() → URL.createObjectURL() path is exercised end-to-end.
+const TINY_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+)
+
 /**
  * In-memory backend stub for the HomeBase API. Intercepts every /api/v1/**
  * request so the app can run end-to-end without a real server, and stubs the
@@ -619,6 +630,17 @@ export class MockApi {
       return this.json(route, note, 201)
     }
 
+    // Serve a seeded note's image as a real image blob (mirrors GET
+    // /notes/{id}/images/{imageId}). The JWT rides in the Authorization header,
+    // never the URL — this exercises <AuthedImage>'s authFetch → blob path.
+    const noteImageMatch = path.match(/\/notes\/([^/]+)\/images\/([^/]+)$/)
+    if (noteImageMatch && method === 'GET') {
+      const [, noteId, imageId] = noteImageMatch
+      const img = this.notes.find((n) => n.id === noteId)?.images.find((i) => i.id === imageId)
+      if (!img) return this.json(route, { message: 'not found' }, 404)
+      return route.fulfill({ status: 200, contentType: img.contentType || 'image/png', body: TINY_PNG })
+    }
+
     const noteIdMatch = path.match(/\/notes\/([^/]+)$/)
     if (noteIdMatch) {
       const id = noteIdMatch[1]
@@ -984,6 +1006,18 @@ export function note(partial: Partial<Note> & { id: string; title: string }): No
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     updatedAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function noteImage(partial: Partial<NoteImage> & { id: string; noteId: string }): NoteImage {
+  return {
+    originalName: 'foto.png',
+    contentType: 'image/png',
+    sizeBytes: 95,
+    sortOrder: 0,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
     ...partial,
   }
 }
