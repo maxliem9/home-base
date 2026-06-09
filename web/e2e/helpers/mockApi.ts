@@ -254,6 +254,11 @@ export class MockApi {
       return this.json(route, { code: 'UNAUTHORIZED', message: 'invalid' }, 401)
     }
 
+    // Household members — drives the assignee chips (and the shared-timer partner).
+    if (path.endsWith('/users') && method === 'GET') {
+      return this.json(route, [{ username: 'max' }, { username: 'lea' }])
+    }
+
     // ---- Todo lists (checked before the generic /todos/{id} matcher) ----
     if (path.endsWith('/todos/lists') && method === 'GET') {
       return this.json(route, this.lists)

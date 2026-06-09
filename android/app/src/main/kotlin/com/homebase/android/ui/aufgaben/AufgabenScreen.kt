@@ -64,6 +64,7 @@ import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbSegmented
 import com.homebase.android.ui.components.HbTextField
 import com.homebase.android.ui.components.bottomBorder
+import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
@@ -79,7 +80,7 @@ private sealed interface AufgabenSheet {
 }
 
 @Composable
-fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, onOpenDrawer: () -> Unit) {
+fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUsers: List<String>, onOpenDrawer: () -> Unit) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     var quickAddText by remember { mutableStateOf("") }
@@ -174,6 +175,7 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, onOpenDrawer:
         when (val s = sheet) {
             is AufgabenSheet.Edit -> EditSheet(
                 todo = s.todo,
+                householdUsers = householdUsers,
                 onDismiss = { sheet = null },
                 onSaveCreate = { title -> viewModel.addTodo(title) },
                 onSaveEdit = { id, req -> viewModel.updateTodo(id, req) },
@@ -561,6 +563,7 @@ private fun DoneSection(
 @Composable
 private fun EditSheet(
     todo: TodoDto?,
+    householdUsers: List<String>,
     onDismiss: () -> Unit,
     onSaveCreate: (String) -> Unit,
     onSaveEdit: (String, UpdateTodoRequest) -> Unit,
@@ -639,22 +642,24 @@ private fun EditSheet(
             )
         }
         HbField("Zuständig") {
+            // A current assignee that isn't a household member (legacy free-text) stays
+            // shown so it remains selectable and isn't silently dropped on save.
+            val chipUsers = assignee
+                ?.takeIf { a -> householdUsers.none { it.equals(a, ignoreCase = true) } }
+                ?.let { householdUsers + it }
+                ?: householdUsers
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                HbPick(active = assignee?.lowercase() == "max", onClick = { assignee = "max" }) {
-                    HbAvatar("max", size = 20.dp)
-                    Text(
-                        "Max",
-                        style = HbType.label.copy(fontSize = 13.5.sp),
-                        color = if (assignee?.lowercase() == "max") Hb.accentInk else Hb.ink2,
-                    )
-                }
-                HbPick(active = assignee?.lowercase() == "lea", onClick = { assignee = "lea" }) {
-                    HbAvatar("lea", size = 20.dp)
-                    Text(
-                        "Lea",
-                        style = HbType.label.copy(fontSize = 13.5.sp),
-                        color = if (assignee?.lowercase() == "lea") Hb.accentInk else Hb.ink2,
-                    )
+                chipUsers.forEach { user ->
+                    val active = assignee?.lowercase() == user.lowercase()
+                    // tapping the active chip clears the assignee, mirroring the web picker
+                    HbPick(active = active, onClick = { assignee = if (active) null else user }) {
+                        HbAvatar(user, size = 20.dp)
+                        Text(
+                            displayName(user),
+                            style = HbType.label.copy(fontSize = 13.5.sp),
+                            color = if (active) Hb.accentInk else Hb.ink2,
+                        )
+                    }
                 }
                 HbPick(active = assignee == null, onClick = { assignee = null }) {
                     Text(

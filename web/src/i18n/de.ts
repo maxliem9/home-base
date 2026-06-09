@@ -149,7 +149,7 @@ export const de = {
     planTitle: 'Aufgabe planen',
     planHint: 'Mindestens Zuständige:r oder Fälligkeit angeben.',
     assignee: 'Zuständig',
-    assigneePlaceholder: 'z. B. max',
+    assigneeNone: 'Niemand',
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',

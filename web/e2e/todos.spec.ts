@@ -6,6 +6,9 @@ async function openApp(page: Page, mock: MockApi, token: string = TOKEN) {
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
+  // the app opens on the Dashboard tab; switch to the Aufgaben (todos) view.
+  // exact: the Dashboard also has an "Alle Aufgaben" button that 'Aufgaben' would match.
+  await page.getByRole('button', { name: 'Aufgaben', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
 
@@ -59,7 +62,8 @@ test.describe('Todos', () => {
 
     await page.getByRole('button', { name: 'Planen' }).click()
     const dialog = page.locator('.hb-modal')
-    await dialog.getByPlaceholder('z. B. max').fill('bob')
+    // assignee is now a chip picker (names from /config) instead of a text field
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
     // Still in the list, but now shows the assignee avatar instead of a Planen button.

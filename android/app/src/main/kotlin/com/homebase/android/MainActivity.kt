@@ -128,6 +128,11 @@ class MainActivity : ComponentActivity() {
             container.configRepository.getHouseholdName().onSuccess { value = it }
         }
 
+        // Household members for the assignee chips; falls back to the known seed users.
+        val householdUsers by produceState(initialValue = listOf("max", "lea")) {
+            container.configRepository.getUsers().onSuccess { if (it.isNotEmpty()) value = it }
+        }
+
         val todoState by todoVm.uiState.collectAsState()
         val shoppingState by shoppingVm.uiState.collectAsState()
         val timeState by timeVm.uiState.collectAsState()
@@ -155,6 +160,7 @@ class MainActivity : ComponentActivity() {
                 HbRoute.AUFGABEN -> AufgabenScreen(
                     viewModel = todoVm,
                     currentUser = currentUser,
+                    householdUsers = householdUsers,
                     onOpenDrawer = openDrawer,
                 )
                 HbRoute.EINKAUF -> ShoppingScreen(

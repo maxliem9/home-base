@@ -120,6 +120,10 @@ const KNOWN: Record<string, UserMeta> = {
   lea: { name: 'Lea', initials: 'L', hue: 250 },
 }
 
+// The two fixed household members (the seeded users) — used e.g. for the
+// assignee chips. Order is the KNOWN insertion order.
+export const HOUSEHOLD_USERS: string[] = Object.keys(KNOWN)
+
 function hashHue(s: string): number {
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360

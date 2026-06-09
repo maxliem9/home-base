@@ -21,6 +21,7 @@ import {
   TextInput,
 } from '../ui/primitives'
 import { dueLabel, relTime, userMeta, usernameFromToken } from '../ui/format'
+import { useHouseholdUsers } from '../hooks/useHouseholdUsers'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/todos`
@@ -60,6 +61,7 @@ interface TodosViewProps {
 
 export function TodosView({ token, onLogout }: TodosViewProps) {
   const me = usernameFromToken(token)
+  const householdUsers = useHouseholdUsers(token)
   const [todos, setTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
   const [loading, setLoading] = useState(true)
@@ -536,7 +538,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           <>
             <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t.todos.planHint}</p>
             <Field label={t.todos.assignee}>
-              <TextInput autoFocus value={plan.assignee} onChange={(v) => setPlan({ ...plan, assignee: v })} placeholder={t.todos.assigneePlaceholder} />
+              <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>
             <Field label={t.todos.dueDate}>
               <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
@@ -826,6 +828,30 @@ function VisibilityPicker({ visibility, onChange }: { visibility: ListVisibility
       </button>
       <button className={`hb-pick${visibility === 'PRIVATE' ? ' is-active' : ''}`} onClick={() => onChange('PRIVATE')}>
         <Icon name="lock" size={16} stroke={2} /> {t.todos.visPrivate}
+      </button>
+    </div>
+  )
+}
+
+// Assignee chips for the plan modal — one per household member plus "Niemand"
+// (clears it); mirrors the Android picker (AufgabenScreen). Clicking the active
+// chip toggles it off. An assignee that isn't a household member (legacy
+// free-text) is still shown so it stays selectable and isn't dropped on save.
+function AssigneePicker({ value, users: household, onChange }: { value: string; users: string[]; onChange: (v: string) => void }) {
+  const known = household.some((u) => u.toLowerCase() === value.toLowerCase())
+  const users = value && !known ? [...household, value] : household
+  return (
+    <div className="hb-pickrow">
+      {users.map((u) => {
+        const active = !!value && value.toLowerCase() === u.toLowerCase()
+        return (
+          <button key={u} className={`hb-pick${active ? ' is-active' : ''}`} onClick={() => onChange(active ? '' : u)}>
+            <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
+          </button>
+        )
+      })}
+      <button className={`hb-pick${!value ? ' is-active' : ''}`} onClick={() => onChange('')}>
+        {t.todos.assigneeNone}
       </button>
     </div>
   )
