@@ -339,19 +339,13 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
         call.respond(dto)
     }
 
-    // Canonical per-year endpoint.
+    // Per-year endpoint. Both clients (Web + Android since #13/#15) always send a year;
+    // the year-less alias that mapped to the current calendar year was removed in #16.
     put("/settings/{userId}/{year}") {
         val userId = call.parameters["userId"]!!
         val year = call.parameters["year"]?.toIntOrNull()?.takeIf { it in SETTINGS_YEAR_RANGE }
             ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_YEAR", "year must be an integer in ${SETTINGS_YEAR_RANGE.first}..${SETTINGS_YEAR_RANGE.last}"))
         handleUpsert(call, userId, year)
-    }
-
-    // Backward-compatible alias for clients that don't send a year yet (e.g. the Android
-    // app until #145): edits the current calendar year.
-    put("/settings/{userId}") {
-        val userId = call.parameters["userId"]!!
-        handleUpsert(call, userId, LocalDate.now().year)
     }
 }
 

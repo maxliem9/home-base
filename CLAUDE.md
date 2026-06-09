@@ -179,7 +179,7 @@ berechnet.
   Edit angelegt.
 - Endpunkte unter /api/v1/absence: GET / (Snapshot inkl. users-Liste),
   entries (POST set, DELETE clear, POST /batch für Zeiträume), parttime (CRUD),
-  kita (POST, POST /kita/range, PUT, DELETE), settings PUT /settings/{userId}.
+  kita (POST, POST /kita/range, PUT, DELETE), settings PUT /settings/{userId}/{year}.
 - WebSocket /api/v1/ws/absence (Channel "absence"): jede Mutation sendet
   {type:"ABSENCE_CHANGED"}; Clients laden den Snapshot neu.
 - Deutsche Feiertage werden pro Bundesland aus Ostern (Gauß-Algorithmus) +
@@ -187,7 +187,7 @@ berechnet.
 - Berechtigungsmodell: Der Kalender ist bewusst gemeinsam — beide Nutzer dürfen
   alle Tage/Regeln beider Personen bearbeiten (entries, parttime, kita, settings);
   die in diesen Routen mitgeschickte userId ist daher die Zielperson, nicht der
-  Aufrufer. Auch die persönliche Konfiguration (`PUT /settings/{userId}`:
+  Aufrufer. Auch die persönliche Konfiguration (`PUT /settings/{userId}/{year}`:
   Kontingent/Übertrag/Bundesland/Kind-krank-Cap) ist gemeinsam editierbar; die
   frühere Eigentümer-Beschränkung (#63) wurde für den 2-Personen-Haushalt bewusst
   aufgehoben. Siehe Issue #127.

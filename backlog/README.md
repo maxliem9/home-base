@@ -2,7 +2,7 @@
 
 Das früher dateibasierte Backlog (`backlog/NNNN-slug.md` + Index-Tabelle) wurde nach
 **GitHub Issues** migriert. Neue Tickets bitte als Issue anlegen — Konvention siehe
-[`../claude.md`](../claude.md), Abschnitt „Backlog & Out-of-Scope-Funde".
+[`../CLAUDE.md`](../CLAUDE.md), Abschnitt „Backlog & Out-of-Scope-Funde".
 
 - **Offene Tickets:** <https://github.com/maxliem9/home-base/issues>
 - **Kategorie-Labels:** `security` · `bug` · `tech-debt` · `test-gap` · `feature` · `docs` · `chore`
