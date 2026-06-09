@@ -162,6 +162,82 @@ jobs:
           fi
           echo "MigrationIntegrationTest executed against Postgres. ✓"
 
+      # Issue #9: everything above runs Flyway from the exploded Gradle classpath
+      # (build/resources/main), but the NAS deploys the Shadow *fat jar* — and those two
+      # classpaths can diverge. In #121 the packaged jar merged colliding
+      # META-INF/services/*.Plugin files last-wins, dropping Flyway's SQL resolver; the
+      # deployed app then applied ZERO migrations ("did not follow the filename convention"
+      # → "No migrations found") and crash-looped on a missing "users" table, while every
+      # test stayed green. The next two steps close that blind spot by exercising the real
+      # deploy artifact: build the fat jar and boot it against a FRESH database exactly as a
+      # new NAS volume would — migrate, then seed users — and prove the schema materialised.
+      - name: Build the deployment fat jar
+        working-directory: backend
+        run: ./gradlew buildFatJar --no-daemon
+
+      - name: Smoke-test fat-jar migrations against a fresh Postgres
+        working-directory: backend
+        env:
+          PGPASSWORD: homebase
+        run: |
+          set -euo pipefail
+
+          # psql for the assertions + creating a throwaway DB untouched by the test run
+          # above, so Flyway has to apply every migration cold (the NAS's new-volume path).
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h localhost -U homebase -d homebase -c 'DROP DATABASE IF EXISTS homebase_smoke;'
+          psql -h localhost -U homebase -d homebase -c 'CREATE DATABASE homebase_smoke;'
+
+          # Boot the packaged jar with a user to seed: if the fat jar's Flyway resolver is
+          # missing again, migrate() applies nothing, the seeder's first query hits a missing
+          # "users" table, and the app dies before binding 8080 — the prod crash, in CI.
+          log="$(mktemp)"
+          DB_URL=jdbc:postgresql://localhost:5432/homebase_smoke \
+          DB_USER=homebase DB_PASSWORD=homebase \
+          JWT_SECRET=ci-smoke-secret \
+          SEED_USERS=smoke:smokepw \
+            java -jar build/libs/homebase-backend.jar > "$log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+
+          # /api/v1/health only answers once module() finished — i.e. migrate() AND seeding
+          # both succeeded. Poll up to 60s; bail early (and dump the log) if the jar exits.
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/api/v1/health >/dev/null 2>&1; then
+              ready=1; break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              echo "::error::Fat jar exited during startup — migrations did not run (issue #9)."
+              cat "$log"; exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::Fat jar never became healthy within 60s."
+            cat "$log"; exit 1
+          fi
+
+          # Belt-and-suspenders: the prod symptom was `relation "users" does not exist`, and a
+          # partial-resolver regression could apply *some* migrations. Assert every V*.sql
+          # landed in flyway_schema_history and the users table exists. The expected count is
+          # derived from the files, so adding a migration needs no change here.
+          expected="$(ls -1 src/main/resources/db/migration/V*.sql | wc -l | tr -d ' ')"
+          applied="$(psql -h localhost -U homebase -d homebase_smoke -tAc \
+            'SELECT count(*) FROM flyway_schema_history WHERE success AND version IS NOT NULL;')"
+          echo "Fat jar applied $applied of $expected versioned migrations."
+          if [ "$applied" -ne "$expected" ]; then
+            echo "::error::Fat jar applied $applied/$expected migrations (resolver regressed?)."
+            cat "$log"; exit 1
+          fi
+          users_exist="$(psql -h localhost -U homebase -d homebase_smoke -tAc \
+            "SELECT to_regclass('public.users') IS NOT NULL;")"
+          if [ "$users_exist" != "t" ]; then
+            echo "::error::users table missing after fat-jar migration."
+            cat "$log"; exit 1
+          fi
+          echo "Fat jar migrated a fresh DB and booted cleanly. ✓"
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
