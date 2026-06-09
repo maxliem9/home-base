@@ -25,7 +25,7 @@ test.describe('Authentication', () => {
     await expect(submit).toBeEnabled()
   })
 
-  test('logs in and lands on the Aufgaben view', async ({ page }) => {
+  test('logs in and lands on the dashboard', async ({ page }) => {
     await new MockApi().install(page)
     await page.goto('/')
 
@@ -33,7 +33,8 @@ test.describe('Authentication', () => {
     await page.getByPlaceholder('Passwort').fill('secret')
     await page.getByRole('button', { name: 'Anmelden' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
+    // Login lands on the default "Heute" dashboard; its quick-add is a stable marker.
+    await expect(page.getByPlaceholder('Schnell erfassen – landet in der Inbox …')).toBeVisible()
     // Token persisted for subsequent reloads.
     await expect.poll(() => page.evaluate(() => localStorage.getItem('homebase_token'))).not.toBeNull()
   })
@@ -58,8 +59,10 @@ test.describe('Authentication', () => {
     await page.addInitScript(() => localStorage.setItem('homebase_token', 'test-jwt-token'))
     await page.goto('/')
 
-    // Logout lives in the sidebar user chip; its title is the only stable label.
-    await page.getByTitle('Abmelden').click()
+    // Logout lives in the sidebar user chip (a second copy sits in the mobile top bar);
+    // clicking it opens a confirm dialog whose primary button ends the session.
+    await page.locator('.hb-side-foot .hb-userchip').click()
+    await page.locator('.hb-modal').getByRole('button', { name: 'Abmelden' }).click()
 
     await expect(page.getByPlaceholder('Benutzername')).toBeVisible()
     expect(await page.evaluate(() => localStorage.getItem('homebase_token'))).toBeNull()

@@ -874,14 +874,16 @@ export class MockApi {
         return route.fulfill({ status: 204, body: '' })
       }
     }
-    const setMatch = path.match(/\/absence\/settings\/([^/]+)$/)
+    const setMatch = path.match(/\/absence\/settings\/([^/]+)\/(\d+)$/)
     if (setMatch && method === 'PUT') {
       const userId = decodeURIComponent(setMatch[1])
+      const year = Number(setMatch[2])
       const b = JSON.parse(req.postData() ?? '{}')
-      let s = this.absSettings.find((x) => x.userId === userId)
+      let s = this.absSettings.find((x) => x.userId === userId && x.year === year)
       if (!s) {
         s = {
           userId,
+          year,
           state: b.state ?? 'BE',
           allowance: b.allowance ?? 30,
           carryover: b.carryover ?? 0,
@@ -1027,5 +1029,5 @@ export function kitaClosure(partial: Partial<KitaClosure> & { id: string; date: 
 }
 
 export function absSettings(partial: Partial<AbsSettings> & { userId: string }): AbsSettings {
-  return { state: 'BE', allowance: 30, carryover: 0, carryoverExpires: null, kindKrankCap: 15, ...partial }
+  return { year: new Date().getFullYear(), state: 'BE', allowance: 30, carryover: 0, carryoverExpires: null, kindKrankCap: 15, ...partial }
 }

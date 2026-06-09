@@ -46,8 +46,8 @@ async function open(page: Page, mock: MockApi) {
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
   await page.goto('/')
-  await page.getByRole('button', { name: 'Abwesenheit' }).click()
-  await expect(page.getByRole('heading', { name: 'Abwesenheit' })).toBeVisible()
+  await page.getByRole('button', { name: 'Kalender' }).click()
+  await expect(page.getByRole('heading', { name: 'Kalender' })).toBeVisible()
 }
 
 test.describe('Abwesenheit', () => {

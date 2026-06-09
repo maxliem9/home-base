@@ -16,7 +16,7 @@ test.describe('Time tracking', () => {
   test('shows the empty states with no projects', async ({ page }) => {
     await openTime(page, new MockApi())
     await expect(page.getByText('Noch keine Projekte')).toBeVisible()
-    await expect(page.getByText('Kein Timer aktiv')).toBeVisible()
+    await expect(page.locator('.hb-timerhero__live')).toHaveText('Kein Timer aktiv')
   })
 
   test('renders projects and recent entries', async ({ page }) => {
@@ -41,7 +41,7 @@ test.describe('Time tracking', () => {
     await expect(stop).toBeVisible()
 
     await stop.click()
-    await expect(page.getByText('Kein Timer aktiv')).toBeVisible()
+    await expect(page.locator('.hb-timerhero__live')).toHaveText('Kein Timer aktiv')
     // the stopped timer now appears in the recent-entries list
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
   })
@@ -60,7 +60,7 @@ test.describe('Time tracking', () => {
 
     // stop it → it lands in the recent list (one row, no duplicate)
     await hero.getByRole('button', { name: 'Stoppen' }).click()
-    await expect(page.getByText('Kein Timer aktiv')).toBeVisible()
+    await expect(page.locator('.hb-timerhero__live')).toHaveText('Kein Timer aktiv')
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
 
     // record a manual entry → appears immediately
