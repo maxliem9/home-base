@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, note, TOKEN } from './helpers/mockApi'
+import { MockApi, note, noteImage, TOKEN } from './helpers/mockApi'
 
 /** Logs in, installs the mock backend, and navigates to the notes view. */
 async function openNotes(page: Page, mock: MockApi) {
@@ -87,5 +87,48 @@ test.describe('Notes', () => {
     await page.getByRole('button', { name: 'Löschen' }).click()
 
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
+  })
+
+  // The note-image gallery loads each thumbnail through authFetch (Authorization
+  // header) → res.blob() → URL.createObjectURL(), so the JWT never rides in the
+  // image URL. These cover that <AuthedImage> path end-to-end (issue #10).
+  const PHOTOS = note({
+    id: 'n1',
+    title: 'Urlaubsfotos',
+    images: [noteImage({ id: 'img1', noteId: 'n1', originalName: 'strand.png' })],
+  })
+
+  test('renders a note image thumbnail via authFetch→blob, JWT in header not URL', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([PHOTOS]))
+
+    const imageRequest = page.waitForRequest((r) => r.url().includes('/notes/n1/images/img1'))
+    await page.getByRole('button', { name: /Urlaubsfotos/ }).click()
+
+    // AuthedImage resolves the blob and renders <img src="blob:…">
+    await expect(page.locator('.hb-note-thumb img')).toHaveAttribute('src', /^blob:/)
+
+    const req = await imageRequest
+    expect(req.headers()['authorization']).toBe(`Bearer ${TOKEN}`)
+    // the token must not leak into the URL (no ?token=, no bare JWT)
+    expect(req.url()).not.toContain(TOKEN)
+    expect(new URL(req.url()).searchParams.has('token')).toBe(false)
+  })
+
+  test('opens the lightbox when a note image is clicked', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([PHOTOS]))
+    await page.getByRole('button', { name: /Urlaubsfotos/ }).click()
+
+    const thumb = page.locator('.hb-note-thumb img')
+    await expect(thumb).toHaveAttribute('src', /^blob:/)
+    await thumb.click()
+
+    // the lightbox overlay opens with its own blob-loaded image
+    const lightbox = page.locator('.hb-lightbox')
+    await expect(lightbox).toBeVisible()
+    await expect(lightbox.locator('img')).toHaveAttribute('src', /^blob:/)
+
+    // clicking the backdrop (not the centered image) closes it
+    await lightbox.click({ position: { x: 5, y: 5 } })
+    await expect(lightbox).toHaveCount(0)
   })
 })
