@@ -303,6 +303,59 @@ class AbsenceRouteTest {
     }
 
     @Test
+    fun `settings are stored per year, carryover is per-year and stable fields inherit`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        // Configure 2025 fully.
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/settings/alice/2025") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"state":"BY","allowance":28,"carryover":5}""")
+        }.status)
+
+        // 2026 sets only the carryover; state/allowance must inherit from 2025, carryover must not.
+        val y2026 = client.put("/api/v1/absence/settings/alice/2026") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"carryover":2}""")
+        }
+        assertEquals(HttpStatusCode.OK, y2026.status)
+        val b = Json.parseToJsonElement(y2026.bodyAsText()).jsonObject
+        assertEquals(2026, b["year"]?.jsonPrimitive?.int)
+        assertEquals("BY", b["state"]?.jsonPrimitive?.content)     // inherited
+        assertEquals(28.0, b["allowance"]?.jsonPrimitive?.double)  // inherited
+        assertEquals(2.0, b["carryover"]?.jsonPrimitive?.double)   // NOT inherited
+
+        // Both years coexist in the snapshot with distinct carryover.
+        val rows = state(token)["settings"]!!.jsonArray.map { it.jsonObject }
+            .filter { it["userId"]?.jsonPrimitive?.content == "alice" }
+            .associate { it["year"]!!.jsonPrimitive.int to it["carryover"]!!.jsonPrimitive.double }
+        assertEquals(mapOf(2025 to 5.0, 2026 to 2.0), rows)
+
+        // Editing 2026 again leaves 2025 untouched.
+        client.put("/api/v1/absence/settings/alice/2026") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"carryover":9}""")
+        }
+        val after = state(token)["settings"]!!.jsonArray.map { it.jsonObject }
+            .filter { it["userId"]?.jsonPrimitive?.content == "alice" }
+            .associate { it["year"]!!.jsonPrimitive.int to it["carryover"]!!.jsonPrimitive.double }
+        assertEquals(mapOf(2025 to 5.0, 2026 to 9.0), after)
+    }
+
+    @Test
+    fun `settings with a non-numeric or out-of-range year returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        for (y in listOf("notayear", "1999", "2201")) {
+            val res = client.put("/api/v1/absence/settings/alice/$y") {
+                bearerAuth(token); contentType(ContentType.Application.Json)
+                setBody("""{"state":"BY"}""")
+            }
+            assertEquals(HttpStatusCode.BadRequest, res.status, "year '$y' should be rejected")
+        }
+    }
+
+    @Test
     fun `settings with bad state returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

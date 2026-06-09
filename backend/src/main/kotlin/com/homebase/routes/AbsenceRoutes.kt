@@ -36,6 +36,10 @@ private val STATE_CODES = setOf(
     "NI", "NW", "RP", "SL", "SN", "ST", "SH", "TH",
 )
 
+// Sanity bound for the per-year settings key — wide enough for any real calendar use,
+// tight enough to reject a stray/garbage year from creating an absurd row.
+private val SETTINGS_YEAR_RANGE = 2000..2200
+
 fun Route.absenceRoutes() {
     val json = Json { ignoreUnknownKeys = true }
 
@@ -61,6 +65,8 @@ fun Route.absenceRoutes() {
                         .orderBy(KitaClosuresTable.date, SortOrder.ASC)
                         .map { it.toKitaDto() },
                     settings = AbsSettingsTable.selectAll()
+                        .orderBy(AbsSettingsTable.userId, SortOrder.ASC)
+                        .orderBy(AbsSettingsTable.year, SortOrder.ASC)
                         .map { it.toSettingsDto() },
                 )
             }
@@ -310,51 +316,90 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
 }
 
 private fun Route.settingsRoutes(notify: suspend () -> Unit) {
-    // Upsert per-person settings; the row is created with defaults on first edit.
-    put("/settings/{userId}") {
-        val userId = call.parameters["userId"]!!
-        // The household calendar is intentionally shared: like the calendar days/rules,
-        // either user may edit either person's settings (allowance, carryover, Bundesland,
-        // kind-krank cap). This deliberately reverses the owner-only restriction from #63
-        // for the two-person trusted household (see #127).
+    // Upsert per-person, per-year settings; the row is created on first edit, inheriting
+    // the stable fields (Bundesland, allowance, kind-krank cap) from the nearest year so a
+    // fresh year doesn't reset to hard defaults (#144).
+    //
+    // The household calendar is intentionally shared: like the calendar days/rules, either
+    // user may edit either person's settings. This deliberately reverses the owner-only
+    // restriction from #63 for the two-person trusted household (see #127).
+    suspend fun handleUpsert(call: ApplicationCall, userId: String, year: Int) {
         val req = call.receive<UpdateAbsSettingsRequest>()
         if (req.state != null && req.state !in STATE_CODES) {
-            return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_STATE", "state must be a German Bundesland code"))
+            return call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_STATE", "state must be a German Bundesland code"))
         }
         val expires = if (req.carryoverExpires != null) {
-            parseDate(req.carryoverExpires) ?: return@put call.invalidDate()
+            parseDate(req.carryoverExpires) ?: return call.invalidDate()
         } else null
 
-        val dto = transaction {
-            if (!userExists(userId)) return@transaction null
-            val existing = AbsSettingsTable.selectAll().where { AbsSettingsTable.userId eq userId }.singleOrNull()
-            if (existing == null) {
-                AbsSettingsTable.insert {
-                    it[AbsSettingsTable.userId] = userId
-                    it[state] = req.state ?: "BE"
-                    it[allowance] = req.allowance ?: 30.0
-                    it[carryover] = req.carryover ?: 0.0
-                    it[carryoverExpires] = expires
-                    it[kindKrankCap] = req.kindKrankCap ?: 15
-                }
-            } else {
-                AbsSettingsTable.update({ AbsSettingsTable.userId eq userId }) {
-                    req.state?.let { v -> it[state] = v }
-                    req.allowance?.let { v -> it[allowance] = v }
-                    req.carryover?.let { v -> it[carryover] = v }
-                    if (req.carryoverExpires != null) it[carryoverExpires] = expires
-                    req.kindKrankCap?.let { v -> it[kindKrankCap] = v }
-                }
-            }
-            AbsSettingsTable.selectAll().where { AbsSettingsTable.userId eq userId }.single().toSettingsDto()
-        } ?: return@put call.userNotFound()
+        val dto = transaction { upsertAbsSettings(userId, year, req, expires) }
+            ?: return call.userNotFound()
 
         notify()
         call.respond(dto)
     }
+
+    // Canonical per-year endpoint.
+    put("/settings/{userId}/{year}") {
+        val userId = call.parameters["userId"]!!
+        val year = call.parameters["year"]?.toIntOrNull()?.takeIf { it in SETTINGS_YEAR_RANGE }
+            ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_YEAR", "year must be an integer in ${SETTINGS_YEAR_RANGE.first}..${SETTINGS_YEAR_RANGE.last}"))
+        handleUpsert(call, userId, year)
+    }
+
+    // Backward-compatible alias for clients that don't send a year yet (e.g. the Android
+    // app until #145): edits the current calendar year.
+    put("/settings/{userId}") {
+        val userId = call.parameters["userId"]!!
+        handleUpsert(call, userId, LocalDate.now().year)
+    }
 }
 
 // ---------- shared helpers ----------
+
+/**
+ * Upsert one user's settings for a single year. On insert the stable fields (Bundesland,
+ * allowance, kind-krank cap) are inherited from the nearest existing year so a fresh year
+ * keeps the person's setup; the carryover ("Resturlaub") is deliberately NOT inherited —
+ * leftover leave belongs to its own year (#144). Returns null if the user is unknown.
+ */
+private fun upsertAbsSettings(userId: String, year: Int, req: UpdateAbsSettingsRequest, expires: LocalDate?): AbsSettingsDto? {
+    if (!userExists(userId)) return null
+    val existing = AbsSettingsTable.selectAll()
+        .where { (AbsSettingsTable.userId eq userId) and (AbsSettingsTable.year eq year) }
+        .singleOrNull()
+    if (existing == null) {
+        val base = nearestSettings(userId, year)
+        AbsSettingsTable.insert {
+            it[AbsSettingsTable.userId] = userId
+            it[AbsSettingsTable.year] = year
+            it[state] = req.state ?: base?.get(state) ?: "BE"
+            it[allowance] = req.allowance ?: base?.get(allowance) ?: 30.0
+            it[carryover] = req.carryover ?: 0.0
+            it[carryoverExpires] = expires
+            it[kindKrankCap] = req.kindKrankCap ?: base?.get(kindKrankCap) ?: 15
+        }
+    } else {
+        AbsSettingsTable.update({ (AbsSettingsTable.userId eq userId) and (AbsSettingsTable.year eq year) }) {
+            req.state?.let { v -> it[state] = v }
+            req.allowance?.let { v -> it[allowance] = v }
+            req.carryover?.let { v -> it[carryover] = v }
+            if (req.carryoverExpires != null) it[carryoverExpires] = expires
+            req.kindKrankCap?.let { v -> it[kindKrankCap] = v }
+        }
+    }
+    return AbsSettingsTable.selectAll()
+        .where { (AbsSettingsTable.userId eq userId) and (AbsSettingsTable.year eq year) }
+        .single().toSettingsDto()
+}
+
+/** The user's settings row to inherit stable fields from: the closest year ≤ the target
+ *  (carry the setup forward), else the closest later year. Null if the user has none yet. */
+private fun nearestSettings(userId: String, year: Int): ResultRow? {
+    val rows = AbsSettingsTable.selectAll().where { AbsSettingsTable.userId eq userId }.toList()
+    return rows.filter { it[AbsSettingsTable.year] <= year }.maxByOrNull { it[AbsSettingsTable.year] }
+        ?: rows.minByOrNull { it[AbsSettingsTable.year] }
+}
 
 private fun upsertAbsence(userId: String, date: LocalDate, type: String, half: String?): AbsenceDto {
     AbsencesTable.deleteWhere { (AbsencesTable.userId eq userId) and (AbsencesTable.date eq date) }
@@ -411,6 +456,7 @@ private fun ResultRow.toKitaDto() = KitaClosureDto(
 
 private fun ResultRow.toSettingsDto() = AbsSettingsDto(
     userId = this[AbsSettingsTable.userId],
+    year = this[AbsSettingsTable.year],
     state = this[AbsSettingsTable.state],
     allowance = this[AbsSettingsTable.allowance],
     carryover = this[AbsSettingsTable.carryover],

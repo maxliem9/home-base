@@ -59,6 +59,7 @@ export const de = {
     INVALID_HALF: 'Ungültige Tageshälfte.',
     INVALID_WEEKDAY: 'Ungültiger Wochentag.',
     INVALID_STATE: 'Ungültiges Bundesland.',
+    INVALID_YEAR: 'Ungültiges Jahr.',
     DATE_CONFLICT: 'An diesem Tag gibt es bereits einen Schließtag.',
     RANGE_TOO_LARGE: 'Der Zeitraum ist zu lang.',
     TOO_MANY_DATES: 'Zu viele Tage im Zeitraum.',

@@ -40,6 +40,12 @@ const ddmm = (ds?: string | null): string => {
 }
 const currentTheme = (): Theme => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light')
 
+// Keep the visible year inside the same window the backend accepts for settings (#144),
+// so paging the year nav can never produce a year the settings PUT would reject.
+const YEAR_MIN = 2000
+const YEAR_MAX = 2200
+const clampYear = (y: number): number => Math.min(YEAR_MAX, Math.max(YEAR_MIN, y))
+
 interface ViewProps {
   token: string
   onLogout: () => void
@@ -55,7 +61,7 @@ interface Api {
   addKitaRange: (from: string, to: string, label: string) => Promise<void>
   updateKita: (id: string, patch: { date?: string; label?: string }) => Promise<void>
   removeKita: (id: string) => Promise<void>
-  updateAbsSettings: (userId: string, patch: Record<string, unknown>) => Promise<void>
+  updateAbsSettings: (userId: string, year: number, patch: Record<string, unknown>) => Promise<void>
   addPartTime: (rule: { userId: string; weekday: number; start: string; end: string | null }) => Promise<void>
   updatePartTime: (id: string, patch: { weekday?: number; start?: string; end?: string | null }) => Promise<void>
   removePartTime: (id: string) => Promise<void>
@@ -163,8 +169,8 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     removeKita: async (id) => {
       await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
-    updateAbsSettings: async (userId, patch) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
+    updateAbsSettings: async (userId, year, patch) => {
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}/${year}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
     },
     addPartTime: async (rule) => {
       await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t.abwesenheit.partTimeFailed)
@@ -215,11 +221,11 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
         </div>
         <div className="hb-pagehead__actions abw-actions">
           <div className="abw-yearnav">
-            <button className="hb-iconbtn" onClick={() => setYear((y) => y - 1)} aria-label={t.abwesenheit.prevYear}>
+            <button className="hb-iconbtn" onClick={() => setYear((y) => clampYear(y - 1))} aria-label={t.abwesenheit.prevYear}>
               <Icon name="chevronLeft" size={17} stroke={2.2} />
             </button>
             <span className="abw-yearnav__y hb-mono">{year}</span>
-            <button className="hb-iconbtn" onClick={() => setYear((y) => y + 1)} aria-label={t.abwesenheit.nextYear}>
+            <button className="hb-iconbtn" onClick={() => setYear((y) => clampYear(y + 1))} aria-label={t.abwesenheit.nextYear}>
               <Icon name="chevronRight" size={17} stroke={2.2} />
             </button>
           </div>
@@ -499,21 +505,21 @@ function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
             <div className="abw-set-person__head"><Avatar user={uid} size={28} /><span>{nameOf(uid)}</span></div>
             <div className="abw-set-grid">
               <Field label={t.abwesenheit.bundesland}>
-                <Select value={s.state} onChange={(v) => api.updateAbsSettings(uid, { state: v })}>
+                <Select value={s.state} onChange={(v) => api.updateAbsSettings(uid, year, { state: v })}>
                   {C.STATES.map((st) => <option key={st.code} value={st.code}>{st.name}</option>)}
                 </Select>
               </Field>
               <Field label={t.abwesenheit.yearAllowance}>
-                <TextInput type="number" value={String(s.allowance ?? '')} onChange={(v) => api.updateAbsSettings(uid, { allowance: num(v, 0) })} />
+                <TextInput type="number" value={String(s.allowance ?? '')} onChange={(v) => api.updateAbsSettings(uid, year, { allowance: num(v, 0) })} />
               </Field>
               <Field label={t.abwesenheit.restLeave}>
-                <TextInput type="number" value={String(s.carryover ?? '')} onChange={(v) => api.updateAbsSettings(uid, { carryover: num(v, 0) })} />
+                <TextInput type="number" value={String(s.carryover ?? '')} onChange={(v) => api.updateAbsSettings(uid, year, { carryover: num(v, 0) })} />
               </Field>
               <Field label={t.abwesenheit.expiresOn}>
-                <TextInput type="date" value={s.carryoverExpires || `${year}-03-31`} onChange={(v) => api.updateAbsSettings(uid, { carryoverExpires: v })} />
+                <TextInput type="date" value={s.carryoverExpires || `${year}-03-31`} onChange={(v) => api.updateAbsSettings(uid, year, { carryoverExpires: v })} />
               </Field>
               <Field label={t.abwesenheit.kindKrankCap}>
-                <TextInput type="number" value={String(s.kindKrankCap ?? '')} onChange={(v) => api.updateAbsSettings(uid, { kindKrankCap: Math.round(num(v, 15)) })} />
+                <TextInput type="number" value={String(s.kindKrankCap ?? '')} onChange={(v) => api.updateAbsSettings(uid, year, { kindKrankCap: Math.round(num(v, 15)) })} />
               </Field>
             </div>
 

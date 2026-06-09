@@ -82,7 +82,25 @@ export function partTimeOff(rules: PartTimeRule[], userId: string, date: Date, d
 const hueOf = (userId: string): number => userMeta(userId)?.hue ?? 150
 
 function defaultSettings(userId: string, year: number): AbsSettings {
-  return { userId, state: 'BE', allowance: 30, carryover: 0, carryoverExpires: `${year}-03-31`, kindKrankCap: 15 }
+  return { userId, year, state: 'BE', allowance: 30, carryover: 0, carryoverExpires: `${year}-03-31`, kindKrankCap: 15 }
+}
+
+/**
+ * Effective settings for a user in a given year (#144). Settings are stored per year;
+ * for a year without its own row we inherit the *stable* fields (Bundesland, allowance,
+ * kind-krank cap) from the nearest year — preferring the closest earlier year, else the
+ * closest later one — while resetting the per-year carryover ("Resturlaub") to 0. This
+ * mirrors the backend's lazy-create inheritance so the displayed defaults match what a
+ * first edit would persist.
+ */
+export function settingsFor(all: AbsSettings[], userId: string, year: number): AbsSettings {
+  const mine = all.filter((s) => s.userId === userId)
+  const exact = mine.find((s) => s.year === year)
+  if (exact) return exact
+  if (mine.length === 0) return defaultSettings(userId, year)
+  const sorted = [...mine].sort((a, b) => a.year - b.year)
+  const base = sorted.filter((s) => s.year <= year).pop() ?? sorted[0]
+  return { ...base, year, carryover: 0, carryoverExpires: `${year}-03-31` }
 }
 
 export interface Ctx {
@@ -102,7 +120,7 @@ export function buildContext(state: AbsenceState, year: number, users: string[])
   const absByUser: Record<string, Record<string, Absence>> = {}
   const hue: Record<string, number> = {}
   users.forEach((uid) => {
-    const s = state.settings.find((x) => x.userId === uid) ?? defaultSettings(uid, year)
+    const s = settingsFor(state.settings, uid, year)
     settings[uid] = s
     holidays[uid] = C.holidays(year, s.state)
     absByUser[uid] = {}
@@ -224,7 +242,7 @@ export function eachDate(from: string, to: string): string[] {
 
 /** would this date be a working day for this user (not weekend / holiday / part-time-off)? */
 export function isWorkdayFor(state: AbsenceState, userId: string, ds: string): boolean {
-  const s = state.settings.find((x) => x.userId === userId) ?? { state: 'BE' }
+  const s = settingsFor(state.settings, userId, Number(ds.slice(0, 4)))
   const date = C.parse(ds)
   if (C.isWeekend(date)) return false
   if (C.holidays(date.getFullYear(), s.state)[ds]) return false

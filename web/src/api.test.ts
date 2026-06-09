@@ -59,7 +59,7 @@ describe('errorText', () => {
       // recipes
       'INVALID_RECIPE', 'INVALID_INGREDIENT', 'INVALID_CATEGORY',
       // abwesenheit
-      'INVALID_TYPE', 'INVALID_HALF', 'INVALID_WEEKDAY', 'INVALID_STATE',
+      'INVALID_TYPE', 'INVALID_HALF', 'INVALID_WEEKDAY', 'INVALID_STATE', 'INVALID_YEAR',
       'DATE_CONFLICT', 'RANGE_TOO_LARGE', 'TOO_MANY_DATES',
       // shared
       'FORBIDDEN', 'MISSING_PARAM',

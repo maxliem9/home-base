@@ -141,6 +141,7 @@ export interface KitaClosure {
 
 export interface AbsSettings {
   userId: string
+  year: number // settings are stored per calendar year (#144)
   state: string // German Bundesland code
   allowance: number
   carryover: number

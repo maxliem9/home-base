@@ -420,6 +420,7 @@ data class KitaClosureDto(
 @Serializable
 data class AbsSettingsDto(
     val userId: String,
+    val year: Int,
     val state: String,
     val allowance: Double,
     val carryover: Double,

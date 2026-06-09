@@ -122,12 +122,14 @@ object KitaClosuresTable : Table("kita_closures") {
 
 object AbsSettingsTable : Table("abs_settings") {
     val userId = varchar("user_id", 50)
+    // One row per (user, year): allowance/carryover/expiry are inherently annual (#144).
+    val year = integer("year")
     val state = varchar("state", 2)
     val allowance = double("allowance")
     val carryover = double("carryover")
     val carryoverExpires = date("carryover_expires").nullable()
     val kindKrankCap = integer("kind_krank_cap")
-    override val primaryKey = PrimaryKey(userId)
+    override val primaryKey = PrimaryKey(userId, year)
 }
 
 object NotesTable : Table("notes") {
