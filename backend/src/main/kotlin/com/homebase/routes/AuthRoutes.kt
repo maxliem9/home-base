@@ -6,7 +6,9 @@ import com.homebase.model.ErrorResponse
 import com.homebase.model.LoginRequest
 import com.homebase.model.TokenResponse
 import com.homebase.db.UsersTable
+import com.homebase.security.LoginThrottler
 import com.homebase.security.Passwords
+import com.homebase.security.clientKey
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -16,8 +18,22 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.util.*
 
-fun Route.authRoutes() {
+fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
     post("/auth/login") {
+        // Throttle by source before touching the body or the DB: once a client IP has failed too
+        // often it is locked out (429) without any password check, so this reveals nothing about
+        // which accounts exist and sheds the load cheaply. See issue #8.
+        val key = clientKey(call, trustedProxyCount)
+        val retryAfter = throttler.retryAfterSeconds(key)
+        if (retryAfter > 0) {
+            call.response.header(HttpHeaders.RetryAfter, retryAfter.toString())
+            call.respond(
+                HttpStatusCode.TooManyRequests,
+                ErrorResponse("TOO_MANY_ATTEMPTS", "Too many login attempts. Please try again later."),
+            )
+            return@post
+        }
+
         val request = call.receive<LoginRequest>()
         val config = call.application.environment.config
 
@@ -30,14 +46,18 @@ fun Route.authRoutes() {
             // it would make missing usernames answer faster and leak which accounts exist
             // (username enumeration via timing). See issue #71.
             Passwords.verifyDummy(request.password)
+            throttler.recordFailure(key)
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
 
         if (!Passwords.verify(request.password, user[UsersTable.passwordHash])) {
+            throttler.recordFailure(key)
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
+
+        throttler.recordSuccess(key)
 
         val secret = config.property("jwt.secret").getString()
         val issuer = config.property("jwt.issuer").getString()

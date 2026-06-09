@@ -12,6 +12,7 @@ import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
 import com.homebase.routes.userRoutes
+import com.homebase.security.LoginThrottler
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -24,6 +25,10 @@ fun Application.configureRouting() {
     val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
     val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
+    // How many trusted reverse-proxy hops sit in front of the backend; used to pick the real
+    // client IP out of X-Forwarded-For for login throttling (prod: DSM + nginx = 2). See issue #8.
+    val trustedProxyCount = environment.config.propertyOrNull("app.trustedProxyCount")?.getString()?.toIntOrNull() ?: 2
+    val loginThrottler = LoginThrottler()
     verifyUploadDirWritable(noteImageConfig.uploadDir)
     sweepStaleImageUploads(noteImageConfig).takeIf { it > 0 }?.let {
         log.info("Swept {} orphaned note-image upload temp file(s) from '{}'.", it, noteImageConfig.uploadDir.toAbsolutePath())
@@ -31,7 +36,7 @@ fun Application.configureRouting() {
     routing {
         route("/api/v1") {
             healthRoutes()
-            authRoutes()
+            authRoutes(loginThrottler, trustedProxyCount)
             authenticate("auth-jwt") {
                 configRoutes(householdName)
                 userRoutes()
