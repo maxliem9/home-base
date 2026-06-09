@@ -3,13 +3,22 @@ import { MockApi, absence, absSettings, kitaClosure, partTimeRule, TOKEN } from 
 
 const SHOTS = '/tmp/abw-screens'
 
-/** A populated two-person household for 2026 (today is mocked at 2026-06-04). */
+// The whole fixture lives in this year. open() pins the browser clock to FIXED_NOW
+// (see below) so AbwesenheitView opens YEAR by default regardless of the real date,
+// and the settings are seeded for YEAR explicitly — otherwise both would silently
+// drift to the system year and stop matching the 2026 seed after 2026-12-31 (issue #19).
+const YEAR = 2026
+// Noon on a plain working day in YEAR. Noon (not midnight) keeps the local date stable
+// no matter the runner/browser timezone offset. Parsed as local time (no trailing Z).
+const FIXED_NOW = new Date(`${YEAR}-06-04T12:00:00`)
+
+/** A populated two-person household for 2026 (today is pinned to 2026-06-04 via page.clock). */
 function seeded(): MockApi {
   return new MockApi().seedAbsence({
     users: ['max', 'lea'],
     settings: [
-      absSettings({ userId: 'max', state: 'BE', allowance: 30, carryover: 5, carryoverExpires: '2026-09-30', kindKrankCap: 15 }),
-      absSettings({ userId: 'lea', state: 'BY', allowance: 24, carryover: 0, kindKrankCap: 15 }),
+      absSettings({ userId: 'max', year: YEAR, state: 'BE', allowance: 30, carryover: 5, carryoverExpires: '2026-09-30', kindKrankCap: 15 }),
+      absSettings({ userId: 'lea', year: YEAR, state: 'BY', allowance: 24, carryover: 0, kindKrankCap: 15 }),
     ],
     partTime: [
       partTimeRule({ id: 'pt1', userId: 'max', weekday: 1, start: '2026-01-01', end: '2026-04-30' }),
@@ -43,6 +52,8 @@ function seeded(): MockApi {
 }
 
 async function open(page: Page, mock: MockApi) {
+  // Pin the clock before any page script runs so the view reads YEAR from new Date().
+  await page.clock.setFixedTime(FIXED_NOW)
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
   await page.goto('/')
