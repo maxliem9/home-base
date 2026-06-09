@@ -223,7 +223,11 @@ object Format {
     /** Deterministic warm hue (20–95°) per recipe, driving the striped placeholder band. */
     fun recipeHue(id: String): Double = 20.0 + (abs(id.hashCode().toLong()) % 76L).toDouble()
 
-    /** German category labels with LUNCH+DINNER merged into "Hauptgerichte". */
+    /**
+     * German category labels. DINNER shows as "Hauptgerichte"; LUNCH is kept only as a tolerant
+     * alias so any legacy row not yet collapsed by backend migration V9 still reads nicely instead
+     * of showing the raw enum — it is no longer an offered category.
+     */
     fun recipeCategoryLabel(category: String): String = when (category.uppercase()) {
         "BREAKFAST" -> "Frühstück"
         "LUNCH", "DINNER" -> "Hauptgerichte"

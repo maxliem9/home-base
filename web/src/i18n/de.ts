@@ -423,7 +423,6 @@ export const de = {
     // keys match the RecipeCategory enum values from the backend
     categories: {
       BREAKFAST: 'Frühstück',
-      LUNCH: 'Mittag',
       DINNER: 'Abend',
       SNACK: 'Snack',
       DESSERT: 'Dessert',

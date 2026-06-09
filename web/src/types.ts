@@ -79,7 +79,8 @@ export interface TimeEntry {
   updatedAt: string
 }
 
-export type RecipeCategory = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
+// LUNCH was dropped (collapsed into DINNER) — see backend migration V9.
+export type RecipeCategory = 'BREAKFAST' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
 
 export interface Ingredient {
   id: string

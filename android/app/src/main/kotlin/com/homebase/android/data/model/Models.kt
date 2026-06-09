@@ -513,5 +513,5 @@ data class UpdateAbsSettingsRequest(
 enum class TodoStatus { INBOX, PLANNED, DONE }
 enum class Priority { LOW, MEDIUM, HIGH }
 enum class Visibility { PRIVATE, SHARED }
-enum class RecipeCategory { BREAKFAST, LUNCH, DINNER, SNACK, DESSERT, DRINK }
+enum class RecipeCategory { BREAKFAST, DINNER, SNACK, DESSERT, DRINK }
 enum class AbsenceType { URLAUB, KRANK, KIND_KRANK }

@@ -105,7 +105,6 @@ private fun fmtAmount(value: Double): String {
 
 private fun germanCategory(category: String): String = when (category.uppercase()) {
     "BREAKFAST" -> "Frühstück"
-    "LUNCH" -> "Mittagessen"
     "DINNER" -> "Abendessen"
     "SNACK" -> "Snack"
     "DESSERT" -> "Dessert"
