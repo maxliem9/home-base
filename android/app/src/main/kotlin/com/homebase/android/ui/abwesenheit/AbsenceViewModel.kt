@@ -101,8 +101,8 @@ class AbsenceViewModel(
 
     // --- settings & part-time ----------------------------------------------
 
-    fun updateSettings(userId: String, patch: UpdateAbsSettingsRequest) =
-        mutate { repository.updateSettings(userId, patch) }
+    fun updateSettings(userId: String, year: Int, patch: UpdateAbsSettingsRequest) =
+        mutate { repository.updateSettings(userId, year, patch) }
 
     fun addPartTime(userId: String, weekday: Int, start: String, end: String?) =
         mutate { repository.addPartTime(userId, weekday, start, end) }

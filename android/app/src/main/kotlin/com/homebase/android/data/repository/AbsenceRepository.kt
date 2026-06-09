@@ -57,8 +57,8 @@ class AbsenceRepository(
     suspend fun removeKita(id: String): Result<Unit> =
         runCatching { api.deleteKita(id) }
 
-    suspend fun updateSettings(userId: String, request: UpdateAbsSettingsRequest): Result<Unit> =
-        runCatching { api.updateAbsSettings(userId, request) }
+    suspend fun updateSettings(userId: String, year: Int, request: UpdateAbsSettingsRequest): Result<Unit> =
+        runCatching { api.updateAbsSettings(userId, year, request) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
