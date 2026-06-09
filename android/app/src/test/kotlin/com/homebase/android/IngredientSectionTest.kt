@@ -2,6 +2,7 @@ package com.homebase.android
 
 import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.ui.recipes.groupIngredientsBySection
+import com.homebase.android.ui.recipes.ingredientsToText
 import com.homebase.android.ui.recipes.parseIngredients
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -14,8 +15,13 @@ import org.junit.Test
  */
 class IngredientSectionTest {
 
-    private fun ing(name: String, section: String? = null, sortOrder: Int = 0) =
-        IngredientDto(id = name, name = name, section = section, sortOrder = sortOrder)
+    private fun ing(
+        name: String,
+        amount: Double? = null,
+        unit: String? = null,
+        section: String? = null,
+        sortOrder: Int = 0,
+    ) = IngredientDto(id = name, name = name, amount = amount, unit = unit, section = section, sortOrder = sortOrder)
 
     @Test
     fun `hash lines start a section that the following ingredients carry`() {
@@ -76,5 +82,47 @@ class IngredientSectionTest {
             ),
         )
         assertEquals(listOf("X", "Y", "X"), groups.map { it.first })
+    }
+
+    @Test
+    fun `serialising re-creates the hash section headers and ingredient lines`() {
+        val text = ingredientsToText(
+            listOf(
+                ing("Salz", sortOrder = 0),
+                ing("Mehl", amount = 200.0, unit = "g", section = "Boden", sortOrder = 1),
+                ing("Eier", amount = 2.0, section = "Boden", sortOrder = 2),
+                ing("Quark", amount = 500.0, unit = "g", section = "Topping", sortOrder = 3),
+            ),
+        )
+        assertEquals(
+            """
+            Salz
+            # Boden
+            200 g Mehl
+            2 Eier
+            # Topping
+            500 g Quark
+            """.trimIndent(),
+            text,
+        )
+    }
+
+    @Test
+    fun `edit round-trip preserves names, amounts, units and sections`() {
+        // Pre-filling the editor (ingredientsToText) and saving it again (parseIngredients) must
+        // not lose the sections from issue #123 — the core regression issue #11 guards against.
+        val original = listOf(
+            ing("Zwiebel", amount = 1.0, section = null, sortOrder = 0),
+            ing("Mehl", amount = 200.0, unit = "g", section = "Boden", sortOrder = 1),
+            ing("Butter", amount = 1.5, unit = "EL", section = "Boden", sortOrder = 2),
+            ing("Quark", amount = 500.0, unit = "g", section = "Topping", sortOrder = 3),
+        )
+
+        val parsed = parseIngredients(ingredientsToText(original))
+
+        assertEquals(original.map { it.name }, parsed.map { it.name })
+        assertEquals(original.map { it.amount }, parsed.map { it.amount })
+        assertEquals(original.map { it.unit }, parsed.map { it.unit })
+        assertEquals(original.map { it.section }, parsed.map { it.section })
     }
 }

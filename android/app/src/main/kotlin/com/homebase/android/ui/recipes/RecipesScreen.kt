@@ -47,6 +47,7 @@ import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.data.model.IngredientInput
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.RecipeStepDto
 import com.homebase.android.data.model.RecipeStepInput
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
@@ -116,6 +117,36 @@ internal fun groupIngredientsBySection(items: List<IngredientDto>): List<Pair<St
     }
     return groups.map { it.first to it.second.toList() }
 }
+
+/**
+ * Serialise stored ingredients back into the free-text editor format — the inverse of
+ * [parseIngredients]. Groups by section (via [groupIngredientsBySection]), prefixes each named
+ * group with a `# <section>` header line, and renders every ingredient as `<amount> <unit> <name>`
+ * (omitting any missing part). Used to pre-fill the editor when editing an existing recipe so its
+ * sections survive the round-trip instead of collapsing into the header-less top group (issue #11).
+ *
+ * The unit is only emitted together with an amount: the free-text format can't represent a
+ * unit-without-amount unambiguously (a leading "g Mehl" would parse back as the name "g Mehl"),
+ * so such a — in practice non-existent — ingredient keeps its name and drops the stray unit.
+ */
+internal fun ingredientsToText(items: List<IngredientDto>): String {
+    val lines = mutableListOf<String>()
+    for ((section, group) in groupIngredientsBySection(items)) {
+        if (section != null) lines += "# $section"
+        for (ing in group) {
+            val prefix = ing.amount?.let { amount ->
+                listOfNotNull(Format.amount(amount), ing.unit?.trim()?.takeIf { it.isNotEmpty() })
+                    .joinToString(" ")
+            }
+            lines += if (prefix.isNullOrEmpty()) ing.name else "$prefix ${ing.name}"
+        }
+    }
+    return lines.joinToString("\n")
+}
+
+/** Serialise stored steps back into the free-text editor format — one step per line. */
+internal fun stepsToText(steps: List<RecipeStepDto>): String =
+    steps.joinToString("\n") { it.description }
 
 /** Map a German category chip label back to the backend enum value. */
 private fun categoryLabelToEnum(label: String): String = when (label) {
@@ -257,7 +288,8 @@ private fun RecipeListPage(
         }
 
         if (showNewSheet) {
-            NewRecipeSheet(
+            RecipeFormSheet(
+                existing = null,
                 onDismiss = { showNewSheet = false },
                 onSave = { request ->
                     showNewSheet = false
@@ -380,6 +412,7 @@ private fun RecipeDetailPage(
     val context = LocalContext.current
     val shoppingState by shoppingViewModel.uiState.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
+    var showEdit by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(toastMsg) {
@@ -414,6 +447,10 @@ private fun RecipeDetailPage(
                     Box {
                         HbIconButton(HbIcons.more, { menuOpen = true })
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Bearbeiten", style = HbType.body, color = Hb.ink) },
+                                onClick = { menuOpen = false; showEdit = true },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Als Markdown", style = HbType.body, color = Hb.ink) },
                                 onClick = { menuOpen = false; export("md") },
@@ -543,6 +580,17 @@ private fun RecipeDetailPage(
                     shoppingViewModel.addIngredients(listId, lines) { added, merged ->
                         toastMsg = addToast(added, merged)
                     }
+                },
+            )
+        }
+
+        if (showEdit) {
+            RecipeFormSheet(
+                existing = recipe,
+                onDismiss = { showEdit = false },
+                onSave = { request ->
+                    showEdit = false
+                    viewModel.saveRecipe(recipe.id, request)
                 },
             )
         }
@@ -789,25 +837,34 @@ private fun StepButton(icon: ImageVector, onClick: () -> Unit) {
 }
 
 // ---------------------------------------------------------------------------
-// New-recipe sheet
+// Recipe form sheet — shared by "new recipe" and "edit recipe" (issue #11)
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun NewRecipeSheet(onDismiss: () -> Unit, onSave: (CreateRecipeRequest) -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var categoryLabel by remember { mutableStateOf("Hauptgerichte") }
-    var servings by remember { mutableStateOf("") }
-    var prep by remember { mutableStateOf("") }
-    var cook by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var ingredientsText by remember { mutableStateOf("") }
-    var stepsText by remember { mutableStateOf("") }
-
+private fun RecipeFormSheet(
+    existing: RecipeDto?,
+    onDismiss: () -> Unit,
+    onSave: (CreateRecipeRequest) -> Unit,
+) {
     val catChips = listOf("Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
+
+    var title by remember { mutableStateOf(existing?.title ?: "") }
+    var categoryLabel by remember {
+        mutableStateOf(
+            existing?.let { Format.recipeCategoryLabel(it.category) }?.takeIf { it in catChips }
+                ?: "Hauptgerichte",
+        )
+    }
+    var servings by remember { mutableStateOf(existing?.servings?.toString() ?: "") }
+    var prep by remember { mutableStateOf(existing?.prepTimeMinutes?.toString() ?: "") }
+    var cook by remember { mutableStateOf(existing?.cookTimeMinutes?.toString() ?: "") }
+    var description by remember { mutableStateOf(existing?.description ?: "") }
+    var ingredientsText by remember { mutableStateOf(existing?.let { ingredientsToText(it.ingredients) } ?: "") }
+    var stepsText by remember { mutableStateOf(existing?.let { stepsToText(it.steps) } ?: "") }
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Neues Rezept",
+        title = if (existing == null) "Neues Rezept" else "Rezept bearbeiten",
         full = true,
         footer = {
             HbButton(
