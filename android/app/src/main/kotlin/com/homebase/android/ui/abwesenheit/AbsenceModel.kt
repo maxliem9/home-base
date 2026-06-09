@@ -83,7 +83,24 @@ fun partTimeOff(rules: List<PartTimeRuleDto>, userId: String, date: java.time.Lo
 private fun hueOf(userId: String): Double = Hb.userHue(userId)
 
 private fun defaultSettings(userId: String, year: Int): AbsSettingsDto =
-    AbsSettingsDto(userId, "BE", 30.0, 0.0, "$year-03-31", 15)
+    AbsSettingsDto(userId, year, "BE", 30.0, 0.0, "$year-03-31", 15)
+
+/**
+ * Effective settings for a user in a given year (#144). Settings are stored per year;
+ * for a year without its own row we inherit the *stable* fields (Bundesland, allowance,
+ * kind-krank cap) from the nearest year — preferring the closest earlier year, else the
+ * closest later one — while resetting the per-year carryover ("Resturlaub") to 0. This
+ * mirrors the backend's lazy-create inheritance so the displayed defaults match what a
+ * first edit would persist.
+ */
+fun settingsFor(all: List<AbsSettingsDto>, userId: String, year: Int): AbsSettingsDto {
+    val mine = all.filter { it.userId == userId }
+    mine.find { it.year == year }?.let { return it }
+    if (mine.isEmpty()) return defaultSettings(userId, year)
+    val sorted = mine.sortedBy { it.year }
+    val base = sorted.lastOrNull { it.year <= year } ?: sorted.first()
+    return base.copy(year = year, carryover = 0.0, carryoverExpires = "$year-03-31")
+}
 
 /** Lookup context built once per (snapshot, year): per-user holidays, absence map, etc. */
 data class AbsCtx(
@@ -102,7 +119,7 @@ fun buildContext(state: AbsenceStateDto, year: Int, users: List<String>): AbsCtx
     val absByUser = HashMap<String, MutableMap<String, AbsenceDto>>()
     val hue = HashMap<String, Double>()
     users.forEach { uid ->
-        val s = state.settings.find { it.userId == uid } ?: defaultSettings(uid, year)
+        val s = settingsFor(state.settings, uid, year)
         settings[uid] = s
         holidays[uid] = AbwCal.holidays(year, s.state)
         absByUser[uid] = HashMap()
@@ -220,9 +237,8 @@ fun eachDate(from: String, to: String): List<String> {
 
 /** Would this date be a working day for this user (not weekend / holiday / part-time-off)? */
 fun isWorkdayFor(state: AbsenceStateDto, userId: String, ds: String): Boolean {
-    val s = state.settings.find { it.userId == userId }
-    val stateCode = s?.state ?: "BE"
     val date = AbwCal.parse(ds)
+    val stateCode = settingsFor(state.settings, userId, date.year).state
     if (AbwCal.isWeekend(date)) return false
     if (AbwCal.holidays(date.year, stateCode).containsKey(ds)) return false
     if (partTimeOff(state.partTime, userId, date, ds)) return false

@@ -751,24 +751,24 @@ private fun SettingsPerson(ctx: AbsCtx, data: AbsenceStateDto, uid: String, year
             SelectField(
                 value = AbwCal.stateName(s.state),
                 options = AbwCal.STATES.map { it.name to it.code },
-                onSelect = { vm.updateSettings(uid, UpdateAbsSettingsRequest(state = it)) },
+                onSelect = { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(state = it)) },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HbField("Anspruch", Modifier.weight(1f)) {
-                NumberField("alw-$uid", s.allowance) { vm.updateSettings(uid, UpdateAbsSettingsRequest(allowance = it)) }
+                NumberField("alw-$uid", s.allowance) { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(allowance = it)) }
             }
             HbField("Resturlaub", Modifier.weight(1f)) {
-                NumberField("car-$uid", s.carryover) { vm.updateSettings(uid, UpdateAbsSettingsRequest(carryover = it)) }
+                NumberField("car-$uid", s.carryover) { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(carryover = it)) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HbField("verfällt am", Modifier.weight(1f)) {
-                AbwDateField(s.carryoverExpires ?: "$year-03-31") { vm.updateSettings(uid, UpdateAbsSettingsRequest(carryoverExpires = it)) }
+                AbwDateField(s.carryoverExpires ?: "$year-03-31") { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(carryoverExpires = it)) }
             }
             HbField("Kind-krank", Modifier.weight(1f)) {
                 NumberField("kk-$uid", s.kindKrankCap.toDouble(), integer = true) {
-                    vm.updateSettings(uid, UpdateAbsSettingsRequest(kindKrankCap = it.toInt()))
+                    vm.updateSettings(uid, year, UpdateAbsSettingsRequest(kindKrankCap = it.toInt()))
                 }
             }
         }

@@ -209,6 +209,10 @@ interface HomeBaseApi {
     @DELETE("absence/kita/{id}")
     suspend fun deleteKita(@Path("id") id: String)
 
-    @PUT("absence/settings/{userId}")
-    suspend fun updateAbsSettings(@Path("userId") userId: String, @Body request: UpdateAbsSettingsRequest): AbsSettingsDto
+    @PUT("absence/settings/{userId}/{year}")
+    suspend fun updateAbsSettings(
+        @Path("userId") userId: String,
+        @Path("year") year: Int,
+        @Body request: UpdateAbsSettingsRequest,
+    ): AbsSettingsDto
 }

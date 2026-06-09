@@ -428,6 +428,7 @@ data class KitaClosureDto(
 @JsonClass(generateAdapter = true)
 data class AbsSettingsDto(
     val userId: String,
+    val year: Int, // settings are stored per calendar year (#144)
     val state: String,
     val allowance: Double,
     val carryover: Double,
