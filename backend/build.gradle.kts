@@ -86,7 +86,9 @@ ktor {
 // flyway-core's entry — so the packaged jar had no SQL resolver, Flyway recognised
 // none of the V*.sql files ("did not follow the filename convention" / "No migrations
 // found"), the schema stayed empty, and the user seeder crash-looped the app on a
-// missing "users" table. Concatenating the service files keeps every plugin.
+// missing "users" table. Concatenating the service files keeps every plugin. CI guards
+// against a regression by booting the built fat jar against a fresh Postgres (issue #9,
+// the "Smoke-test fat-jar migrations" step in .github/workflows/ci.yml).
 tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>().configureEach {
     mergeServiceFiles()
 }
