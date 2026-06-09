@@ -389,10 +389,17 @@ private fun RecipeDetailPage(
         }
     }
 
+    // Portions stepper (parity with web `RecipeDetail`): drives both the displayed ingredient
+    // amounts and the export. Keyed on the recipe id so opening another recipe starts at its base.
+    val baseServings = recipe.servings.coerceAtLeast(1)
+    var servings by remember(recipe.id) { mutableStateOf(baseServings) }
+    val factor = servings.toDouble() / baseServings.toDouble()
+
     // Fetch the export bytes, then hand them to the system share sheet as a cached file.
+    // The chosen servings travel along (omitted at base, like web) so the file matches the view.
     val export: (String) -> Unit = { format ->
         val (ext, mime) = if (format == "pdf") "pdf" to "application/pdf" else "md" to "text/markdown"
-        viewModel.exportRecipe(recipe.id, format) { result ->
+        viewModel.exportRecipe(recipe.id, format, servings.takeIf { it != baseServings }) { result ->
             result
                 .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes) }
                 .onFailure { toastMsg = "Export fehlgeschlagen" }
@@ -467,13 +474,34 @@ private fun RecipeDetailPage(
                 )
             }
 
-            // Fact tiles
+            // Portions stepper + fact tiles
             Spacer(Modifier.size(18.dp))
+            HbField("Portionen") {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    StepButton(HbIcons.minus) { if (servings > 1) servings-- }
+                    Text(
+                        "$servings",
+                        style = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                        color = Hb.ink,
+                    )
+                    StepButton(HbIcons.plus) { servings++ }
+                    if (factor != 1.0) {
+                        Text(
+                            "Mengen ×${Format.amount(factor)}",
+                            style = HbType.small.copy(fontSize = 12.5.sp),
+                            color = Hb.ink3,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(14.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FactTile("${recipe.servings}", "Portionen", Modifier.weight(1f))
                 FactTile("${recipe.prepTimeMinutes ?: 0}", "Vorb. Min", Modifier.weight(1f))
                 FactTile("${recipe.cookTimeMinutes ?: 0}", "Koch Min", Modifier.weight(1f))
                 FactTile("${totalTime(recipe)}", "Gesamt", Modifier.weight(1f))
@@ -489,7 +517,7 @@ private fun RecipeDetailPage(
                     if (section != null) IngredientSectionHeader(section)
                     items.forEachIndexed { i, ing ->
                         IngredientRow(
-                            amountUnit = "${ing.amount?.let { Format.amount(it) } ?: ""} ${ing.unit ?: ""}".trim(),
+                            amountUnit = "${ing.amount?.let { Format.amount(it * factor) } ?: ""} ${ing.unit ?: ""}".trim(),
                             name = ing.name,
                             divider = i < items.lastIndex,
                         )
