@@ -44,6 +44,8 @@ import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
+import com.homebase.android.ui.components.HbConfirm
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbField
 import com.homebase.android.ui.components.HbIcon
@@ -77,6 +79,8 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 
     var showNewProject by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
+    // Cross-person action awaiting confirmation (partner's timer, #142).
+    var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
     val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
     val entriesByProject = remember(state.entries) { state.entries.groupBy { it.projectId } }
@@ -114,6 +118,27 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     )
                 } else {
                     IdleHero()
+                }
+            }
+
+            // --- Partner strip: the other member's timer — see & stop, or start for them (#142) ---
+            val others = remember(state.users, currentUser) { state.users.filter { it != currentUser } }
+            if (others.isNotEmpty()) {
+                Spacer(Modifier.size(10.dp))
+                Column(
+                    Modifier.padding(horizontal = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    others.forEach { user ->
+                        PartnerTimerCard(
+                            user = user,
+                            running = state.othersRunning.firstOrNull { it.userId == user },
+                            projectsById = projectsById,
+                            projects = state.activeProjects,
+                            onStop = { pendingConfirm = HbConfirm("Timer von ${displayName(user)} stoppen?") { viewModel.stopTimer(user) } },
+                            onStart = { pid -> pendingConfirm = HbConfirm("Timer für ${displayName(user)} starten?") { viewModel.startTimer(pid, null, user) } },
+                        )
+                    }
                 }
             }
 
@@ -237,6 +262,14 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 onAction = { viewModel.clearError() },
             )
         }
+
+        pendingConfirm?.let { c ->
+            HbConfirmDialog(
+                message = c.message,
+                onConfirm = { c.onConfirm(); pendingConfirm = null },
+                onDismiss = { pendingConfirm = null },
+            )
+        }
     }
 }
 
@@ -341,6 +374,107 @@ private fun IdleHero() {
             style = HbType.body.copy(fontSize = 14.sp),
             color = Hb.ink3,
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Partner strip — the other household member's timer (#142)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun PartnerTimerCard(
+    user: String,
+    running: TimeEntryDto?,
+    projectsById: Map<String, ProjectDto>,
+    projects: List<ProjectDto>,
+    onStop: () -> Unit,
+    onStart: (String) -> Unit,
+) {
+    var picking by remember { mutableStateOf(false) }
+    val project = running?.let { projectsById[it.projectId] }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HbAvatar(user, size = 26.dp)
+            if (running != null) {
+                Box(Modifier.size(10.dp).clip(HbPill).background(if (project != null) Format.parseColor(project.color) else Hb.ink3))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        project?.name ?: "Projekt",
+                        style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(displayName(user), running.description?.takeIf { it.isNotBlank() }).joinToString(" · "),
+                        style = HbType.meta,
+                        color = Hb.ink3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
+                    while (true) {
+                        value = Format.elapsedSeconds(running.startedAt)
+                        delay(1000)
+                    }
+                }
+                Text(Format.clock(elapsed), style = HbType.mono(18.0), color = Hb.ink)
+                HbButton("Stopp", onStop, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.stop)
+            } else {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        displayName(user),
+                        style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text("Kein Timer aktiv", style = HbType.meta, color = Hb.ink3)
+                }
+                if (projects.isNotEmpty()) {
+                    HbButton(
+                        if (picking) "Abbrechen" else "Für ${displayName(user)}",
+                        { picking = !picking },
+                        variant = HbButtonVariant.Primary,
+                        size = HbButtonSize.Sm,
+                        icon = if (picking) HbIcons.x else HbIcons.play,
+                    )
+                }
+            }
+        }
+        if (picking && running == null && projects.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                projects.forEach { p ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(HbRadiusSm)
+                            .clickable { onStart(p.id); picking = false }
+                            .padding(vertical = 9.dp, horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Box(Modifier.size(10.dp).clip(HbPill).background(Format.parseColor(p.color)))
+                        Text(
+                            p.name,
+                            style = HbType.rowTitle.copy(fontSize = 14.sp),
+                            color = Hb.ink,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

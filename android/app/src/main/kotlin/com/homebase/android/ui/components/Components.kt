@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -120,6 +121,31 @@ fun HbButton(
         if (icon != null) HbIcon(icon, size = 18.dp, tint = fg)
         Text(text, style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.SemiBold), color = fg)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Confirm dialog
+// ---------------------------------------------------------------------------
+
+/** A pending confirmation request — `null` means no dialog is shown. */
+data class HbConfirm(val message: String, val onConfirm: () -> Unit)
+
+/** Yes/No confirmation dialog used for cross-person actions (e.g. the partner's timer, #142). */
+@Composable
+fun HbConfirmDialog(
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    confirmLabel: String = "Ja",
+    dismissLabel: String = "Abbrechen",
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { HbButton(confirmLabel, onConfirm, variant = HbButtonVariant.Primary, size = HbButtonSize.Sm) },
+        dismissButton = { HbButton(dismissLabel, onDismiss, variant = HbButtonVariant.Secondary, size = HbButtonSize.Sm) },
+        text = { Text(message, style = HbType.body, color = Hb.ink) },
+        containerColor = Hb.surface,
+    )
 }
 
 // ---------------------------------------------------------------------------

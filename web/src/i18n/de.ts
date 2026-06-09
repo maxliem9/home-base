@@ -311,6 +311,10 @@ export const de = {
     noProjectsHint: 'Lege oben rechts ein Projekt an',
     noEntries: 'Noch keine Einträge',
     ownEntriesOnly: 'Nur eigene Einträge',
+    partnerIdle: 'Kein Timer aktiv',
+    startForPartner: 'Für {name}', // start a timer on the partner's behalf (#142)
+    confirmStartForPartner: 'Timer für {name} starten?', // confirm acting on the partner's timer
+    confirmStopPartner: 'Timer von {name} stoppen?',
     emptyTitle: 'Noch keine Zeiteinträge',
     emptyHint: 'Starte einen Timer oder erfasse einen Eintrag',
     today: 'Heute',

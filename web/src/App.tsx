@@ -60,10 +60,12 @@ function useNavBadges(token: string): NavBadges {
   }, [token])
 
   const refreshRunning = useCallback(async () => {
-    const result = await safeFetch(token, `${API_BASE}/time/running`)
+    const result = await safeFetch(token, `${API_BASE}/time/running/all`)
     if (!result.ok || !result.res.ok) return
-    const running = await result.res.json().catch(() => null)
-    setBadges((b) => ({ ...b, timerRunning: running != null && !!running.id }))
+    const running: { userId?: string }[] = await result.res.json().catch(() => [])
+    // the badge dot marks the *current* user's own running timer
+    const me = usernameFromToken(token)
+    setBadges((b) => ({ ...b, timerRunning: Array.isArray(running) && running.some((e) => e.userId === me) }))
   }, [token])
 
   useEffect(() => {

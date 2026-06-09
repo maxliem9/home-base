@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Project, TimeEntry } from '../types'
+import { Project, TimeEntry, User } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
@@ -35,6 +35,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const me = useMemo(() => usernameFromToken(token), [token])
   const [projects, setProjects] = useState<Project[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [users, setUsers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [showArchived, setShowArchived] = useState(false)
@@ -66,14 +67,20 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
   const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
   const running = useMemo(() => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null, [entries, me])
+  // Live timers of the *other* household member(s) — shown in the partner strip (#142).
+  // Guard on `me` so a momentarily-unknown user doesn't mislabel own timer as a partner's.
+  const othersRunning = useMemo(() => (me ? entries.filter((e) => !e.stoppedAt && e.userId !== me) : []), [entries, me])
+  // Other household members, so we can offer "start a timer for them" even while idle.
+  const others = useMemo(() => users.filter((u) => u !== me), [users, me])
 
   const fetchAll = useCallback(async () => {
     try {
-      const [pResult, eResult] = await Promise.all([
+      const [pResult, eResult, uResult] = await Promise.all([
         safeFetch(token, `${API_BASE}/time/projects`),
         safeFetch(token, `${API_BASE}/time/entries`),
+        safeFetch(token, `${API_BASE}/users`),
       ])
-      // a transport reject on either → fire the global toast once, keep existing data
+      // a transport reject on either core read → fire the global toast once, keep existing data
       if (!pResult.ok || !eResult.ok) {
         notifyTransportError()
         return
@@ -86,6 +93,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       }
       if (pRes.ok) setProjects(await pRes.json())
       if (eRes.ok) setEntries(await eRes.json())
+      // users is non-critical (only enables "start for partner"); ignore its failure quietly
+      if (uResult.ok && uResult.res.ok) setUsers((await uResult.res.json()).map((u: User) => u.username))
     } finally {
       setLoading(false)
     }
@@ -96,11 +105,12 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   // keep the hero description input in sync with the running entry
   useEffect(() => { setDesc(running?.description ?? '') }, [running?.id])
 
+  // tick the live clock while any timer runs (own or a partner's)
   useEffect(() => {
-    if (!running) return
+    if (!running && othersRunning.length === 0) return
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [running])
+  }, [running, othersRunning.length])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
@@ -124,11 +134,17 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   // (offline/DNS/aborted — issue #93) shows the per-action fallback toast
   // instead of an unhandled rejection. On a transport failure no backend code
   // exists, so errorText(null, fallback) resolves to the German fallback.
-  const startTimer = async (projectId: string, description = '') => {
+  // `userId` starts the timer on behalf of the partner (#142); omitted → self.
+  const startTimer = async (projectId: string, description = '', userId?: string) => {
+    // Acting on the partner's timer is a cross-person action — confirm first.
+    if (userId) {
+      const name = userMeta(userId)?.name ?? userId
+      if (!confirm(t.time.confirmStartForPartner.replace('{name}', name))) return
+    }
     const result = await safeFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, description: description.trim() || undefined }),
+      body: JSON.stringify({ projectId, description: description.trim() || undefined, userId }),
     })
     if (!result.ok) return flashError(errorText(null, t.time.startFailed))
     const { res } = result
@@ -148,8 +164,16 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     })
   }
 
-  const stopTimer = async () => {
-    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+  // `userId` stops the partner's timer (#142); omitted → own timer (no body).
+  const stopTimer = async (userId?: string) => {
+    if (userId) {
+      const name = userMeta(userId)?.name ?? userId
+      if (!confirm(t.time.confirmStopPartner.replace('{name}', name))) return
+    }
+    const init: RequestInit = userId
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) }
+      : { method: 'POST' }
+    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, init)
     if (!result.ok) return flashError(errorText(null, t.time.stopFailed))
     const { res } = result
     if (res.status === 401) return onLogout()
@@ -317,7 +341,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           </div>
           <div className="hb-timerhero__right">
             <div className="hb-timerhero__clock hb-mono">{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</div>
-            <Button variant="secondary" icon="stop" onClick={stopTimer}>{t.time.stop}</Button>
+            <Button variant="secondary" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
           </div>
         </Card>
       ) : (
@@ -344,6 +368,25 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
             <div className="hb-timerhero__clock hb-mono" style={{ color: 'var(--ink-3)' }}>00:00:00</div>
           </div>
         </Card>
+      )}
+
+      {/* Partner strip — the other household member's timer (#142): see & stop their
+          running timer, or start one on their behalf. */}
+      {others.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+          {others.map((u) => (
+            <PartnerTimer
+              key={u}
+              user={u}
+              running={othersRunning.find((e) => e.userId === u) ?? null}
+              projectsById={projectsById}
+              nowMs={nowMs}
+              projects={activeProjects}
+              onStop={() => stopTimer(u)}
+              onStart={(pid) => startTimer(pid, '', u)}
+            />
+          ))}
+        </div>
       )}
 
       {loading ? (
@@ -386,7 +429,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
                       </button>
                       {!p.archived && (
                         isRunning ? (
-                          <Button variant="secondary" size="sm" icon="stop" onClick={stopTimer}>{t.time.stop}</Button>
+                          <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
                         ) : (
                           <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t.time.start}</Button>
                         )
@@ -474,6 +517,64 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         </div>
       )}
     </div>
+  )
+}
+
+// The other household member's timer (#142): when they're running, show project +
+// live clock + Stop; when idle, offer a project picker to start one on their behalf.
+function PartnerTimer({ user, running, projectsById, nowMs, projects, onStop, onStart }: {
+  user: string
+  running: TimeEntry | null
+  projectsById: Record<string, Project>
+  nowMs: number
+  projects: Project[]
+  onStop: () => void
+  onStart: (projectId: string) => void
+}) {
+  const [picking, setPicking] = useState(false)
+  const name = userMeta(user)?.name ?? user
+  const project = running ? projectsById[running.projectId] : undefined
+  return (
+    <Card className="hb-card--pad">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+        <Avatar user={user} size={26} />
+        {running ? (
+          <>
+            <span className="hb-pdot" style={{ background: project?.color ?? 'var(--ink-3)' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="hb-row__title">{project?.name ?? t.time.project}</div>
+              <div className="hb-muted" style={{ fontSize: 13 }}>
+                {name}{running.description ? ` · ${running.description}` : ''}
+              </div>
+            </div>
+            <span className="hb-mono" style={{ fontWeight: 600 }}>{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</span>
+            <Button variant="secondary" size="sm" icon="stop" onClick={onStop}>{t.time.stop}</Button>
+          </>
+        ) : (
+          <>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="hb-row__title">{name}</div>
+              <div className="hb-muted" style={{ fontSize: 13 }}>{t.time.partnerIdle}</div>
+            </div>
+            {projects.length > 0 && (
+              <Button variant="soft" size="sm" icon="play" onClick={() => setPicking((v) => !v)}>
+                {t.time.startForPartner.replace('{name}', name)}
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+      {picking && !running && projects.length > 0 && (
+        <div className="hb-pickrow" style={{ marginTop: 12 }}>
+          {projects.map((p) => (
+            <button key={p.id} className="hb-pick" onClick={() => { onStart(p.id); setPicking(false) }}>
+              <span className="hb-pdot" style={{ background: p.color }} />
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 

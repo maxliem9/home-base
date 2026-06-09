@@ -356,9 +356,6 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
 
 // ---------- shared helpers ----------
 
-private fun userExists(username: String): Boolean =
-    !UsersTable.selectAll().where { UsersTable.username eq username }.empty()
-
 private fun upsertAbsence(userId: String, date: LocalDate, type: String, half: String?): AbsenceDto {
     AbsencesTable.deleteWhere { (AbsencesTable.userId eq userId) and (AbsencesTable.date eq date) }
     val id = UUID.randomUUID()

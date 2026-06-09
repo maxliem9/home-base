@@ -138,7 +138,7 @@ class TimeRouteTest {
     }
 
     @Test
-    fun `GET running returns the live timer then 404 after stop`() = testApplication {
+    fun `GET running all reflects the live timer then empties after stop`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val projectId = createProject(token)
@@ -148,14 +148,19 @@ class TimeRouteTest {
             contentType(ContentType.Application.Json)
             setBody("""{"projectId":"$projectId"}""")
         }
-        assertEquals(HttpStatusCode.OK, client.get("/api/v1/time/running") { bearerAuth(token) }.status)
+        assertEquals(
+            1,
+            Json.parseToJsonElement(client.get("/api/v1/time/running/all") { bearerAuth(token) }.bodyAsText()).jsonArray.size,
+        )
 
         val stopped = client.post("/api/v1/time/entries/stop") { bearerAuth(token) }
         assertEquals(HttpStatusCode.OK, stopped.status)
         val durationSeconds = Json.parseToJsonElement(stopped.bodyAsText()).jsonObject["durationSeconds"]
         assertTrue(durationSeconds != null && durationSeconds !is JsonNull)
 
-        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/time/running") { bearerAuth(token) }.status)
+        assertTrue(
+            Json.parseToJsonElement(client.get("/api/v1/time/running/all") { bearerAuth(token) }.bodyAsText()).jsonArray.isEmpty(),
+        )
     }
 
     @Test
@@ -277,9 +282,11 @@ class TimeRouteTest {
         assertEquals("PROJECT_ARCHIVED", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
 
         // the rejected start must not have stopped the still-running timer
-        val running = client.get("/api/v1/time/running") { bearerAuth(token) }
-        assertEquals(HttpStatusCode.OK, running.status)
-        assertEquals(runningId, Json.parseToJsonElement(running.bodyAsText()).jsonObject["id"]?.jsonPrimitive?.content)
+        val running = Json.parseToJsonElement(
+            client.get("/api/v1/time/running/all") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, running.size)
+        assertEquals(runningId, running[0].jsonObject["id"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -451,8 +458,116 @@ class TimeRouteTest {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"projectId":"$projectId"}""")
         }
-        // bob has no running timer even though alice does
-        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/time/running") { bearerAuth(bob) }.status)
-        assertEquals(HttpStatusCode.OK, client.get("/api/v1/time/running") { bearerAuth(alice) }.status)
+        // the shared running list shows exactly alice's timer, regardless of who asks
+        val running = Json.parseToJsonElement(
+            client.get("/api/v1/time/running/all") { bearerAuth(bob) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, running.size)
+        assertEquals("alice", running[0].jsonObject["userId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `GET running all returns every user's live timer`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val projectId = createProject(alice)
+
+        // initially nobody is running
+        assertTrue(
+            Json.parseToJsonElement(client.get("/api/v1/time/running/all") { bearerAuth(alice) }.bodyAsText()).jsonArray.isEmpty()
+        )
+
+        // both start a timer (bob starts his own via the shared project)
+        client.post("/api/v1/time/entries/start") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId"}""")
+        }
+        client.post("/api/v1/time/entries/start") {
+            bearerAuth(bob); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId"}""")
+        }
+
+        val all = Json.parseToJsonElement(
+            client.get("/api/v1/time/running/all") { bearerAuth(alice) }.bodyAsText()
+        ).jsonArray
+        assertEquals(2, all.size)
+        val owners = all.map { it.jsonObject["userId"]?.jsonPrimitive?.content }.toSet()
+        assertEquals(setOf("alice", "bob"), owners)
+    }
+
+    @Test
+    fun `start with target userId starts the partner's timer and leaves the caller idle`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val projectId = createProject(alice)
+
+        val res = client.post("/api/v1/time/entries/start") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","userId":"bob"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        assertEquals("bob", Json.parseToJsonElement(res.bodyAsText()).jsonObject["userId"]?.jsonPrimitive?.content)
+
+        // bob now has the only running timer, alice (the caller) does not
+        val running = Json.parseToJsonElement(
+            client.get("/api/v1/time/running/all") { bearerAuth(alice) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, running.size)
+        assertEquals("bob", running[0].jsonObject["userId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `stop with target userId stops the partner's timer`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val bob = loginAndGetToken("bob", "password456")
+        val projectId = createProject(alice)
+
+        client.post("/api/v1/time/entries/start") {
+            bearerAuth(bob); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId"}""")
+        }
+        // alice stops bob's timer on his behalf
+        val stopped = client.post("/api/v1/time/entries/stop") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"bob"}""")
+        }
+        assertEquals(HttpStatusCode.OK, stopped.status)
+        assertEquals("bob", Json.parseToJsonElement(stopped.bodyAsText()).jsonObject["userId"]?.jsonPrimitive?.content)
+        assertTrue(
+            Json.parseToJsonElement(client.get("/api/v1/time/running/all") { bearerAuth(bob) }.bodyAsText()).jsonArray.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `start with an unknown target userId returns 404`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val projectId = createProject(alice)
+
+        val res = client.post("/api/v1/time/entries/start") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","userId":"ghost"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, res.status)
+        assertEquals("USER_NOT_FOUND", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `GET users lists the household members`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.get("/api/v1/users") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val names = Json.parseToJsonElement(res.bodyAsText()).jsonArray
+            .map { it.jsonObject["username"]?.jsonPrimitive?.content }
+        assertTrue(names.containsAll(listOf("alice", "bob")), "expected alice and bob, got $names")
+    }
+
+    @Test
+    fun `GET users without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/users").status)
     }
 }

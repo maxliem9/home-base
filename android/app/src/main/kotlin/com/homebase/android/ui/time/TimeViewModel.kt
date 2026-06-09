@@ -16,6 +16,10 @@ data class TimeUiState(
     val projects: List<ProjectDto> = emptyList(),
     val entries: List<TimeEntryDto> = emptyList(),
     val running: TimeEntryDto? = null,
+    // Live timers of the other household member(s) — partner strip (#142).
+    val othersRunning: List<TimeEntryDto> = emptyList(),
+    // Household members' usernames — lets us offer "start a timer for the partner".
+    val users: List<String> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
 ) {
@@ -41,6 +45,7 @@ class TimeViewModel(
             _uiState.update { it.copy(isLoading = true, error = null) }
             val projects = repository.getProjects()
             val entries = repository.getEntries()
+            val users = repository.getUsers() // non-critical — only enables "start for partner"
             val error = projects.exceptionOrNull()?.message ?: entries.exceptionOrNull()?.message
             _uiState.update { state ->
                 val nextEntries = entries.getOrDefault(state.entries)
@@ -48,6 +53,8 @@ class TimeViewModel(
                     projects = projects.getOrDefault(state.projects),
                     entries = nextEntries,
                     running = findRunning(nextEntries),
+                    othersRunning = findOthersRunning(nextEntries),
+                    users = users.getOrNull()?.map { it.username } ?: state.users,
                     isLoading = false,
                     error = error,
                 )
@@ -55,17 +62,19 @@ class TimeViewModel(
         }
     }
 
-    fun startTimer(projectId: String, description: String?) {
+    /** `userId` starts the timer on behalf of the partner (#142); null → self. */
+    fun startTimer(projectId: String, description: String?, userId: String? = null) {
         viewModelScope.launch {
-            repository.startTimer(projectId, description?.trim()?.takeIf { it.isNotEmpty() })
+            repository.startTimer(projectId, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
                 .onSuccess { entry -> upsertEntry(entry) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
 
-    fun stopTimer() {
+    /** `userId` stops the partner's timer (#142); null → own timer. */
+    fun stopTimer(userId: String? = null) {
         viewModelScope.launch {
-            repository.stopTimer()
+            repository.stopTimer(userId)
                 .onSuccess { entry -> upsertEntry(entry) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
@@ -120,19 +129,22 @@ class TimeViewModel(
             val entries = if (state.entries.any { it.id == entry.id })
                 state.entries.map { if (it.id == entry.id) entry else it }
             else listOf(entry) + state.entries
-            state.copy(entries = entries, running = findRunning(entries))
+            state.copy(entries = entries, running = findRunning(entries), othersRunning = findOthersRunning(entries))
         }
     }
 
     private fun removeEntry(id: String) {
         _uiState.update { state ->
             val entries = state.entries.filter { it.id != id }
-            state.copy(entries = entries, running = findRunning(entries))
+            state.copy(entries = entries, running = findRunning(entries), othersRunning = findOthersRunning(entries))
         }
     }
 
     private fun findRunning(entries: List<TimeEntryDto>): TimeEntryDto? =
         entries.firstOrNull { it.stoppedAt == null && (username == null || it.userId == username) }
+
+    private fun findOthersRunning(entries: List<TimeEntryDto>): List<TimeEntryDto> =
+        entries.filter { it.stoppedAt == null && username != null && it.userId != username }
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)

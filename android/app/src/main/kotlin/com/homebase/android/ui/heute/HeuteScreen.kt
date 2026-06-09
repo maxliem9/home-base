@@ -45,6 +45,8 @@ import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
 import com.homebase.android.ui.components.HbCardHead
 import com.homebase.android.ui.components.HbCheck
+import com.homebase.android.ui.components.HbConfirm
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
@@ -80,6 +82,8 @@ fun HeuteScreen(
 
     val today = LocalDate.now()
     var value by remember { mutableStateOf("") }
+    // Cross-person action awaiting confirmation (stopping the partner's timer, #142).
+    var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
     // --- Derived counts / lists ---
     val dueTodayCount = todoState.todos.count {
@@ -212,20 +216,43 @@ fun HeuteScreen(
             HbCard(Modifier.padding(horizontal = 18.dp)) {
                 Column {
                     HbCardHead("Zeiterfassung", linkText = "Öffnen", onLink = { onNavigate(HbRoute.ZEIT) })
-                    val running = timeState.running
-                    if (running != null) {
-                        val project = timeState.projects.firstOrNull { it.id == running.projectId }
-                        RunWidget(running = running, projectName = project?.name, projectColor = project?.color)
-                        HbButton(
-                            "Stoppen",
-                            { timeVm.stopTimer() },
-                            modifier = Modifier.padding(top = 14.dp),
-                            variant = HbButtonVariant.Soft,
-                            size = HbButtonSize.Sm,
-                            icon = HbIcons.stop,
-                        )
-                    } else {
+                    val ownRunning = timeState.running
+                    val othersRunning = timeState.othersRunning
+                    if (ownRunning == null && othersRunning.isEmpty()) {
                         Text("Kein Timer aktiv", style = HbType.meta, color = Hb.ink3)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            // own timer first
+                            if (ownRunning != null) {
+                                val project = timeState.projects.firstOrNull { it.id == ownRunning.projectId }
+                                Column {
+                                    RunWidget(running = ownRunning, projectName = project?.name, projectColor = project?.color)
+                                    HbButton(
+                                        "Stoppen",
+                                        { timeVm.stopTimer() },
+                                        modifier = Modifier.padding(top = 14.dp),
+                                        variant = HbButtonVariant.Soft,
+                                        size = HbButtonSize.Sm,
+                                        icon = HbIcons.stop,
+                                    )
+                                }
+                            }
+                            // partner's running timer(s) — see & stop (#142)
+                            othersRunning.forEach { entry ->
+                                val project = timeState.projects.firstOrNull { it.id == entry.projectId }
+                                Column {
+                                    RunWidget(running = entry, projectName = project?.name, projectColor = project?.color, owner = entry.userId)
+                                    HbButton(
+                                        "Stoppen",
+                                        { pendingConfirm = HbConfirm("Timer von ${displayName(entry.userId)} stoppen?") { timeVm.stopTimer(entry.userId) } },
+                                        modifier = Modifier.padding(top = 14.dp),
+                                        variant = HbButtonVariant.Soft,
+                                        size = HbButtonSize.Sm,
+                                        icon = HbIcons.stop,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -268,6 +295,14 @@ fun HeuteScreen(
                 inbox = inboxCount,
                 dueTomorrow = dueTomorrowCount,
                 modifier = Modifier.padding(horizontal = 18.dp),
+            )
+        }
+
+        pendingConfirm?.let { c ->
+            HbConfirmDialog(
+                message = c.message,
+                onConfirm = { c.onConfirm(); pendingConfirm = null },
+                onDismiss = { pendingConfirm = null },
             )
         }
     }
@@ -321,7 +356,7 @@ private fun StatCard(icon: ImageVector, value: String, label: String, modifier: 
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor: String?) {
+private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor: String?, owner: String? = null) {
     val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
             value = Format.elapsedSeconds(running.startedAt)
@@ -333,6 +368,8 @@ private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor:
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // For a partner's timer, lead with their avatar so whose timer it is reads at a glance.
+        if (owner != null) HbAvatar(owner, size = 22.dp)
         Box(
             Modifier
                 .size(12.dp)
@@ -347,9 +384,15 @@ private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor:
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!running.description.isNullOrBlank()) {
+            // partner row → show their name (+ description); own row → description only
+            val subtitle = if (owner != null) {
+                listOfNotNull(displayName(owner), running.description?.takeIf { it.isNotBlank() }).joinToString(" · ")
+            } else {
+                running.description?.takeIf { it.isNotBlank() }
+            }
+            if (!subtitle.isNullOrBlank()) {
                 Text(
-                    running.description!!,
+                    subtitle,
                     style = HbType.meta,
                     color = Hb.ink3,
                     maxLines = 1,

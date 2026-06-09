@@ -11,6 +11,7 @@ import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
+import com.homebase.routes.userRoutes
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.routing.*
@@ -33,6 +34,7 @@ fun Application.configureRouting() {
             authRoutes()
             authenticate("auth-jwt") {
                 configRoutes(householdName)
+                userRoutes()
                 todoRoutes()
                 shoppingRoutes()
                 noteRoutes(noteImageConfig)

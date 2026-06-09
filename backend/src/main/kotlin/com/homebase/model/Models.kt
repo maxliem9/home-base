@@ -17,6 +17,12 @@ data class LoginRequest(val username: String, val password: String)
 @Serializable
 data class TokenResponse(val token: String)
 
+// The household members (2 fixed users, seeded from SEED_USERS). Clients use this to
+// resolve "the other user" — e.g. to start/stop a partner's timer (#142) — since the
+// usernames are configurable and not hard-codeable.
+@Serializable
+data class UserDto(val username: String)
+
 @Serializable
 data class SubtaskDto(
     val id: String,
@@ -273,7 +279,17 @@ data class TimeEntryDto(
 @Serializable
 data class StartTimerRequest(
     val projectId: String,
-    val description: String? = null
+    val description: String? = null,
+    // Optional target user (shared household, see #142): start the timer on behalf of
+    // another household member. Null/absent → the calling user, as before.
+    val userId: String? = null
+)
+
+@Serializable
+data class StopTimerRequest(
+    // Optional target user (shared household, see #142): stop another member's running
+    // timer. Null/absent (incl. an empty body) → the calling user, as before.
+    val userId: String? = null
 )
 
 @Serializable

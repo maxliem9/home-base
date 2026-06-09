@@ -13,6 +13,9 @@ interface HomeBaseApi {
     @GET("config")
     suspend fun getConfig(): AppConfigResponse
 
+    @GET("users")
+    suspend fun getUsers(): List<UserDto>
+
     // --- Todos ---
 
     @GET("todos")
@@ -135,7 +138,7 @@ interface HomeBaseApi {
     suspend fun startTimer(@Body request: StartTimerRequest): TimeEntryDto
 
     @POST("time/entries/stop")
-    suspend fun stopTimer(): TimeEntryDto
+    suspend fun stopTimer(@Body request: StopTimerRequest): TimeEntryDto
 
     @POST("time/entries")
     suspend fun createTimeEntry(@Body request: CreateTimeEntryRequest): TimeEntryDto
@@ -145,9 +148,6 @@ interface HomeBaseApi {
 
     @DELETE("time/entries/{id}")
     suspend fun deleteTimeEntry(@Path("id") id: String)
-
-    @GET("time/running")
-    suspend fun getRunningTimer(): TimeEntryDto
 
     // --- Recipes ---
 

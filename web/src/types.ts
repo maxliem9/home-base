@@ -156,6 +156,12 @@ export interface AbsenceState {
   settings: AbsSettings[]
 }
 
+// A household member (2 fixed users). From GET /api/v1/users — used to resolve
+// "the other user" for shared timers (#142).
+export interface User {
+  username: string
+}
+
 export type NoteVisibility = 'PRIVATE' | 'SHARED'
 
 export interface NoteImage {

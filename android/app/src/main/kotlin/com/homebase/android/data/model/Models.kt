@@ -15,6 +15,11 @@ data class TokenResponse(val token: String)
 @JsonClass(generateAdapter = true)
 data class AppConfigResponse(val householdName: String)
 
+// A household member. From GET /api/v1/users — used to resolve "the other user" for
+// shared timers (#142), since the usernames are configurable, not hard-codeable.
+@JsonClass(generateAdapter = true)
+data class UserDto(val username: String)
+
 // ---------------------------------------------------------------------------
 // Todos, todo lists & subtasks
 // ---------------------------------------------------------------------------
@@ -280,6 +285,14 @@ data class TimeEntryDto(
 data class StartTimerRequest(
     val projectId: String,
     val description: String? = null,
+    // Optional target user (#142): start the timer on behalf of the partner. Null → self.
+    val userId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class StopTimerRequest(
+    // Optional target user (#142): stop the partner's timer. Null → own timer.
+    val userId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)

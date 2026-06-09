@@ -52,7 +52,8 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   const meName = userMeta(me)?.name ?? me ?? 'HomeBase'
   const [todos, setTodos] = useState<Todo[]>([])
   const [shopping, setShopping] = useState<ShoppingItem[]>([])
-  const [running, setRunning] = useState<TimeEntry | null>(null)
+  // All currently running timers across the household (own + partner's), see #142.
+  const [running, setRunning] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [quick, setQuick] = useState('')
@@ -77,11 +78,10 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   }, [onLogout, token])
 
   const fetchRunning = useCallback(async () => {
-    const result = await safeFetch(token, `${API_BASE}/time/running`)
+    const result = await safeFetch(token, `${API_BASE}/time/running/all`)
     if (!result.ok) return notifyTransportError()
     if (result.res.status === 401) return onLogout()
-    // 404 = NO_RUNNING_TIMER → no timer is running for this user
-    setRunning(result.res.ok ? await result.res.json() : null)
+    if (result.res.ok) setRunning(await result.res.json())
   }, [onLogout, token])
 
   const fetchProjects = useCallback(async () => {
@@ -106,12 +106,12 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     fetchProjects() // a project rename/color change should re-style the running widget
   })
 
-  // tick the live clock once a second while a timer runs
+  // tick the live clock once a second while any timer runs
   useEffect(() => {
-    if (!running) return
+    if (running.length === 0) return
     const id = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [running?.id])
+  }, [running.length])
 
   const submitQuick = async () => {
     const title = quick.trim()
@@ -181,9 +181,18 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     }
   }
 
-  const stopTimer = async () => {
-    setRunning(null) // optimistic; the time WS frame reconciles
-    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, { method: 'POST' })
+  // Stop a specific running timer — own (no body) or the partner's (target userId, #142).
+  const stopTimer = async (entry: TimeEntry) => {
+    // Stopping the partner's timer is a cross-person action — confirm first.
+    if (entry.userId !== me) {
+      const name = userMeta(entry.userId)?.name ?? entry.userId
+      if (!confirm(t.time.confirmStopPartner.replace('{name}', name))) return
+    }
+    setRunning((prev) => prev.filter((e) => e.id !== entry.id)) // optimistic; the time WS frame reconciles
+    const init: RequestInit = entry.userId === me
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: entry.userId }) }
+    const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, init)
     if (!result.ok) {
       await fetchRunning()
       return flashError(errorText(null, t.dashboard.saveFailed))
@@ -206,8 +215,8 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
   const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
-  const runningProject = running ? projects.find((p) => p.id === running.projectId) : undefined
-  const elapsed = running ? Math.max(0, Math.floor((nowMs - new Date(running.startedAt).getTime()) / 1000)) : 0
+  // own timer first, then the partner's
+  const runningSorted = [...running].sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : 0))
 
   return (
     <div className="hb-page">
@@ -296,15 +305,31 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                     {t.dashboard.open} <Icon name="chevronRight" size={15} stroke={2.2} />
                   </button>
                 </div>
-                {running ? (
-                  <div className="hb-runwidget">
-                    <span className="hb-runwidget__pdot" style={{ background: runningProject?.color ?? 'var(--ink-3)' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="hb-row__title" style={{ fontWeight: 600 }}>{runningProject?.name ?? t.dashboard.timeTitle}</div>
-                      <div className="hb-muted" style={{ fontSize: 13 }}>{running.description || t.dashboard.timerRunningHint}</div>
-                    </div>
-                    <span className="hb-mono hb-runwidget__clock">{fmtClock(elapsed)}</span>
-                    <IconButton icon="stop" label={t.dashboard.stop} onClick={stopTimer} />
+                {runningSorted.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {runningSorted.map((entry) => {
+                      const proj = projects.find((p) => p.id === entry.projectId)
+                      const elapsed = Math.max(0, Math.floor((nowMs - new Date(entry.startedAt).getTime()) / 1000))
+                      const ownTimer = entry.userId === me
+                      return (
+                        <div key={entry.id} className="hb-runwidget">
+                          <span className="hb-runwidget__pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="hb-row__title" style={{ fontWeight: 600 }}>{proj?.name ?? t.dashboard.timeTitle}</div>
+                            <div className="hb-muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              {!ownTimer && <Avatar user={entry.userId} size={18} />}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {ownTimer
+                                  ? (entry.description || t.dashboard.timerRunningHint)
+                                  : `${userMeta(entry.userId)?.name ?? entry.userId}${entry.description ? ` · ${entry.description}` : ''}`}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="hb-mono hb-runwidget__clock">{fmtClock(elapsed)}</span>
+                          <IconButton icon="stop" label={t.dashboard.stop} onClick={() => stopTimer(entry)} />
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <EmptyState icon="timer" title={t.dashboard.noTimer} hint={t.dashboard.noTimerHint} />

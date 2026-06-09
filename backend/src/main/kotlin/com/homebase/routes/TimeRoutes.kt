@@ -39,19 +39,17 @@ fun Route.timeRoutes() {
         entryRoutes(json)
         exportRoutes()
 
-        get("/running") {
-            val username = call.username()
-            val entry = transaction {
+        // All currently running timers across the shared household (0..2). Lets the
+        // dashboard and the time view show the partner's live timer without pulling the
+        // whole entries list just to find it. See #142.
+        get("/running/all") {
+            val entries = transaction {
                 TimeEntriesTable.selectAll()
-                    .where { (TimeEntriesTable.userId eq username) and TimeEntriesTable.stoppedAt.isNull() }
-                    .singleOrNull()
-                    ?.toEntryDto()
+                    .where { TimeEntriesTable.stoppedAt.isNull() }
+                    .orderBy(TimeEntriesTable.userId, SortOrder.ASC)
+                    .map { it.toEntryDto() }
             }
-            if (entry == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorResponse("NO_RUNNING_TIMER", "No timer is currently running"))
-                return@get
-            }
-            call.respond(entry)
+            call.respond(entries)
         }
     }
 
@@ -190,12 +188,19 @@ private fun Route.entryRoutes(json: Json) {
         }
 
         post("/start") {
-            val username = call.username()
+            val caller = call.username()
             val req = call.receive<StartTimerRequest>()
             val projectId = runCatching { UUID.fromString(req.projectId) }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
+            // Shared household (#142): start on behalf of the partner when a userId is given.
+            val targetUser = req.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
+            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+                return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
+            }
 
-            val startLock = TIMER_START_LOCKS.computeIfAbsent(username) { Any() }
+            // Lock on the *target* user so concurrent starts for the same person serialize
+            // (the one-running-timer-per-user invariant is per target, not per caller).
+            val startLock = TIMER_START_LOCKS.computeIfAbsent(targetUser) { Any() }
             val result: Any? = synchronized(startLock) {
                 transaction {
                     val project = ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
@@ -204,9 +209,9 @@ private fun Route.entryRoutes(json: Json) {
                         return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
                     }
                     val now = Instant.now()
-                    // Stop any timer that is still running for this user.
+                    // Stop any timer that is still running for the target user.
                     val stopped = TimeEntriesTable.selectAll()
-                        .where { (TimeEntriesTable.userId eq username) and TimeEntriesTable.stoppedAt.isNull() }
+                        .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
                         .singleOrNull()
                     val stoppedDto = stopped?.let { row ->
                         val sid = row[TimeEntriesTable.id]
@@ -221,7 +226,7 @@ private fun Route.entryRoutes(json: Json) {
                     TimeEntriesTable.insert {
                         it[TimeEntriesTable.id] = id
                         it[TimeEntriesTable.projectId] = projectId
-                        it[userId] = username
+                        it[userId] = targetUser
                         it[startedAt] = now
                         it[stoppedAt] = null
                         it[description] = req.description?.trim()?.takeIf { d -> d.isNotEmpty() }
@@ -249,10 +254,16 @@ private fun Route.entryRoutes(json: Json) {
         }
 
         post("/stop") {
-            val username = call.username()
+            val caller = call.username()
+            // Optional body {userId}: stop the partner's timer (#142). No/empty body → self.
+            val body = runCatching { call.receive<StopTimerRequest>() }.getOrNull()
+            val targetUser = body?.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
+            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+                return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
+            }
             val entry = transaction {
                 val running = TimeEntriesTable.selectAll()
-                    .where { (TimeEntriesTable.userId eq username) and TimeEntriesTable.stoppedAt.isNull() }
+                    .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
                     .singleOrNull() ?: return@transaction null
                 val id = running[TimeEntriesTable.id]
                 val now = Instant.now()
