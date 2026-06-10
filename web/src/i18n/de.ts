@@ -251,6 +251,8 @@ export const de = {
     count: 'Notizen', // rendered as "{n} Notizen"
     searchPlaceholder: 'Suchen …',
     allTags: 'Alle',
+    allFolders: 'Alle Ordner',
+    noFolder: 'Ohne Ordner',
     noResults: 'Keine Treffer',
     empty: 'Noch keine Notizen',
     emptyHint: 'Erstelle eine Notiz',
@@ -259,6 +261,8 @@ export const de = {
     editNote: 'Notiz bearbeiten',
     contentPlaceholder: 'Inhalt (Markdown)…',
     tagsPlaceholder: 'Tags (kommagetrennt)…',
+    folderLabel: 'Ordner',
+    folderPlaceholder: 'Ordner (optional)…',
     visibility: 'Sichtbarkeit:',
     private: 'Privat',
     shared: 'Geteilt',

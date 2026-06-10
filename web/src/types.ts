@@ -182,6 +182,8 @@ export interface Note {
   title: string
   content: string
   tags: string[]
+  // single-level folder label (issue #30); omitted by the backend when unset
+  folder?: string
   visibility: NoteVisibility
   images: NoteImage[]
   createdBy: string

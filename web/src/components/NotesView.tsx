@@ -27,15 +27,17 @@ interface Draft {
   title: string
   content: string
   tags: string
+  folder: string
   visibility: NoteVisibility
 }
 
-const emptyDraft = (): Draft => ({ title: '', content: '', tags: '', visibility: 'SHARED' })
+const emptyDraft = (): Draft => ({ title: '', content: '', tags: '', folder: '', visibility: 'SHARED' })
 const draftFromNote = (n: Note): Draft => ({
   id: n.id,
   title: n.title,
   content: n.content,
   tags: n.tags.join(', '),
+  folder: n.folder ?? '',
   visibility: n.visibility,
 })
 const parseTags = (raw: string): string[] => raw.split(',').map((x) => x.trim()).filter(Boolean)
@@ -54,6 +56,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
+  // null = all folders; '' = the "no folder" bucket; otherwise a specific folder name
+  const [folderFilter, setFolderFilter] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
@@ -118,6 +122,9 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         title: draft.title.trim(),
         content: draft.content,
         tags: parseTags(draft.tags),
+        // always send a (possibly empty) string: the backend trims it and maps blank ⇒
+        // null, so this both sets a folder and clears one when the field is emptied.
+        folder: draft.folder.trim(),
         visibility: draft.visibility,
       })
       const result = draft.id
@@ -169,7 +176,23 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     return [...s].sort()
   }, [notes])
 
-  const listed = tagFilter ? notes.filter((n) => n.tags.includes(tagFilter)) : notes
+  // folders are derived client-side from the loaded notes, just like tags — there is no
+  // separate folder entity. Blank/absent folders are not their own named folder.
+  const allFolders = useMemo(() => {
+    const s = new Set<string>()
+    notes.forEach((n) => { if (n.folder) s.add(n.folder) })
+    return [...s].sort((a, b) => a.localeCompare(b, 'de'))
+  }, [notes])
+
+  const listed = notes.filter((n) => {
+    if (tagFilter && !n.tags.includes(tagFilter)) return false
+    if (folderFilter !== null) {
+      // '' selects notes without a folder; otherwise an exact folder match
+      if (folderFilter === '') { if (n.folder) return false }
+      else if (n.folder !== folderFilter) return false
+    }
+    return true
+  })
   const selected = notes.find((n) => n.id === selectedId) ?? null
 
   // images are managed from the read view; clear any stale upload error on selection change
@@ -238,6 +261,26 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
             <input value={query} placeholder={t.notes.searchPlaceholder} onChange={(e) => setQuery(e.target.value)} />
           </div>
 
+          {allFolders.length > 0 && (
+            <div className="hb-tagrow">
+              <button className={`hb-tagchip${folderFilter === null ? ' is-active' : ''}`} onClick={() => setFolderFilter(null)}>
+                {t.notes.allFolders}
+              </button>
+              {allFolders.map((folder) => (
+                <button
+                  key={folder}
+                  className={`hb-tagchip${folderFilter === folder ? ' is-active' : ''}`}
+                  onClick={() => setFolderFilter(folder)}
+                >
+                  <Icon name="folder" size={13} stroke={2} /> {folder}
+                </button>
+              ))}
+              <button className={`hb-tagchip${folderFilter === '' ? ' is-active' : ''}`} onClick={() => setFolderFilter('')}>
+                {t.notes.noFolder}
+              </button>
+            </div>
+          )}
+
           {allTags.length > 0 && (
             <div className="hb-tagrow">
               <button className={`hb-tagchip${tagFilter === null ? ' is-active' : ''}`} onClick={() => setTagFilter(null)}>
@@ -272,6 +315,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   {note.content && <div className="hb-noteitem__preview">{note.content.replace(/[#*`>_-]/g, '').trim()}</div>}
                   <div className="hb-noteitem__meta">
                     {relTime(note.updatedAt)}
+                    {note.folder && (
+                      <span className="hb-noteitem__imgcount">
+                        <Icon name="folder" size={13} stroke={2} /> {note.folder}
+                      </span>
+                    )}
                     {note.images.length > 0 && (
                       <span className="hb-noteitem__imgcount">
                         <Icon name="image" size={13} stroke={2} /> {note.images.length}
@@ -301,6 +349,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               </Field>
               <Field label={t.notes.tagsPlaceholder}>
                 <TextInput value={draft.tags} onChange={(v) => setDraft({ ...draft, tags: v })} placeholder={t.notes.tagsPlaceholder} />
+              </Field>
+              <Field label={t.notes.folderLabel}>
+                <input
+                  className="hb-input"
+                  list="hb-note-folders"
+                  value={draft.folder}
+                  placeholder={t.notes.folderPlaceholder}
+                  onChange={(e) => setDraft({ ...draft, folder: e.target.value })}
+                />
+                {/* autocomplete from folders already in use, derived like tags */}
+                <datalist id="hb-note-folders">
+                  {allFolders.map((folder) => <option key={folder} value={folder} />)}
+                </datalist>
               </Field>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span className="hb-field__label">{t.notes.visibility}</span>
@@ -335,6 +396,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                       {selected.visibility === 'PRIVATE' ? t.notes.private : t.notes.shared}
                     </Badge>
                     <span className="hb-muted" style={{ fontSize: 13 }}>{relTime(selected.updatedAt)}</span>
+                    {selected.folder && (
+                      <span className="hb-tagchip is-static">
+                        <Icon name="folder" size={12} stroke={2} /> {selected.folder}
+                      </span>
+                    )}
                     {selected.tags.map((tag) => <span key={tag} className="hb-tagchip is-static">#{tag}</span>)}
                   </div>
                 </div>

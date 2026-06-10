@@ -39,6 +39,7 @@ const PATHS: Record<string, string> = {
   dot: 'M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
   download: 'M12 4v11 M8 11l4 4 4-4 M5 20h14',
   repeat: 'M17 2l4 4-4 4 M21 6H7a4 4 0 0 0-4 4v1 M7 22l-4-4 4-4 M3 18h14a4 4 0 0 0 4-4v-1',
+  folder: 'M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z',
 }
 
 export type IconName = keyof typeof PATHS
