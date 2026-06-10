@@ -149,6 +149,10 @@ interface HomeBaseApi {
     @DELETE("time/entries/{id}")
     suspend fun deleteTimeEntry(@Path("id") id: String)
 
+    // Split a completed entry at a cut time (#66): part one keeps the id, part two is new.
+    @POST("time/entries/{id}/split")
+    suspend fun splitTimeEntry(@Path("id") id: String, @Body request: SplitTimeEntryRequest): SplitTimeEntryResponse
+
     // --- Wochensoll & Forecast (#31 / #55) ---
 
     @GET("time/forecast")

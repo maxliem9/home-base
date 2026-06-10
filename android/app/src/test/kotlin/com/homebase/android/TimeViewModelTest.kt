@@ -1,6 +1,7 @@
 package com.homebase.android
 
 import com.homebase.android.data.model.ProjectDto
+import com.homebase.android.data.model.SplitTimeEntryResponse
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
@@ -426,5 +427,89 @@ class TimeViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Wochensoll konnte nicht gespeichert werden", vm.uiState.value.error)
+    }
+
+    // --- Live-Tick (#64): forecastAt snapshot timestamp ---
+
+    @Test
+    fun `successful forecast load stamps forecastAt`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNotNull(vm.uiState.value.forecastAt)
+    }
+
+    @Test
+    fun `failed forecast load leaves forecastAt unset`() = runTest {
+        coEvery { repository.getForecast() } returns Result.failure(RuntimeException("down"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.forecastAt)
+    }
+
+    @Test
+    fun `forecast refresh after an entry change moves forecastAt forward`() = runTest {
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "e1")))
+        coEvery { repository.deleteEntry("e1") } returns Result.success(Unit)
+
+        val vm = createVm()
+        advanceUntilIdle()
+        val initial = vm.uiState.value.forecastAt
+        assertNotNull(initial)
+
+        vm.deleteEntry("e1")
+        advanceUntilIdle()
+
+        val refreshed = vm.uiState.value.forecastAt
+        assertNotNull(refreshed)
+        assertFalse(refreshed!!.isBefore(initial!!))
+    }
+
+    // --- Eintrag splitten (#66) ---
+
+    @Test
+    fun `splitEntry applies both halves from the response and refreshes the forecast`() = runTest {
+        val original = entry(id = "e1") // 08:00–09:00
+        coEvery { repository.getEntries() } returns Result.success(listOf(original))
+        val first = original.copy(stoppedAt = "2026-06-03T08:30:00Z", durationSeconds = 1800)
+        val second = original.copy(
+            id = "e2",
+            startedAt = "2026-06-03T08:40:00Z",
+            durationSeconds = 1200,
+        )
+        coEvery { repository.splitEntry("e1", "2026-06-03T08:30:00Z", 10) } returns
+            Result.success(SplitTimeEntryResponse(first = first, second = second))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.splitEntry("e1", "2026-06-03T08:30:00Z", 10)
+        advanceUntilIdle()
+
+        // part one replaced in place, part two added — no WS echo needed
+        assertEquals(2, vm.uiState.value.entries.size)
+        assertEquals("2026-06-03T08:30:00Z", vm.uiState.value.entries.first { it.id == "e1" }.stoppedAt)
+        assertEquals("2026-06-03T08:40:00Z", vm.uiState.value.entries.first { it.id == "e2" }.startedAt)
+        assertNull(vm.uiState.value.error)
+        // once in load(), once after the split succeeded
+        coVerify(exactly = 2) { repository.getForecast() }
+    }
+
+    @Test
+    fun `splitEntry failure surfaces the German error`() = runTest {
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "e1")))
+        coEvery { repository.splitEntry(any(), any(), any()) } returns
+            Result.failure(IllegalStateException("Laufende Timer können nicht gesplittet werden — erst stoppen."))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.splitEntry("e1", "2026-06-03T08:30:00Z", null)
+        advanceUntilIdle()
+
+        assertEquals("Laufende Timer können nicht gesplittet werden — erst stoppen.", vm.uiState.value.error)
+        assertEquals(1, vm.uiState.value.entries.size)
     }
 }

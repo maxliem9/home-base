@@ -44,6 +44,8 @@ object HbIcons {
     val tag = stroke("M3 3h7l11 11-7 7L3 10V3Z M7.5 7.5h.01")
     val trash = stroke("M4 7h16 M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2 M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13")
     val edit = stroke("M4 20h4L19 9l-4-4L4 16v4Z M14 6l4 4")
+    // split an entry (#66) — path copied from the web icon set (web/src/ui/Icon.tsx "scissors")
+    val scissors = stroke("M6 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z M6 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z M20 4 8.1 15.9 M14.5 14.5 20 20 M8.1 8.1l3.4 3.4")
     val x = stroke("M6 6l12 12M18 6 6 18")
     val chevronRight = stroke("M9 6l6 6-6 6")
     val chevronLeft = stroke("M15 6l-6 6 6 6")

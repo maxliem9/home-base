@@ -318,6 +318,20 @@ data class UpdateTimeEntryRequest(
     val description: String? = null,
 )
 
+/** Split a completed entry at a cut time (#66); breakMinutes = untracked gap before part two. */
+@JsonClass(generateAdapter = true)
+data class SplitTimeEntryRequest(
+    val splitAt: String,
+    val breakMinutes: Int? = null,
+)
+
+/** Both halves of a split (#66): [first] keeps the original id, [second] is new. */
+@JsonClass(generateAdapter = true)
+data class SplitTimeEntryResponse(
+    val first: TimeEntryDto,
+    val second: TimeEntryDto,
+)
+
 @JsonClass(generateAdapter = true)
 data class TimeWsMessage(
     val type: String,

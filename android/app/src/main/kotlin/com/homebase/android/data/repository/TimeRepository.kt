@@ -5,6 +5,8 @@ import com.homebase.android.data.model.ArchiveProjectRequest
 import com.homebase.android.data.model.CreateProjectRequest
 import com.homebase.android.data.model.CreateTimeEntryRequest
 import com.homebase.android.data.model.ProjectDto
+import com.homebase.android.data.model.SplitTimeEntryRequest
+import com.homebase.android.data.model.SplitTimeEntryResponse
 import com.homebase.android.data.model.StartTimerRequest
 import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpsertWorkTargetRequest
@@ -66,6 +68,19 @@ class TimeRepository(
 
     suspend fun deleteEntry(id: String): Result<Unit> = runCatching { api.deleteTimeEntry(id) }
 
+    /**
+     * Split a completed entry at [splitAt] with an optional untracked break (#66) —
+     * both halves come back in one response (part one keeps the id).
+     */
+    suspend fun splitEntry(id: String, splitAt: String, breakMinutes: Int?): Result<SplitTimeEntryResponse> =
+        runCatching {
+            try {
+                api.splitTimeEntry(id, SplitTimeEntryRequest(splitAt, breakMinutes))
+            } catch (e: HttpException) {
+                throw IllegalStateException(germanSplitError(e), e)
+            }
+        }
+
     // --- Wochensoll & Forecast (#31 / #55) ---
 
     suspend fun getForecast(): Result<TimeForecastDto> = runCatching { api.getTimeForecast() }
@@ -86,17 +101,25 @@ class TimeRepository(
     fun disconnectWebSocket() = wsClient.disconnect()
 
     /** Map a failed entry-update response to German text via its ErrorResponse.code. */
-    private fun germanTimeError(e: HttpException): String {
-        val code = runCatching {
-            e.response()?.errorBody()?.string()
-                ?.let { JSONObject(it).optString("code").ifBlank { null } }
-        }.getOrNull()
-        return when (code) {
-            "PROJECT_ARCHIVED" -> "Das Projekt ist archiviert."
-            "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
-            "INVALID_DATE" -> "Ungültiges Datum."
-            "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
-            else -> "Konnte nicht gespeichert werden."
-        }
+    private fun germanTimeError(e: HttpException): String = when (errorCodeOf(e)) {
+        "PROJECT_ARCHIVED" -> "Das Projekt ist archiviert."
+        "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
+        "INVALID_DATE" -> "Ungültiges Datum."
+        "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
+        else -> "Konnte nicht gespeichert werden."
     }
+
+    /** Same for a failed split (#66) — wording mirrors the web errors map (de.ts). */
+    private fun germanSplitError(e: HttpException): String = when (errorCodeOf(e)) {
+        "ENTRY_RUNNING" -> "Laufende Timer können nicht gesplittet werden — erst stoppen."
+        "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
+        "INVALID_DATE" -> "Ungültiges Datum."
+        "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
+        else -> "Eintrag konnte nicht gesplittet werden"
+    }
+
+    private fun errorCodeOf(e: HttpException): String? = runCatching {
+        e.response()?.errorBody()?.string()
+            ?.let { JSONObject(it).optString("code").ifBlank { null } }
+    }.getOrNull()
 }
