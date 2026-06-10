@@ -226,7 +226,13 @@ fun HeuteScreen(
                             if (ownRunning != null) {
                                 val project = timeState.projects.firstOrNull { it.id == ownRunning.projectId }
                                 Column {
-                                    RunWidget(running = ownRunning, projectName = project?.name, projectColor = project?.color)
+                                    RunWidget(
+                                        running = ownRunning,
+                                        projectName = project?.name,
+                                        projectColor = project?.color,
+                                        // forecast peek (#31/#55): "bis ca. 16:32" / "Soll erreicht"
+                                        eta = timeState.forecastFor(ownRunning.userId)?.expectedEndAt,
+                                    )
                                     HbButton(
                                         "Stoppen",
                                         { timeVm.stopTimer() },
@@ -241,7 +247,13 @@ fun HeuteScreen(
                             othersRunning.forEach { entry ->
                                 val project = timeState.projects.firstOrNull { it.id == entry.projectId }
                                 Column {
-                                    RunWidget(running = entry, projectName = project?.name, projectColor = project?.color, owner = entry.userId)
+                                    RunWidget(
+                                        running = entry,
+                                        projectName = project?.name,
+                                        projectColor = project?.color,
+                                        owner = entry.userId,
+                                        eta = timeState.forecastFor(entry.userId)?.expectedEndAt,
+                                    )
                                     HbButton(
                                         "Stoppen",
                                         { pendingConfirm = HbConfirm("Timer von ${displayName(entry.userId)} stoppen?") { timeVm.stopTimer(entry.userId) } },
@@ -356,7 +368,13 @@ private fun StatCard(icon: ImageVector, value: String, label: String, modifier: 
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor: String?, owner: String? = null) {
+private fun RunWidget(
+    running: TimeEntryDto,
+    projectName: String?,
+    projectColor: String?,
+    owner: String? = null,
+    eta: String? = null,
+) {
     val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
             value = Format.elapsedSeconds(running.startedAt)
@@ -384,12 +402,13 @@ private fun RunWidget(running: TimeEntryDto, projectName: String?, projectColor:
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // partner row → show their name (+ description); own row → description only
-            val subtitle = if (owner != null) {
-                listOfNotNull(displayName(owner), running.description?.takeIf { it.isNotBlank() }).joinToString(" · ")
-            } else {
-                running.description?.takeIf { it.isNotBlank() }
-            }
+            // partner row → their name (+ description); own row → description only;
+            // both get the compact forecast suffix "· bis ca. HH:MM" / "· Soll erreicht" (#31/#55)
+            val subtitle = listOfNotNull(
+                owner?.let { displayName(it) },
+                running.description?.takeIf { it.isNotBlank() },
+                Format.etaShortLabel(eta),
+            ).joinToString(" · ").takeIf { it.isNotEmpty() }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
