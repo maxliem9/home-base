@@ -354,6 +354,10 @@ function HalfToggle({ value, onChange }: { value: HalfDay | null; onChange: (v: 
   )
 }
 
+// Day editor as a slide-over panel (right edge on desktop, bottom sheet on
+// mobile) instead of a centered modal — comfortable on a 360px phone (#44, #29).
+// Dimmed backdrop closes on click; Escape closes too (preserving the Modal's
+// affordance).
 function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string; api: Api; userIds: string[]; onClose: () => void }) {
   const d = C.parse(ds)
   const title = `${C.WD_LONG[d.getDay()]}, ${d.getDate()}. ${C.MON_FULL[d.getMonth()]} ${d.getFullYear()}`
@@ -364,8 +368,21 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
     { id: 'KRANK', label: t.abwesenheit.krank },
     { id: 'KIND_KRANK', label: t.abwesenheit.kindKrank },
   ]
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
   return (
-    <Modal open onClose={onClose} width={480} title={title} footer={<Button onClick={onClose}>{t.abwesenheit.done}</Button>}>
+    <div className="abw-sheet-scrim" onClick={onClose}>
+      <div className="abw-sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="abw-sheet__head">
+          <h3>{title}</h3>
+          <IconButton icon="x" onClick={onClose} label={t.common.cancel} />
+        </div>
+        <div className="abw-sheet__body">
       {userIds.map((uid) => {
         const st = personDay(ctx, uid, ds)
         const note = st.holiday
@@ -417,7 +434,12 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
           <TextInput value={kita.label} onChange={(v) => api.toggleKita(ds, v || t.abwesenheit.kitaDefaultLabel, true)} placeholder={t.abwesenheit.occasionPlaceholder} />
         </Field>
       ) : null}
-    </Modal>
+        </div>
+        <div className="abw-sheet__foot">
+          <Button onClick={onClose}>{t.abwesenheit.done}</Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
