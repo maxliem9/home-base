@@ -431,6 +431,7 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 
 /* ---------- Notizen ---------- */
 .hb-notes-layout { display: grid; grid-template-columns: 340px 1fr; gap: var(--gap); align-items: start; }
+.hb-notes-layout > div { min-width: 0; }
 .hb-search input { font-size: 14.5px; }
 .hb-tagrow { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
 .hb-tagchip { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.14s; }
