@@ -5,9 +5,11 @@ WebSocket are mocked in-browser via `page.route` / a fake `WebSocket`, so the
 suite runs **without** a live backend or database.
 
 Most views reflect their mutations from the REST response, so the fake socket
-can stay silent. TimeView is the exception — it updates only from realtime
-frames — so the mock tags time-mutation responses with an `x-ws-frames` header
-that an in-page bridge replays onto the matching channel's socket.
+can stay silent. Where the realtime echo matters, the mock tags responses with
+an `x-ws-frames` header (time + todo-list mutations, replayed after the fetch
+resolves) or `x-ws-frames-pre` (todo creation, delivered synchronously before
+the fetch resolves to pin the echo-beats-REST ordering from issue #61); an
+in-page bridge replays both onto the matching channel's socket.
 
 ## Run
 

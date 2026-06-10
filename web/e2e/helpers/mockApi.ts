@@ -53,11 +53,14 @@ const TINY_PNG = Buffer.from(
  *
  * Every view (todos, shopping, recipes, notes and time) reflects its own
  * mutations from the REST response, so the UI updates without depending on the
- * socket. Time mutations additionally attach an `x-ws-frames` response header
- * that the in-page bridge (see install) replays to the socket, so the realtime
- * dedupe path stays covered. `silenceRealtime()` suppresses those frames to
- * reproduce a deployment whose WS echo never reaches the originating client and
- * prove the UI still updates from REST alone (issue: TimeView live update).
+ * socket. Time and todo-list mutations additionally attach an `x-ws-frames`
+ * response header that the in-page bridge (see install) replays to the socket
+ * after the fetch resolves, so the realtime dedupe path stays covered; todo
+ * creation uses the `x-ws-frames-pre` variant, delivered synchronously BEFORE
+ * the fetch resolves, pinning the echo-beats-REST ordering from issue #61.
+ * `silenceRealtime()` suppresses all frames to reproduce a deployment whose WS
+ * echo never reaches the originating client and prove the UI still updates
+ * from REST alone (issue: TimeView live update).
  *
  * Todos/shopping data is seeded via the constructor; recipes/notes/time via the
  * fluent seed* helpers so existing call sites keep working unchanged.
