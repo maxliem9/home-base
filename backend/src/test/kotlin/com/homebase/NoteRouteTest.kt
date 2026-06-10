@@ -328,4 +328,79 @@ class NoteRouteTest {
             ).jsonArray.isEmpty()
         )
     }
+
+    @Test
+    fun `POST note stores folder and trims it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = createNote(token, """{"title":"Vertrag","folder":"  Finanzen  "}""")
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("Finanzen", body["folder"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST note with blank folder omits folder (encodeDefaults=false)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = createNote(token, """{"title":"Lose Notiz","folder":"   "}""")
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        // blank ⇒ null ⇒ field omitted from the response by the JSON config
+        assertTrue("folder" !in Json.parseToJsonElement(response.bodyAsText()).jsonObject)
+    }
+
+    @Test
+    fun `GET notes filters by folder`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        createNote(token, """{"title":"Strom","folder":"Finanzen"}""")
+        createNote(token, """{"title":"Pasta","folder":"Rezepte"}""")
+        createNote(token, """{"title":"Lose Notiz"}""")
+
+        val inFolder = Json.parseToJsonElement(
+            client.get("/api/v1/notes?folder=Finanzen") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(1, inFolder.size)
+        assertEquals("Strom", inFolder.single().jsonObject["title"]?.jsonPrimitive?.content)
+
+        // blank folder param ⇒ no restriction (all three notes)
+        val unrestricted = Json.parseToJsonElement(
+            client.get("/api/v1/notes?folder=") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray
+        assertEquals(3, unrestricted.size)
+    }
+
+    @Test
+    fun `PUT note moves it to a folder and can clear it again`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = Json.parseToJsonElement(
+            createNote(token, """{"title":"Vertrag"}""").bodyAsText()
+        ).jsonObject["id"]!!.jsonPrimitive.content
+
+        // move into a folder
+        val moved = client.put("/api/v1/notes/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"folder":"Finanzen"}""")
+        }
+        assertEquals(
+            "Finanzen",
+            Json.parseToJsonElement(moved.bodyAsText()).jsonObject["folder"]?.jsonPrimitive?.content,
+        )
+
+        // a blank folder clears it back to null (field omitted in the response)
+        val cleared = client.put("/api/v1/notes/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"folder":""}""")
+        }
+        assertTrue("folder" !in Json.parseToJsonElement(cleared.bodyAsText()).jsonObject)
+    }
 }

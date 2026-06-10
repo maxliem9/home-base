@@ -207,6 +207,8 @@ data class NoteDto(
     val title: String,
     val content: String,
     val tags: List<String>,
+    // single-level folder label (issue #30); null/omitted = no folder
+    val folder: String? = null,
     val visibility: String,
     // no default: the JSON config omits default values, but clients always expect
     // an `images` array (an empty one for image-less notes), so it must be encoded.
@@ -221,6 +223,7 @@ data class CreateNoteRequest(
     val title: String,
     val content: String? = null,
     val tags: List<String>? = null,
+    val folder: String? = null,
     val visibility: String? = null
 )
 
@@ -229,6 +232,7 @@ data class UpdateNoteRequest(
     val title: String? = null,
     val content: String? = null,
     val tags: List<String>? = null,
+    val folder: String? = null,
     val visibility: String? = null
 )
 
