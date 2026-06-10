@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 /** One changed Wochensoll cell to PUT (#55); null fields stay untouched server-side. */
 data class TargetChange(
@@ -34,6 +35,9 @@ data class TimeUiState(
     val users: List<String> = emptyList(),
     // Wochensoll & Forecast (#31/#55) — non-critical reads, null/empty without targets.
     val forecast: TimeForecastDto? = null,
+    // When the forecast snapshot was fetched — lets a running timer tick the displayed
+    // Soll/Ist live instead of freezing it at fetch time (#64, web: forecastAtMs).
+    val forecastAt: Instant? = null,
     val targets: List<WorkTargetDto> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -83,6 +87,7 @@ class TimeViewModel(
                     othersRunning = findOthersRunning(nextEntries),
                     users = users.getOrNull()?.map { it.username } ?: state.users,
                     forecast = forecast.getOrNull() ?: state.forecast,
+                    forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
                     targets = targets.getOrDefault(state.targets),
                     isLoading = false,
                     error = error,
@@ -140,6 +145,22 @@ class TimeViewModel(
     }
 
     /**
+     * Split a completed own entry at [splitAt] (#66): both halves come straight from
+     * the response (no waiting for the WS echo), then the forecast is reloaded.
+     */
+    fun splitEntry(id: String, splitAt: String, breakMinutes: Int?) {
+        viewModelScope.launch {
+            repository.splitEntry(id, splitAt, breakMinutes)
+                .onSuccess { halves ->
+                    upsertEntry(halves.first)
+                    upsertEntry(halves.second)
+                    refreshForecast()
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Eintrag konnte nicht gesplittet werden") } }
+        }
+    }
+
+    /**
      * Save the changed Wochensoll cells (#55) — one PUT per change; userId is the
      * target person (household-shared like the absence planner). Afterwards targets
      * and forecast are refetched so the UI reflects the real server state even after
@@ -159,6 +180,7 @@ class TimeViewModel(
                 state.copy(
                     targets = targets.getOrDefault(state.targets),
                     forecast = forecast.getOrNull() ?: state.forecast,
+                    forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
                     error = if (failed) "Wochensoll konnte nicht gespeichert werden" else state.error,
                 )
             }
@@ -218,7 +240,9 @@ class TimeViewModel(
     /** Refetch only the forecast — any entry change shifts recorded time / expected end. */
     private fun refreshForecast() {
         viewModelScope.launch {
-            repository.getForecast().onSuccess { f -> _uiState.update { it.copy(forecast = f) } }
+            repository.getForecast().onSuccess { f ->
+                _uiState.update { it.copy(forecast = f, forecastAt = Instant.now()) }
+            }
         }
     }
 

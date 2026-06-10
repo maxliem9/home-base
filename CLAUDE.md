@@ -181,7 +181,9 @@ description?, created_at, updated_at
   unerfasste Lücke, kein eigener Datensatz. Validierung: Trennzeit strikt im
   Eintrag, Pause endet vor dem Eintragsende (400 INVALID_RANGE), laufende Timer
   → 409 ENTRY_RUNNING. Broadcasts: ENTRY_UPDATED (Teil 1) + ENTRY_CREATED (Teil 2).
-  Web: Scissors-Aktion an eigenen Einträgen (Liste + Projekt-Detail); Android folgt.
+  Web: Scissors-Aktion an eigenen Einträgen (Liste + Projekt-Detail); Android analog
+  (Scissors an eigenen abgeschlossenen Einträgen, Sheet mit Trennzeit/Pause +
+  Live-Vorschau beider Teile, #66).
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 
@@ -214,7 +216,8 @@ description?, created_at, updated_at
   `TimeView`. Bei laufendem Timer ticken die Karten-Werte live weiter (Sekunden seit
   dem Forecast-Snapshot werden client-seitig addiert, #59). Projekt-Kacheln zeigen
   Tages- + Wochensaldo statt Gesamtsumme — vom aktuellen Tag/Woche, sonst Fallback
-  auf den letzten aktiven Tag bzw. die letzte aktive Woche (#59). Android folgt separat.
+  auf den letzten aktiven Tag bzw. die letzte aktive Woche (#59). Android analog:
+  Live-Tick + Kachel-Saldi in `ui/time` (TimeMath.kt, #64).
 
 ## Abwesenheit-Domänenmodell (Familienkalender)
 Geteilter Haushalts-Abwesenheitsplaner (Excel-Ersatz). Das Backend ist reine

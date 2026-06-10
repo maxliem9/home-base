@@ -105,6 +105,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
     var showTargets by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
     var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
+    var splitEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     // Cross-person action awaiting confirmation (partner's timer, #142).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
@@ -185,9 +186,13 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
             // --- Wochensoll (#31/#55): per-person week balance — only once a target exists ---
             if (state.weekUsers.isNotEmpty()) {
                 Spacer(Modifier.size(12.dp))
+                // all open entries (own + partner) — running timers tick the snapshot live (#64)
+                val openEntries = remember(state.entries) { state.entries.filter { it.stoppedAt == null } }
                 WeekTargetsCard(
                     users = state.weekUsers,
                     projectsById = projectsById,
+                    openEntries = openEntries,
+                    forecastAt = state.forecastAt,
                     onConfigure = { showTargets = true },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
@@ -279,6 +284,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     showProjectName = true,
                     onDelete = { viewModel.deleteEntry(it) },
                     onEdit = { editEntry = it },
+                    onSplit = { splitEntry = it },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
             }
@@ -316,6 +322,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 currentUser = currentUser,
                 onDelete = { viewModel.deleteEntry(it) },
                 onEdit = { editEntry = it },
+                onSplit = { splitEntry = it },
                 onDismiss = { detailProjectId = null },
             )
         }
@@ -330,6 +337,17 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     editEntry = null
                 },
                 onDismiss = { editEntry = null },
+            )
+        }
+
+        splitEntry?.let { entry ->
+            SplitEntrySheet(
+                entry = entry,
+                onSave = { splitAt, breakMinutes ->
+                    viewModel.splitEntry(entry.id, splitAt, breakMinutes)
+                    splitEntry = null
+                },
+                onDismiss = { splitEntry = null },
             )
         }
 
@@ -586,9 +604,20 @@ private fun PartnerTimerCard(
 private fun WeekTargetsCard(
     users: List<UserForecastDto>,
     projectsById: Map<String, ProjectDto>,
+    openEntries: List<TimeEntryDto>,
+    forecastAt: Instant?,
     onConfigure: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // While any timer runs, tick the snapshot figures live (#64): re-evaluate "now"
+    // every second and add the seconds since the forecast fetch per person below.
+    val hasRunning = openEntries.isNotEmpty()
+    val now by produceState(Instant.now(), hasRunning, forecastAt) {
+        while (hasRunning) {
+            value = Instant.now()
+            delay(1000)
+        }
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -606,7 +635,13 @@ private fun WeekTargetsCard(
             Modifier.padding(end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            users.forEach { WeekBalanceBlock(it, projectsById) }
+            users.forEach { u ->
+                // a running timer ticks the snapshot numbers live: add the seconds
+                // elapsed since the forecast was fetched (#64, web parity to #59)
+                val running = openEntries.firstOrNull { it.userId == u.userId }
+                val extra = if (running != null) liveExtraSeconds(forecastAt, now) else 0L
+                WeekBalanceBlock(u.withLiveExtra(extra, running?.projectId), projectsById)
+            }
         }
     }
 }
@@ -874,7 +909,16 @@ private fun ProjectCard(
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val totalSeconds = remember(entries) { sumSeconds(entries) }
+    // Day + week saldo instead of the all-time total (#64), with a fallback to the
+    // last active day/week. A running timer (own or partner's) ticks the figures live.
+    val hasRunning = entries.any { it.stoppedAt == null }
+    val now by produceState(Instant.now(), hasRunning) {
+        while (hasRunning) {
+            value = Instant.now()
+            delay(1000)
+        }
+    }
+    val stats = remember(entries, now) { projectCardStats(entries, now) }
     val ringModifier = if (isRunning) {
         Modifier
             .shadow(0.dp, HbRadius, clip = false, ambientColor = Hb.accentSoft, spotColor = Hb.accentSoft)
@@ -910,11 +954,41 @@ private fun ProjectCard(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Text(
-                Format.durationLong(totalSeconds),
-                style = HbType.mono(21.0),
-                color = Hb.ink,
-            )
+            // "7:30 Heute" / "32:15 Diese Woche" (.hb-projcard__stat/__stat2)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        Format.hoursMinutes(stats.daySeconds),
+                        style = HbType.mono(21.0),
+                        color = Hb.ink,
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                    Text(
+                        stats.dayLabel,
+                        style = HbType.meta,
+                        color = Hb.ink3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        Format.hoursMinutes(stats.weekSeconds),
+                        style = HbType.mono(13.5),
+                        color = Hb.ink2,
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                    Text(
+                        stats.weekLabel,
+                        style = HbType.meta,
+                        color = Hb.ink3,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.alignByBaseline(),
+                    )
+                }
+            }
         }
         if (isRunning) {
             HbButton(
@@ -948,6 +1022,7 @@ private fun EntriesByDay(
     showProjectName: Boolean,
     onDelete: (String) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
+    onSplit: (TimeEntryDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // entries arrive already newest-first; preserve that order across day buckets.
@@ -987,6 +1062,7 @@ private fun EntriesByDay(
                     showProjectName = showProjectName,
                     onDelete = { onDelete(entry.id) },
                     onEdit = { onEdit(entry) },
+                    onSplit = { onSplit(entry) },
                 )
             }
         }
@@ -1001,6 +1077,7 @@ private fun EntryRow(
     showProjectName: Boolean,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
+    onSplit: () -> Unit,
 ) {
     val own = currentUser != null && entry.userId == currentUser
     val duration = Format.entrySeconds(entry.startedAt, entry.stoppedAt)
@@ -1054,6 +1131,10 @@ private fun EntryRow(
             )
             if (own) {
                 HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
+                // splitting needs a fixed end — only completed own entries (#66)
+                if (entry.stoppedAt != null) {
+                    HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp)
+                }
                 HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
             } else {
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
@@ -1240,6 +1321,95 @@ private fun EditEntrySheet(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Split-entry sheet (#66) — cut a completed entry in two at a Trennzeit, with
+// an optional untracked break between the parts. Wording mirrors the web
+// (de.ts time.split*), UI reference: SplitEntryModal in TimeView.tsx.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun SplitEntrySheet(
+    entry: TimeEntryDto,
+    onSave: (splitAt: String, breakMinutes: Int?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // the split action is only offered on completed entries; bail out defensively
+    val stoppedAt = entry.stoppedAt ?: return
+    val zone = ZoneId.systemDefault()
+    // default cut: the entry's midpoint, snapped to the full minute
+    val initialCut = remember(entry.id) {
+        (defaultSplitAt(entry.startedAt, stoppedAt) ?: Instant.now()).atZone(zone)
+    }
+    var cutDate by remember(entry.id) { mutableStateOf(initialCut.toLocalDate()) }
+    var cutTime by remember(entry.id) { mutableStateOf(initialCut.toLocalTime().withSecond(0).withNano(0)) }
+    var breakText by remember(entry.id) { mutableStateOf("") }
+    var error by remember(entry.id) { mutableStateOf<String?>(null) }
+
+    val check = checkSplit(
+        startedAtIso = entry.startedAt,
+        stoppedAtIso = stoppedAt,
+        splitAt = cutDate.atTime(cutTime).atZone(zone).toInstant(),
+        breakText = breakText,
+    )
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Eintrag splitten",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Speichern",
+                onClick = {
+                    when (check) {
+                        is SplitCheck.Invalid -> error = check.message
+                        is SplitCheck.Valid ->
+                            onSave(check.splitAt.toString(), check.breakMinutes.takeIf { it > 0 })
+                    }
+                },
+                variant = HbButtonVariant.Primary,
+                icon = HbIcons.scissors,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        Text(
+            "Teilt den Eintrag an der Trennzeit in zwei. Eine Pause bleibt als Lücke zwischen den Teilen " +
+                "unerfasst — danach lässt sich Teil 2 wie gewohnt bearbeiten (z. B. anderes Projekt).",
+            style = HbType.meta,
+            color = Hb.ink3,
+        )
+        HbField("Trennzeit") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { DateField(cutDate) { cutDate = it } }
+                Box(Modifier.weight(1f)) { TimeField(cutTime) { cutTime = it } }
+            }
+        }
+        HbField("Pause in Minuten (optional)") {
+            HbTextField(
+                value = breakText,
+                onValueChange = { breakText = it },
+                placeholder = "0",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            )
+        }
+        // live preview of both resulting parts, e.g. "Teil 1: 14:03–17:33 · Teil 2: 18:18–21:03"
+        if (check is SplitCheck.Valid) {
+            Text(
+                "Teil 1: ${Format.clockOfDay(entry.startedAt)}–${Format.clockOfDay(check.splitAt.toString())}" +
+                    " · Teil 2: ${Format.clockOfDay(check.secondStart.toString())}–${Format.clockOfDay(stoppedAt)}",
+                style = HbType.mono.copy(fontSize = 13.5.sp),
+                color = Hb.ink3,
+            )
+        }
+        error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
+    }
+}
+
 /** Read-only field that opens a dropdown of [options] (label to value). */
 @Composable
 private fun SelectField(value: String, options: List<Pair<String, String>>, onSelect: (String) -> Unit) {
@@ -1342,6 +1512,7 @@ private fun ProjectDetailSheet(
     currentUser: String?,
     onDelete: (String) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
+    onSplit: (TimeEntryDto) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val finished = remember(entries) { entries.filter { it.stoppedAt != null } }
@@ -1452,6 +1623,7 @@ private fun ProjectDetailSheet(
                 showProjectName = false,
                 onDelete = onDelete,
                 onEdit = onEdit,
+                onSplit = onSplit,
             )
         }
     }
