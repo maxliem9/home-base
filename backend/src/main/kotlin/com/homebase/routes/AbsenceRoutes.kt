@@ -2,6 +2,7 @@ package com.homebase.routes
 
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
+import com.homebase.db.CustomHolidaysTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.UsersTable
@@ -64,6 +65,10 @@ fun Route.absenceRoutes() {
                     kitaClosures = KitaClosuresTable.selectAll()
                         .orderBy(KitaClosuresTable.date, SortOrder.ASC)
                         .map { it.toKitaDto() },
+                    customHolidays = CustomHolidaysTable.selectAll()
+                        .orderBy(CustomHolidaysTable.month, SortOrder.ASC)
+                        .orderBy(CustomHolidaysTable.day, SortOrder.ASC)
+                        .map { it.toCustomHolidayDto() },
                     settings = AbsSettingsTable.selectAll()
                         .orderBy(AbsSettingsTable.userId, SortOrder.ASC)
                         .orderBy(AbsSettingsTable.year, SortOrder.ASC)
@@ -76,6 +81,7 @@ fun Route.absenceRoutes() {
         absenceEntryRoutes(::notify)
         partTimeRoutes(::notify)
         kitaRoutes(::notify)
+        holidayRoutes(::notify)
         settingsRoutes(::notify)
     }
 
@@ -315,6 +321,76 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
     }
 }
 
+// Household-wide custom holidays (#51) — recurring every year on a fixed month+day,
+// whole or half. Mirrors the kita routes: idempotent POST keyed on (month, day), PUT with
+// a clean 409 on a date clash, DELETE. The (month, day) unique index is the hard backstop.
+private fun Route.holidayRoutes(notify: suspend () -> Unit) {
+    route("/holidays") {
+        post {
+            val req = call.receive<CreateCustomHolidayRequest>()
+            if (!isValidMonthDay(req.month, req.day)) return@post call.invalidMonthDay()
+            // Idempotent: one holiday per (month, day). If the date is already taken, return
+            // that holiday instead of duplicating it (the unique index is the race backstop).
+            val (dto, created) = transaction {
+                val existing = CustomHolidaysTable.selectAll()
+                    .where { (CustomHolidaysTable.month eq req.month) and (CustomHolidaysTable.day eq req.day) }
+                    .singleOrNull()
+                if (existing != null) existing.toCustomHolidayDto() to false
+                else insertCustomHoliday(req.month, req.day, req.half, req.label) to true
+            }
+            if (created) notify()
+            call.respond(if (created) HttpStatusCode.Created else HttpStatusCode.OK, dto)
+        }
+
+        put("/{id}") {
+            val id = call.uuidParam() ?: return@put
+            val req = call.receive<UpdateCustomHolidayRequest>()
+            // Resolve the would-be (month, day) so we can validate + clash-check before writing.
+            val (dto, conflict) = transaction {
+                val current = CustomHolidaysTable.selectAll()
+                    .where { CustomHolidaysTable.id eq id }
+                    .singleOrNull() ?: return@transaction null to false
+                val newMonth = req.month ?: current[CustomHolidaysTable.month]
+                val newDay = req.day ?: current[CustomHolidaysTable.day]
+                if (!isValidMonthDay(newMonth, newDay)) return@transaction null to false // signalled as 400 below
+                // Moving onto a date another holiday occupies would violate unique(month, day) → 409.
+                if ((newMonth != current[CustomHolidaysTable.month] || newDay != current[CustomHolidaysTable.day]) &&
+                    !CustomHolidaysTable.selectAll()
+                        .where { (CustomHolidaysTable.month eq newMonth) and (CustomHolidaysTable.day eq newDay) and (CustomHolidaysTable.id neq id) }
+                        .empty()
+                ) return@transaction null to true
+                CustomHolidaysTable.update({ CustomHolidaysTable.id eq id }) {
+                    req.month?.let { v -> it[month] = v }
+                    req.day?.let { v -> it[day] = v }
+                    req.half?.let { v -> it[half] = v }
+                    req.label?.let { v -> it[label] = v }
+                }
+                CustomHolidaysTable.selectAll().where { CustomHolidaysTable.id eq id }.single().toCustomHolidayDto() to false
+            }
+            // Distinguish the two null cases: a real clash → 409; otherwise either not-found or
+            // an invalid resulting date. Re-check existence to pick the right 4xx.
+            if (conflict) return@put call.respond(HttpStatusCode.Conflict, ErrorResponse("DATE_CONFLICT", "Another holiday already exists on that date"))
+            if (dto == null) {
+                val exists = transaction { !CustomHolidaysTable.selectAll().where { CustomHolidaysTable.id eq id }.empty() }
+                return@put if (exists) call.invalidMonthDay()
+                else call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Custom holiday not found"))
+            }
+            notify()
+            call.respond(dto)
+        }
+
+        delete("/{id}") {
+            val id = call.uuidParam() ?: return@delete
+            val existed = transaction {
+                CustomHolidaysTable.deleteWhere { CustomHolidaysTable.id eq id } > 0
+            }
+            if (!existed) return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Custom holiday not found"))
+            notify()
+            call.respond(HttpStatusCode.NoContent)
+        }
+    }
+}
+
 private fun Route.settingsRoutes(notify: suspend () -> Unit) {
     // Upsert per-person, per-year settings; the row is created on first edit, inheriting
     // the stable fields (Bundesland, allowance, kind-krank cap) from the nearest year so a
@@ -418,10 +494,33 @@ private fun insertKita(date: LocalDate, label: String?): KitaClosureDto {
     return KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.single().toKitaDto()
 }
 
+private fun insertCustomHoliday(month: Int, day: Int, half: Boolean, label: String?): CustomHolidayDto {
+    val id = UUID.randomUUID()
+    CustomHolidaysTable.insert {
+        it[CustomHolidaysTable.id] = id
+        it[CustomHolidaysTable.month] = month
+        it[CustomHolidaysTable.day] = day
+        it[CustomHolidaysTable.half] = half
+        it[CustomHolidaysTable.label] = label?.takeIf { l -> l.isNotBlank() } ?: "Feiertag"
+    }
+    return CustomHolidaysTable.selectAll().where { CustomHolidaysTable.id eq id }.single().toCustomHolidayDto()
+}
+
+// Valid recurring calendar date: month 1..12 and day within that month's length. A leap
+// year (2000) is used so Feb 29 is accepted — the holiday recurs and is valid in leap years.
+private fun isValidMonthDay(month: Int, day: Int): Boolean {
+    if (month !in 1..12) return false
+    val maxDay = runCatching { java.time.YearMonth.of(2000, month).lengthOfMonth() }.getOrElse { return false }
+    return day in 1..maxDay
+}
+
 private fun parseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
 
 private suspend fun ApplicationCall.invalidDate() =
     respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "dates must be in YYYY-MM-DD format"))
+
+private suspend fun ApplicationCall.invalidMonthDay() =
+    respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "month must be 1..12 and day a valid day of that month"))
 
 private suspend fun ApplicationCall.userNotFound() =
     respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "User not found"))
@@ -446,6 +545,14 @@ private fun ResultRow.toKitaDto() = KitaClosureDto(
     id = this[KitaClosuresTable.id].toString(),
     date = this[KitaClosuresTable.date].toString(),
     label = this[KitaClosuresTable.label],
+)
+
+private fun ResultRow.toCustomHolidayDto() = CustomHolidayDto(
+    id = this[CustomHolidaysTable.id].toString(),
+    month = this[CustomHolidaysTable.month],
+    day = this[CustomHolidaysTable.day],
+    half = this[CustomHolidaysTable.half],
+    label = this[CustomHolidaysTable.label],
 )
 
 private fun ResultRow.toSettingsDto() = AbsSettingsDto(

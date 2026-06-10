@@ -434,4 +434,105 @@ class AbsenceRouteTest {
         assertEquals(1, absences.size)
         assertEquals("bob", absences[0].jsonObject["userId"]?.jsonPrimitive?.content)
     }
+
+    // ---------- Custom holidays (#51) ----------
+    // The test DB is built via SchemaUtils (no Flyway), so it starts with no seeded
+    // Heiligabend/Silvester rows — the snapshot's customHolidays begins empty here.
+
+    @Test
+    fun `custom holiday create appears in the snapshot with half flag`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"month":12,"day":24,"half":true,"label":"Heiligabend"}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+
+        val holidays = state(token)["customHolidays"]!!.jsonArray
+        assertEquals(1, holidays.size)
+        val h = holidays[0].jsonObject
+        assertEquals(12, h["month"]?.jsonPrimitive?.int)
+        assertEquals(24, h["day"]?.jsonPrimitive?.int)
+        assertEquals(true, h["half"]?.jsonPrimitive?.boolean)
+        assertEquals("Heiligabend", h["label"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `posting a custom holiday twice on the same date is idempotent`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val body = """{"month":12,"day":31,"half":true,"label":"Silvester"}"""
+        val first = client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(body)
+        }
+        assertEquals(HttpStatusCode.Created, first.status)
+        val second = client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(body)
+        }
+        assertEquals(HttpStatusCode.OK, second.status)
+        assertEquals("Silvester", Json.parseToJsonElement(second.bodyAsText()).jsonObject["label"]?.jsonPrimitive?.content)
+        assertEquals(1, state(token)["customHolidays"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `custom holiday rejects an invalid month or day with 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        for (body in listOf("""{"month":13,"day":1}""", """{"month":0,"day":5}""", """{"month":4,"day":31}""", """{"month":2,"day":30}""")) {
+            val res = client.post("/api/v1/absence/holidays") {
+                bearerAuth(token); contentType(ContentType.Application.Json); setBody(body)
+            }
+            assertEquals(HttpStatusCode.BadRequest, res.status, "body $body should be rejected")
+        }
+        // Feb 29 is allowed — the holiday recurs and is valid in leap years.
+        assertEquals(HttpStatusCode.Created, client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"month":2,"day":29,"label":"Schalttag"}""")
+        }.status)
+        assertTrue(state(token)["customHolidays"]!!.jsonArray.size == 1)
+    }
+
+    @Test
+    fun `custom holiday update toggles half and label, delete removes it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"month":12,"day":24,"half":true,"label":"Heiligabend"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val updated = client.put("/api/v1/absence/holidays/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"half":false,"label":"Ganztag"}""")
+        }
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        assertEquals(false, body["half"]?.jsonPrimitive?.boolean)
+        assertEquals("Ganztag", body["label"]?.jsonPrimitive?.content)
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/absence/holidays/$id") { bearerAuth(token) }.status)
+        assertTrue(state(token)["customHolidays"]!!.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `moving a custom holiday onto an occupied date returns 409`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        suspend fun post(month: Int, day: Int) = client.post("/api/v1/absence/holidays") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"month":$month,"day":$day}""")
+        }
+        post(12, 24)
+        val b = Json.parseToJsonElement(post(12, 31).bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        // Onto B's own date → fine; onto A's date → 409.
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/absence/holidays/$b") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"month":12,"day":31}""")
+        }.status)
+        assertEquals(HttpStatusCode.Conflict, client.put("/api/v1/absence/holidays/$b") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"month":12,"day":24}""")
+        }.status)
+        assertEquals(2, state(token)["customHolidays"]!!.jsonArray.size)
+    }
 }

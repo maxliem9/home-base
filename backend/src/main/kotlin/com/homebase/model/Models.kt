@@ -421,6 +421,21 @@ data class KitaClosureDto(
     val label: String
 )
 
+/**
+ * A household-wide custom holiday (#51), recurring every year on a fixed [month]+[day].
+ * [half] = true marks a half day (½ free; the other half stays a regular work/tracking
+ * day — and counts as 0.5 toward the work target in #31). Heiligabend/Silvester are
+ * seeded as half days; no user/Bundesland — it applies to everyone.
+ */
+@Serializable
+data class CustomHolidayDto(
+    val id: String,
+    val month: Int,
+    val day: Int,
+    val half: Boolean,
+    val label: String
+)
+
 @Serializable
 data class AbsSettingsDto(
     val userId: String,
@@ -439,6 +454,7 @@ data class AbsenceStateDto(
     val absences: List<AbsenceDto>,
     val partTime: List<PartTimeRuleDto>,
     val kitaClosures: List<KitaClosureDto>,
+    val customHolidays: List<CustomHolidayDto>,
     val settings: List<AbsSettingsDto>
 )
 
@@ -491,6 +507,23 @@ data class CreateKitaRangeRequest(
 @Serializable
 data class UpdateKitaRequest(
     val date: String? = null,
+    val label: String? = null
+)
+
+@Serializable
+data class CreateCustomHolidayRequest(
+    val month: Int,
+    val day: Int,
+    val half: Boolean = false,
+    val label: String? = null
+)
+
+/** Full replace of a custom holiday's fields; null = leave that field unchanged. */
+@Serializable
+data class UpdateCustomHolidayRequest(
+    val month: Int? = null,
+    val day: Int? = null,
+    val half: Boolean? = null,
     val label: String? = null
 )
 
