@@ -56,6 +56,26 @@ test.describe('Todos', () => {
     await expect(page.getByText('Alles erledigt')).toHaveCount(0)
   })
 
+  // Regression #61: the server's own TODO_CREATED echo can reach the client
+  // before the REST response is applied (the mock delivers it synchronously via
+  // x-ws-frames-pre). The todo must end up in the state exactly once. The visual
+  // count alone can't catch this — with duplicate ids React collapses the
+  // same-key siblings — so the spec also fails on React's duplicate-key warning,
+  // which fires exactly when the state holds the todo twice.
+  test('does not duplicate a fresh todo when the realtime echo beats the REST response', async ({ page }) => {
+    const dupKeyWarnings: string[] = []
+    page.on('console', (m) => {
+      if (m.text().includes('two children with the same key')) dupKeyWarnings.push(m.text())
+    })
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    await page.getByPlaceholder('Neue Aufgabe in „Haushalt" …').fill('Pflanzen gießen')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+
+    await expect(page.getByText('Pflanzen gießen')).toHaveCount(1)
+    expect(dupKeyWarnings).toHaveLength(0)
+  })
+
   test('plans a todo, assigning it', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)

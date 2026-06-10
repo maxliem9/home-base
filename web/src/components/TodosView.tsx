@@ -194,7 +194,10 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: Todo = await res.json()
-        setTodos((prev) => [created, ...prev])
+        // Dedupe against the WS echo: when TODO_CREATED lands before this REST
+        // response is applied, the todo is already in the list and would show
+        // twice until the next reload (#61).
+        setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
         setNewTitle('')
       } else {
         flashError(errorText(await errorCode(res), t.todos.addFailed))
