@@ -50,10 +50,16 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
         get {
             val username = call.username()
             val query = call.request.queryParameters["q"]?.trim()?.lowercase()
+            // optional exact-match folder filter; blank/missing ⇒ no folder restriction
+            val folder = call.request.queryParameters["folder"]?.trim()?.takeIf { it.isNotEmpty() }
 
             val notes = transaction {
                 val rows = NotesTable.selectAll()
-                    .where { visibleTo(username) }
+                    .where {
+                        var cond = visibleTo(username)
+                        if (folder != null) cond = cond and (NotesTable.folder eq folder)
+                        cond
+                    }
                     .orderBy(NotesTable.updatedAt, SortOrder.DESC)
                     .toList()
                 val imagesByNote = loadImagesFor(rows.map { it[NotesTable.id] })
@@ -91,6 +97,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                     it[title] = req.title
                     it[content] = req.content ?: ""
                     it[tags] = encodeTags(req.tags)
+                    it[folder] = normalizeFolder(req.folder)
                     it[NotesTable.visibility] = visibility
                     it[createdBy] = username
                     it[createdAt] = now
@@ -141,6 +148,9 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                     req.title?.let { v -> it[title] = v }
                     req.content?.let { v -> it[content] = v }
                     req.tags?.let { v -> it[tags] = encodeTags(v) }
+                    // a present folder field updates (blank ⇒ clears to null); omitting it
+                    // (null) leaves the current folder untouched, like content/tags above.
+                    req.folder?.let { v -> it[folder] = normalizeFolder(v) }
                     newVisibility?.let { v -> it[visibility] = v }
                     it[updatedAt] = Instant.now()
                 }
@@ -430,6 +440,11 @@ private suspend fun broadcastUpdate(json: Json, wasShared: Boolean, note: NoteDt
 private fun encodeTags(tags: List<String>?): String =
     tags.orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(",")
 
+// A folder is a trimmed label; blank ⇒ no folder (null), so empty input never
+// creates an empty-string folder that would show up as its own bucket client-side.
+private fun normalizeFolder(folder: String?): String? =
+    folder?.trim()?.takeIf { it.isNotEmpty() }
+
 private fun decodeTags(raw: String): List<String> =
     raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -553,6 +568,7 @@ private fun ResultRow.toDto(images: List<NoteImageDto>) = NoteDto(
     title = this[NotesTable.title],
     content = this[NotesTable.content],
     tags = decodeTags(this[NotesTable.tags]),
+    folder = this[NotesTable.folder],
     visibility = this[NotesTable.visibility],
     images = images,
     createdBy = this[NotesTable.createdBy],

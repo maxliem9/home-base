@@ -138,6 +138,8 @@ object NotesTable : Table("notes") {
     val content = text("content")
     // tags stored as a comma-separated string for portability (Postgres + H2 test DB)
     val tags = text("tags")
+    // single-level folder label (issue #30); NULL = no folder
+    val folder = varchar("folder", 100).nullable()
     val visibility = varchar("visibility", 10)
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")

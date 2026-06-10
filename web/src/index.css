@@ -434,7 +434,7 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-notes-layout > div { min-width: 0; }
 .hb-search input { font-size: 14.5px; }
 .hb-tagrow { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
-.hb-tagchip { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.14s; }
+.hb-tagchip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.14s; }
 .hb-tagchip:hover { border-color: var(--accent); color: var(--ink); }
 .hb-tagchip.is-active { background: var(--accent); border-color: transparent; color: var(--on-accent); }
 .hb-tagchip.is-static { cursor: default; background: var(--surface-2); border-color: transparent; color: var(--ink-2); }
