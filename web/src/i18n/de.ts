@@ -289,7 +289,6 @@ export const de = {
     tab: 'Inbox', // tab label in the todos view
     empty: 'Inbox ist leer',
     emptyHint: 'Füge eine Aufgabe hinzu',
-    newTask: 'Neue Aufgabe',
     quickAddPlaceholder: 'Neue Aufgabe in der Inbox …',
   },
   time: {

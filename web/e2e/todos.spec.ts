@@ -274,12 +274,13 @@ test.describe('Inbox', () => {
     const mock = new MockApi([todo({ id: 't1', title: 'Glühbirnen kaufen' })], [HAUSHALT])
     await openApp(page, mock)
 
-    // the first list is the default tab; the inbox todo is not part of it
-    await expect(page.getByText('Glühbirnen kaufen')).toHaveCount(0)
-
-    // the Inbox tab badge counts the open list-less todos
+    // the Inbox tab badge counts the open list-less todos (asserted first —
+    // it anchors the loaded state before the absence check below)
     const inboxTab = page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' })
     await expect(inboxTab.locator('.hb-tab__count')).toHaveText('1')
+
+    // the first list is the default tab; the inbox todo is not part of it
+    await expect(page.getByText('Glühbirnen kaufen')).toHaveCount(0)
 
     await inboxTab.click()
     await expect(page.getByText('Glühbirnen kaufen')).toBeVisible()

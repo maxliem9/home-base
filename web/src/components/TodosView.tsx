@@ -240,9 +240,11 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
-      // Only sent when a target list was picked (inbox todos, #69) — an absent
-      // listId means "unchanged" on the backend, so list todos stay put.
-      listId: plan.listId || undefined,
+      // Only sent when a target list was picked (inbox todos, #69) AND the todo
+      // is still list-less right now — if the partner moved it into a list while
+      // the modal was open, the stale pick must not overwrite that move. An
+      // absent listId means "unchanged" on the backend, so list todos stay put.
+      listId: plan.listId && !todos.find((x) => x.id === plan.id)?.listId ? plan.listId : undefined,
       // freq "NONE" clears any existing rule; otherwise set/replace it
       recurrence: plan.recurrenceFreq
         ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
