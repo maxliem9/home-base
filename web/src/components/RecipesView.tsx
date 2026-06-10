@@ -12,7 +12,6 @@ const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.l
 
 const CATEGORIES: { id: RecipeCategory; label: string }[] = [
   { id: 'BREAKFAST', label: t.recipes.categories.BREAKFAST },
-  { id: 'LUNCH', label: t.recipes.categories.LUNCH },
   { id: 'DINNER', label: t.recipes.categories.DINNER },
   { id: 'SNACK', label: t.recipes.categories.SNACK },
   { id: 'DESSERT', label: t.recipes.categories.DESSERT },
