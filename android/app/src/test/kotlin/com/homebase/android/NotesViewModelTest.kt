@@ -103,12 +103,28 @@ class NotesViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.saveNote(null, "Neu", "", emptyList(), "SHARED")
+        vm.saveNote(null, "Neu", "", emptyList(), "", "SHARED")
         advanceUntilIdle()
 
         assertEquals(1, vm.uiState.value.notes.size)
         assertEquals("Neu", vm.uiState.value.notes[0].title)
-        coVerify { repository.createNote(CreateNoteRequest("Neu", "", emptyList(), "SHARED")) }
+        // blank folder is sent as "" — the backend trims and maps it to null (mirrors web)
+        coVerify { repository.createNote(CreateNoteRequest("Neu", "", emptyList(), "", "SHARED")) }
+    }
+
+    @Test
+    fun `saveNote carries the trimmed folder on create`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+        val created = note(id = "2", title = "Neu")
+        coEvery { repository.createNote(any()) } returns Result.success(created)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.saveNote(null, "Neu", "", emptyList(), "  Reisen  ", "SHARED")
+        advanceUntilIdle()
+
+        coVerify { repository.createNote(CreateNoteRequest("Neu", "", emptyList(), "Reisen", "SHARED")) }
     }
 
     @Test
@@ -118,7 +134,7 @@ class NotesViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.saveNote(null, "   ", "", emptyList(), "SHARED")
+        vm.saveNote(null, "   ", "", emptyList(), "", "SHARED")
         advanceUntilIdle()
 
         coVerify(exactly = 0) { repository.createNote(any()) }
@@ -134,12 +150,12 @@ class NotesViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.saveNote("1", "Neu", "", emptyList(), "SHARED")
+        vm.saveNote("1", "Neu", "", emptyList(), "", "SHARED")
         advanceUntilIdle()
 
         assertEquals(1, vm.uiState.value.notes.size)
         assertEquals("Neu", vm.uiState.value.notes[0].title)
-        coVerify { repository.updateNote("1", UpdateNoteRequest("Neu", "", emptyList(), "SHARED")) }
+        coVerify { repository.updateNote("1", UpdateNoteRequest("Neu", "", emptyList(), "", "SHARED")) }
     }
 
     @Test

@@ -211,6 +211,9 @@ data class NoteDto(
     val title: String,
     val content: String,
     val tags: List<String> = emptyList(),
+    // single-level folder label (issue #30/#45). The backend omits the key when unset
+    // (encodeDefaults=false), so the default turns a missing key into null.
+    val folder: String? = null,
     val visibility: String,
     val images: List<NoteImageDto> = emptyList(),
     val createdBy: String,
@@ -223,6 +226,8 @@ data class CreateNoteRequest(
     val title: String,
     val content: String? = null,
     val tags: List<String>? = null,
+    // blank ⇒ the backend trims and maps it to null (no folder)
+    val folder: String? = null,
     val visibility: String? = null,
 )
 
@@ -231,6 +236,8 @@ data class UpdateNoteRequest(
     val title: String? = null,
     val content: String? = null,
     val tags: List<String>? = null,
+    // blank ⇒ clears the folder (backend trims and maps blank ⇒ null)
+    val folder: String? = null,
     val visibility: String? = null,
 )
 
