@@ -114,7 +114,8 @@
 .abw-switch__knob { display: block; width: 21px; height: 21px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform 0.16s; }
 .abw-switch.is-on .abw-switch__knob { transform: translateX(19px); }
 
-/* ---------- settings ---------- */
+/* ---------- settings (own page — #43) ---------- */
+.abw-set-page { max-width: 720px; }
 .abw-set-person { padding: 6px 0 18px; border-bottom: 1px solid var(--line-soft); margin-bottom: 10px; }
 .abw-set-person:last-of-type { border-bottom: none; margin-bottom: 0; }
 .abw-set-person__head { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15.5px; margin-bottom: 14px; }

@@ -212,6 +212,18 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     setRangeOpen(true)
   }
 
+  // Settings as its own full-width page (not a modal) — like the time-tracking
+  // project detail (#32, #29). Early-return the settings page instead of the
+  // calendar overview; "‹ Zurück" returns to the calendar.
+  if (showSettings && !loading && userIds.length > 0) {
+    return (
+      <div className="hb-page hb-page--wide">
+        <AbwSettings ctx={ctx} data={data} api={api} userIds={userIds} year={year} onBack={() => setShowSettings(false)} />
+        {errorToast}
+      </div>
+    )
+  }
+
   return (
     <div className="hb-page hb-page--wide">
       <div className="hb-pagehead">
@@ -276,7 +288,6 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
 
       {editDs ? <AbwDayEditor ctx={ctx} ds={editDs} api={api} userIds={userIds} onClose={() => setEditDs(null)} /> : null}
       {rangeOpen ? <AbwRangeModal data={data} api={api} userIds={userIds} prefill={rangePrefill} onClose={() => setRangeOpen(false)} /> : null}
-      {showSettings ? <AbwSettings ctx={ctx} data={data} api={api} userIds={userIds} year={year} onClose={() => setShowSettings(false)} /> : null}
 
       {errorToast}
     </div>
@@ -475,14 +486,14 @@ function AbwRangeModal({ data, api, userIds, prefill, onClose }: {
   )
 }
 
-/* ---------- Settings ---------- */
-function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
+/* ---------- Settings (own page, not a modal — #43) ---------- */
+function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
   ctx: Ctx
   data: AbsenceState
   api: Api
   userIds: string[]
   year: number
-  onClose: () => void
+  onBack: () => void
 }) {
   const num = (v: string, fallback: number): number => {
     const n = parseFloat(String(v).replace(',', '.'))
@@ -496,7 +507,18 @@ function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
   const wd = t.abwesenheit.weekdaysShort
 
   return (
-    <Modal open onClose={onClose} width={620} title={t.abwesenheit.settingsTitle} footer={<Button onClick={onClose}>{t.abwesenheit.done}</Button>}>
+    <>
+      <div className="hb-detailnav">
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t.abwesenheit.backToCalendar}</Button>
+      </div>
+      <div className="hb-pagehead">
+        <div>
+          <div className="hb-pagehead__eyebrow">{t.abwesenheit.eyebrow}</div>
+          <h1>{t.abwesenheit.settingsTitle}</h1>
+        </div>
+      </div>
+
+      <Card className="hb-card--pad abw-set-page">
       {userIds.map((uid) => {
         const s = ctx.settings[uid]
         const rules = data.partTime.filter((r) => r.userId === uid)
@@ -576,6 +598,7 @@ function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
           <div className="hb-muted abw-set-kita__hint">{t.abwesenheit.kitaRangeHint}</div>
         </div>
       </div>
-    </Modal>
+      </Card>
+    </>
   )
 }
