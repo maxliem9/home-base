@@ -511,7 +511,10 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-projcard__statbtn span { transition: color 0.12s; }
 .hb-projcard__statbtn:hover, .hb-projcard__statbtn:hover span { color: var(--accent-ink); }
 
-/* project detail modal */
+/* project detail page (#32: was a modal, now a full-width sub-view) */
+.hb-detailnav { margin-bottom: 10px; }
+.hb-projhead { display: flex; align-items: center; gap: 10px; margin: -14px 0 22px; }
+.hb-detailpage { display: flex; flex-direction: column; gap: 18px; }
 .hb-detail-stats { display: flex; gap: 10px; flex-wrap: wrap; }
 .hb-detail-h { margin-top: 4px; }
 .hb-detail-users { display: flex; flex-wrap: wrap; gap: 10px; }

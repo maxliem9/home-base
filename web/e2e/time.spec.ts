@@ -118,7 +118,7 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toBeVisible()
   })
 
-  test('opens the project detail with totals', async ({ page }) => {
+  test('opens the project detail page with totals and returns to the overview', async ({ page }) => {
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       .seedEntries([
@@ -126,11 +126,17 @@ test.describe('Time tracking', () => {
       ])
     await openTime(page, mock)
 
-    // the project-name button opens the detail (exact: avoids matching "Bearbeiten")
+    // the project-name button opens the detail as its own page, not a modal (#32):
+    // the project name becomes the page heading and no modal layer is present.
     await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
-    const modal = page.locator('.hb-modal')
-    await expect(modal).toBeVisible()
-    await expect(modal).toContainText('2 Std 0 Min') // total
+    await expect(page.getByRole('heading', { name: 'Arbeit' })).toBeVisible()
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(page.locator('.hb-detailpage')).toContainText('2 Std 0 Min') // total
+
+    // the back button returns to the projects overview
+    await page.getByRole('button', { name: 'Zurück' }).click()
+    await expect(page.getByRole('heading', { name: 'Zeiterfassung' })).toBeVisible()
+    await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toBeVisible()
   })
 
   test('exports entries as a CSV download with the server-supplied filename', async ({ page }) => {

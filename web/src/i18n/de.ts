@@ -300,6 +300,7 @@ export const de = {
     total: 'gesamt',
     noDescription: 'ohne Beschreibung',
     viewDetails: 'Details ansehen',
+    backToOverview: 'Zurück',
     detailTotal: 'Gesamt',
     detailEntries: 'Einträge',
     detailAvg: 'ø pro Eintrag',

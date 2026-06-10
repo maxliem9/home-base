@@ -336,6 +336,54 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
 
   const runningProject = running ? projectsById[running.projectId] : undefined
 
+  // The currently shown detail project, re-read from the live list so its name/color
+  // stay in sync after an edit; falls back to the captured snapshot if it was archived
+  // away or deleted while open.
+  const detailLive = detailProject ? (projectsById[detailProject.id] ?? detailProject) : null
+
+  // Shared modals — rendered in BOTH the overview and the project-detail page so the
+  // entry-edit modal opens over a single layer (the detail used to be a modal itself,
+  // stacking two modals and burying this one behind it — issue #32).
+  const sharedModals = (
+    <>
+      {editEntry && (
+        <EditEntryModal
+          key={editEntry.id}
+          entry={editEntry}
+          projects={projects}
+          onSave={updateEntry}
+          onClose={() => setEditEntry(null)}
+        />
+      )}
+
+      {toast && (
+        <div className="hb-toast hb-toast--error" role="alert">
+          <Icon name="x" size={18} stroke={2.4} />
+          {toast}
+        </div>
+      )}
+    </>
+  )
+
+  // Project detail as its own full-width page (not a modal) — the entry-edit modal
+  // then opens over a normal page instead of behind a second modal layer (#32, #29).
+  if (detailLive) {
+    return (
+      <div className="hb-page">
+        <ProjectDetail
+          project={detailLive}
+          entries={entries}
+          projectsById={projectsById}
+          me={me}
+          onDelete={deleteEntry}
+          onEdit={setEditEntry}
+          onBack={() => setDetailProject(null)}
+        />
+        {sharedModals}
+      </div>
+    )
+  }
+
   return (
     <div className="hb-page">
       <PageHead
@@ -525,38 +573,11 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
 
-      {editEntry && (
-        <EditEntryModal
-          key={editEntry.id}
-          entry={editEntry}
-          projects={projects}
-          onSave={updateEntry}
-          onClose={() => setEditEntry(null)}
-        />
-      )}
-
       {showExport && (
         <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
       )}
 
-      {detailProject && (
-        <ProjectDetail
-          project={detailProject}
-          entries={entries}
-          projectsById={projectsById}
-          me={me}
-          onDelete={deleteEntry}
-          onEdit={setEditEntry}
-          onClose={() => setDetailProject(null)}
-        />
-      )}
-
-      {toast && (
-        <div className="hb-toast hb-toast--error" role="alert">
-          <Icon name="x" size={18} stroke={2.4} />
-          {toast}
-        </div>
-      )}
+      {sharedModals}
     </div>
   )
 }
@@ -715,14 +736,14 @@ interface WeekBucket {
   byUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onClose }: {
+function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onBack }: {
   project: Project
   entries: TimeEntry[]
   projectsById: Record<string, Project>
   me: string | null
   onDelete: (id: string) => void
   onEdit: (entry: TimeEntry) => void
-  onClose: () => void
+  onBack: () => void
 }) {
   const projEntries = useMemo(
     () =>
@@ -759,71 +780,75 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, o
   const avgSeconds = projEntries.length ? totalSeconds / projEntries.length : 0
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      width={660}
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 11 }}>
-          <span className="hb-pdot" style={{ background: project.color, width: 14, height: 14 }} />
-          {project.name}
-        </span>
-      }
-    >
-      <div className="hb-detail-stats">
-        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(totalSeconds)}</span><span className="hb-fact__l">{t.time.detailTotal}</span></div>
-        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(thisWeekSeconds)}</span><span className="hb-fact__l">{t.time.thisWeek}</span></div>
-        <div className="hb-fact"><span className="hb-fact__v hb-mono">{projEntries.length}</span><span className="hb-fact__l">{t.time.detailEntries}</span></div>
-        <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(avgSeconds)}</span><span className="hb-fact__l">{t.time.detailAvg}</span></div>
+    <>
+      <div className="hb-detailnav">
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t.time.backToOverview}</Button>
+      </div>
+      <PageHead
+        eyebrow={t.time.projectsLabel}
+        title={project.name}
+      />
+      <div className="hb-projhead">
+        <span className="hb-pdot" style={{ background: project.color, width: 16, height: 16 }} />
+        {project.archived && <span className="hb-muted">{t.time.archivedSection}</span>}
       </div>
 
-      {userIds.length > 1 && (
-        <div className="hb-detail-users">
-          {userIds.map((uid) => (
-            <div key={uid} className="hb-detail-user">
-              <Avatar user={uid} size={26} />
-              <span className="hb-detail-user__name">{userMeta(uid)?.name ?? uid}</span>
-              <span className="hb-mono hb-detail-user__ms">{fmtDurationShort(byUser[uid])}</span>
-            </div>
-          ))}
+      <Card className="hb-card--pad hb-detailpage">
+        <div className="hb-detail-stats">
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(totalSeconds)}</span><span className="hb-fact__l">{t.time.detailTotal}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(thisWeekSeconds)}</span><span className="hb-fact__l">{t.time.thisWeek}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{projEntries.length}</span><span className="hb-fact__l">{t.time.detailEntries}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(avgSeconds)}</span><span className="hb-fact__l">{t.time.detailAvg}</span></div>
         </div>
-      )}
 
-      {projEntries.length === 0 ? (
-        <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.detailEmptyHint} />
-      ) : (
-        <>
-          <div className="hb-sectionlabel hb-detail-h">{t.time.perWeek}</div>
-          <div className="hb-weeklist">
-            {weeks.map((w) => (
-              <div key={w.key} className="hb-weekrow">
-                <div className="hb-weekrow__head">
-                  <span className="hb-weekrow__label">{w.label ?? w.range}</span>
-                  {w.label && <span className="hb-weekrow__range">{w.range}</span>}
-                  <span className="hb-weekrow__ms hb-mono">{fmtDurationShort(w.seconds)}</span>
-                </div>
-                <div className="hb-weekbar">
-                  {userIds.map((uid) =>
-                    w.byUser[uid] ? (
-                      <span
-                        key={uid}
-                        className="hb-weekbar__seg"
-                        style={{ width: `${(w.byUser[uid] / maxWeekSeconds) * 100}%`, background: `oklch(0.62 0.1 ${userMeta(uid)?.hue ?? 150})` }}
-                        title={`${userMeta(uid)?.name ?? uid}: ${fmtDurationShort(w.byUser[uid])}`}
-                      />
-                    ) : null,
-                  )}
-                </div>
-                <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t.time.entryOne : t.time.entryMany}</div>
+        {userIds.length > 1 && (
+          <div className="hb-detail-users">
+            {userIds.map((uid) => (
+              <div key={uid} className="hb-detail-user">
+                <Avatar user={uid} size={26} />
+                <span className="hb-detail-user__name">{userMeta(uid)?.name ?? uid}</span>
+                <span className="hb-mono hb-detail-user__ms">{fmtDurationShort(byUser[uid])}</span>
               </div>
             ))}
           </div>
+        )}
 
-          <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
-          <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} showProject={false} />
-        </>
-      )}
-    </Modal>
+        {projEntries.length === 0 ? (
+          <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.detailEmptyHint} />
+        ) : (
+          <>
+            <div className="hb-sectionlabel hb-detail-h">{t.time.perWeek}</div>
+            <div className="hb-weeklist">
+              {weeks.map((w) => (
+                <div key={w.key} className="hb-weekrow">
+                  <div className="hb-weekrow__head">
+                    <span className="hb-weekrow__label">{w.label ?? w.range}</span>
+                    {w.label && <span className="hb-weekrow__range">{w.range}</span>}
+                    <span className="hb-weekrow__ms hb-mono">{fmtDurationShort(w.seconds)}</span>
+                  </div>
+                  <div className="hb-weekbar">
+                    {userIds.map((uid) =>
+                      w.byUser[uid] ? (
+                        <span
+                          key={uid}
+                          className="hb-weekbar__seg"
+                          style={{ width: `${(w.byUser[uid] / maxWeekSeconds) * 100}%`, background: `oklch(0.62 0.1 ${userMeta(uid)?.hue ?? 150})` }}
+                          title={`${userMeta(uid)?.name ?? uid}: ${fmtDurationShort(w.byUser[uid])}`}
+                        />
+                      ) : null,
+                    )}
+                  </div>
+                  <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t.time.entryOne : t.time.entryMany}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
+            <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} showProject={false} />
+          </>
+        )}
+      </Card>
+    </>
   )
 }
 
