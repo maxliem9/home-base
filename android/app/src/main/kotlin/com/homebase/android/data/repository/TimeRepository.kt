@@ -6,10 +6,13 @@ import com.homebase.android.data.model.CreateProjectRequest
 import com.homebase.android.data.model.CreateTimeEntryRequest
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.StartTimerRequest
+import com.homebase.android.data.model.TimeForecastDto
+import com.homebase.android.data.model.UpsertWorkTargetRequest
 import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.model.StopTimerRequest
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONObject
@@ -62,6 +65,21 @@ class TimeRepository(
         }
 
     suspend fun deleteEntry(id: String): Result<Unit> = runCatching { api.deleteTimeEntry(id) }
+
+    // --- Wochensoll & Forecast (#31 / #55) ---
+
+    suspend fun getForecast(): Result<TimeForecastDto> = runCatching { api.getTimeForecast() }
+
+    suspend fun getTargets(): Result<List<WorkTargetDto>> = runCatching { api.getWorkTargets() }
+
+    /** Household-shared upsert: `userId` is the target person, not the caller. */
+    suspend fun upsertTarget(
+        userId: String,
+        projectId: String,
+        weeklyHours: Double? = null,
+        isDefault: Boolean? = null,
+    ): Result<WorkTargetDto> =
+        runCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault)) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

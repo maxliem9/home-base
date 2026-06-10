@@ -14,13 +14,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,6 +46,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -51,6 +57,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
+import com.homebase.android.data.model.UserForecastDto
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBottomSheet
@@ -81,6 +89,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------
 // Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
@@ -93,6 +102,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showNewProject by remember { mutableStateOf(false) }
+    var showTargets by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
     var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     // Cross-person action awaiting confirmation (partner's timer, #142).
@@ -100,6 +110,15 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 
     val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
     val entriesByProject = remember(state.entries) { state.entries.groupBy { it.projectId } }
+
+    // Projects offered in the targets sheet (#55): the active ones plus archived
+    // projects that still carry a target (hours or default) — otherwise an archived
+    // project's Wochensoll would become invisible and uneditable.
+    val targetProjects = remember(state.projects, state.targets) {
+        state.projects.filter { p ->
+            !p.archived || state.targets.any { it.projectId == p.id && (it.weeklyHours > 0 || it.isDefault) }
+        }
+    }
 
     // Active projects first, then archived (shown only when the archive toggle is on).
     var showArchived by remember { mutableStateOf(false) }
@@ -118,7 +137,8 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     eyebrow = "Zeiterfassung",
                     title = "Zeit",
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.more, {}) },
+                    // Wochensoll konfigurieren (#55) — entry point even before any target exists.
+                    actions = { HbIconButton(HbIcons.settings, { showTargets = true }) },
                 )
             },
             fab = { HbFab(onClick = { showNewProject = true }, label = "Projekt") },
@@ -130,6 +150,8 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     RunningHero(
                         running = running,
                         project = projectsById[running.projectId],
+                        // forecast ETA (#31/#55) — only with a configured Wochensoll
+                        eta = state.forecastFor(running.userId)?.expectedEndAt,
                         onStop = { viewModel.stopTimer() },
                         onEdit = { editEntry = running },
                     )
@@ -152,11 +174,23 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                             running = state.othersRunning.firstOrNull { it.userId == user },
                             projectsById = projectsById,
                             projects = state.activeProjects,
+                            eta = state.forecastFor(user)?.expectedEndAt,
                             onStop = { pendingConfirm = HbConfirm("Timer von ${displayName(user)} stoppen?") { viewModel.stopTimer(user) } },
                             onStart = { pid -> pendingConfirm = HbConfirm("Timer für ${displayName(user)} starten?") { viewModel.startTimer(pid, null, user) } },
                         )
                     }
                 }
+            }
+
+            // --- Wochensoll (#31/#55): per-person week balance — only once a target exists ---
+            if (state.weekUsers.isNotEmpty()) {
+                Spacer(Modifier.size(12.dp))
+                WeekTargetsCard(
+                    users = state.weekUsers,
+                    projectsById = projectsById,
+                    onConfigure = { showTargets = true },
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
             }
 
             Spacer(Modifier.size(22.dp))
@@ -261,6 +295,19 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
             )
         }
 
+        if (showTargets) {
+            TargetsSheet(
+                users = state.users,
+                projects = targetProjects,
+                targets = state.targets,
+                onSave = { changes ->
+                    viewModel.saveTargets(changes)
+                    showTargets = false
+                },
+                onDismiss = { showTargets = false },
+            )
+        }
+
         if (detailProject != null) {
             ProjectDetailSheet(
                 project = detailProject,
@@ -310,7 +357,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () -> Unit, onEdit: () -> Unit) {
+private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String?, onStop: () -> Unit, onEdit: () -> Unit) {
     val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
             value = Format.elapsedSeconds(running.startedAt)
@@ -370,8 +417,21 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, onStop: () 
             Format.clock(elapsed),
             style = HbType.mono(46.0),
             color = Hb.ink,
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier.padding(top = 16.dp, bottom = if (eta != null) 4.dp else 16.dp),
         )
+        // "Voraussichtlich fertig um 16:32" under the live clock; flips to "Tagessoll
+        // erreicht" once the projected end has passed (#31/#55). expectedEndAt is a
+        // stable anchor — the per-second `elapsed` tick above already recomposes us,
+        // so the flip needs no own ticker.
+        if (eta != null) {
+            val reached = Format.parseInstant(eta)?.isAfter(Instant.now()) == false
+            Text(
+                if (reached) "Tagessoll erreicht" else "Voraussichtlich fertig um ${Format.clockOfDay(eta)}",
+                style = HbType.meta,
+                color = Hb.ink3,
+                modifier = Modifier.padding(bottom = 14.dp),
+            )
+        }
         HbButton(
             "Timer stoppen",
             onClick = onStop,
@@ -421,6 +481,7 @@ private fun PartnerTimerCard(
     running: TimeEntryDto?,
     projectsById: Map<String, ProjectDto>,
     projects: List<ProjectDto>,
+    eta: String?,
     onStop: () -> Unit,
     onStart: (String) -> Unit,
 ) {
@@ -448,7 +509,12 @@ private fun PartnerTimerCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        listOfNotNull(displayName(user), running.description?.takeIf { it.isNotBlank() }).joinToString(" · "),
+                        listOfNotNull(
+                            displayName(user),
+                            running.description?.takeIf { it.isNotBlank() },
+                            // compact forecast suffix (#31/#55), e.g. "bis ca. 16:32"
+                            Format.etaShortLabel(eta),
+                        ).joinToString(" · "),
                         style = HbType.meta,
                         color = Hb.ink3,
                         maxLines = 1,
@@ -509,6 +575,288 @@ private fun PartnerTimerCard(
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wochensoll (#31/#55) — week-balance card (.hb-weektargets) and targets sheet
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun WeekTargetsCard(
+    users: List<UserForecastDto>,
+    projectsById: Map<String, ProjectDto>,
+    onConfigure: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
+            .clip(HbRadius)
+            .background(Hb.surface)
+            .border(1.dp, Hb.lineSoft, HbRadius)
+            .padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 18.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Wochensoll", style = HbType.cardTitle, color = Hb.ink, modifier = Modifier.weight(1f))
+            HbIconButton(HbIcons.settings, onConfigure, tint = Hb.ink3, iconSize = 19.dp)
+        }
+        Column(
+            Modifier.padding(end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            users.forEach { WeekBalanceBlock(it, projectsById) }
+        }
+    }
+}
+
+/**
+ * One person's week balance: Soll/Ist row with progress bar, today's redistributed
+ * target, credits and the per-project saldo for projects with a target.
+ */
+@Composable
+private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, ProjectDto>) {
+    val done = u.weekRecordedSeconds + u.weekCreditedSeconds
+    val frac = if (u.weekTargetSeconds > 0) (done.toFloat() / u.weekTargetSeconds.toFloat()).coerceIn(0f, 1f) else 0f
+    val weekOver = u.weekRemainingSeconds < 0
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // head: avatar + name + "22:00 / 42:00" + "noch 20:00"/"+1:30"
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HbAvatar(u.userId, size = 24.dp)
+            Text(
+                displayName(u.userId),
+                style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${Format.hoursMinutes(done)} / ${Format.hoursMinutes(u.weekTargetSeconds)}",
+                style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+            )
+            Text(
+                if (weekOver) "+${Format.hoursMinutes(-u.weekRemainingSeconds)}"
+                else "noch ${Format.hoursMinutes(u.weekRemainingSeconds)}",
+                style = HbType.meta.copy(fontWeight = if (weekOver) FontWeight.SemiBold else FontWeight.Normal),
+                color = if (weekOver) Hb.accentInk else Hb.ink3,
+            )
+        }
+        // progress bar (.hb-weekbar)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(HbPill)
+                .background(Hb.surface2, HbPill),
+        ) {
+            if (frac > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(frac)
+                        .fillMaxHeight()
+                        .clip(HbPill)
+                        .background(Hb.userColor(u.userId)),
+                )
+            }
+        }
+        // today's redistributed target + credits
+        val todayLine = when {
+            u.todayRemainingSeconds >= 60 -> "Heute noch ${Format.hoursMinutes(u.todayRemainingSeconds)}"
+            u.todayRemainingSeconds <= -60 -> "Heute ${Format.hoursMinutes(-u.todayRemainingSeconds)} über Soll"
+            else -> "Tagessoll erreicht"
+        }
+        val credits = if (u.weekCreditedSeconds > 0) " · ${Format.hoursMinutes(u.weekCreditedSeconds)} gutgeschrieben" else ""
+        Text(todayLine + credits, style = HbType.meta, color = Hb.ink3)
+        // per-project saldi — deliberately a soll view: projects with recorded time but no target stay out
+        val projects = u.projects.filter { it.weeklyHours > 0 }
+        if (projects.isNotEmpty()) {
+            Column(Modifier.padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                projects.forEach { p ->
+                    val proj = projectsById[p.projectId]
+                    val ahead = p.deltaSeconds >= 0
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Box(
+                            Modifier
+                                .size(9.dp)
+                                .clip(HbPill)
+                                .background(if (proj != null) Format.parseColor(proj.color) else Hb.ink3),
+                        )
+                        Text(
+                            proj?.name ?: "Projekt",
+                            style = HbType.meta,
+                            color = Hb.ink2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "${Format.hoursMinutes(p.recordedSeconds + p.creditedSeconds)} / ${Format.hoursMinutes((p.weeklyHours * 3600).roundToLong())}",
+                            style = HbType.mono.copy(fontSize = 12.5.sp),
+                            color = Hb.ink3,
+                        )
+                        Text(
+                            if (p.deltaSeconds < 0) "-${Format.hoursMinutes(-p.deltaSeconds)}"
+                            else "+${Format.hoursMinutes(p.deltaSeconds)}",
+                            style = HbType.meta.copy(fontWeight = if (ahead) FontWeight.SemiBold else FontWeight.Normal),
+                            color = if (ahead) Hb.accentInk else Hb.ink3,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.widthIn(min = 52.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Wochensoll configuration (#55): weekly hours per person × project plus the person's
+ * default project (absence/holiday credits are booked there). Saving emits only the
+ * changed cells; the household may edit either person (like the absence planner, #127).
+ */
+@Composable
+private fun TargetsSheet(
+    users: List<String>,
+    projects: List<ProjectDto>,
+    targets: List<WorkTargetDto>,
+    onSave: (List<TargetChange>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    fun targetFor(u: String, p: String) = targets.firstOrNull { it.userId == u && it.projectId == p }
+    fun defaultFor(u: String) = targets.firstOrNull { it.userId == u && it.isDefault }?.projectId ?: ""
+
+    // user → projectId → hours text ("7,5"); user → default projectId
+    // ("" only for legacy data without one — hours > 0 enforce a default, #59)
+    var hours by remember {
+        mutableStateOf(
+            users.associateWith { u ->
+                projects.associate { p ->
+                    val h = targetFor(u, p.id)?.weeklyHours ?: 0.0
+                    p.id to if (h > 0) Format.amount(h).replace('.', ',') else ""
+                }
+            }
+        )
+    }
+    var defaults by remember { mutableStateOf(users.associateWith { defaultFor(it) }) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Wochensoll konfigurieren",
+        full = true,
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Speichern",
+                onClick = {
+                    // validate every cell, then collect only the changed ones (mirrors the web modal)
+                    val changes = mutableListOf<TargetChange>()
+                    for (u in users) {
+                        var sumHours = 0.0
+                        for (p in projects) {
+                            val raw = hours[u]?.get(p.id).orEmpty().trim()
+                            val parsed = if (raw.isEmpty()) 0.0 else raw.replace(',', '.').toDoubleOrNull()
+                            if (parsed == null || !parsed.isFinite() || parsed < 0 || parsed > 168) {
+                                error = "Stunden müssen zwischen 0 und 168 liegen"
+                                return@HbButton
+                            }
+                            sumHours += parsed
+                            var change = TargetChange(u, p.id)
+                            if (parsed != (targetFor(u, p.id)?.weeklyHours ?: 0.0)) {
+                                change = change.copy(weeklyHours = parsed)
+                            }
+                            // setting the new default clears the old one server-side; isDefault=false
+                            // is never sent — hours > 0 require a default (#59, 409 DEFAULT_REQUIRED)
+                            if (defaults[u] != defaultFor(u) && defaults[u] == p.id) {
+                                change = change.copy(isDefault = true)
+                            }
+                            if (change.weeklyHours != null || change.isDefault != null) changes += change
+                        }
+                        // hours > 0 ⇒ a default project must be chosen (#59); auto-select normally
+                        // covers this — backstop for legacy data without a default
+                        if (sumHours > 0 && (defaults[u] ?: "").isEmpty()) {
+                            error = "Bitte ein Standard-Projekt wählen"
+                            return@HbButton
+                        }
+                    }
+                    onSave(changes)
+                },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        Text(
+            "Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.",
+            style = HbType.meta,
+            color = Hb.ink3,
+        )
+        if (projects.isEmpty()) {
+            Text("Lege zuerst ein Projekt an.", style = HbType.meta, color = Hb.ink3)
+        } else {
+            users.forEach { user ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HbAvatar(user, size = 22.dp)
+                        Text(displayName(user).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+                    }
+                    // column headers
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Projekt", style = HbType.small, color = Hb.ink3, modifier = Modifier.weight(1f))
+                        Text("Std/Woche", style = HbType.small, color = Hb.ink3, modifier = Modifier.width(86.dp))
+                        Text("Standard", style = HbType.small, color = Hb.ink3)
+                    }
+                    projects.forEach { p ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Box(Modifier.size(10.dp).clip(HbPill).background(Format.parseColor(p.color)))
+                                Text(
+                                    if (p.archived) "${p.name} (Archiviert)" else p.name,
+                                    style = HbType.body.copy(fontSize = 14.sp),
+                                    color = if (p.archived) Hb.ink3 else Hb.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            HbTextField(
+                                value = hours[user]?.get(p.id).orEmpty(),
+                                onValueChange = { v ->
+                                    hours = hours + (user to (hours[user].orEmpty() + (p.id to v)))
+                                    // hours > 0 require a default project (#59) — the person's first
+                                    // hours auto-select this project (never steals an existing default)
+                                    if ((defaults[user] ?: "").isEmpty() &&
+                                        (v.trim().replace(',', '.').toDoubleOrNull() ?: 0.0) > 0
+                                    ) {
+                                        defaults = defaults + (user to p.id)
+                                    }
+                                },
+                                modifier = Modifier.width(86.dp),
+                                placeholder = "0",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            )
+                            RadioButton(
+                                selected = defaults[user] == p.id,
+                                onClick = { defaults = defaults + (user to p.id) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Hb.accent, unselectedColor = Hb.ink3),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
     }
 }
 

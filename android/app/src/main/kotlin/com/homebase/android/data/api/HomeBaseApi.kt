@@ -149,6 +149,22 @@ interface HomeBaseApi {
     @DELETE("time/entries/{id}")
     suspend fun deleteTimeEntry(@Path("id") id: String)
 
+    // --- Wochensoll & Forecast (#31 / #55) ---
+
+    @GET("time/forecast")
+    suspend fun getTimeForecast(): TimeForecastDto
+
+    @GET("time/targets")
+    suspend fun getWorkTargets(): List<WorkTargetDto>
+
+    // Household-shared: either user may configure either person (userId = target person).
+    @PUT("time/targets/{userId}/{projectId}")
+    suspend fun upsertWorkTarget(
+        @Path("userId") userId: String,
+        @Path("projectId") projectId: String,
+        @Body request: UpsertWorkTargetRequest,
+    ): WorkTargetDto
+
     // --- Recipes ---
 
     @GET("recipes")

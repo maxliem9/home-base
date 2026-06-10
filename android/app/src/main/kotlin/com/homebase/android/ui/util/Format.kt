@@ -125,6 +125,24 @@ object Format {
         }
     }
 
+    /**
+     * Compact "h:mm" for Wochensoll Soll/Ist figures (e.g. "38:00", "7:30") — mirrors
+     * the web's hm() incl. rounding to the nearest minute; negative input is clamped.
+     */
+    fun hoursMinutes(totalSeconds: Long): String {
+        val totalMin = (totalSeconds.coerceAtLeast(0) + 30) / 60
+        return "%d:%02d".format(totalMin / 60, totalMin % 60)
+    }
+
+    /**
+     * Compact forecast suffix at a running timer (#31/#55): "bis ca. 16:32", or
+     * "Soll erreicht" once the projected end has passed. Null without a forecast.
+     */
+    fun etaShortLabel(expectedEndAt: String?, now: Instant = Instant.now()): String? {
+        val end = parseInstant(expectedEndAt) ?: return null
+        return if (end.isAfter(now)) "bis ca. ${clockOfDay(expectedEndAt)}" else "Soll erreicht"
+    }
+
     /** Live elapsed seconds since [startedAtIso]. */
     fun elapsedSeconds(startedAtIso: String?, now: Instant = Instant.now()): Long {
         val start = parseInstant(startedAtIso) ?: return 0L

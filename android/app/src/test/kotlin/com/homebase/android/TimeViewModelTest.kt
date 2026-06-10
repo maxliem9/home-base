@@ -2,10 +2,14 @@ package com.homebase.android
 
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.UserDto
+import com.homebase.android.data.model.UserForecastDto
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
+import com.homebase.android.ui.time.TargetChange
 import com.homebase.android.ui.time.TimeViewModel
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -43,6 +47,27 @@ class TimeViewModelTest {
         createdAt = "2026-06-03T08:00:00Z", updatedAt = "2026-06-03T09:00:00Z",
     )
 
+    private fun userForecast(
+        userId: String = "alice",
+        weekTargetSeconds: Long = 144_000, // 40h
+        expectedEndAt: String? = null,
+    ) = UserForecastDto(
+        userId = userId,
+        weeklyTargetHours = weekTargetSeconds / 3600.0,
+        workdayCount = 5.0,
+        weekTargetSeconds = weekTargetSeconds,
+        weekRecordedSeconds = 0,
+        weekCreditedSeconds = 0,
+        weekRemainingSeconds = weekTargetSeconds,
+        todayTargetSeconds = weekTargetSeconds / 5,
+        todayRecordedSeconds = 0,
+        todayRemainingSeconds = weekTargetSeconds / 5,
+        expectedEndAt = expectedEndAt,
+    )
+
+    private fun forecast(users: List<UserForecastDto> = emptyList()) =
+        TimeForecastDto(date = "2026-06-10", weekStart = "2026-06-08", users = users)
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
@@ -53,6 +78,9 @@ class TimeViewModelTest {
         // #142 added a users fetch to load(); stub it so the relaxed mock doesn't
         // return a bad default that breaks every test at construction time.
         coEvery { repository.getUsers() } returns Result.success(emptyList<UserDto>())
+        // #55 added forecast + targets fetches to load() — same reasoning.
+        coEvery { repository.getForecast() } returns Result.success(forecast())
+        coEvery { repository.getTargets() } returns Result.success(emptyList())
     }
 
     @After
@@ -258,5 +286,145 @@ class TimeViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Neu", vm.uiState.value.projects[0].name)
+    }
+
+    // --- Wochensoll & Forecast (#31/#55) ---
+
+    @Test
+    fun `initial load populates forecast and targets`() = runTest {
+        coEvery { repository.getForecast() } returns Result.success(forecast(listOf(userForecast("alice"))))
+        coEvery { repository.getTargets() } returns
+            Result.success(listOf(WorkTargetDto("alice", "p1", 40.0, true)))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals("2026-06-08", vm.uiState.value.forecast?.weekStart)
+        assertEquals(1, vm.uiState.value.targets.size)
+    }
+
+    @Test
+    fun `forecast and targets failures stay silent (non-critical reads)`() = runTest {
+        coEvery { repository.getForecast() } returns Result.failure(RuntimeException("down"))
+        coEvery { repository.getTargets() } returns Result.failure(RuntimeException("down"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.error)
+        assertNull(vm.uiState.value.forecast)
+        assertTrue(vm.uiState.value.targets.isEmpty())
+        assertTrue(vm.uiState.value.weekUsers.isEmpty())
+    }
+
+    @Test
+    fun `weekUsers and forecastFor only include people with a weekly target`() = runTest {
+        coEvery { repository.getForecast() } returns Result.success(
+            forecast(listOf(userForecast("alice", weekTargetSeconds = 144_000), userForecast("bob", weekTargetSeconds = 0)))
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals(listOf("alice"), vm.uiState.value.weekUsers.map { it.userId })
+        assertNotNull(vm.uiState.value.forecastFor("alice"))
+        assertNull(vm.uiState.value.forecastFor("bob"))
+        assertNull(vm.uiState.value.forecastFor(null))
+    }
+
+    @Test
+    fun `entry WS event reloads the forecast`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+        coEvery { repository.getForecast() } returns
+            Result.success(forecast(listOf(userForecast("alice", expectedEndAt = "2026-06-10T15:30:00Z"))))
+
+        wsEvents.emit(TimeWebSocketClient.WsEvent.EntryCreated(entry(id = "ws-1", stoppedAt = null, durationSeconds = null)))
+        advanceUntilIdle()
+
+        assertEquals("2026-06-10T15:30:00Z", vm.uiState.value.forecastFor("alice")?.expectedEndAt)
+    }
+
+    @Test
+    fun `TARGET_UPDATED refetches targets and forecast`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+        val target = WorkTargetDto("alice", "p1", 38.0, true)
+        coEvery { repository.getTargets() } returns Result.success(listOf(target))
+        coEvery { repository.getForecast() } returns Result.success(forecast(listOf(userForecast("alice"))))
+
+        wsEvents.emit(TimeWebSocketClient.WsEvent.TargetUpdated(target))
+        advanceUntilIdle()
+
+        assertEquals(listOf(target), vm.uiState.value.targets)
+        assertEquals(1, vm.uiState.value.weekUsers.size)
+    }
+
+    @Test
+    fun `stopTimer refreshes the forecast without waiting for the WS echo`() = runTest {
+        val open = entry(id = "open", stoppedAt = null, durationSeconds = null)
+        coEvery { repository.getEntries() } returns Result.success(listOf(open))
+        coEvery { repository.stopTimer() } returns Result.success(open.copy(stoppedAt = "2026-06-03T09:00:00Z", durationSeconds = 3600))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.stopTimer()
+        advanceUntilIdle()
+
+        // once in load(), once after the stop succeeded
+        coVerify(exactly = 2) { repository.getForecast() }
+    }
+
+    @Test
+    fun `saveTargets PUTs each change and refetches targets and forecast`() = runTest {
+        coEvery { repository.upsertTarget("alice", "p1", 38.0, null) } returns
+            Result.success(WorkTargetDto("alice", "p1", 38.0, false))
+        coEvery { repository.upsertTarget("bob", "p1", null, true) } returns
+            Result.success(WorkTargetDto("bob", "p1", 0.0, true))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        coEvery { repository.getTargets() } returns Result.success(
+            listOf(WorkTargetDto("alice", "p1", 38.0, false), WorkTargetDto("bob", "p1", 0.0, true))
+        )
+
+        vm.saveTargets(
+            listOf(
+                TargetChange("alice", "p1", weeklyHours = 38.0),
+                TargetChange("bob", "p1", isDefault = true),
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify { repository.upsertTarget("alice", "p1", 38.0, null) }
+        coVerify { repository.upsertTarget("bob", "p1", null, true) }
+        assertEquals(2, vm.uiState.value.targets.size)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `saveTargets with no changes does nothing`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.saveTargets(emptyList())
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.upsertTarget(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `saveTargets failure surfaces German error`() = runTest {
+        coEvery { repository.upsertTarget(any(), any(), any(), any()) } returns
+            Result.failure(RuntimeException("boom"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.saveTargets(listOf(TargetChange("alice", "p1", weeklyHours = 10.0)))
+        advanceUntilIdle()
+
+        assertEquals("Wochensoll konnte nicht gespeichert werden", vm.uiState.value.error)
     }
 }

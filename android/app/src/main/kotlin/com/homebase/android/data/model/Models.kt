@@ -323,6 +323,67 @@ data class TimeWsMessage(
     val type: String,
     val entry: TimeEntryDto? = null,
     val project: ProjectDto? = null,
+    val target: WorkTargetDto? = null,
+)
+
+// ---------- Wochensoll & Forecast (#31 / #55) ----------
+
+/** Weekly work-hour target of one person on one project. */
+@JsonClass(generateAdapter = true)
+data class WorkTargetDto(
+    val userId: String,
+    val projectId: String,
+    val weeklyHours: Double,
+    // the person's one default project: absence/holiday credits are booked here
+    val isDefault: Boolean,
+)
+
+/** Partial upsert; absent fields keep their current (or initial: 0h / false) value. */
+@JsonClass(generateAdapter = true)
+data class UpsertWorkTargetRequest(
+    val weeklyHours: Double? = null,
+    val isDefault: Boolean? = null,
+)
+
+/**
+ * Server-computed forecast for the current ISO week (GET /api/v1/time/forecast).
+ * "remaining" values are signed (negative = already over target). The backend
+ * omits empty lists and null fields (encodeDefaults=false), so list fields
+ * default to empty and optionals are nullable with defaults (issue #46).
+ */
+@JsonClass(generateAdapter = true)
+data class TimeForecastDto(
+    val date: String,
+    val weekStart: String,
+    val users: List<UserForecastDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class UserForecastDto(
+    val userId: String,
+    val weeklyTargetHours: Double,
+    val workdayCount: Double,
+    val weekTargetSeconds: Long,
+    val weekRecordedSeconds: Long,
+    val weekCreditedSeconds: Long,
+    val weekRemainingSeconds: Long,
+    val todayTargetSeconds: Long,
+    val todayRecordedSeconds: Long,
+    val todayRemainingSeconds: Long,
+    // projected stop time while a timer runs (never in the past); omitted otherwise
+    val expectedEndAt: String? = null,
+    val projects: List<ProjectForecastDto> = emptyList(),
+)
+
+/** Week balance of one project that has a target (or recorded time) this week. */
+@JsonClass(generateAdapter = true)
+data class ProjectForecastDto(
+    val projectId: String,
+    val weeklyHours: Double,
+    val recordedSeconds: Long,
+    val creditedSeconds: Long,
+    // recorded + credited − target (negative = behind)
+    val deltaSeconds: Long,
 )
 
 // ---------------------------------------------------------------------------

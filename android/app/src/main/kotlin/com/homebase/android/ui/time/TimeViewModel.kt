@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
+import com.homebase.android.data.model.UserForecastDto
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +15,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** One changed Wochensoll cell to PUT (#55); null fields stay untouched server-side. */
+data class TargetChange(
+    val userId: String,
+    val projectId: String,
+    val weeklyHours: Double? = null,
+    val isDefault: Boolean? = null,
+)
 
 data class TimeUiState(
     val projects: List<ProjectDto> = emptyList(),
@@ -21,10 +32,21 @@ data class TimeUiState(
     val othersRunning: List<TimeEntryDto> = emptyList(),
     // Household members' usernames — lets us offer "start a timer for the partner".
     val users: List<String> = emptyList(),
+    // Wochensoll & Forecast (#31/#55) — non-critical reads, null/empty without targets.
+    val forecast: TimeForecastDto? = null,
+    val targets: List<WorkTargetDto> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
 ) {
     val activeProjects: List<ProjectDto> get() = projects.filter { !it.archived }
+
+    /** People with a configured weekly target — only they get a Wochenbilanz/ETA. */
+    val weekUsers: List<UserForecastDto>
+        get() = forecast?.users?.filter { it.weekTargetSeconds > 0 } ?: emptyList()
+
+    /** Forecast of [userId], only when that person has a weekly target > 0. */
+    fun forecastFor(userId: String?): UserForecastDto? =
+        userId?.let { id -> weekUsers.firstOrNull { it.userId == id } }
 }
 
 class TimeViewModel(
@@ -47,6 +69,10 @@ class TimeViewModel(
             val projects = repository.getProjects()
             val entries = repository.getEntries()
             val users = repository.getUsers() // non-critical — only enables "start for partner"
+            // Forecast + targets are non-critical reads (#31/#55): on failure the
+            // Wochensoll UI simply stays hidden, the rest of the screen works.
+            val forecast = repository.getForecast()
+            val targets = repository.getTargets()
             val error = projects.exceptionOrNull()?.message ?: entries.exceptionOrNull()?.message
             _uiState.update { state ->
                 val nextEntries = entries.getOrDefault(state.entries)
@@ -56,6 +82,8 @@ class TimeViewModel(
                     running = findRunning(nextEntries),
                     othersRunning = findOthersRunning(nextEntries),
                     users = users.getOrNull()?.map { it.username } ?: state.users,
+                    forecast = forecast.getOrNull() ?: state.forecast,
+                    targets = targets.getOrDefault(state.targets),
                     isLoading = false,
                     error = error,
                 )
@@ -67,7 +95,7 @@ class TimeViewModel(
     fun startTimer(projectId: String, description: String?, userId: String? = null) {
         viewModelScope.launch {
             repository.startTimer(projectId, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
-                .onSuccess { entry -> upsertEntry(entry) }
+                .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
@@ -76,7 +104,7 @@ class TimeViewModel(
     fun stopTimer(userId: String? = null) {
         viewModelScope.launch {
             repository.stopTimer(userId)
-                .onSuccess { entry -> upsertEntry(entry) }
+                .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
@@ -84,7 +112,7 @@ class TimeViewModel(
     fun addManualEntry(projectId: String, startedAt: String, stoppedAt: String, description: String?) {
         viewModelScope.launch {
             repository.createEntry(projectId, startedAt, stoppedAt, description?.trim()?.takeIf { it.isNotEmpty() })
-                .onSuccess { entry -> upsertEntry(entry) }
+                .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
@@ -98,7 +126,7 @@ class TimeViewModel(
     fun updateEntry(id: String, request: UpdateTimeEntryRequest) {
         viewModelScope.launch {
             repository.updateEntry(id, request)
-                .onSuccess { entry -> upsertEntry(entry) }
+                .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Konnte nicht gespeichert werden.") } }
         }
     }
@@ -106,8 +134,34 @@ class TimeViewModel(
     fun deleteEntry(id: String) {
         viewModelScope.launch {
             repository.deleteEntry(id)
-                .onSuccess { removeEntry(id) }
+                .onSuccess { removeEntry(id); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Save the changed Wochensoll cells (#55) — one PUT per change; userId is the
+     * target person (household-shared like the absence planner). Afterwards targets
+     * and forecast are refetched so the UI reflects the real server state even after
+     * a partial failure.
+     */
+    fun saveTargets(changes: List<TargetChange>) {
+        if (changes.isEmpty()) return
+        viewModelScope.launch {
+            var failed = false
+            changes.forEach { c ->
+                repository.upsertTarget(c.userId, c.projectId, c.weeklyHours, c.isDefault)
+                    .onFailure { failed = true }
+            }
+            val targets = repository.getTargets()
+            val forecast = repository.getForecast()
+            _uiState.update { state ->
+                state.copy(
+                    targets = targets.getOrDefault(state.targets),
+                    forecast = forecast.getOrNull() ?: state.forecast,
+                    error = if (failed) "Wochensoll konnte nicht gespeichert werden" else state.error,
+                )
+            }
         }
     }
 
@@ -161,6 +215,24 @@ class TimeViewModel(
     private fun findOthersRunning(entries: List<TimeEntryDto>): List<TimeEntryDto> =
         entries.filter { it.stoppedAt == null && username != null && it.userId != username }
 
+    /** Refetch only the forecast — any entry change shifts recorded time / expected end. */
+    private fun refreshForecast() {
+        viewModelScope.launch {
+            repository.getForecast().onSuccess { f -> _uiState.update { it.copy(forecast = f) } }
+        }
+    }
+
+    /**
+     * Refetch the full target list. The TARGET_UPDATED frame carries only the changed
+     * row, but setting a new default clears the old one server-side — refetching keeps
+     * the local list consistent without mirroring that logic.
+     */
+    private fun refreshTargets() {
+        viewModelScope.launch {
+            repository.getTargets().onSuccess { t -> _uiState.update { it.copy(targets = t) } }
+        }
+    }
+
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
         viewModelScope.launch {
@@ -173,9 +245,11 @@ class TimeViewModel(
                     is TimeWebSocketClient.WsEvent.ProjectUpdated -> _uiState.update { state ->
                         state.copy(projects = state.projects.map { if (it.id == event.project.id) event.project else it })
                     }
-                    is TimeWebSocketClient.WsEvent.EntryCreated -> upsertEntry(event.entry)
-                    is TimeWebSocketClient.WsEvent.EntryUpdated -> upsertEntry(event.entry)
-                    is TimeWebSocketClient.WsEvent.EntryDeleted -> removeEntry(event.entry.id)
+                    // any entry change shifts the forecast (recorded time, expected end)
+                    is TimeWebSocketClient.WsEvent.EntryCreated -> { upsertEntry(event.entry); refreshForecast() }
+                    is TimeWebSocketClient.WsEvent.EntryUpdated -> { upsertEntry(event.entry); refreshForecast() }
+                    is TimeWebSocketClient.WsEvent.EntryDeleted -> { removeEntry(event.entry.id); refreshForecast() }
+                    is TimeWebSocketClient.WsEvent.TargetUpdated -> { refreshTargets(); refreshForecast() }
                 }
             }
         }
