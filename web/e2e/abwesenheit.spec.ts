@@ -89,16 +89,17 @@ test.describe('Abwesenheit', () => {
 
     // a plain working Wednesday for both people
     await page.locator('button.abw-rcell--day[title^="2026-06-10"]').click()
-    const modal = page.locator('.hb-modal')
-    await expect(modal.getByRole('heading', { name: 'Mittwoch, 10. Juni 2026' })).toBeVisible()
+    // the day editor is a slide-over panel now (was a centered modal) — #44
+    const sheet = page.locator('.abw-sheet')
+    await expect(sheet.getByRole('heading', { name: 'Mittwoch, 10. Juni 2026' })).toBeVisible()
 
     // book Urlaub for the first person (Max)
-    const maxRow = modal.locator('.abw-ed-person').first()
+    const maxRow = sheet.locator('.abw-ed-person').first()
     await maxRow.getByRole('button', { name: 'Urlaub', exact: true }).click()
 
     // refetch reflects it: the pill is now active and the half-day toggle appears
     await expect(maxRow.locator('.abw-pick.is-active', { hasText: 'Urlaub' })).toBeVisible()
-    await expect(modal.getByRole('button', { name: 'Vormittag (AM)' })).toBeVisible()
+    await expect(sheet.getByRole('button', { name: 'Vormittag (AM)' })).toBeVisible()
 
     await page.screenshot({ path: `${SHOTS}/abw-day-editor.png` })
   })
@@ -106,10 +107,10 @@ test.describe('Abwesenheit', () => {
   test('opens calendar settings', async ({ page }) => {
     await open(page, seeded())
     await page.getByRole('button', { name: 'Einstellungen' }).click()
-    const modal = page.locator('.hb-modal')
-    await expect(modal.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
-    await expect(modal.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
-    await expect(modal.getByText('Kita-Schließtage')).toBeVisible()
+    // settings is a full page now (was a modal) — #43
+    await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
+    await expect(page.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
+    await expect(page.getByText('Kita-Schließtage')).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/abw-settings.png` })
   })
 
