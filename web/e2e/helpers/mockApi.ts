@@ -53,11 +53,14 @@ const TINY_PNG = Buffer.from(
  *
  * Every view (todos, shopping, recipes, notes and time) reflects its own
  * mutations from the REST response, so the UI updates without depending on the
- * socket. Time mutations additionally attach an `x-ws-frames` response header
- * that the in-page bridge (see install) replays to the socket, so the realtime
- * dedupe path stays covered. `silenceRealtime()` suppresses those frames to
- * reproduce a deployment whose WS echo never reaches the originating client and
- * prove the UI still updates from REST alone (issue: TimeView live update).
+ * socket. Time and todo-list mutations additionally attach an `x-ws-frames`
+ * response header that the in-page bridge (see install) replays to the socket
+ * after the fetch resolves, so the realtime dedupe path stays covered; todo
+ * creation uses the `x-ws-frames-pre` variant, delivered synchronously BEFORE
+ * the fetch resolves, pinning the echo-beats-REST ordering from issue #61.
+ * `silenceRealtime()` suppresses all frames to reproduce a deployment whose WS
+ * echo never reaches the originating client and prove the UI still updates
+ * from REST alone (issue: TimeView live update).
  *
  * Todos/shopping data is seeded via the constructor; recipes/notes/time via the
  * fluent seed* helpers so existing call sites keep working unchanged.
@@ -176,26 +179,32 @@ export class MockApi {
       window.WebSocket = FakeWebSocket
 
       const origFetch = window.fetch.bind(window)
+      const deliver = (header: string) => {
+        try {
+          const { channel, frames } = JSON.parse(header)
+          for (const frame of frames) {
+            for (const s of sockets) {
+              if (s.url.includes('/ws/' + channel) && typeof s.onmessage === 'function') {
+                s.onmessage({ data: JSON.stringify(frame) })
+              }
+            }
+          }
+        } catch {
+          // ignore malformed bridge headers
+        }
+      }
       window.fetch = async (...args: Parameters<typeof fetch>) => {
         const res = await origFetch(...args)
+        // x-ws-frames-pre is delivered synchronously, BEFORE the caller's await
+        // resolves — pins the real-world ordering where the server's own echo
+        // reaches the client before the REST response is applied (issue #61).
+        const pre = res.headers.get('x-ws-frames-pre')
+        if (pre) deliver(pre)
         const header = res.headers.get('x-ws-frames')
         if (header) {
           // Deliver asynchronously, mimicking a server-pushed frame so the
           // caller's await resolves first.
-          setTimeout(() => {
-            try {
-              const { channel, frames } = JSON.parse(header)
-              for (const frame of frames) {
-                for (const s of sockets) {
-                  if (s.url.includes('/ws/' + channel) && typeof s.onmessage === 'function') {
-                    s.onmessage({ data: JSON.stringify(frame) })
-                  }
-                }
-              }
-            } catch {
-              // ignore malformed bridge headers
-            }
-          }, 0)
+          setTimeout(() => deliver(header), 0)
         }
         return res
       }
@@ -214,16 +223,24 @@ export class MockApi {
 
   // Like json(), but tags the response with WebSocket frames the in-page bridge
   // replays onto the given channel's socket(s) after the fetch resolves.
-  private jsonWithFrames(route: Route, body: unknown, status: number, channel: string, frames: unknown[]) {
+  // `pre = true` delivers them synchronously BEFORE the fetch resolves instead —
+  // the echo-beats-REST ordering from issue #61.
+  private jsonWithFrames(route: Route, body: unknown, status: number, channel: string, frames: unknown[], pre = false) {
     // silenceRealtime() → behave like a backend whose WS frame never arrives.
     if (this.silent) {
       if (status === 204) return route.fulfill({ status: 204, body: '' })
       return this.json(route, body, status)
     }
+    // HTTP headers are Latin-1 — escape non-ASCII as \uXXXX so umlauts in frame
+    // payloads (e.g. a todo title) survive the header round-trip intact.
+    const headerJson = JSON.stringify({ channel, frames }).replace(
+      /[\u0080-\uffff]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    )
     return route.fulfill({
       status,
       contentType: 'application/json',
-      headers: { 'x-ws-frames': JSON.stringify({ channel, frames }) },
+      headers: { [pre ? 'x-ws-frames-pre' : 'x-ws-frames']: headerJson },
       body: JSON.stringify(body),
     })
   }
@@ -442,7 +459,9 @@ export class MockApi {
         createdAt: new Date().toISOString(),
       }
       this.todos.unshift(todo)
-      return this.json(route, todo, 201)
+      // The echo deliberately beats the REST response (pre-frame) — worst-case
+      // ordering from issue #61; the views must dedupe by id.
+      return this.jsonWithFrames(route, todo, 201, 'todos', [{ type: 'TODO_CREATED', payload: todo }], true)
     }
 
     // Single todo

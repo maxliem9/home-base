@@ -56,6 +56,39 @@ test.describe('Todos', () => {
     await expect(page.getByText('Alles erledigt')).toHaveCount(0)
   })
 
+  // Regression #61: the server's own TODO_CREATED echo can reach the client
+  // before the REST response is applied (the mock delivers it synchronously via
+  // x-ws-frames-pre). The todo must end up in the list exactly once —
+  // toHaveCount(1) is the primary catcher (without the dedupe both copies
+  // render). React's duplicate-key warning doubles as a second net for the
+  // state-level duplicate; it only exists in the React dev build, which holds
+  // as long as the Playwright webServer runs `npm run dev`.
+  test('does not duplicate a fresh todo when the realtime echo beats the REST response', async ({ page }) => {
+    const dupKeyWarnings: string[] = []
+    page.on('console', (m) => {
+      if (m.text().includes('two children with the same key')) dupKeyWarnings.push(m.text())
+    })
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    await page.getByPlaceholder('Neue Aufgabe in „Haushalt" …').fill('Pflanzen gießen')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+
+    await expect(page.getByText('Pflanzen gießen')).toHaveCount(1)
+    expect(dupKeyWarnings).toHaveLength(0)
+  })
+
+  // Counterpart to the race spec above: with the realtime echo silenced the
+  // REST response is the only source — the insert arm of the dedupe must still
+  // add the todo (mirrors the #84 convention pinned for the time view).
+  test('adds a todo from the REST response alone when the realtime echo never arrives', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]).silenceRealtime())
+
+    await page.getByPlaceholder('Neue Aufgabe in „Haushalt" …').fill('Pflanzen gießen')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+
+    await expect(page.getByText('Pflanzen gießen')).toHaveCount(1)
+  })
+
   test('plans a todo, assigning it', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)
