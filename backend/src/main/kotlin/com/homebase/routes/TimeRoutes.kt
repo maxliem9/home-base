@@ -327,6 +327,71 @@ private fun Route.entryRoutes(json: Json) {
             }
         }
 
+        // Split a completed entry into two parts at a cut time, with an optional
+        // untracked gap between them (#62) — covers "forgot to clock out for the
+        // break" and "forgot to switch the project" (split, then edit part two).
+        // The original row becomes part one (keeps its id), part two is created.
+        post("/{id}/split") {
+            val id = call.uuidParam() ?: return@post
+            val req = call.receive<SplitTimeEntryRequest>()
+            val splitAt = parseInstant(req.splitAt)
+                ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "splitAt must be an ISO-8601 timestamp"))
+            val breakMinutes = req.breakMinutes ?: 0
+            if (breakMinutes < 0) {
+                return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RANGE", "breakMinutes must not be negative"))
+            }
+
+            val outcome: Any? = transaction {
+                val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
+                    ?: return@transaction null
+                val stopped = existing[TimeEntriesTable.stoppedAt]
+                    ?: return@transaction ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first")
+                val started = existing[TimeEntriesTable.startedAt]
+                if (!splitAt.isAfter(started) || !stopped.isAfter(splitAt)) {
+                    return@transaction ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt")
+                }
+                // computed only after the range check — the cut is inside a real entry
+                // here, so adding the break cannot overflow Instant (DateTimeException)
+                val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
+                if (!stopped.isAfter(secondStart)) {
+                    return@transaction ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt")
+                }
+                val now = Instant.now()
+                TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
+                    it[stoppedAt] = splitAt
+                    it[updatedAt] = now
+                }
+                val secondId = UUID.randomUUID()
+                TimeEntriesTable.insert {
+                    it[TimeEntriesTable.id] = secondId
+                    it[projectId] = existing[TimeEntriesTable.projectId]
+                    it[userId] = existing[TimeEntriesTable.userId]
+                    it[startedAt] = secondStart
+                    it[TimeEntriesTable.stoppedAt] = stopped
+                    it[description] = existing[TimeEntriesTable.description]
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                }
+                SplitTimeEntryResponse(
+                    first = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.single().toEntryDto(),
+                    second = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq secondId }.single().toEntryDto(),
+                )
+            }
+
+            when (outcome) {
+                null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Time entry not found"))
+                is ErrorResponse -> call.respond(
+                    if (outcome.code == "ENTRY_RUNNING") HttpStatusCode.Conflict else HttpStatusCode.BadRequest,
+                    outcome,
+                )
+                is SplitTimeEntryResponse -> {
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = outcome.first)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = outcome.second)))
+                    call.respond(outcome)
+                }
+            }
+        }
+
         put("/{id}") {
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateTimeEntryRequest>()

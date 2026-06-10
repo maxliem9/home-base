@@ -570,4 +570,127 @@ class TimeRouteTest {
         configureTestApplication()
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/users").status)
     }
+
+    // ---------- Eintrag splitten (#62) ----------
+
+    private suspend fun ApplicationTestBuilder.createCompletedEntry(
+        token: String,
+        projectId: String,
+        startedAt: String = "2026-06-03T08:00:00Z",
+        stoppedAt: String = "2026-06-03T16:00:00Z",
+    ): String {
+        val res = client.post("/api/v1/time/entries") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"$startedAt","stoppedAt":"$stoppedAt","description":"Arbeitstag"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    @Test
+    fun `split cuts an entry into two parts with an untracked break`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        val id = createCompletedEntry(token, projectId)
+
+        val res = client.post("/api/v1/time/entries/$id/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"splitAt":"2026-06-03T12:00:00Z","breakMinutes":30}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        val first = body["first"]!!.jsonObject
+        val second = body["second"]!!.jsonObject
+
+        // part one keeps the original id and ends at the cut
+        assertEquals(id, first["id"]?.jsonPrimitive?.content)
+        assertEquals("2026-06-03T12:00:00Z", first["stoppedAt"]?.jsonPrimitive?.content)
+        assertEquals(4 * 3600L, first["durationSeconds"]?.jsonPrimitive?.long)
+        // part two starts after the 30-minute gap, inherits project + description
+        assertEquals("2026-06-03T12:30:00Z", second["startedAt"]?.jsonPrimitive?.content)
+        assertEquals("2026-06-03T16:00:00Z", second["stoppedAt"]?.jsonPrimitive?.content)
+        assertEquals((3 * 3600 + 1800).toLong(), second["durationSeconds"]?.jsonPrimitive?.long)
+        assertEquals(projectId, second["projectId"]?.jsonPrimitive?.content)
+        assertEquals("Arbeitstag", second["description"]?.jsonPrimitive?.content)
+        assertEquals("alice", second["userId"]?.jsonPrimitive?.content)
+
+        // the list now holds exactly the two parts
+        val list = client.get("/api/v1/time/entries") { bearerAuth(token) }
+        assertEquals(2, Json.parseToJsonElement(list.bodyAsText()).jsonArray.size)
+    }
+
+    @Test
+    fun `split without break leaves no gap`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        val id = createCompletedEntry(token, projectId)
+
+        val res = client.post("/api/v1/time/entries/$id/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"splitAt":"2026-06-03T12:00:00Z"}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val second = Json.parseToJsonElement(res.bodyAsText()).jsonObject["second"]!!.jsonObject
+        assertEquals("2026-06-03T12:00:00Z", second["startedAt"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `split validates the cut and the break`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        val id = createCompletedEntry(token, projectId)
+
+        suspend fun split(body: String) = client.post("/api/v1/time/entries/$id/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        // cut outside the entry (before start / at stop / unparseable)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T07:00:00Z"}""").status)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T16:00:00Z"}""").status)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"kein-datum"}""").status)
+        // break must end strictly before the entry's stop (== is rejected too);
+        // negative breaks are invalid
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T15:30:00Z","breakMinutes":45}""").status)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T15:30:00Z","breakMinutes":30}""").status)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T12:00:00Z","breakMinutes":-5}""").status)
+        // nothing was changed by the rejected attempts
+        val list = client.get("/api/v1/time/entries") { bearerAuth(token) }
+        assertEquals(1, Json.parseToJsonElement(list.bodyAsText()).jsonArray.size)
+    }
+
+    @Test
+    fun `split rejects a running timer and unknown ids`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+
+        val started = client.post("/api/v1/time/entries/start") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId"}""")
+        }
+        val runningId = Json.parseToJsonElement(started.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.post("/api/v1/time/entries/$runningId/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"splitAt":"2026-06-03T12:00:00Z"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals("ENTRY_RUNNING", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+
+        val missing = client.post("/api/v1/time/entries/00000000-0000-0000-0000-000000000099/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"splitAt":"2026-06-03T12:00:00Z"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+    }
 }

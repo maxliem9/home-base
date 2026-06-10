@@ -920,6 +920,41 @@ export class MockApi {
       return this.jsonWithFrames(route, entry, 201, 'time', [{ type: 'ENTRY_CREATED', entry }])
     }
 
+    // Split a completed entry at a cut time with an optional untracked break,
+    // mirroring POST /time/entries/{id}/split (#62): part one keeps the id and
+    // ends at the cut, part two starts after the break and inherits the rest.
+    const splitMatch = path.match(/\/time\/entries\/([^/]+)\/split$/)
+    if (splitMatch && method === 'POST') {
+      const idx = this.entries.findIndex((e) => e.id === splitMatch[1])
+      if (idx === -1) return this.json(route, { code: 'NOT_FOUND', message: 'not found' }, 404)
+      const e = this.entries[idx]
+      if (!e.stoppedAt) return this.json(route, { code: 'ENTRY_RUNNING', message: 'running' }, 409)
+      const b = JSON.parse(req.postData() ?? '{}')
+      const cut = Date.parse(b.splitAt)
+      const started = Date.parse(e.startedAt)
+      const stopped = Date.parse(e.stoppedAt)
+      const secondStart = cut + (b.breakMinutes ?? 0) * 60000
+      if (!(cut > started && cut < stopped) || !(secondStart < stopped) || (b.breakMinutes ?? 0) < 0) {
+        return this.json(route, { code: 'INVALID_RANGE', message: 'bad cut' }, 400)
+      }
+      const ts = new Date().toISOString()
+      const first: TimeEntry = { ...e, stoppedAt: new Date(cut).toISOString(), durationSeconds: Math.floor((cut - started) / 1000), updatedAt: ts }
+      const second: TimeEntry = {
+        ...e,
+        id: `entry-${this.nextEntryId++}`,
+        startedAt: new Date(secondStart).toISOString(),
+        durationSeconds: Math.floor((stopped - secondStart) / 1000),
+        createdAt: ts,
+        updatedAt: ts,
+      }
+      this.entries[idx] = first
+      this.entries.splice(idx + 1, 0, second)
+      return this.jsonWithFrames(route, { first, second }, 200, 'time', [
+        { type: 'ENTRY_UPDATED', entry: first },
+        { type: 'ENTRY_CREATED', entry: second },
+      ])
+    }
+
     const entryIdMatch = path.match(/\/time\/entries\/([^/]+)$/)
     if (entryIdMatch) {
       const idx = this.entries.findIndex((e) => e.id === entryIdMatch[1])

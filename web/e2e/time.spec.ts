@@ -248,6 +248,52 @@ test.describe('Time tracking', () => {
     await expect(tile.locator('.hb-projcard__stat2')).toContainText('Diese Woche')
   })
 
+  // --- Eintrag splitten (#62) --------------------------------------------
+
+  test('splits an entry into two parts with an untracked break', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', description: 'Meeting', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T16:00:00Z', durationSeconds: 8 * 3600 }),
+      ])
+    await openTime(page, mock)
+
+    await page.locator('.hb-list .hb-row').getByRole('button', { name: 'Splitten' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByText('Eintrag splitten')).toBeVisible()
+
+    // 12:00 local lies inside the entry in UTC and Berlin alike; 30 min break
+    await modal.getByLabel('Trennzeit').fill('2026-06-03T12:00')
+    await modal.getByLabel('Pause in Minuten (optional)').fill('30')
+    const requestPromise = page.waitForRequest((r) => r.url().includes('/time/entries/e1/split') && r.method() === 'POST')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    const request = await requestPromise
+    expect(request.postDataJSON().breakMinutes).toBe(30)
+
+    // two parts in the list; the day total shrank by the 30-minute gap
+    await expect(modal).toBeHidden()
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(2)
+    await expect(page.locator('.hb-daysep__sum')).toHaveText('7 Std 30 Min')
+  })
+
+  test('rejects a cut outside the entry inline', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T16:00:00Z', durationSeconds: 8 * 3600 }),
+      ])
+    await openTime(page, mock)
+
+    await page.locator('.hb-list .hb-row').getByRole('button', { name: 'Splitten' }).click()
+    const modal = page.locator('.hb-modal')
+    // 22:00 local is after the entry's end in UTC and Berlin alike
+    await modal.getByLabel('Trennzeit').fill('2026-06-03T22:00')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+
+    await expect(modal.getByText('Die Trennzeit muss zwischen Start und Ende liegen')).toBeVisible()
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
+  })
+
   test('exports entries as a CSV download with the server-supplied filename', async ({ page }) => {
     const mock = new MockApi()
       .seedProjects([ARBEIT])
