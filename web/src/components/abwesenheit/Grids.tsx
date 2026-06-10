@@ -74,11 +74,13 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
       const bg = cellBg(colorFor(pal, a), colorFor(pal, b))
       const kita = ctx.kita[ds]
       const isToday = ds === today
-      // Custom holidays are household-wide, so both persons share the same holiday state.
-      const holName = ctx.customHol[ds.slice(5)] ? a.holiday : null
+      // Custom holidays are household-wide and only apply when no statutory holiday masks
+      // the day (statutory wins in personDay). Surface the custom name + ½ in the tooltip.
+      const custom = ctx.customHol[ds.slice(5)]
+      const showCustom = custom && !ctx.holidays[uA][ds]
       const halfHol = a.holidayHalf
       const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)} · ${nameOf(uB)}: ${statusLabel(b)}`
-        + (holName ? ` · ${holName}${halfHol ? ' (½)' : ''}` : '')
+        + (showCustom ? ` · ${custom.label}${custom.half ? ' (½)' : ''}` : '')
         + (kita ? ` · ${t.abwesenheit.kitaShort}: ${kita.label}` : '')
       cells.push(
         <button

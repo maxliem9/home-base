@@ -527,7 +527,9 @@ function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
   const [hDate, setHDate] = useState(`${year}-12-24`)
   const [hHalf, setHHalf] = useState(true)
   const [hLabel, setHLabel] = useState('')
-  const holidays = [...data.customHolidays].sort((a, b) => a.month - b.month || a.day - b.day)
+  // `customHolidays` may be omitted from the snapshot when empty (encodeDefaults=false,
+  // see CLAUDE.md / issue #46) — guard the spread with ?? [].
+  const holidays = [...(data.customHolidays ?? [])].sort((a, b) => a.month - b.month || a.day - b.day)
   // MM-DD of a custom holiday → a YYYY-MM-DD value the date input understands (year = the
   // currently viewed year, just a carrier).
   const holDateValue = (h: { month: number; day: number }): string => `${year}-${C.pad(h.month)}-${C.pad(h.day)}`
