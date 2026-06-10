@@ -481,6 +481,7 @@ export const de = {
     krank: 'Krank',
     kindKrank: 'Kind-krank',
     fullDay: 'Ganzer Tag',
+    halfDay: 'Halbtags',
     forenoon: 'Vormittag (AM)',
     afternoon: 'Nachmittag (PM)',
     noteHoliday: 'Feiertag', // "Feiertag · {name}"
@@ -527,6 +528,13 @@ export const de = {
     singleDay: 'Einzeltag',
     add: 'Hinzufügen',
     kitaRangeHint: 'Wochenenden werden beim Zeitraum automatisch übersprungen.',
+    // eigene Feiertage (#51)
+    holidaySection: 'Eigene Feiertage',
+    holidaySectionHint: 'Gelten für die ganze Familie und wiederholen sich jedes Jahr (z. B. Heiligabend, Silvester). Halbtags = ein halber freier Tag.',
+    holidayEmpty: 'Noch keine eigenen Feiertage erfasst.',
+    holidayDate: 'Datum (jährlich)',
+    holidayDefaultLabel: 'Feiertag',
+    holidayRecurHint: 'Das Jahr im Datum wird ignoriert — nur Tag und Monat zählen und gelten jedes Jahr.',
     delete: 'Löschen',
     weekdaysShort: ['Mo', 'Di', 'Mi', 'Do', 'Fr'],
     // write-error fallbacks (issue #96)
@@ -534,6 +542,7 @@ export const de = {
     deleteFailed: 'Eintrag konnte nicht gelöscht werden.',
     settingsFailed: 'Einstellung konnte nicht gespeichert werden.',
     kitaFailed: 'Kita-Schließtag konnte nicht gespeichert werden.',
+    holidayFailed: 'Eigener Feiertag konnte nicht gespeichert werden.',
     partTimeFailed: 'Teilzeit-Regel konnte nicht gespeichert werden.',
   },
 }

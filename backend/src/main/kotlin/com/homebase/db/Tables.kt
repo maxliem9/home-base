@@ -120,6 +120,21 @@ object KitaClosuresTable : Table("kita_closures") {
     init { uniqueIndex("kita_closures_date_uniq", date) }
 }
 
+object CustomHolidaysTable : Table("custom_holidays") {
+    val id = uuid("id")
+    // Recurring by fixed calendar date: month 1–12, day 1–31. No year — applies every year.
+    val month = integer("month")
+    val day = integer("day")
+    // true = half day (counts as 0.5 toward the work target, see #31); false = whole day.
+    val half = bool("half")
+    val label = text("label")
+    override val primaryKey = PrimaryKey(id)
+
+    // One holiday per (month, day) — mirrors the unique index from V19 (a household-wide
+    // marker, so a second row for the same calendar date is meaningless).
+    init { uniqueIndex("custom_holidays_month_day_uniq", month, day) }
+}
+
 object AbsSettingsTable : Table("abs_settings") {
     val userId = varchar("user_id", 50)
     // One row per (user, year): allowance/carryover/expiry are inherently annual (#144).

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, absence, absSettings, kitaClosure, partTimeRule, TOKEN } from './helpers/mockApi'
+import { MockApi, absence, absSettings, customHoliday, kitaClosure, partTimeRule, TOKEN } from './helpers/mockApi'
 
 const SHOTS = '/tmp/abw-screens'
 
@@ -47,6 +47,12 @@ function seeded(): MockApi {
       kitaClosure({ id: 'k1', date: '2026-07-27', label: 'Sommerschließung' }),
       kitaClosure({ id: 'k2', date: '2026-07-28', label: 'Sommerschließung' }),
       kitaClosure({ id: 'k3', date: '2026-07-29', label: 'Sommerschließung' }),
+    ],
+    // Household-wide custom holidays (#51): Heiligabend half-day, Silvester half-day.
+    // 24.12.2026 is a Thursday (no statutory holiday) so it renders as a custom holiday.
+    customHolidays: [
+      customHoliday({ id: 'h1', month: 12, day: 24, half: true, label: 'Heiligabend' }),
+      customHoliday({ id: 'h2', month: 12, day: 31, half: true, label: 'Silvester' }),
     ],
   })
 }
@@ -112,7 +118,59 @@ test.describe('Abwesenheit', () => {
     await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
     await expect(page.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
     await expect(page.getByText('Kita-Schließtage')).toBeVisible()
+    // the "Eigene Feiertage" section (#51) lists the seeded recurring holidays
+    await expect(page.getByText('Eigene Feiertage')).toBeVisible()
+    await expect(page.locator('input[value="Heiligabend"]')).toBeVisible()
+    await expect(page.locator('input[value="Silvester"]')).toBeVisible()
     await page.screenshot({ path: `${SHOTS}/abw-settings.png` })
+  })
+
+  test('renders a custom holiday with a ½ marker on the calendar', async ({ page }) => {
+    await open(page, seeded())
+    // Year grid: the 24.12. cell is tinted as a holiday and carries the recurring label.
+    const cell = page.locator('button.abw-rcell--day[title^="2026-12-24"]')
+    await expect(cell).toHaveAttribute('title', /Heiligabend \(½\)/)
+    await expect(cell.locator('.abw-rcell__half')).toBeVisible()
+
+    // Month view (December): the chip shows the ½-prefixed holiday name for each person.
+    await page.getByRole('tab', { name: 'Monat' }).click()
+    for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Nächster Monat' }).click()
+    await expect(page.locator('.abw-mchip__txt', { hasText: '½ Heiligabend' }).first()).toBeVisible()
+  })
+
+  test('settings survive a snapshot that omits customHolidays (encodeDefaults=false)', async ({ page }) => {
+    // The backend drops empty list fields from the payload (issue #46), so a household
+    // with no custom holidays sends a snapshot WITHOUT the customHolidays key at all.
+    // Opening the settings page must not crash and must show the empty hint.
+    const mock = new MockApi().seedAbsence({
+      users: ['max', 'lea'],
+      settings: [absSettings({ userId: 'max', year: YEAR }), absSettings({ userId: 'lea', year: YEAR })],
+    })
+    await page.clock.setFixedTime(FIXED_NOW)
+    await mock.install(page)
+    // Registered AFTER install so it takes precedence (Playwright matches newest first):
+    // return a snapshot that literally omits the customHolidays key (seedAbsence emits []).
+    await page.route('**/api/v1/absence', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      // Includes the other (pre-existing) list fields but deliberately omits customHolidays
+      // — that omission is exactly the #51 regression this test guards.
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ users: ['max', 'lea'], absences: [], partTime: [], kitaClosures: [], settings: [
+          { userId: 'max', year: YEAR, state: 'BE', allowance: 30, carryover: 0, kindKrankCap: 15 },
+          { userId: 'lea', year: YEAR, state: 'BE', allowance: 30, carryover: 0, kindKrankCap: 15 },
+        ] }),
+      })
+    })
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Kalender' }).click()
+    await expect(page.getByRole('heading', { name: 'Kalender' })).toBeVisible()
+    await page.getByRole('button', { name: 'Einstellungen' }).click()
+    await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
+    await expect(page.getByText('Eigene Feiertage')).toBeVisible()
+    await expect(page.getByText('Noch keine eigenen Feiertage erfasst.')).toBeVisible()
   })
 
   test('books a vacation period across working days', async ({ page }) => {

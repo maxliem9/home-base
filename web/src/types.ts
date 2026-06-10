@@ -140,6 +140,17 @@ export interface KitaClosure {
   label: string
 }
 
+// Household-wide custom holiday (#51), recurring every year on a fixed month+day.
+// `half` = a half free day (rendered with a ½ marker; counts 0.5 toward the work
+// target in #31). No user/Bundesland — it applies to everyone (e.g. Heiligabend/Silvester).
+export interface CustomHoliday {
+  id: string
+  month: number // 1–12
+  day: number // 1–31
+  half: boolean
+  label: string
+}
+
 export interface AbsSettings {
   userId: string
   year: number // settings are stored per calendar year (#144)
@@ -155,6 +166,7 @@ export interface AbsenceState {
   absences: Absence[]
   partTime: PartTimeRule[]
   kitaClosures: KitaClosure[]
+  customHolidays: CustomHoliday[]
   settings: AbsSettings[]
 }
 

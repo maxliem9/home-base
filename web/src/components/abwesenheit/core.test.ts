@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AbsSettings, AbsenceState } from '../../types'
-import { buildContext, settingsFor, summarize } from './core'
+import { buildContext, personDay, settingsFor, summarize, wouldWork } from './core'
 
 const s = (year: number, over: Partial<AbsSettings> = {}): AbsSettings => ({
   userId: 'alice',
@@ -62,6 +62,7 @@ describe('summarize uses the displayed year\'s settings (#144)', () => {
     absences: [],
     partTime: [],
     kitaClosures: [],
+    customHolidays: [],
     settings: [s(2025, { allowance: 30, carryover: 5 }), s(2026, { allowance: 30, carryover: 2 })],
   }
 
@@ -71,5 +72,54 @@ describe('summarize uses the displayed year\'s settings (#144)', () => {
     // remaining = allowance + carryover - used(0)
     expect(summarize(c2025, 'alice', '2025-06-01').remaining).toBe(35)
     expect(summarize(c2026, 'alice', '2026-06-01').remaining).toBe(32)
+  })
+})
+
+describe('custom holidays (#51)', () => {
+  const base = (over: Partial<AbsenceState> = {}): AbsenceState => ({
+    users: ['alice'],
+    absences: [],
+    partTime: [],
+    kitaClosures: [],
+    customHolidays: [],
+    settings: [s(2026)],
+    ...over,
+  })
+
+  it('resolves a household-wide custom holiday by month+day, for every year', () => {
+    const state = base({ customHolidays: [{ id: 'h1', month: 12, day: 24, half: true, label: 'Heiligabend' }] })
+    // matches in 2026…
+    const day26 = personDay(buildContext(state, 2026, ['alice']), 'alice', '2026-12-24')
+    expect(day26.holiday).toBe('Heiligabend')
+    expect(day26.holidayHalf).toBe(true)
+    // …and again the following year (recurring), no separate row needed.
+    const day27 = personDay(buildContext(state, 2027, ['alice']), 'alice', '2027-12-24')
+    expect(day27.holiday).toBe('Heiligabend')
+  })
+
+  it('applies regardless of Bundesland (state setting is irrelevant for custom holidays)', () => {
+    const state = base({
+      settings: [s(2026, { state: 'BY' })],
+      customHolidays: [{ id: 'h1', month: 12, day: 31, half: false, label: 'Silvester' }],
+    })
+    const st = personDay(buildContext(state, 2026, ['alice']), 'alice', '2026-12-31')
+    expect(st.holiday).toBe('Silvester')
+    expect(st.holidayHalf).toBe(false)
+  })
+
+  it('treats a full custom holiday as non-working but a half one as still workable', () => {
+    const full = base({ customHolidays: [{ id: 'h1', month: 12, day: 31, half: false, label: 'Silvester' }] })
+    const half = base({ customHolidays: [{ id: 'h2', month: 12, day: 24, half: true, label: 'Heiligabend' }] })
+    expect(wouldWork(personDay(buildContext(full, 2026, ['alice']), 'alice', '2026-12-31'))).toBe(false)
+    expect(wouldWork(personDay(buildContext(half, 2026, ['alice']), 'alice', '2026-12-24'))).toBe(true)
+  })
+
+  it('lets a statutory holiday take precedence over a custom one on the same day', () => {
+    // 2026-01-01 is Neujahr (statutory, full day) everywhere — a custom half-day on the
+    // same date must not downgrade it to a half day.
+    const state = base({ customHolidays: [{ id: 'h1', month: 1, day: 1, half: true, label: 'Eigenes Neujahr' }] })
+    const st = personDay(buildContext(state, 2026, ['alice']), 'alice', '2026-01-01')
+    expect(st.holiday).toBe('Neujahr')
+    expect(st.holidayHalf).toBe(false)
   })
 })
