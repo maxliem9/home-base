@@ -91,6 +91,20 @@ object TimeEntriesTable : Table("time_entries") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object TimeWorkTargetsTable : Table("time_work_targets") {
+    val id = uuid("id")
+    val userId = varchar("user_id", 50)
+    val projectId = uuid("project_id")
+    // Contracted hours per ISO week on this project; 0 = no target (#31).
+    val weeklyHours = double("weekly_hours")
+    // The person's one default project — absence/holiday credits are booked here.
+    // Uniqueness per user is enforced app-side + by a partial index in V20.
+    val isDefault = bool("is_default")
+    override val primaryKey = PrimaryKey(id)
+
+    init { uniqueIndex("time_work_targets_user_project_uniq", userId, projectId) }
+}
+
 object AbsencesTable : Table("absences") {
     val id = uuid("id")
     val userId = varchar("user_id", 50)

@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Project, TimeEntry, User } from '../types'
+import { Project, TimeEntry, TimeForecast, User, UserForecast, WorkTarget } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
@@ -23,6 +23,12 @@ function elapsedSeconds(startedAt: string, nowMs: number): number {
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Compact "h:mm" for soll/ist figures (e.g. 38:00, 7:30). Negative input is clamped. */
+function hm(seconds: number): string {
+  const totalMin = Math.round(Math.max(0, seconds) / 60)
+  return `${Math.floor(totalMin / 60)}:${String(totalMin % 60).padStart(2, '0')}`
 }
 
 // Format an ISO timestamp as the local `YYYY-MM-DDTHH:mm` a <input type="datetime-local">
@@ -55,6 +61,10 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  // Wochensoll & Forecast (#31)
+  const [forecast, setForecast] = useState<TimeForecast | null>(null)
+  const [targets, setTargets] = useState<WorkTarget[]>([])
+  const [showTargets, setShowTargets] = useState(false)
 
   // Surface a write failure to the user. The backend cleanly rejects the
   // mutation (no data loss), but without this the action would just silently
@@ -83,12 +93,30 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   // Other household members, so we can offer "start a timer for them" even while idle.
   const others = useMemo(() => users.filter((u) => u !== me), [users, me])
 
+  // Forecast + targets are non-critical reads (#31): on failure the soll/forecast UI
+  // simply stays hidden — the tracker itself keeps working.
+  const fetchForecast = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/time/forecast`)
+    if (!result.ok) return
+    if (result.res.status === 401) return onLogout()
+    if (result.res.ok) setForecast(await result.res.json())
+  }, [onLogout, token])
+
+  const fetchTargets = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/time/targets`)
+    if (!result.ok) return
+    if (result.res.status === 401) return onLogout()
+    if (result.res.ok) setTargets(await result.res.json())
+  }, [onLogout, token])
+
   const fetchAll = useCallback(async () => {
     try {
       const [pResult, eResult, uResult] = await Promise.all([
         safeFetch(token, `${API_BASE}/time/projects`),
         safeFetch(token, `${API_BASE}/time/entries`),
         safeFetch(token, `${API_BASE}/users`),
+        fetchForecast(),
+        fetchTargets(),
       ])
       // a transport reject on either core read → fire the global toast once, keep existing data
       if (!pResult.ok || !eResult.ok) {
@@ -134,6 +162,11 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         if (msg.type === 'ENTRY_CREATED') setEntries((prev) => (prev.some((x) => x.id === e.id) ? prev.map((x) => (x.id === e.id ? e : x)) : [e, ...prev]))
         else if (msg.type === 'ENTRY_UPDATED') setEntries((prev) => prev.map((x) => (x.id === e.id ? e : x)))
         else if (msg.type === 'ENTRY_DELETED') setEntries((prev) => prev.filter((x) => x.id !== e.id))
+        // any entry change shifts the forecast (recorded time, expected end)
+        fetchForecast()
+      } else if (msg.type === 'TARGET_UPDATED') {
+        fetchTargets()
+        fetchForecast()
       }
     } catch {
       // ignore malformed frames
@@ -172,6 +205,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       )
       return stopped.some((x) => x.id === created.id) ? stopped.map((x) => (x.id === created.id ? created : x)) : [created, ...stopped]
     })
+    fetchForecast()
   }
 
   // `userId` stops the partner's timer (#142); omitted → own timer (no body).
@@ -189,6 +223,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (res.status === 401) return onLogout()
     if (!res.ok) return flashError(errorText(await errorCode(res), t.time.stopFailed))
     upsertEntry(await res.json())
+    fetchForecast()
   }
 
   const saveDescription = async () => {
@@ -218,7 +253,9 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!res.ok) {
       await fetchAll()
       flashError(errorText(await errorCode(res), t.time.deleteFailed))
+      return
     }
+    fetchForecast()
   }
 
   const setArchived = async (p: Project, archived: boolean) => {
@@ -263,6 +300,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
     upsertEntry(await res.json())
     setShowManual(false)
+    fetchForecast()
     return null
   }
 
@@ -282,6 +320,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
     upsertEntry(await res.json())
     setEditEntry(null)
+    fetchForecast()
     return null
   }
 
@@ -318,6 +357,28 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     setShowExport(false)
   }
 
+  // Persist the Wochensoll edits (#31): one PUT per changed person×project cell.
+  // Same inline-error convention as the other modals — returns null on success,
+  // or a message the modal shows while staying open for a retry.
+  const saveTargets = async (puts: { userId: string; projectId: string; body: object }[]): Promise<string | null> => {
+    for (const { userId, projectId, body } of puts) {
+      const result = await safeFetch(token, `${API_BASE}/time/targets/${encodeURIComponent(userId)}/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!result.ok) return errorText(null, t.time.targetsFailed)
+      if (result.res.status === 401) {
+        onLogout()
+        return null
+      }
+      if (!result.res.ok) return errorText(await errorCode(result.res), t.time.targetsFailed)
+    }
+    await Promise.all([fetchTargets(), fetchForecast()])
+    setShowTargets(false)
+    return null
+  }
+
   // total finished time per project
   const totalsByProject = useMemo(() => {
     const m: Record<string, number> = {}
@@ -335,6 +396,24 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   )
 
   const runningProject = running ? projectsById[running.projectId] : undefined
+
+  // Per-user forecast (#31), only meaningful once a weekly target is configured.
+  // Keyed by the *entry's* user (not `me`) so the partner strip works too.
+  const forecastByUser = useMemo(() => {
+    const m: Record<string, UserForecast> = {}
+    for (const u of forecast?.users ?? []) if (u.weekTargetSeconds > 0) m[u.userId] = u
+    return m
+  }, [forecast])
+  const weekUsers = useMemo(() => (forecast?.users ?? []).filter((u) => u.weekTargetSeconds > 0), [forecast])
+  const runningForecast = running ? forecastByUser[running.userId] : undefined
+
+  // Projects offered in the targets modal: the active ones plus archived projects
+  // that still carry a target (hours or default) — otherwise an archived project's
+  // Wochensoll would keep counting server-side with no way left to clear it.
+  const targetProjects = useMemo(
+    () => projects.filter((p) => !p.archived || targets.some((x) => x.projectId === p.id && (x.weeklyHours > 0 || x.isDefault))),
+    [projects, targets],
+  )
 
   // The currently shown detail project, re-read from the live list so its name/color
   // stay in sync after an edit; falls back to the captured snapshot if it was archived
@@ -391,6 +470,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         title={t.time.title}
         actions={
           <>
+            <Button variant="ghost" size="sm" icon="settings" onClick={() => setShowTargets(true)}>{t.time.configureTargets}</Button>
             <Button variant="ghost" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.exportCsv}</Button>
             <Button icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
             <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
@@ -419,6 +499,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           </div>
           <div className="hb-timerhero__right">
             <div className="hb-timerhero__clock hb-mono">{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</div>
+            <EtaLine eta={runningForecast?.expectedEndAt} nowMs={nowMs} />
             <Button variant="secondary" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
           </div>
         </Card>
@@ -460,11 +541,29 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
               projectsById={projectsById}
               nowMs={nowMs}
               projects={activeProjects}
+              eta={forecastByUser[u]?.expectedEndAt}
               onStop={() => stopTimer(u)}
               onStart={(pid) => startTimer(pid, '', u)}
             />
           ))}
         </div>
+      )}
+
+      {/* Wochensoll (#31): per-person week balance — recorded+credited vs. target,
+          today's redistributed share, and the per-project saldo. Hidden until a
+          weekly target is configured. */}
+      {weekUsers.length > 0 && (
+        <Card className="hb-card--pad hb-weektargets" style={{ marginTop: 12 }}>
+          <div className="hb-cardhead">
+            <h3>{t.time.weekTargetTitle}</h3>
+            <IconButton icon="settings" label={t.time.configureTargets} onClick={() => setShowTargets(true)} />
+          </div>
+          <div className="hb-stack" style={{ gap: 16 }}>
+            {weekUsers.map((u) => (
+              <WeekBalance key={u.userId} forecast={u} projectsById={projectsById} />
+            ))}
+          </div>
+        </Card>
       )}
 
       {loading ? (
@@ -577,25 +676,99 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
       )}
 
+      {showTargets && (
+        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
+      )}
+
       {sharedModals}
+    </div>
+  )
+}
+
+// "Voraussichtlich fertig um 16:32" under the live clock; flips to "Tagessoll
+// erreicht" once the projected end has passed (#31). Hidden without a forecast.
+function EtaLine({ eta, nowMs }: { eta?: string; nowMs: number }) {
+  if (!eta) return null
+  const reached = new Date(eta).getTime() <= nowMs
+  return (
+    <div className="hb-timerhero__eta hb-muted">
+      {reached ? t.time.targetReached : t.time.expectedEnd.replace('{time}', clockTime(eta))}
+    </div>
+  )
+}
+
+// One person's week balance (#31): soll/ist row with progress bar, today's
+// redistributed target and the per-project saldo for projects with a target.
+function WeekBalance({ forecast, projectsById }: { forecast: UserForecast; projectsById: Record<string, Project> }) {
+  const u = forecast
+  const done = u.weekRecordedSeconds + u.weekCreditedSeconds
+  const pct = u.weekTargetSeconds > 0 ? Math.min(100, (done / u.weekTargetSeconds) * 100) : 0
+  const hue = userMeta(u.userId)?.hue ?? 150
+  const todayLine = u.todayRemainingSeconds >= 60
+    ? t.time.todayLeft.replace('{time}', hm(u.todayRemainingSeconds))
+    : u.todayRemainingSeconds <= -60
+      ? t.time.todayOver.replace('{time}', hm(-u.todayRemainingSeconds))
+      : t.time.targetReached
+  // deliberately a soll view: projects with recorded time but no target stay out
+  const projects = (u.projects ?? []).filter((p) => p.weeklyHours > 0)
+  return (
+    <div className="hb-weektarget">
+      <div className="hb-weektarget__head">
+        <Avatar user={u.userId} size={24} />
+        <span className="hb-weektarget__name">{userMeta(u.userId)?.name ?? u.userId}</span>
+        <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
+        <span className={`hb-weektarget__delta${u.weekRemainingSeconds < 0 ? ' is-over' : ''}`}>
+          {u.weekRemainingSeconds < 0
+            ? t.time.weekOver.replace('{time}', hm(-u.weekRemainingSeconds))
+            : t.time.weekLeft.replace('{time}', hm(u.weekRemainingSeconds))}
+        </span>
+      </div>
+      <div className="hb-weekbar">
+        <span className="hb-weekbar__seg" style={{ width: `${pct}%`, background: `oklch(0.62 0.1 ${hue})` }} />
+      </div>
+      <div className="hb-muted" style={{ fontSize: 13 }}>
+        {todayLine}
+        {u.weekCreditedSeconds > 0 && <> · {hm(u.weekCreditedSeconds)} {t.time.credited}</>}
+      </div>
+      {projects.length > 0 && (
+        <div className="hb-weektarget__projects">
+          {projects.map((p) => {
+            const proj = projectsById[p.projectId]
+            return (
+              <div key={p.projectId} className="hb-weektarget__proj">
+                <span className="hb-pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
+                <span className="hb-weektarget__projname">{proj?.name ?? t.time.project}</span>
+                <span className="hb-mono hb-muted">{hm(p.recordedSeconds + p.creditedSeconds)} / {hm(p.weeklyHours * 3600)}</span>
+                <span className={`hb-weektarget__delta${p.deltaSeconds < 0 ? '' : ' is-over'}`} style={{ minWidth: 58, textAlign: 'right' }}>
+                  {p.deltaSeconds < 0 ? `-${hm(-p.deltaSeconds)}` : `+${hm(p.deltaSeconds)}`}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 // The other household member's timer (#142): when they're running, show project +
 // live clock + Stop; when idle, offer a project picker to start one on their behalf.
-function PartnerTimer({ user, running, projectsById, nowMs, projects, onStop, onStart }: {
+function PartnerTimer({ user, running, projectsById, nowMs, projects, eta, onStop, onStart }: {
   user: string
   running: TimeEntry | null
   projectsById: Record<string, Project>
   nowMs: number
   projects: Project[]
+  eta?: string
   onStop: () => void
   onStart: (projectId: string) => void
 }) {
   const [picking, setPicking] = useState(false)
   const name = userMeta(user)?.name ?? user
   const project = running ? projectsById[running.projectId] : undefined
+  const etaSuffix = running && eta
+    ? ` · ${new Date(eta).getTime() <= nowMs ? t.dashboard.targetReachedShort : t.dashboard.expectedEndShort.replace('{time}', clockTime(eta))}`
+    : ''
   return (
     <Card className="hb-card--pad">
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
@@ -606,7 +779,7 @@ function PartnerTimer({ user, running, projectsById, nowMs, projects, onStop, on
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="hb-row__title">{project?.name ?? t.time.project}</div>
               <div className="hb-muted" style={{ fontSize: 13 }}>
-                {name}{running.description ? ` · ${running.description}` : ''}
+                {name}{running.description ? ` · ${running.description}` : ''}{etaSuffix}
               </div>
             </div>
             <span className="hb-mono" style={{ fontWeight: 600 }}>{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</span>
@@ -1023,6 +1196,142 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
         <Field label={t.common.descriptionOptional}>
           <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
         </Field>
+      )}
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
+    </Modal>
+  )
+}
+
+// Wochensoll configuration (#31): weekly hours per person × project plus the
+// person's default project (absence/holiday credits are booked there). Saving
+// PUTs only the changed cells; the household may edit either person (like the
+// absence planner, #127). Inline-error convention as in the other modals.
+function TargetsModal({ users, projects, targets, onSave, onClose }: {
+  users: string[]
+  projects: Project[]
+  targets: WorkTarget[]
+  onSave: (puts: { userId: string; projectId: string; body: object }[]) => Promise<string | null>
+  onClose: () => void
+}) {
+  const targetFor = (u: string, p: string) => targets.find((x) => x.userId === u && x.projectId === p)
+  const defaultFor = (u: string) => targets.find((x) => x.userId === u && x.isDefault)?.projectId ?? ''
+  const [draft, setDraft] = useState<Record<string, { hours: Record<string, string>; def: string }>>(() =>
+    Object.fromEntries(users.map((u) => [u, {
+      hours: Object.fromEntries(projects.map((p) => {
+        const h = targetFor(u, p.id)?.weeklyHours ?? 0
+        return [p.id, h > 0 ? String(h).replace('.', ',') : '']
+      })),
+      def: defaultFor(u),
+    }])),
+  )
+  const [error, setError] = useState<string | null>(null)
+  const submitRef = useRef(false)
+
+  const setHours = (u: string, p: string, v: string) =>
+    setDraft((d) => ({ ...d, [u]: { ...d[u], hours: { ...d[u].hours, [p]: v } } }))
+  const setDef = (u: string, p: string) =>
+    setDraft((d) => ({ ...d, [u]: { ...d[u], def: p } }))
+
+  const submit = async () => {
+    if (submitRef.current) return
+    const puts: { userId: string; projectId: string; body: object }[] = []
+    for (const u of users) {
+      for (const p of projects) {
+        const raw = (draft[u].hours[p.id] ?? '').trim()
+        const hours = raw === '' ? 0 : Number(raw.replace(',', '.'))
+        if (!Number.isFinite(hours) || hours < 0 || hours > 168) {
+          setError(t.time.invalidHours)
+          return
+        }
+        const body: { weeklyHours?: number; isDefault?: boolean } = {}
+        if (hours !== (targetFor(u, p.id)?.weeklyHours ?? 0)) body.weeklyHours = hours
+        const defBefore = defaultFor(u)
+        // setting the new default clears the old one server-side; an explicit
+        // false is only needed when the default is removed entirely
+        if (draft[u].def !== defBefore) {
+          if (draft[u].def === p.id) body.isDefault = true
+          else if (draft[u].def === '' && defBefore === p.id) body.isDefault = false
+        }
+        if (Object.keys(body).length > 0) puts.push({ userId: u, projectId: p.id, body })
+      }
+    }
+    if (puts.length === 0) return onClose()
+    submitRef.current = true
+    setError(null)
+    try {
+      const err = await onSave(puts)
+      if (err) {
+        submitRef.current = false
+        setError(err)
+      }
+    } catch {
+      submitRef.current = false
+      setError(t.time.targetsFailed)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.time.targetsModalTitle}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button onClick={submit}>{t.common.save}</Button>
+        </>
+      }
+    >
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.targetsModalHint}</p>
+      {projects.length === 0 ? (
+        <p className="hb-muted">{t.time.noProjectsHint}</p>
+      ) : (
+        users.map((u) => (
+          <div key={u} style={{ marginBottom: 18 }}>
+            <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
+            </div>
+            <div className="hb-targetgrid">
+              <span className="hb-muted hb-targetgrid__h">{t.time.project}</span>
+              <span className="hb-muted hb-targetgrid__h">{t.time.hoursPerWeek}</span>
+              <span className="hb-muted hb-targetgrid__h">{t.time.defaultColumn}</span>
+              {projects.map((p) => (
+                <Fragment key={p.id}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                    <span className="hb-pdot" style={{ background: p.color }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}{p.archived && <span className="hb-muted"> ({t.time.archivedSection})</span>}
+                    </span>
+                  </span>
+                  <input
+                    className="hb-input"
+                    inputMode="decimal"
+                    value={draft[u].hours[p.id] ?? ''}
+                    onChange={(e) => setHours(u, p.id, e.target.value)}
+                    placeholder="0"
+                    aria-label={`${t.time.hoursPerWeek} ${p.name} ${userMeta(u)?.name ?? u}`}
+                  />
+                  <input
+                    type="radio"
+                    name={`hb-default-${u}`}
+                    checked={draft[u].def === p.id}
+                    onChange={() => setDef(u, p.id)}
+                    aria-label={`${t.time.defaultColumn} ${p.name} ${userMeta(u)?.name ?? u}`}
+                  />
+                </Fragment>
+              ))}
+            </div>
+            <label className="hb-muted" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, marginTop: 8 }}>
+              <input
+                type="radio"
+                name={`hb-default-${u}`}
+                checked={draft[u].def === ''}
+                onChange={() => setDef(u, '')}
+              />
+              {t.time.noDefaultProject}
+            </label>
+          </div>
+        ))
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
     </Modal>

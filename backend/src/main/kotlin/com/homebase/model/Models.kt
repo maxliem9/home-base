@@ -316,7 +316,79 @@ data class UpdateTimeEntryRequest(
 data class TimeWsMessage(
     val type: String,
     val entry: TimeEntryDto? = null,
-    val project: ProjectDto? = null
+    val project: ProjectDto? = null,
+    // set on TARGET_UPDATED frames (#31)
+    val target: WorkTargetDto? = null
+)
+
+// ---------- Wochensoll & Forecast (#31) ----------
+
+/** Weekly work-hour target of one person on one project. */
+@Serializable
+data class WorkTargetDto(
+    val userId: String,
+    val projectId: String,
+    val weeklyHours: Double,
+    // the person's one default project: absence/holiday credits are booked here
+    val isDefault: Boolean
+)
+
+/** Partial upsert; absent fields keep their current (or initial: 0h / false) value. */
+@Serializable
+data class UpsertWorkTargetRequest(
+    val weeklyHours: Double? = null,
+    val isDefault: Boolean? = null
+)
+
+/**
+ * Server-computed forecast for one ISO week (Mon–Sun): per person the redistributed
+ * daily target, the projected end of the current working day and the week's
+ * over/under balance. All second values are rounded; "remaining" values are signed
+ * (negative = already over target).
+ */
+@Serializable
+data class TimeForecastDto(
+    // local date (server zone) the day values refer to
+    val date: String,
+    // Monday of the ISO week containing [date]
+    val weekStart: String,
+    val users: List<UserForecastDto> = emptyList()
+)
+
+@Serializable
+data class UserForecastDto(
+    val userId: String,
+    // configured weekly target (sum over all project targets)
+    val weeklyTargetHours: Double,
+    // Mon–Fri minus the person's part-time-free days (holidays/absences do NOT reduce it)
+    val workdayCount: Double,
+    val weekTargetSeconds: Long,
+    // recorded entries whose start date falls into the week, incl. a running timer's elapsed
+    val weekRecordedSeconds: Long,
+    // absence/holiday credits over the whole week (full day = daily target, half = 0.5×)
+    val weekCreditedSeconds: Long,
+    val weekRemainingSeconds: Long,
+    // today's share after redistributing the week's remainder over the remaining recordable days
+    val todayTargetSeconds: Long,
+    val todayRecordedSeconds: Long,
+    val todayRemainingSeconds: Long,
+    // projected stop time while a timer is running (never in the past); null otherwise
+    val expectedEndAt: String? = null,
+    val projects: List<ProjectForecastDto> = emptyList()
+)
+
+/** Week balance of one project that has a target (or recorded time) this week. */
+@Serializable
+data class ProjectForecastDto(
+    val projectId: String,
+    val weeklyHours: Double,
+    val recordedSeconds: Long,
+    // Credits land on the person's default project only. Without a default project
+    // they still count at the person level (weekCredited/-Remaining) but appear on
+    // no project — the project saldi then don't add up to the person's saldo.
+    val creditedSeconds: Long,
+    // recorded + credited − target (negative = behind)
+    val deltaSeconds: Long
 )
 
 @Serializable

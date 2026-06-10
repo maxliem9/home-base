@@ -516,6 +516,21 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-timerhero__clock { font-size: 46px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
 .hb-timerhero__idle { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .hb-timerhero__idle .hb-timerhero__clock { font-size: 38px; }
+.hb-timerhero__eta { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Wochensoll & Forecast (#31) */
+.hb-weektarget { display: flex; flex-direction: column; gap: 8px; }
+.hb-weektarget__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hb-weektarget__name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-weektarget__nums { font-weight: 600; font-variant-numeric: tabular-nums; }
+.hb-weektarget__delta { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hb-weektarget__delta.is-over { color: var(--accent-ink); font-weight: 600; }
+.hb-weektarget__projects { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.hb-weektarget__proj { display: flex; align-items: center; gap: 9px; font-size: 13.5px; padding: 2px 0; min-width: 0; }
+.hb-weektarget__projname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-targetgrid { display: grid; grid-template-columns: 1fr 90px 64px; gap: 8px 12px; align-items: center; margin-top: 8px; }
+.hb-targetgrid__h { font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.hb-targetgrid input[type='radio'] { justify-self: center; accent-color: var(--accent); width: 16px; height: 16px; }
 
 .hb-zeit-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: start; }
 .hb-proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }

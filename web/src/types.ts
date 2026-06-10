@@ -79,6 +79,52 @@ export interface TimeEntry {
   updatedAt: string
 }
 
+// --- Wochensoll & Forecast (#31) -------------------------------------------
+
+// Weekly work-hour target of one person on one project. `isDefault` marks the
+// person's one default project — absence/holiday credits are booked there.
+export interface WorkTarget {
+  userId: string
+  projectId: string
+  weeklyHours: number
+  isDefault: boolean
+}
+
+export interface ProjectForecast {
+  projectId: string
+  weeklyHours: number
+  recordedSeconds: number
+  creditedSeconds: number
+  /** recorded + credited − target (negative = behind) */
+  deltaSeconds: number
+}
+
+// Server-computed week forecast per person (GET /api/v1/time/forecast).
+// "remaining" values are signed (negative = already over target).
+export interface UserForecast {
+  userId: string
+  weeklyTargetHours: number
+  workdayCount: number
+  weekTargetSeconds: number
+  weekRecordedSeconds: number
+  weekCreditedSeconds: number
+  weekRemainingSeconds: number
+  todayTargetSeconds: number
+  todayRecordedSeconds: number
+  todayRemainingSeconds: number
+  /** projected stop time while a timer runs; omitted otherwise */
+  expectedEndAt?: string
+  /** omitted by the backend when empty (encodeDefaults=false) — normalize with ?? [] */
+  projects?: ProjectForecast[]
+}
+
+export interface TimeForecast {
+  date: string
+  weekStart: string
+  /** omitted by the backend when empty (encodeDefaults=false) — normalize with ?? [] */
+  users?: UserForecast[]
+}
+
 // LUNCH was dropped (collapsed into DINNER) — see backend migration V17.
 export type RecipeCategory = 'BREAKFAST' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
 
