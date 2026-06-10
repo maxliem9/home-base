@@ -390,6 +390,7 @@ export const de = {
     splitPart1: 'Teil 1:',
     splitPart2: 'Teil 2:',
     splitInvalidCut: 'Die Trennzeit muss zwischen Start und Ende liegen',
+    splitInvalidBreak: 'Pause in Minuten angeben (z. B. 30)',
     splitBreakTooLong: 'Die Pause muss vor dem Ende des Eintrags enden',
     splitFailed: 'Eintrag konnte nicht gesplittet werden',
   },

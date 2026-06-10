@@ -340,7 +340,6 @@ private fun Route.entryRoutes(json: Json) {
             if (breakMinutes < 0) {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RANGE", "breakMinutes must not be negative"))
             }
-            val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
 
             val outcome: Any? = transaction {
                 val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
@@ -351,6 +350,9 @@ private fun Route.entryRoutes(json: Json) {
                 if (!splitAt.isAfter(started) || !stopped.isAfter(splitAt)) {
                     return@transaction ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt")
                 }
+                // computed only after the range check — the cut is inside a real entry
+                // here, so adding the break cannot overflow Instant (DateTimeException)
+                val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
                 if (!stopped.isAfter(secondStart)) {
                     return@transaction ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt")
                 }

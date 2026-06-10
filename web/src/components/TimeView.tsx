@@ -1449,6 +1449,8 @@ function SplitEntryModal({ entry, onSave, onClose }: {
   onClose: () => void
 }) {
   const startMs = new Date(entry.startedAt).getTime()
+  // the split action is only offered on completed entries (lists filter on
+  // stoppedAt); a running entry would make stopMs NaN and every cut invalid
   const stopMs = new Date(entry.stoppedAt!).getTime()
   // default cut: the entry's midpoint, snapped to the full minute
   const [cut, setCut] = useState(() => toLocalInput(new Date(Math.floor((startMs + stopMs) / 2 / 60000) * 60000).toISOString()))
@@ -1457,14 +1459,18 @@ function SplitEntryModal({ entry, onSave, onClose }: {
   const submitRef = useRef(false)
 
   const cutMs = cut ? new Date(cut).getTime() : NaN
-  const breakNum = breakMin.trim() === '' ? 0 : Number(breakMin.trim())
+  // comma input is fine ("7,5"); the backend takes whole minutes, so round
+  const breakRaw = breakMin.trim() === '' ? 0 : Number(breakMin.trim().replace(',', '.'))
+  const breakNum = Math.round(breakRaw)
+  const breakParses = Number.isFinite(breakRaw) && breakNum >= 0
   const secondStartMs = cutMs + breakNum * 60000
   const cutValid = Number.isFinite(cutMs) && cutMs > startMs && cutMs < stopMs
-  const breakValid = Number.isInteger(breakNum) && breakNum >= 0 && secondStartMs < stopMs
+  const breakValid = breakParses && secondStartMs < stopMs
 
   const submit = async () => {
     if (submitRef.current) return
     if (!cutValid) return setError(t.time.splitInvalidCut)
+    if (!breakParses) return setError(t.time.splitInvalidBreak)
     if (!breakValid) return setError(t.time.splitBreakTooLong)
     submitRef.current = true
     setError(null)

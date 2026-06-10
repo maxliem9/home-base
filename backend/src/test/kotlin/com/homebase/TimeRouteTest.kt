@@ -655,8 +655,10 @@ class TimeRouteTest {
         assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T07:00:00Z"}""").status)
         assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T16:00:00Z"}""").status)
         assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"kein-datum"}""").status)
-        // break must end before the entry's stop; negative breaks are invalid
+        // break must end strictly before the entry's stop (== is rejected too);
+        // negative breaks are invalid
         assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T15:30:00Z","breakMinutes":45}""").status)
+        assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T15:30:00Z","breakMinutes":30}""").status)
         assertEquals(HttpStatusCode.BadRequest, split("""{"splitAt":"2026-06-03T12:00:00Z","breakMinutes":-5}""").status)
         // nothing was changed by the rejected attempts
         val list = client.get("/api/v1/time/entries") { bearerAuth(token) }
