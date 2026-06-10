@@ -183,6 +183,11 @@ description?, created_at, updated_at
   GET /api/v1/time/targets, PUT /api/v1/time/targets/{userId}/{projectId}
   ({weeklyHours?, isDefault?}; haushalts-geteilt wie der Abwesenheitskalender —
   die userId ist die Zielperson). Änderungen senden TARGET_UPDATED auf Channel "time".
+  **Default-Pflicht (#59):** Stunden > 0 ⇒ es existiert genau ein Default-Projekt —
+  das erste Projekt mit Soll wird automatisch Default; explizites `isDefault:false`
+  auf dem letzten Default wird bei verbleibenden Stunden mit 409 DEFAULT_REQUIRED
+  abgelehnt (Wechsel weiterhin via `isDefault:true` auf einem anderen Projekt).
+  Damit summieren sich Projekt-Saldi stets zum Personen-Saldo.
 - GET /api/v1/time/forecast (optional ?date=, für Tests) berechnet **serverseitig**
   pro Person und ISO-Woche (Mo–So): Tagessoll = Wochensoll ÷ Arbeitstage (Mo–Fr
   minus Teilzeit-freie Tage; Feiertage/Abwesenheiten verkleinern den Teiler nicht).
@@ -198,7 +203,10 @@ description?, created_at, updated_at
   Fallback BE); eigene/halbe Feiertage (#51) kommen aus der DB.
 - Web: Ende-Prognose am Timer-Hero/Partner-Strip/Dashboard-Peek, „Wochensoll"-Karte
   (Soll/Ist, Heute-Ziel, Gutschriften, Projekt-Saldi) + Konfigurations-Modal in
-  `TimeView`. Android folgt separat.
+  `TimeView`. Bei laufendem Timer ticken die Karten-Werte live weiter (Sekunden seit
+  dem Forecast-Snapshot werden client-seitig addiert, #59). Projekt-Kacheln zeigen
+  Tages- + Wochensaldo statt Gesamtsumme — vom aktuellen Tag/Woche, sonst Fallback
+  auf den letzten aktiven Tag bzw. die letzte aktive Woche (#59). Android folgt separat.
 
 ## Abwesenheit-Domänenmodell (Familienkalender)
 Geteilter Haushalts-Abwesenheitsplaner (Excel-Ersatz). Das Backend ist reine

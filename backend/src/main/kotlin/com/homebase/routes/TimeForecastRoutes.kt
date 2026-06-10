@@ -58,6 +58,27 @@ fun Route.workTargetRoutes(json: Json) {
                 ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
                     ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
 
+                val rows = TimeWorkTargetsTable.selectAll().where { TimeWorkTargetsTable.userId eq userId }.toList()
+                val existing = rows.firstOrNull { it[TimeWorkTargetsTable.projectId] == projectId }
+                val defaultProjectId = rows.firstOrNull { it[TimeWorkTargetsTable.isDefault] }?.get(TimeWorkTargetsTable.projectId)
+                val newHours = hours ?: existing?.get(TimeWorkTargetsTable.weeklyHours) ?: 0.0
+                val sumAfter = rows.filter { it[TimeWorkTargetsTable.projectId] != projectId }
+                    .sumOf { it[TimeWorkTargetsTable.weeklyHours] } + newHours
+
+                // Invariant (#59): configured hours ⇒ exactly one default project, so the
+                // absence/holiday credits always have a target. Removing the last default
+                // while hours remain is rejected; switching it (isDefault=true elsewhere)
+                // stays the way to change it.
+                if (req.isDefault == false && defaultProjectId == projectId && sumAfter > 0) {
+                    return@transaction ErrorResponse(
+                        "DEFAULT_REQUIRED",
+                        "a default project is required while weekly hours are configured — set another project as default first",
+                    )
+                }
+                // First configured hours for a person without any default → this row
+                // becomes the default automatically (self-heals legacy data too).
+                val autoDefault = req.isDefault == null && defaultProjectId == null && sumAfter > 0
+
                 // A person has exactly one default project (credits land there) —
                 // making this one the default clears any other (V20 partial index backstop).
                 if (req.isDefault == true) {
@@ -65,21 +86,19 @@ fun Route.workTargetRoutes(json: Json) {
                         it[isDefault] = false
                     }
                 }
-                val existing = TimeWorkTargetsTable.selectAll()
-                    .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) }
-                    .singleOrNull()
                 if (existing == null) {
                     TimeWorkTargetsTable.insert {
                         it[id] = UUID.randomUUID()
                         it[TimeWorkTargetsTable.userId] = userId
                         it[TimeWorkTargetsTable.projectId] = projectId
                         it[weeklyHours] = hours ?: 0.0
-                        it[isDefault] = req.isDefault ?: false
+                        it[isDefault] = req.isDefault ?: autoDefault
                     }
                 } else {
                     TimeWorkTargetsTable.update({ (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) }) {
                         hours?.let { v -> it[weeklyHours] = v }
                         req.isDefault?.let { v -> it[isDefault] = v }
+                        if (autoDefault) it[isDefault] = true
                     }
                 }
                 TimeWorkTargetsTable.selectAll()
@@ -89,7 +108,10 @@ fun Route.workTargetRoutes(json: Json) {
 
             when (target) {
                 null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
-                is ErrorResponse -> call.respond(HttpStatusCode.NotFound, target)
+                is ErrorResponse -> call.respond(
+                    if (target.code == "DEFAULT_REQUIRED") HttpStatusCode.Conflict else HttpStatusCode.NotFound,
+                    target,
+                )
                 is WorkTargetDto -> {
                     WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("TARGET_UPDATED", target = target)))
                     call.respond(target)

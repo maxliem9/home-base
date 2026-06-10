@@ -63,6 +63,9 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [toast, setToast] = useState<string | null>(null)
   // Wochensoll & Forecast (#31)
   const [forecast, setForecast] = useState<TimeForecast | null>(null)
+  // when the forecast snapshot was taken — lets a running timer tick the displayed
+  // soll/ist live instead of freezing it at fetch time (#59)
+  const [forecastAtMs, setForecastAtMs] = useState(0)
   const [targets, setTargets] = useState<WorkTarget[]>([])
   const [showTargets, setShowTargets] = useState(false)
 
@@ -99,7 +102,10 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     const result = await safeFetch(token, `${API_BASE}/time/forecast`)
     if (!result.ok) return
     if (result.res.status === 401) return onLogout()
-    if (result.res.ok) setForecast(await result.res.json())
+    if (result.res.ok) {
+      setForecast(await result.res.json())
+      setForecastAtMs(Date.now())
+    }
   }, [onLogout, token])
 
   const fetchTargets = useCallback(async () => {
@@ -379,12 +385,37 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return null
   }
 
-  // total finished time per project
-  const totalsByProject = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const e of entries) if (e.stoppedAt && e.durationSeconds) m[e.projectId] = (m[e.projectId] ?? 0) + e.durationSeconds
-    return m
-  }, [entries])
+  // Day + week saldo per project for the tiles (#59): today's / this week's sums —
+  // or, when the current day/week has no entries yet, the last active day / week
+  // (e.g. on Sunday show Friday's saldo if the weekend is empty). Running timers
+  // count their elapsed time, so the figures tick live via nowMs.
+  const projectStats = useMemo(() => {
+    const todayKey = dayKey(new Date(nowMs))
+    const thisWeek = weekKey(new Date(nowMs).toISOString())
+    const byProj: Record<string, { days: Map<string, number>; weeks: Map<string, number> }> = {}
+    for (const e of entries) {
+      const secs = e.stoppedAt ? (e.durationSeconds ?? 0) : elapsedSeconds(e.startedAt, nowMs)
+      const slot = (byProj[e.projectId] ??= { days: new Map(), weeks: new Map() })
+      const d = dayKey(new Date(e.startedAt))
+      const w = weekKey(e.startedAt)
+      slot.days.set(d, (slot.days.get(d) ?? 0) + secs)
+      slot.weeks.set(w, (slot.weeks.get(w) ?? 0) + secs)
+    }
+    const stats: Record<string, { daySeconds: number; dayLabel: string; weekSeconds: number; weekLabel: string }> = {}
+    for (const [pid, slot] of Object.entries(byProj)) {
+      // fall back to the latest key before today / this week (future-dated entries don't count)
+      const dayK = slot.days.has(todayKey) ? todayKey : [...slot.days.keys()].filter((k) => k < todayKey).sort().pop()
+      const weekK = slot.weeks.has(thisWeek) ? thisWeek : [...slot.weeks.keys()].filter((k) => k < thisWeek).sort().pop()
+      const wl = weekK && weekK !== thisWeek ? weekLabel(`${weekK}T12:00:00`) : null
+      stats[pid] = {
+        daySeconds: dayK ? slot.days.get(dayK)! : 0,
+        dayLabel: dayK && dayK !== todayKey ? dayGroupLabel(`${dayK}T12:00:00`) : t.time.today,
+        weekSeconds: weekK ? slot.weeks.get(weekK)! : 0,
+        weekLabel: wl ? (wl.label ?? wl.range) : t.time.thisWeek,
+      }
+    }
+    return stats
+  }, [entries, nowMs])
 
   const activeProjects = projects.filter((p) => !p.archived)
   const archivedProjects = projects.filter((p) => p.archived)
@@ -559,9 +590,21 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
             <IconButton icon="settings" label={t.time.configureTargets} onClick={() => setShowTargets(true)} />
           </div>
           <div className="hb-stack" style={{ gap: 16 }}>
-            {weekUsers.map((u) => (
-              <WeekBalance key={u.userId} forecast={u} projectsById={projectsById} />
-            ))}
+            {weekUsers.map((u) => {
+              // a running timer ticks the snapshot numbers live: add the seconds
+              // elapsed since the forecast was fetched (#59)
+              const live = entries.find((e) => !e.stoppedAt && e.userId === u.userId)
+              const extra = live && forecastAtMs ? Math.max(0, Math.floor((nowMs - forecastAtMs) / 1000)) : 0
+              return (
+                <WeekBalance
+                  key={u.userId}
+                  forecast={u}
+                  projectsById={projectsById}
+                  liveExtraSeconds={extra}
+                  liveProjectId={live?.projectId}
+                />
+              )
+            })}
           </div>
         </Card>
       )}
@@ -601,8 +644,13 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
                           />
                         </div>
                       </div>
-                      <button className="hb-projcard__stat hb-projcard__statbtn hb-mono" onClick={() => setDetailProject(p)}>
-                        {fmtDurationShort(totalsByProject[p.id] ?? 0)}<span> {t.time.total} →</span>
+                      <button className="hb-projcard__statbtn" onClick={() => setDetailProject(p)}>
+                        <span className="hb-projcard__stat hb-mono">
+                          {hm(projectStats[p.id]?.daySeconds ?? 0)}<span> {projectStats[p.id]?.dayLabel ?? t.time.today} →</span>
+                        </span>
+                        <span className="hb-projcard__stat2 hb-mono">
+                          {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span> {projectStats[p.id]?.weekLabel ?? t.time.thisWeek}</span>
+                        </span>
                       </button>
                       {!p.archived && (
                         isRunning ? (
@@ -699,15 +747,25 @@ function EtaLine({ eta, nowMs }: { eta?: string; nowMs: number }) {
 
 // One person's week balance (#31): soll/ist row with progress bar, today's
 // redistributed target and the per-project saldo for projects with a target.
-function WeekBalance({ forecast, projectsById }: { forecast: UserForecast; projectsById: Record<string, Project> }) {
+// `liveExtraSeconds` are the seconds a running timer has accumulated since the
+// forecast snapshot — they tick all displayed figures live (#59); the running
+// entry's project (`liveProjectId`) accrues them in its saldo row too.
+function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProjectId }: {
+  forecast: UserForecast
+  projectsById: Record<string, Project>
+  liveExtraSeconds?: number
+  liveProjectId?: string
+}) {
   const u = forecast
-  const done = u.weekRecordedSeconds + u.weekCreditedSeconds
+  const done = u.weekRecordedSeconds + u.weekCreditedSeconds + liveExtraSeconds
+  const weekRemaining = u.weekRemainingSeconds - liveExtraSeconds
+  const todayRemaining = u.todayRemainingSeconds - liveExtraSeconds
   const pct = u.weekTargetSeconds > 0 ? Math.min(100, (done / u.weekTargetSeconds) * 100) : 0
   const hue = userMeta(u.userId)?.hue ?? 150
-  const todayLine = u.todayRemainingSeconds >= 60
-    ? t.time.todayLeft.replace('{time}', hm(u.todayRemainingSeconds))
-    : u.todayRemainingSeconds <= -60
-      ? t.time.todayOver.replace('{time}', hm(-u.todayRemainingSeconds))
+  const todayLine = todayRemaining >= 60
+    ? t.time.todayLeft.replace('{time}', hm(todayRemaining))
+    : todayRemaining <= -60
+      ? t.time.todayOver.replace('{time}', hm(-todayRemaining))
       : t.time.targetReached
   // deliberately a soll view: projects with recorded time but no target stay out
   const projects = (u.projects ?? []).filter((p) => p.weeklyHours > 0)
@@ -717,10 +775,10 @@ function WeekBalance({ forecast, projectsById }: { forecast: UserForecast; proje
         <Avatar user={u.userId} size={24} />
         <span className="hb-weektarget__name">{userMeta(u.userId)?.name ?? u.userId}</span>
         <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
-        <span className={`hb-weektarget__delta${u.weekRemainingSeconds < 0 ? ' is-over' : ''}`}>
-          {u.weekRemainingSeconds < 0
-            ? t.time.weekOver.replace('{time}', hm(-u.weekRemainingSeconds))
-            : t.time.weekLeft.replace('{time}', hm(u.weekRemainingSeconds))}
+        <span className={`hb-weektarget__delta${weekRemaining < 0 ? ' is-over' : ''}`}>
+          {weekRemaining < 0
+            ? t.time.weekOver.replace('{time}', hm(-weekRemaining))
+            : t.time.weekLeft.replace('{time}', hm(weekRemaining))}
         </span>
       </div>
       <div className="hb-weekbar">
@@ -734,13 +792,15 @@ function WeekBalance({ forecast, projectsById }: { forecast: UserForecast; proje
         <div className="hb-weektarget__projects">
           {projects.map((p) => {
             const proj = projectsById[p.projectId]
+            const rec = p.recordedSeconds + p.creditedSeconds + (p.projectId === liveProjectId ? liveExtraSeconds : 0)
+            const delta = p.deltaSeconds + (p.projectId === liveProjectId ? liveExtraSeconds : 0)
             return (
               <div key={p.projectId} className="hb-weektarget__proj">
                 <span className="hb-pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
                 <span className="hb-weektarget__projname">{proj?.name ?? t.time.project}</span>
-                <span className="hb-mono hb-muted">{hm(p.recordedSeconds + p.creditedSeconds)} / {hm(p.weeklyHours * 3600)}</span>
-                <span className={`hb-weektarget__delta${p.deltaSeconds < 0 ? '' : ' is-over'}`} style={{ minWidth: 58, textAlign: 'right' }}>
-                  {p.deltaSeconds < 0 ? `-${hm(-p.deltaSeconds)}` : `+${hm(p.deltaSeconds)}`}
+                <span className="hb-mono hb-muted">{hm(rec)} / {hm(p.weeklyHours * 3600)}</span>
+                <span className={`hb-weektarget__delta${delta < 0 ? '' : ' is-over'}`} style={{ minWidth: 58, textAlign: 'right' }}>
+                  {delta < 0 ? `-${hm(-delta)}` : `+${hm(delta)}`}
                 </span>
               </div>
             )
@@ -1227,8 +1287,16 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
   const [error, setError] = useState<string | null>(null)
   const submitRef = useRef(false)
 
+  // Hours > 0 require a default project (#59) — entering the first hours for a
+  // person without one auto-selects that project (mirrors the backend's behavior).
   const setHours = (u: string, p: string, v: string) =>
-    setDraft((d) => ({ ...d, [u]: { ...d[u], hours: { ...d[u].hours, [p]: v } } }))
+    setDraft((d) => ({
+      ...d,
+      [u]: {
+        def: d[u].def === '' && Number(v.trim().replace(',', '.')) > 0 ? p : d[u].def,
+        hours: { ...d[u].hours, [p]: v },
+      },
+    }))
   const setDef = (u: string, p: string) =>
     setDraft((d) => ({ ...d, [u]: { ...d[u], def: p } }))
 
@@ -1236,6 +1304,7 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
     if (submitRef.current) return
     const puts: { userId: string; projectId: string; body: object }[] = []
     for (const u of users) {
+      let sumHours = 0
       for (const p of projects) {
         const raw = (draft[u].hours[p.id] ?? '').trim()
         const hours = raw === '' ? 0 : Number(raw.replace(',', '.'))
@@ -1243,16 +1312,19 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
           setError(t.time.invalidHours)
           return
         }
+        sumHours += hours
         const body: { weeklyHours?: number; isDefault?: boolean } = {}
         if (hours !== (targetFor(u, p.id)?.weeklyHours ?? 0)) body.weeklyHours = hours
         const defBefore = defaultFor(u)
-        // setting the new default clears the old one server-side; an explicit
-        // false is only needed when the default is removed entirely
-        if (draft[u].def !== defBefore) {
-          if (draft[u].def === p.id) body.isDefault = true
-          else if (draft[u].def === '' && defBefore === p.id) body.isDefault = false
-        }
+        // setting the new default clears the old one server-side
+        if (draft[u].def !== defBefore && draft[u].def === p.id) body.isDefault = true
         if (Object.keys(body).length > 0) puts.push({ userId: u, projectId: p.id, body })
+      }
+      // hours > 0 ⇒ a default project must be chosen (#59); auto-select normally
+      // covers this — backstop for legacy data without a default
+      if (sumHours > 0 && draft[u].def === '') {
+        setError(t.time.defaultRequired)
+        return
       }
     }
     if (puts.length === 0) return onClose()
@@ -1321,15 +1393,6 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
                 </Fragment>
               ))}
             </div>
-            <label className="hb-muted" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, marginTop: 8 }}>
-              <input
-                type="radio"
-                name={`hb-default-${u}`}
-                checked={draft[u].def === ''}
-                onChange={() => setDef(u, '')}
-              />
-              {t.time.noDefaultProject}
-            </label>
           </div>
         ))
       )}

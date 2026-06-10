@@ -117,6 +117,42 @@ class ForecastRouteTest {
     }
 
     @Test
+    fun `first configured hours auto-assign the default project`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token, "Arbeit")
+        val p2 = createProject(token, "Nebenjob")
+
+        // no default exists yet → the first row with hours becomes it
+        val first = putTarget(token, "alice", p1, """{"weeklyHours":40}""")
+        assertEquals(HttpStatusCode.OK, first.status)
+        assertEquals(true, Json.parseToJsonElement(first.bodyAsText()).jsonObject["isDefault"]?.jsonPrimitive?.boolean)
+
+        // a later row with hours does not steal the existing default
+        val second = putTarget(token, "alice", p2, """{"weeklyHours":5}""")
+        assertEquals(false, Json.parseToJsonElement(second.bodyAsText()).jsonObject["isDefault"]?.jsonPrimitive?.boolean)
+    }
+
+    @Test
+    fun `removing the default while hours remain is rejected`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40}""") // auto-default
+
+        val rejected = putTarget(token, "alice", p1, """{"isDefault":false}""")
+        assertEquals(HttpStatusCode.Conflict, rejected.status)
+        assertEquals(
+            "DEFAULT_REQUIRED",
+            Json.parseToJsonElement(rejected.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+
+        // once no hours are configured anymore, the default may go
+        putTarget(token, "alice", p1, """{"weeklyHours":0}""")
+        assertEquals(HttpStatusCode.OK, putTarget(token, "alice", p1, """{"isDefault":false}""").status)
+    }
+
+    @Test
     fun `partner may configure the other person's target`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken() // alice
