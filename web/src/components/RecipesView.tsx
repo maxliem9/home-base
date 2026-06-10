@@ -5,7 +5,7 @@ import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
-import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
+import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
@@ -557,7 +557,7 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   }
 
   return (
-    <Modal
+    <Sheet
       open
       onClose={onClose}
       title={t.recipes.pickerTitle}
@@ -602,7 +602,7 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
           </div>
         </>
       )}
-    </Modal>
+    </Sheet>
   )
 }
 

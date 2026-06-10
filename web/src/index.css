@@ -369,6 +369,43 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-modal__body { padding: 4px 22px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
 .hb-modal__foot { padding: 16px 22px 20px; display: flex; gap: 10px; justify-content: flex-end; }
 
+/* ---------- Slide-over / bottom sheet (#48) ---------- */
+/* Desktop: panel anchored to the right edge. Mobile (≤640px): bottom sheet. */
+.hb-sheet-scrim {
+  position: fixed; inset: 0; z-index: 100;
+  background: oklch(0.2 0.02 70 / 0.4);
+  backdrop-filter: blur(3px);
+  display: flex; justify-content: flex-end;
+  animation: hb-fade 0.16s ease;
+}
+.hb-sheet {
+  background: var(--surface);
+  border-left: 1px solid var(--line-soft);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  height: 100%;
+  display: flex; flex-direction: column;
+  animation: hb-slide-in 0.2s cubic-bezier(.2,.9,.3,1.2);
+}
+.hb-sheet__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 22px 14px; border-bottom: 1px solid var(--line-soft); }
+.hb-sheet__head h3 { font-family: var(--font-display); font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+.hb-sheet__body { padding: 8px 22px 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.hb-sheet__foot { padding: 14px 22px 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid var(--line-soft); }
+
+@keyframes hb-slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes hb-slide-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+@media (max-width: 640px) {
+  .hb-sheet-scrim { align-items: flex-end; justify-content: stretch; }
+  .hb-sheet {
+    max-width: none !important; width: 100%;
+    height: auto; max-height: 88vh;
+    border-left: none;
+    border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg);
+    animation: hb-slide-up 0.2s cubic-bezier(.2,.9,.3,1.2);
+  }
+}
+
 /* ---------- Empty ---------- */
 .hb-empty { text-align: center; padding: 46px 20px; color: var(--ink-3); }
 .hb-empty__icon { width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 16px; background: var(--surface-2); display: grid; place-items: center; color: var(--ink-3); }
