@@ -175,7 +175,11 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
 
         val todayRemaining = todayTarget - todayRecorded
         // Projected stop time, clamped to now (a timer past its target "ends now").
-        // Only meaningful for the real today and while a timer actually runs.
+        // Only meaningful for the real today and while a timer actually runs. Note:
+        // a still-running timer started on an earlier day counts toward that day
+        // (start-date convention), so today's recorded stays 0 and this projection
+        // moves forward with `now` instead of staying start-anchored — accepted
+        // edge case for over-midnight sessions.
         val expectedEndAt = if (day == today && runningEntry != null) {
             now.plusSeconds(max(0L, todayRemaining)).toString()
         } else null

@@ -383,7 +383,9 @@ data class ProjectForecastDto(
     val projectId: String,
     val weeklyHours: Double,
     val recordedSeconds: Long,
-    // credits land on the person's default project only
+    // Credits land on the person's default project only. Without a default project
+    // they still count at the person level (weekCredited/-Remaining) but appear on
+    // no project — the project saldi then don't add up to the person's saldo.
     val creditedSeconds: Long,
     // recorded + credited − target (negative = behind)
     val deltaSeconds: Long

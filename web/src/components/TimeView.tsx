@@ -407,6 +407,14 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const weekUsers = useMemo(() => (forecast?.users ?? []).filter((u) => u.weekTargetSeconds > 0), [forecast])
   const runningForecast = running ? forecastByUser[running.userId] : undefined
 
+  // Projects offered in the targets modal: the active ones plus archived projects
+  // that still carry a target (hours or default) — otherwise an archived project's
+  // Wochensoll would keep counting server-side with no way left to clear it.
+  const targetProjects = useMemo(
+    () => projects.filter((p) => !p.archived || targets.some((x) => x.projectId === p.id && (x.weeklyHours > 0 || x.isDefault))),
+    [projects, targets],
+  )
+
   // The currently shown detail project, re-read from the live list so its name/color
   // stay in sync after an edit; falls back to the captured snapshot if it was archived
   // away or deleted while open.
@@ -669,7 +677,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
       )}
 
       {showTargets && (
-        <TargetsModal users={users} projects={activeProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
+        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
       )}
 
       {sharedModals}
@@ -701,6 +709,7 @@ function WeekBalance({ forecast, projectsById }: { forecast: UserForecast; proje
     : u.todayRemainingSeconds <= -60
       ? t.time.todayOver.replace('{time}', hm(-u.todayRemainingSeconds))
       : t.time.targetReached
+  // deliberately a soll view: projects with recorded time but no target stay out
   const projects = (u.projects ?? []).filter((p) => p.weeklyHours > 0)
   return (
     <div className="hb-weektarget">
@@ -1290,7 +1299,9 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
                 <Fragment key={p.id}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
                     <span className="hb-pdot" style={{ background: p.color }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.name}{p.archived && <span className="hb-muted"> ({t.time.archivedSection})</span>}
+                    </span>
                   </span>
                   <input
                     className="hb-input"
