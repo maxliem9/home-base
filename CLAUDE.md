@@ -61,6 +61,18 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
 - Exposed ORM für Datenbankzugriff
 - PostgreSQL 16
 - JWT Auth (2 feste Nutzer, kein Registration-Flow)
+- Login-Throttling (`security/LoginThrottler`, Issue #8): `POST /auth/login` wird pro
+  Client-IP gedrosselt. Die ersten 5 Fehlversuche sind frei, danach exponentielles
+  Backoff (1→2→4→…→15 min Sperre) mit `429 TOO_MANY_ATTEMPTS` + `Retry-After`; ein
+  erfolgreicher Login setzt den Zähler zurück. Bewusst **IP**- statt benutzerbasiert
+  (Benutzernamen sind bekannt → Username-Keying ermöglichte Account-Lockout-DoS).
+  Die echte Client-IP wird spoofing-resistent aus `X-Forwarded-For` gelesen: die
+  rechtesten `TRUSTED_PROXY_COUNT` Einträge (prod: DSM + nginx = 2) stammen von eigenen
+  Proxies, alles weiter links ist client-gefälscht und wird ignoriert. **Setzt voraus,
+  dass der DSM-Reverse-Proxy die echte Client-IP tatsächlich in `X-Forwarded-For`
+  einträgt** (sonst `TRUSTED_PROXY_COUNT` an die real anhängenden Proxies anpassen; ein
+  falscher Wert drosselt eher zu stark, lässt aber kein Spoofing durch). State nur im
+  Speicher (Neustart vergibt jedem).
 - REST für CRUD, WebSockets für Echtzeit-Sync
 - Alle Endpunkte unter /api/v1/
 - Fehlerbehandlung: einheitliche ErrorResponse(code, message)
@@ -224,6 +236,9 @@ TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin);
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
+TRUSTED_PROXY_COUNT — Anzahl vertrauenswürdiger Reverse-Proxy-Hops vor dem Backend (default 2:
+                      DSM + nginx); bestimmt die echte Client-IP aus X-Forwarded-For fürs
+                      Login-Throttling. 0 = Backend direkt erreichbar (kein Proxy). Siehe Issue #8.
 
 ## Docker Services
 Produktion (docker-compose.yml) — 3 Services; HTTPS liefert DSM Reverse Proxy davor:
