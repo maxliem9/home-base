@@ -1,7 +1,7 @@
 // Abwesenheit: data model, palette + summary math.
 // Ported from the design handoff (abw_core.jsx → ABW). Pure, framework-free.
 import { userMeta } from '../../ui/format'
-import type { AbsSettings, Absence, AbsenceState, AbsenceType, HalfDay, KitaClosure, PartTimeRule } from '../../types'
+import type { AbsSettings, Absence, AbsenceState, AbsenceType, CustomHoliday, HalfDay, KitaClosure, PartTimeRule } from '../../types'
 import * as C from './holidays'
 
 export type Theme = 'light' | 'dark'
@@ -56,7 +56,12 @@ export interface DayState {
   hue: number
   type: AbsenceType | null
   half: HalfDay | null
+  // Holiday label (statutory or a custom one, #51) — null = not a holiday.
   holiday: string | null
+  // true only for a *half-day* custom holiday: the day shows the holiday marker but is
+  // still half a regular work/tracking day. Statutory + full custom holidays are full days
+  // (holidayHalf=false). Used for the ½ display now and the fractional work-credit in #31.
+  holidayHalf: boolean
   weekend: boolean
   ptOff: boolean
 }
@@ -103,12 +108,20 @@ export function settingsFor(all: AbsSettings[], userId: string, year: number): A
   return { ...base, year, carryover: 0, carryoverExpires: `${year}-03-31` }
 }
 
+/** MM-DD key for a custom holiday (recurring by month+day, year-agnostic). */
+const mdKey = (month: number, day: number): string => `${C.pad(month)}-${C.pad(day)}`
+/** MM-DD slice of a YYYY-MM-DD date string. */
+const mdOf = (dateStr: string): string => dateStr.slice(5)
+
 export interface Ctx {
   year: number
   settings: Record<string, AbsSettings>
   holidays: Record<string, Record<string, string>>
   absByUser: Record<string, Record<string, Absence>>
   kita: Record<string, KitaClosure>
+  // Household-wide custom holidays (#51), keyed by MM-DD so a single fixed date matches
+  // every year. Applies to every user regardless of Bundesland.
+  customHol: Record<string, CustomHoliday>
   parttime: PartTimeRule[]
   hue: Record<string, number>
 }
@@ -135,7 +148,13 @@ export function buildContext(state: AbsenceState, year: number, users: string[])
   state.kitaClosures.forEach((k) => {
     kita[k.date] = k
   })
-  return { year, settings, holidays, absByUser, kita, parttime: state.partTime, hue }
+  // `customHolidays` may be omitted from the snapshot when empty (encodeDefaults=false,
+  // see CLAUDE.md / issue #46) — normalise to [].
+  const customHol: Record<string, CustomHoliday> = {}
+  ;(state.customHolidays ?? []).forEach((h) => {
+    customHol[mdKey(h.month, h.day)] = h
+  })
+  return { year, settings, holidays, absByUser, kita, customHol, parttime: state.partTime, hue }
 }
 
 /** Resolve a single person's day. */
@@ -143,21 +162,28 @@ export function personDay(ctx: Ctx, userId: string, dateStr: string): DayState {
   const date = C.parse(dateStr)
   const hue = ctx.hue[userId] != null ? ctx.hue[userId] : hueOf(userId)
   const abs = ctx.absByUser[userId] && ctx.absByUser[userId][dateStr]
-  const holiday = ctx.holidays[userId][dateStr] || null
+  // Statutory holiday (per Bundesland, always full-day) wins; otherwise fall back to a
+  // household-wide custom holiday matched by month+day (#51), which may be a half day.
+  const statutory = ctx.holidays[userId][dateStr] || null
+  const custom = statutory ? null : ctx.customHol[mdOf(dateStr)] || null
   const weekend = C.isWeekend(date)
   const ptOff = partTimeOff(ctx.parttime, userId, date, dateStr)
   return {
     hue,
     type: abs ? abs.type : null,
     half: abs ? abs.half || null : null,
-    holiday,
+    holiday: statutory ?? (custom ? custom.label : null),
+    holidayHalf: custom ? custom.half : false,
     weekend,
     ptOff,
   }
 }
 
-/** would this be a working day absent any leave? (used for counting) */
-export const wouldWork = (st: DayState): boolean => !st.weekend && !st.holiday && !st.ptOff
+/** would this be a working day absent any leave? (used for counting). A *half* custom
+ *  holiday (#51) still leaves the other half a regular work day, so it does not disqualify
+ *  the day here — only full holidays (statutory + whole-day custom) do. */
+export const wouldWork = (st: DayState): boolean =>
+  !st.weekend && !(st.holiday && !st.holidayHalf) && !st.ptOff
 
 export interface Summary {
   allowance: number
@@ -240,12 +266,16 @@ export function eachDate(from: string, to: string): string[] {
   return out
 }
 
-/** would this date be a working day for this user (not weekend / holiday / part-time-off)? */
+/** would this date be a working day for this user (not weekend / holiday / part-time-off)?
+ *  A whole-day custom holiday (#51) counts as non-working; a half-day one stays workable
+ *  (the other half is bookable), so range-booking still applies on it. */
 export function isWorkdayFor(state: AbsenceState, userId: string, ds: string): boolean {
   const s = settingsFor(state.settings, userId, Number(ds.slice(0, 4)))
   const date = C.parse(ds)
   if (C.isWeekend(date)) return false
   if (C.holidays(date.getFullYear(), s.state)[ds]) return false
+  const custom = (state.customHolidays ?? []).find((h) => h.month === date.getMonth() + 1 && h.day === date.getDate())
+  if (custom && !custom.half) return false
   if (partTimeOff(state.partTime, userId, date, ds)) return false
   return true
 }

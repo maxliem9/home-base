@@ -74,7 +74,12 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
       const bg = cellBg(colorFor(pal, a), colorFor(pal, b))
       const kita = ctx.kita[ds]
       const isToday = ds === today
-      const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)} · ${nameOf(uB)}: ${statusLabel(b)}${kita ? ` · ${t.abwesenheit.kitaShort}: ${kita.label}` : ''}`
+      // Custom holidays are household-wide, so both persons share the same holiday state.
+      const holName = ctx.customHol[ds.slice(5)] ? a.holiday : null
+      const halfHol = a.holidayHalf
+      const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)} · ${nameOf(uB)}: ${statusLabel(b)}`
+        + (holName ? ` · ${holName}${halfHol ? ' (½)' : ''}` : '')
+        + (kita ? ` · ${t.abwesenheit.kitaShort}: ${kita.label}` : '')
       cells.push(
         <button
           key={mi + '_' + d}
@@ -85,6 +90,7 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
         >
           {a.half ? <span className="abw-rcell__h abw-rcell__h--a">{a.half === 'vm' ? 'AM' : 'PM'}</span> : null}
           {b.half ? <span className="abw-rcell__h abw-rcell__h--b">{b.half === 'vm' ? 'AM' : 'PM'}</span> : null}
+          {halfHol ? <span className="abw-rcell__half" aria-hidden="true">½</span> : null}
         </button>,
       )
     }
@@ -108,7 +114,8 @@ function MonatsChip({ st, uid, pal }: { st: DayState; uid: string; pal: Palette 
   } else if (st.holiday) {
     bg = pal.FEIERTAG
     fg = pal.onLight
-    label = st.holiday
+    // ½ prefix marks a half-day custom holiday (#51); statutory ones are full days.
+    label = (st.holidayHalf ? '½ ' : '') + st.holiday
   } else if (st.ptOff) {
     bg = pal.teilzeit(st.hue)
     fg = pal.onLight

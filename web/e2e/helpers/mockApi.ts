@@ -8,14 +8,14 @@ import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe,
   NoteVisibility, NoteImage, Note,
-  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, AbsSettings,
+  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 } from '../../src/types'
 
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe,
   NoteVisibility, NoteImage, Note,
-  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, AbsSettings,
+  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 }
 
 export interface AbsenceSeed {
@@ -23,6 +23,7 @@ export interface AbsenceSeed {
   absences?: Absence[]
   partTime?: PartTimeRule[]
   kitaClosures?: KitaClosure[]
+  customHolidays?: CustomHoliday[]
   settings?: AbsSettings[]
 }
 
@@ -73,6 +74,7 @@ export class MockApi {
   private absences: Absence[] = []
   private partTime: PartTimeRule[] = []
   private kitaClosures: KitaClosure[] = []
+  private customHolidays: CustomHoliday[] = []
   private absSettings: AbsSettings[] = []
   private nextAbsId = 100
   private nextId = 100
@@ -130,6 +132,7 @@ export class MockApi {
     this.absences = (seed.absences ?? []).map((a) => ({ ...a }))
     this.partTime = (seed.partTime ?? []).map((r) => ({ ...r }))
     this.kitaClosures = (seed.kitaClosures ?? []).map((k) => ({ ...k }))
+    this.customHolidays = (seed.customHolidays ?? []).map((h) => ({ ...h }))
     this.absSettings = (seed.settings ?? []).map((s) => ({ ...s }))
     return this
   }
@@ -820,6 +823,7 @@ export class MockApi {
         absences: this.absences,
         partTime: this.partTime,
         kitaClosures: this.kitaClosures,
+        customHolidays: this.customHolidays,
         settings: this.absSettings,
       })
     }
@@ -893,6 +897,34 @@ export class MockApi {
       }
       if (method === 'DELETE') {
         if (idx !== -1) this.kitaClosures.splice(idx, 1)
+        return route.fulfill({ status: 204, body: '' })
+      }
+    }
+    // Custom holidays (#51) — mirrors the backend /absence/holidays routes.
+    if (path.endsWith('/absence/holidays') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const existing = this.customHolidays.find((h) => h.month === b.month && h.day === b.day)
+      if (existing) return this.json(route, existing) // idempotent, like the backend
+      const h: CustomHoliday = {
+        id: `hol-${this.nextAbsId++}`,
+        month: b.month,
+        day: b.day,
+        half: b.half ?? false,
+        label: (b.label && String(b.label).trim()) || 'Feiertag',
+      }
+      this.customHolidays.push(h)
+      return this.json(route, h, 201)
+    }
+    const holMatch = path.match(/\/absence\/holidays\/([^/]+)$/)
+    if (holMatch) {
+      const idx = this.customHolidays.findIndex((h) => h.id === holMatch[1])
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+        this.customHolidays[idx] = { ...this.customHolidays[idx], ...JSON.parse(req.postData() ?? '{}') }
+        return this.json(route, this.customHolidays[idx])
+      }
+      if (method === 'DELETE') {
+        if (idx !== -1) this.customHolidays.splice(idx, 1)
         return route.fulfill({ status: 204, body: '' })
       }
     }
@@ -1060,6 +1092,10 @@ export function partTimeRule(partial: Partial<PartTimeRule> & { id: string; user
 
 export function kitaClosure(partial: Partial<KitaClosure> & { id: string; date: string }): KitaClosure {
   return { label: 'Kita geschlossen', ...partial }
+}
+
+export function customHoliday(partial: Partial<CustomHoliday> & { id: string; month: number; day: number }): CustomHoliday {
+  return { half: false, label: 'Feiertag', ...partial }
 }
 
 // year defaults to the fixture year (2026), not the real clock — callers that care

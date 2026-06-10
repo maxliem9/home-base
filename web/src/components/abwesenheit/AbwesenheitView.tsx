@@ -29,7 +29,7 @@ import './abw.css'
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = `${WS_SCHEME}://${window.location.host}/api/v1/ws/absence`
 
-const EMPTY: AbsenceState = { users: [], absences: [], partTime: [], kitaClosures: [], settings: [] }
+const EMPTY: AbsenceState = { users: [], absences: [], partTime: [], kitaClosures: [], customHolidays: [], settings: [] }
 
 const nameOf = (uid: string): string => userMeta(uid)?.name ?? uid
 const hueOf = (uid: string): number => userMeta(uid)?.hue ?? 150
@@ -61,6 +61,9 @@ interface Api {
   addKitaRange: (from: string, to: string, label: string) => Promise<void>
   updateKita: (id: string, patch: { date?: string; label?: string }) => Promise<void>
   removeKita: (id: string) => Promise<void>
+  addCustomHoliday: (holiday: { month: number; day: number; half: boolean; label: string }) => Promise<void>
+  updateCustomHoliday: (id: string, patch: { month?: number; day?: number; half?: boolean; label?: string }) => Promise<void>
+  removeCustomHoliday: (id: string) => Promise<void>
   updateAbsSettings: (userId: string, year: number, patch: Record<string, unknown>) => Promise<void>
   addPartTime: (rule: { userId: string; weekday: number; start: string; end: string | null }) => Promise<void>
   updatePartTime: (id: string, patch: { weekday?: number; start?: string; end?: string | null }) => Promise<void>
@@ -168,6 +171,15 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     },
     removeKita: async (id) => {
       await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+    },
+    addCustomHoliday: async (holiday) => {
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays`, { method: 'POST', ...json(holiday) }), t.abwesenheit.holidayFailed)
+    },
+    updateCustomHoliday: async (id, patch) => {
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.holidayFailed)
+    },
+    removeCustomHoliday: async (id) => {
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
     },
     updateAbsSettings: async (userId, year, patch) => {
       await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}/${year}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
@@ -510,6 +522,20 @@ function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
   const kita = [...data.kitaClosures].sort((a, b) => a.date.localeCompare(b.date))
   const wd = t.abwesenheit.weekdaysShort
 
+  // Eigene Feiertage (#51): recurring by month+day. The date input's year is purely a
+  // carrier and is ignored on read — only month+day are stored. Add-form state below.
+  const [hDate, setHDate] = useState(`${year}-12-24`)
+  const [hHalf, setHHalf] = useState(true)
+  const [hLabel, setHLabel] = useState('')
+  const holidays = [...data.customHolidays].sort((a, b) => a.month - b.month || a.day - b.day)
+  // MM-DD of a custom holiday → a YYYY-MM-DD value the date input understands (year = the
+  // currently viewed year, just a carrier).
+  const holDateValue = (h: { month: number; day: number }): string => `${year}-${C.pad(h.month)}-${C.pad(h.day)}`
+  const monthDayOf = (ds: string): { month: number; day: number } => {
+    const [, m, d] = ds.split('-').map(Number)
+    return { month: m, day: d }
+  }
+
   return (
     <>
       <div className="hb-detailnav">
@@ -600,6 +626,43 @@ function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
             <Button size="sm" variant="soft" icon="plus" onClick={() => api.addKitaRange(rVon, rBis, rLabel)}>{t.abwesenheit.add}</Button>
           </div>
           <div className="hb-muted abw-set-kita__hint">{t.abwesenheit.kitaRangeHint}</div>
+        </div>
+      </div>
+
+      <div className="abw-set-kita">
+        <div className="abw-set-pt__label">{t.abwesenheit.holidaySection}</div>
+        <div className="hb-muted abw-set-kita__hint">{t.abwesenheit.holidaySectionHint}</div>
+        {holidays.length === 0 ? <div className="hb-muted abw-set-pt__empty">{t.abwesenheit.holidayEmpty}</div> : null}
+        <div className="abw-kita-list">
+          {holidays.map((h) => (
+            <div key={h.id} className="abw-kita-row">
+              <TextInput type="date" value={holDateValue(h)} onChange={(v) => api.updateCustomHoliday(h.id, monthDayOf(v))} />
+              <div className="abw-half">
+                <button className={`abw-half__b${h.half ? '' : ' is-active'}`} onClick={() => api.updateCustomHoliday(h.id, { half: false })}>{t.abwesenheit.fullDay}</button>
+                <button className={`abw-half__b${h.half ? ' is-active' : ''}`} onClick={() => api.updateCustomHoliday(h.id, { half: true })}>{t.abwesenheit.halfDay}</button>
+              </div>
+              <TextInput value={h.label} onChange={(v) => api.updateCustomHoliday(h.id, { label: v })} placeholder={t.abwesenheit.occasion} />
+              <IconButton icon="trash" label={t.abwesenheit.delete} danger size={16} onClick={() => api.removeCustomHoliday(h.id)} />
+            </div>
+          ))}
+        </div>
+        <div className="abw-kita-add">
+          <div className="abw-kita-add__row">
+            <span className="abw-kita-add__lab">{t.abwesenheit.holidayDate}</span>
+            <TextInput type="date" value={hDate} onChange={setHDate} />
+            <div className="abw-half">
+              <button className={`abw-half__b${hHalf ? '' : ' is-active'}`} onClick={() => setHHalf(false)}>{t.abwesenheit.fullDay}</button>
+              <button className={`abw-half__b${hHalf ? ' is-active' : ''}`} onClick={() => setHHalf(true)}>{t.abwesenheit.halfDay}</button>
+            </div>
+            <TextInput value={hLabel} onChange={setHLabel} placeholder={t.abwesenheit.occasion} />
+            <Button
+              size="sm"
+              variant="soft"
+              icon="plus"
+              onClick={() => api.addCustomHoliday({ ...monthDayOf(hDate), half: hHalf, label: hLabel.trim() || t.abwesenheit.holidayDefaultLabel })}
+            >{t.abwesenheit.add}</Button>
+          </div>
+          <div className="hb-muted abw-set-kita__hint">{t.abwesenheit.holidayRecurHint}</div>
         </div>
       </div>
       </Card>

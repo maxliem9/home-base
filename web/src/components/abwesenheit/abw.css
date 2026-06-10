@@ -68,6 +68,9 @@
 [data-theme="dark"] .abw-rcell__h { color: oklch(0.97 0.01 150 / 0.85); }
 .abw-rcell__h--a { top: 1px; left: 2px; }
 .abw-rcell__h--b { bottom: 1px; right: 2px; }
+/* ½ marker for a half-day custom holiday (#51) — centered on the holiday-tinted cell. */
+.abw-rcell__half { font-size: 9px; font-weight: 800; line-height: 1; color: oklch(0.28 0.03 288 / 0.92); pointer-events: none; }
+[data-theme="dark"] .abw-rcell__half { color: oklch(0.95 0.02 288 / 0.9); }
 
 /* ---------- MONATSKALENDER ---------- */
 .abw-month { min-width: 660px; }
