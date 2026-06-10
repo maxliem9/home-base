@@ -628,6 +628,17 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
   .hb-toast { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
 }
 
+@media (max-width: 520px) {
+  /* Aufgaben-Zeile: auf schmalen Screens bekommt der Titel die volle Breite,
+     die Steuer-Chips (Subtask-Toggle/Fälligkeit/Zuständige:r bzw. Plan) brechen
+     unter den Titel um, statt die Titel-Spalte auf einen Streifen zu quetschen
+     (Titel würde sonst Wort für Wort umbrechen und die Controls überlappten ihn).
+     Checkbox + Titel bleiben Zeile 1; die Controls landen rechtsbündig auf
+     Zeile 2, unter dem Titel eingerückt (Checkbox 22px + gap 13px). (#37) */
+  .hb-todo .hb-row { flex-wrap: wrap; }
+  .hb-todo .hb-row__right { flex-basis: 100%; margin-left: 35px; justify-content: flex-end; }
+}
+
 @media (max-width: 420px) {
   .hb-page { padding-left: 14px; padding-right: 14px; padding-top: 16px; }
   .hb-pagehead h1 { font-size: 27px; }
