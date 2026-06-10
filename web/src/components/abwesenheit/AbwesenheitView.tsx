@@ -8,7 +8,7 @@ import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
 import { useErrorToast } from '../../ui/ErrorToast'
-import { Avatar, Button, Card, Field, IconButton, Modal, Select, SegmentedControl, TextInput } from '../../ui/primitives'
+import { Avatar, Button, Card, Field, IconButton, Modal, Select, SegmentedControl, Sheet, TextInput } from '../../ui/primitives'
 import { userMeta } from '../../ui/format'
 import * as C from './holidays'
 import {
@@ -368,21 +368,8 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
     { id: 'KRANK', label: t.abwesenheit.krank },
     { id: 'KIND_KRANK', label: t.abwesenheit.kindKrank },
   ]
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
   return (
-    <div className="abw-sheet-scrim" onClick={onClose}>
-      <div className="abw-sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <div className="abw-sheet__head">
-          <h3>{title}</h3>
-          <IconButton icon="x" onClick={onClose} label={t.common.cancel} />
-        </div>
-        <div className="abw-sheet__body">
+    <Sheet open onClose={onClose} title={title} footer={<Button onClick={onClose}>{t.abwesenheit.done}</Button>}>
       {userIds.map((uid) => {
         const st = personDay(ctx, uid, ds)
         const note = st.holiday
@@ -434,12 +421,7 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
           <TextInput value={kita.label} onChange={(v) => api.toggleKita(ds, v || t.abwesenheit.kitaDefaultLabel, true)} placeholder={t.abwesenheit.occasionPlaceholder} />
         </Field>
       ) : null}
-        </div>
-        <div className="abw-sheet__foot">
-          <Button onClick={onClose}>{t.abwesenheit.done}</Button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   )
 }
 

@@ -269,6 +269,56 @@ export function Modal({
   )
 }
 
+// --- Slide-over / bottom sheet ---------------------------------------------
+
+// A slide-over panel: anchored to the right edge on desktop, full-width bottom
+// sheet on mobile (≤640px). Dimmed backdrop closes on click; Escape closes too.
+// Same head/body/foot anatomy as Modal so callers swap with no markup churn.
+// Used for content-heavy pickers that feel cramped in a centered dialog (#48).
+export function Sheet({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  width = 440,
+}: {
+  open: boolean
+  onClose: () => void
+  title: ReactNode
+  children: ReactNode
+  footer?: ReactNode
+  width?: number
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
+      if ((e as globalThis.KeyboardEvent).key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey as EventListener)
+    return () => window.removeEventListener('keydown', onKey as EventListener)
+  }, [open, onClose])
+  if (!open) return null
+  return (
+    <div className="hb-sheet-scrim" onClick={onClose}>
+      <div
+        className="hb-sheet"
+        role="dialog"
+        aria-modal="true"
+        style={{ maxWidth: width }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="hb-sheet__head">
+          <h3>{title}</h3>
+          <IconButton icon="x" onClick={onClose} label="Schließen" />
+        </div>
+        <div className="hb-sheet__body">{children}</div>
+        {footer && <div className="hb-sheet__foot">{footer}</div>}
+      </div>
+    </div>
+  )
+}
+
 // --- Form bits -------------------------------------------------------------
 
 export function Field({ label, children, hint }: { label?: string; children: ReactNode; hint?: string }) {

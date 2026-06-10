@@ -114,43 +114,6 @@
 .abw-switch__knob { display: block; width: 21px; height: 21px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform 0.16s; }
 .abw-switch.is-on .abw-switch__knob { transform: translateX(19px); }
 
-/* ---------- day editor as slide-over / bottom sheet (#44) ---------- */
-/* Desktop: panel anchored to the right edge. Mobile (≤640px): bottom sheet. */
-.abw-sheet-scrim {
-  position: fixed; inset: 0; z-index: 100;
-  background: oklch(0.2 0.02 70 / 0.4);
-  backdrop-filter: blur(3px);
-  display: flex; justify-content: flex-end;
-  animation: hb-fade 0.16s ease;
-}
-.abw-sheet {
-  background: var(--surface);
-  border-left: 1px solid var(--line-soft);
-  box-shadow: var(--shadow-lg);
-  width: 100%; max-width: 440px;
-  height: 100%;
-  display: flex; flex-direction: column;
-  animation: abw-slide-in 0.2s cubic-bezier(.2,.9,.3,1.2);
-}
-.abw-sheet__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 22px 14px; border-bottom: 1px solid var(--line-soft); }
-.abw-sheet__head h3 { font-family: var(--font-display); font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
-.abw-sheet__body { padding: 8px 22px 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
-.abw-sheet__foot { padding: 14px 22px 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid var(--line-soft); }
-
-@keyframes abw-slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@keyframes abw-slide-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-@media (max-width: 640px) {
-  .abw-sheet-scrim { align-items: flex-end; justify-content: stretch; }
-  .abw-sheet {
-    max-width: none; width: 100%;
-    height: auto; max-height: 88vh;
-    border-left: none;
-    border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg);
-    animation: abw-slide-up 0.2s cubic-bezier(.2,.9,.3,1.2);
-  }
-}
-
 /* ---------- settings (own page — #43) ---------- */
 .abw-set-page { max-width: 720px; }
 .abw-set-person { padding: 6px 0 18px; border-bottom: 1px solid var(--line-soft); margin-bottom: 10px; }

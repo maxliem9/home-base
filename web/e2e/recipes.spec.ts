@@ -243,11 +243,12 @@ test.describe('Recipes', () => {
     await page.getByRole('button', { name: 'Mehr Portionen' }).click()
 
     await page.getByRole('button', { name: 'Zutaten zur Liste' }).click()
-    const modal = page.locator('.hb-modal')
-    await expect(modal).toBeVisible()
-    await expect(modal.getByText('Mengen für 4 Portionen')).toBeVisible()
+    // the ingredient picker is a slide-over now (issue #48), not a centered modal
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByText('Mengen für 4 Portionen')).toBeVisible()
     // both ingredients preselected → "2 hinzufügen"
-    await modal.getByRole('button', { name: /hinzufügen/ }).click()
+    await sheet.getByRole('button', { name: /hinzufügen/ }).click()
 
     // toast confirms the add, then the scaled, unit-labelled items show on the list
     await expect(page.getByText(/hinzugefügt/)).toBeVisible()

@@ -89,8 +89,9 @@ test.describe('Abwesenheit', () => {
 
     // a plain working Wednesday for both people
     await page.locator('button.abw-rcell--day[title^="2026-06-10"]').click()
-    // the day editor is a slide-over panel now (was a centered modal) — #44
-    const sheet = page.locator('.abw-sheet')
+    // the day editor is a slide-over panel now (was a centered modal) — #44,
+    // unified onto the shared Sheet primitive (.hb-sheet) — #48 follow-up
+    const sheet = page.locator('.hb-sheet')
     await expect(sheet.getByRole('heading', { name: 'Mittwoch, 10. Juni 2026' })).toBeVisible()
 
     // book Urlaub for the first person (Max)
