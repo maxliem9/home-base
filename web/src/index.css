@@ -376,7 +376,7 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-empty__hint { font-size: 13.5px; margin-top: 4px; }
 
 /* ---------- Markdown ---------- */
-.hb-md { color: var(--ink); line-height: 1.62; }
+.hb-md { color: var(--ink); line-height: 1.62; overflow-wrap: anywhere; word-break: break-word; }
 .hb-md-h { font-weight: 600; margin: 18px 0 8px; letter-spacing: -0.01em; }
 .hb-md-h.hb-md-h1 { font-size: 21px; } .hb-md-h.hb-md-h2 { font-size: 18px; } .hb-md-h.hb-md-h3 { font-size: 16px; color: var(--ink-2); }
 .hb-md-h:first-child { margin-top: 0; }
@@ -448,7 +448,7 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-noteitem__meta { font-size: 12px; color: var(--ink-3); margin-top: 6px; display: flex; align-items: center; gap: 8px; }
 .hb-noteitem__imgcount { display: inline-flex; align-items: center; gap: 3px; }
 .hb-note-doc__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.hb-note-doc__title { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.12; letter-spacing: -0.025em; }
+.hb-note-doc__title { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.12; letter-spacing: -0.025em; overflow-wrap: anywhere; }
 .hb-note-doc__meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 
 /* Note image attachments */
