@@ -111,6 +111,8 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
     }
 
     var selectedTag by remember { mutableStateOf<String?>(null) }
+    // null = all folders; "" = the "no folder" bucket; otherwise a specific folder name (mirrors web)
+    var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedNoteId by remember { mutableStateOf<String?>(null) }
     var editor by remember { mutableStateOf<Editor?>(null) }
 
@@ -136,28 +138,39 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             notes = state.notes,
             selectedTag = selectedTag,
             onSelectTag = { selectedTag = it },
+            selectedFolder = selectedFolder,
+            onSelectFolder = { selectedFolder = it },
             onOpenNote = { selectedNoteId = it.id },
             onCreate = { editor = Editor.Create },
             onOpenDrawer = onOpenDrawer,
         )
     }
 
+    // Folders for the editor's quick-pick are derived client-side from the loaded notes, like tags.
+    val allFolders = remember(state.notes) {
+        state.notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
+            .distinct()
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+    }
+
     when (val e = editor) {
         null -> {}
         is Editor.Create -> NoteEditorSheet(
             note = null,
+            knownFolders = allFolders,
             onDismiss = { editor = null },
-            onSave = { title, content, tags, visibility ->
-                viewModel.saveNote(null, title, content, tags, visibility)
+            onSave = { title, content, tags, folder, visibility ->
+                viewModel.saveNote(null, title, content, tags, folder, visibility)
                 editor = null
             },
             onDelete = null,
         )
         is Editor.Edit -> NoteEditorSheet(
             note = e.note,
+            knownFolders = allFolders,
             onDismiss = { editor = null },
-            onSave = { title, content, tags, visibility ->
-                viewModel.saveNote(e.note.id, title, content, tags, visibility)
+            onSave = { title, content, tags, folder, visibility ->
+                viewModel.saveNote(e.note.id, title, content, tags, folder, visibility)
                 editor = null
             },
             onDelete = {
@@ -178,13 +191,33 @@ private fun NoteList(
     notes: List<NoteDto>,
     selectedTag: String?,
     onSelectTag: (String?) -> Unit,
+    selectedFolder: String?,
+    onSelectFolder: (String?) -> Unit,
     onOpenNote: (NoteDto) -> Unit,
     onCreate: () -> Unit,
     onOpenDrawer: () -> Unit,
 ) {
     val allTags = remember(notes) { notes.flatMap { it.tags }.distinct() }
-    val shown = remember(notes, selectedTag) {
-        if (selectedTag == null) notes else notes.filter { selectedTag in it.tags }
+    // Folders are derived client-side from the loaded notes, like tags — there is no separate
+    // folder entity. Blank/absent folders are not their own named folder (mirrors web).
+    val allFolders = remember(notes) {
+        notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
+            .distinct()
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+    }
+    val shown = remember(notes, selectedTag, selectedFolder) {
+        notes.filter { note ->
+            if (selectedTag != null && selectedTag !in note.tags) return@filter false
+            if (selectedFolder != null) {
+                // "" selects notes without a folder; otherwise an exact folder match
+                if (selectedFolder == "") {
+                    if (!note.folder.isNullOrBlank()) return@filter false
+                } else if (note.folder != selectedFolder) {
+                    return@filter false
+                }
+            }
+            true
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -199,6 +232,39 @@ private fun NoteList(
             },
             fab = { HbFab(onClick = onCreate, label = "Notiz") },
         ) {
+            // Folder-filter row — only when at least one note has a folder. Full-bleed,
+            // horizontally scrollable, with an "all" head and a trailing "no folder" bucket.
+            if (allFolders.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Spacer(Modifier.width(18.dp))
+                    HbTagChip(
+                        text = "Alle Ordner",
+                        active = selectedFolder == null,
+                        onClick = { onSelectFolder(null) },
+                    )
+                    allFolders.forEach { folder ->
+                        FolderChip(
+                            text = folder,
+                            active = selectedFolder == folder,
+                            onClick = { onSelectFolder(folder) },
+                        )
+                    }
+                    HbTagChip(
+                        text = "Ohne Ordner",
+                        active = selectedFolder == "",
+                        onClick = { onSelectFolder("") },
+                    )
+                    Spacer(Modifier.width(18.dp))
+                }
+                Spacer(Modifier.size(10.dp))
+            }
+
             // Tag-filter row — full-bleed, horizontally scrollable, 18dp edge spacers.
             Row(
                 Modifier
@@ -234,7 +300,7 @@ private fun NoteList(
                 shown.isEmpty() -> HbEmpty(
                     HbIcons.search,
                     "Keine Treffer",
-                    "Für „$selectedTag“ gibt es keine Notizen.",
+                    "Für diese Auswahl gibt es keine Notizen.",
                 )
                 else -> Column(
                     Modifier.padding(horizontal = 18.dp),
@@ -302,6 +368,16 @@ private fun NoteCard(note: NoteDto, onClick: () -> Unit) {
                     style = HbType.small,
                     color = Hb.ink3,
                 )
+                if (!note.folder.isNullOrBlank()) {
+                    HbDotSep()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        HbIcon(HbIcons.folder, size = 13.dp, tint = Hb.ink3)
+                        Text(note.folder, style = HbType.small, color = Hb.ink3)
+                    }
+                }
                 if (note.tags.isNotEmpty()) {
                     HbDotSep()
                     note.tags.forEach { tag ->
@@ -310,6 +386,26 @@ private fun NoteCard(note: NoteDto, onClick: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** Filter chip with a leading folder glyph — HbTagChip has no icon slot, so wrap it manually. */
+@Composable
+private fun FolderChip(text: String, active: Boolean, onClick: () -> Unit) {
+    val bg = if (active) Hb.accent else Hb.surface
+    val fg = if (active) Hb.onAccent else Hb.ink2
+    Row(
+        Modifier
+            .clip(HbPill)
+            .background(bg, HbPill)
+            .then(if (active) Modifier else Modifier.border(1.dp, Hb.line, HbPill))
+            .clickable { onClick() }
+            .padding(horizontal = 13.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        HbIcon(HbIcons.folder, size = 13.dp, tint = fg)
+        Text(text, style = HbType.meta.copy(fontWeight = FontWeight.SemiBold), color = fg)
     }
 }
 
@@ -376,6 +472,9 @@ private fun NoteDetail(
                     VisibilityBadge(HbIcons.lock, "Privat")
                 } else {
                     VisibilityBadge(HbIcons.users, "Geteilt")
+                }
+                if (!note.folder.isNullOrBlank()) {
+                    VisibilityBadge(HbIcons.folder, note.folder)
                 }
                 HbAvatar(note.createdBy, size = 18.dp)
                 Text(
@@ -529,19 +628,21 @@ private fun ImageLightbox(url: String, onDismiss: () -> Unit) {
 @Composable
 private fun NoteEditorSheet(
     note: NoteDto?,
+    knownFolders: List<String>,
     onDismiss: () -> Unit,
-    onSave: (title: String, content: String, tags: List<String>, visibility: String) -> Unit,
+    onSave: (title: String, content: String, tags: List<String>, folder: String, visibility: String) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     var title by remember { mutableStateOf(note?.title ?: "") }
     var content by remember { mutableStateOf(note?.content ?: "") }
     var tagsText by remember { mutableStateOf(note?.tags?.joinToString(", ") ?: "") }
+    var folderText by remember { mutableStateOf(note?.folder ?: "") }
     var segIndex by remember { mutableStateOf(if (note?.visibility == "PRIVATE") 1 else 0) }
 
     fun submit() {
         val tags = tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val visibility = if (segIndex == 0) "SHARED" else "PRIVATE"
-        onSave(title.trim(), content, tags, visibility)
+        onSave(title.trim(), content, tags, folderText, visibility)
     }
 
     HbBottomSheet(
@@ -580,6 +681,32 @@ private fun NoteEditorSheet(
                 onValueChange = { tagsText = it },
                 placeholder = "urlaub, zuhause",
             )
+        }
+        HbField("Ordner") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HbTextField(
+                    value = folderText,
+                    onValueChange = { folderText = it },
+                    placeholder = "Ordner (optional) …",
+                )
+                // Quick-pick from folders already in use (Compose equivalent of the web datalist):
+                // tap to fill, tap the active one again to clear.
+                if (knownFolders.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        knownFolders.forEach { folder ->
+                            val active = folderText.trim() == folder
+                            FolderChip(
+                                text = folder,
+                                active = active,
+                                onClick = { folderText = if (active) "" else folder },
+                            )
+                        }
+                    }
+                }
+            }
         }
         HbField("Sichtbarkeit") {
             HbSegmented(

@@ -62,4 +62,5 @@ object HbIcons {
     val more = stroke("M12 6.5a.6.6 0 1 0 0-1.2.6.6 0 0 0 0 1.2Z M12 12.6a.6.6 0 1 0 0-1.2.6.6 0 0 0 0 1.2Z M12 18.7a.6.6 0 1 0 0-1.2.6.6 0 0 0 0 1.2Z")
     val bell = stroke("M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6 M9.5 19a2.5 2.5 0 0 0 5 0")
     val list = stroke("M8 6h12 M8 12h12 M8 18h12 M4 6h.01 M4 12h.01 M4 18h.01")
+    val folder = stroke("M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z")
 }

@@ -54,16 +54,22 @@ class NotesViewModel(
         title: String,
         content: String,
         tags: List<String>,
+        folder: String,
         visibility: String,
     ) {
         if (title.isBlank()) return
         viewModelScope.launch {
+            // Always send a (possibly empty) string for folder: the backend trims it and maps
+            // blank ⇒ null, so this both sets a folder and clears one when the field is emptied
+            // (mirrors the web client).
+            val folderValue = folder.trim()
             val result = if (id == null) {
                 repository.createNote(
                     CreateNoteRequest(
                         title = title.trim(),
                         content = content,
                         tags = tags,
+                        folder = folderValue,
                         visibility = visibility,
                     )
                 )
@@ -74,6 +80,7 @@ class NotesViewModel(
                         title = title.trim(),
                         content = content,
                         tags = tags,
+                        folder = folderValue,
                         visibility = visibility,
                     )
                 )
