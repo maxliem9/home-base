@@ -36,9 +36,15 @@ test.describe('Todos', () => {
     await expect(page.getByText('Spülmaschine ausräumen')).toBeVisible()
   })
 
-  test('shows the no-list empty state when there are no lists', async ({ page }) => {
+  // Without any list the Inbox becomes the default tab (instead of the former
+  // "Noch keine Liste" empty state), so quick-add keeps working and list-less
+  // todos stay reachable on a fresh household (#69).
+  test('defaults to the Inbox tab when there are no lists', async ({ page }) => {
     await openApp(page, new MockApi([]))
-    await expect(page.getByText('Noch keine Liste')).toBeVisible()
+
+    await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveClass(/is-active/)
+    await expect(page.getByText('Inbox ist leer')).toBeVisible()
+    await expect(page.getByPlaceholder('Neue Aufgabe in der Inbox …')).toBeVisible()
   })
 
   test('shows the all-done empty state for a list without open todos', async ({ page }) => {
@@ -138,7 +144,7 @@ test.describe('Todos', () => {
 })
 
 test.describe('Todo lists', () => {
-  test('renders a tab per list, plus the add-list tab', async ({ page }) => {
+  test('renders the Inbox tab first, a tab per list, plus the add-list tab', async ({ page }) => {
     const mock = new MockApi(
       [todo({ id: 't1', title: 'Müll rausbringen', listId: 'l1' })],
       [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })],
@@ -146,9 +152,12 @@ test.describe('Todo lists', () => {
     await openApp(page, mock)
 
     const tabs = page.locator('.hb-tabs')
+    await expect(tabs.getByRole('tab').first()).toContainText('Inbox')
     await expect(tabs.getByRole('tab', { name: 'Haushalt' })).toBeVisible()
     await expect(tabs.getByRole('tab', { name: 'Arbeit' })).toBeVisible()
     await expect(tabs.getByRole('button', { name: 'Neue Liste' })).toBeVisible()
+    // with lists present the first list stays the default tab, not the Inbox
+    await expect(tabs.getByRole('tab', { name: 'Haushalt' })).toHaveClass(/is-active/)
   })
 
   test('switching tabs shows only that list\'s todos', async ({ page }) => {
@@ -161,7 +170,7 @@ test.describe('Todo lists', () => {
     )
     await openApp(page, mock)
 
-    // First tab (Haushalt) is active by default.
+    // The first list (Haushalt) is active by default — not the Inbox tab.
     await expect(page.getByText('Steuer')).toBeVisible()
     await expect(page.getByText('Meeting')).toHaveCount(0)
 
@@ -255,6 +264,73 @@ test.describe('Todo lists', () => {
 
     await expect(page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' })).toHaveCount(0)
     await expect(page.getByText('Rasen mähen')).toHaveCount(0)
+  })
+})
+
+// Inbox tab (#69): todos without a listId — created by the Dashboard quick-add
+// or the Android FAB — live in a dedicated first tab of the todos view.
+test.describe('Inbox', () => {
+  test('shows a list-less todo in the Inbox tab and completes it there', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Glühbirnen kaufen' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    // the Inbox tab badge counts the open list-less todos (asserted first —
+    // it anchors the loaded state before the absence check below)
+    const inboxTab = page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' })
+    await expect(inboxTab.locator('.hb-tab__count')).toHaveText('1')
+
+    // the first list is the default tab; the inbox todo is not part of it
+    await expect(page.getByText('Glühbirnen kaufen')).toHaveCount(0)
+
+    await inboxTab.click()
+    await expect(page.getByText('Glühbirnen kaufen')).toBeVisible()
+
+    await page.locator('.hb-row', { hasText: 'Glühbirnen kaufen' }).getByRole('checkbox').click()
+    await page.locator('.hb-donehead').click()
+    await expect(page.locator('.hb-row--done', { hasText: 'Glühbirnen kaufen' })).toBeVisible()
+    // done → no open inbox todos left, so the badge disappears
+    await expect(inboxTab.locator('.hb-tab__count')).toHaveCount(0)
+  })
+
+  test('quick-add in the Inbox tab posts without a listId', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' }).click()
+    await expect(page.getByText('Inbox ist leer')).toBeVisible()
+
+    const post = page.waitForRequest((r) => r.url().endsWith('/api/v1/todos') && r.method() === 'POST')
+    await page.getByPlaceholder('Neue Aufgabe in der Inbox …').fill('Reifen wechseln')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+
+    // the request body must not carry a listId at all (backend then sets INBOX)
+    const body = JSON.parse((await post).postData() ?? '{}')
+    expect(body).toEqual({ title: 'Reifen wechseln' })
+
+    // appears exactly once — the WS echo beats the REST response (#61 dedupe)
+    await expect(page.locator('.hb-row', { hasText: 'Reifen wechseln' })).toHaveCount(1)
+  })
+
+  test('plans an inbox todo into a list, moving it out of the inbox', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Versicherung kündigen' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' }).click()
+    await page.locator('.hb-row', { hasText: 'Versicherung kündigen' }).getByRole('button', { name: 'Planen' }).click()
+
+    const dialog = page.locator('.hb-modal')
+    // inbox todos get an extra list picker in the plan modal
+    await dialog.getByLabel('Liste').selectOption({ label: 'Haushalt' })
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    // gone from the inbox …
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(page.getByText('Versicherung kündigen')).toHaveCount(0)
+    await expect(page.getByText('Inbox ist leer')).toBeVisible()
+
+    // … and filed into the list
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Versicherung kündigen' })).toBeVisible()
   })
 })
 

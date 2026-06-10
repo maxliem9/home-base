@@ -152,6 +152,8 @@ export const de = {
     markDone: 'Erledigt',
     planTitle: 'Aufgabe planen',
     planHint: 'Mindestens Zuständige:r oder Fälligkeit angeben.',
+    planList: 'Liste', // list picker in the plan modal (only for inbox todos, issue #69)
+    planListInbox: 'Bleibt in der Inbox', // empty option of the plan-modal list picker
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
     dueDate: 'Fällig am',
@@ -193,8 +195,6 @@ export const de = {
     deleteListWarn: 'Das kann nicht rückgängig gemacht werden.', // shown when the list has todos
     taskOne: 'Aufgabe', // count noun, e.g. „1 Aufgabe"
     taskMany: 'Aufgaben', // count noun, e.g. „3 Aufgaben"
-    noLists: 'Noch keine Liste',
-    noListsHint: 'Lege oben deine erste Aufgabenliste an.',
     quickAddPlaceholder: 'Neue Aufgabe …', // rendered as `Neue Aufgabe in „{name}" …`
     addTask: 'Erfassen',
     allDone: 'Alles erledigt',
@@ -282,11 +282,14 @@ export const de = {
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',
     imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
   },
+  // Inbox tab in the todos view: all todos without a list (issue #69) —
+  // Dashboard quick-add and the Android FAB create these.
   inbox: {
     headerTitle: 'HomeBase — Inbox',
+    tab: 'Inbox', // tab label in the todos view
     empty: 'Inbox ist leer',
     emptyHint: 'Füge eine Aufgabe hinzu',
-    newTask: 'Neue Aufgabe',
+    quickAddPlaceholder: 'Neue Aufgabe in der Inbox …',
   },
   time: {
     headerTitle: 'HomeBase — Zeit',

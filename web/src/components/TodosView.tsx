@@ -26,6 +26,11 @@ import { useHouseholdUsers } from '../hooks/useHouseholdUsers'
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/todos`
 
+// Sentinel tab id for the built-in Inbox tab, which shows all todos without a
+// listId (Dashboard quick-add and the Android FAB create those — issue #69).
+// Real list ids are UUIDs, so this can never collide.
+const INBOX_ID = '__inbox__'
+
 // open todos are grouped into these due-date buckets, in this order
 const BUCKETS: { key: string; label: string }[] = [
   { key: 'over', label: t.todos.bucketOver },
@@ -40,6 +45,7 @@ interface PlanDraft {
   assignee: string
   dueDate: string
   priority: '' | TodoPriority
+  listId: string // target list for an inbox todo; '' = stays without a list (#69)
   recurrenceFreq: '' | RecurrenceFreq // '' = no recurrence
   recurrenceInterval: number
 }
@@ -103,14 +109,20 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
   useEffect(() => { fetchTodos() }, [fetchTodos])
 
-  // keep an active tab selected as lists load / change
+  // Keep an active tab selected as lists load / change. The first list stays
+  // the default tab; the Inbox is only auto-selected when there is no list at
+  // all (quick-add still works there, so list-less inbox todos stay reachable
+  // on a fresh household — #69). An explicitly chosen Inbox tab is never
+  // overridden. Gated on `loading` so the initial empty `lists` state doesn't
+  // park the view on the Inbox before the first fetch lands.
   useEffect(() => {
+    if (loading || activeId === INBOX_ID) return
     if (lists.length === 0) {
-      if (activeId !== null) setActiveId(null)
+      setActiveId(INBOX_ID)
     } else if (!activeId || !lists.some((l) => l.id === activeId)) {
       setActiveId(lists[0].id)
     }
-  }, [lists, activeId])
+  }, [lists, activeId, loading])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
@@ -181,13 +193,16 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }
 
   const handleAdd = async () => {
-    if (!newTitle.trim() || !active) return
+    if (!newTitle.trim() || (!active && !inboxActive)) return
     setSubmitting(true)
     try {
       const result = await safeFetch(token, `${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTitle.trim(), listId: active.id }),
+        // In the Inbox tab the POST carries no listId at all — the backend
+        // then creates a plain INBOX todo (same contract as the Dashboard
+        // quick-add and the Android FAB).
+        body: JSON.stringify({ title: newTitle.trim(), ...(active ? { listId: active.id } : {}) }),
       })
       if (!result.ok) return flashError(errorText(null, t.todos.addFailed))
       const { res } = result
@@ -225,6 +240,11 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
+      // Only sent when a target list was picked (inbox todos, #69) AND the todo
+      // is still list-less right now — if the partner moved it into a list while
+      // the modal was open, the stale pick must not overwrite that move. An
+      // absent listId means "unchanged" on the backend, so list todos stay put.
+      listId: plan.listId && !todos.find((x) => x.id === plan.id)?.listId ? plan.listId : undefined,
       // freq "NONE" clears any existing rule; otherwise set/replace it
       recurrence: plan.recurrenceFreq
         ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
@@ -375,10 +395,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     }
   }
 
-  const active = lists.find((l) => l.id === activeId) ?? null
+  const inboxActive = activeId === INBOX_ID
+  const active = inboxActive ? null : lists.find((l) => l.id === activeId) ?? null
   const openCount = (id: string) => todos.filter((x) => x.listId === id && x.status !== 'DONE').length
+  // `listId` may be missing entirely (encodeDefaults=false drops nulls, #46)
+  const inboxTodos = todos.filter((x) => !x.listId)
+  const inboxOpenCount = inboxTodos.filter((x) => x.status !== 'DONE').length
 
-  const listTodos = active ? todos.filter((x) => x.listId === active.id) : []
+  const listTodos = inboxActive ? inboxTodos : active ? todos.filter((x) => x.listId === active.id) : []
   const openTodos = listTodos.filter((x) => x.status !== 'DONE')
   const done = listTodos
     .filter((x) => x.status === 'DONE')
@@ -395,12 +419,26 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   )
   const groups = BUCKETS.filter((g) => buckets[g.key].length)
 
+  // the todo currently in the plan modal — inbox todos (no listId) additionally
+  // get a list picker there, so planning can file them into a list (#69)
+  const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
+
   return (
     <div className="hb-page">
       <PageHead eyebrow={t.todos.eyebrow} title={t.todos.title} />
 
       {/* Listen-Tabs */}
       <div className="hb-tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={inboxActive}
+          className={`hb-tab${inboxActive ? ' is-active' : ''}`}
+          onClick={() => setActiveId(INBOX_ID)}
+        >
+          <Icon name="inbox" size={14} stroke={2} />
+          {t.inbox.tab}
+          {inboxOpenCount > 0 && <span className="hb-tab__count">{inboxOpenCount}</span>}
+        </button>
         {lists.map((l) => (
           <button
             key={l.id}
@@ -422,17 +460,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
       {loading ? (
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
-      ) : !active ? (
-        <Card className="hb-card--pad">
-          <EmptyState icon="inbox" title={t.todos.noLists} hint={t.todos.noListsHint} />
-        </Card>
-      ) : (
+      ) : !active && !inboxActive ? null : ( // the effect above always selects a tab right after loading
         <>
           <div className="hb-quickadd" style={{ marginBottom: 24 }}>
             <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
             <input
               value={newTitle}
-              placeholder={`${t.todos.quickAddPlaceholder.replace(' …', '')} in „${active.name}" …`}
+              placeholder={active ? `${t.todos.quickAddPlaceholder.replace(' …', '')} in „${active.name}" …` : t.inbox.quickAddPlaceholder}
               onChange={(e) => setNewTitle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
@@ -442,7 +476,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           </div>
 
           {openTodos.length === 0 ? (
-            <Card className="hb-card--pad"><EmptyState icon="checkCircle" title={t.todos.allDone} hint={t.todos.allDoneHint} /></Card>
+            <Card className="hb-card--pad">
+              {inboxActive ? (
+                <EmptyState icon="inbox" title={t.inbox.empty} hint={t.inbox.emptyHint} />
+              ) : (
+                <EmptyState icon="checkCircle" title={t.todos.allDone} hint={t.todos.allDoneHint} />
+              )}
+            </Card>
           ) : (
             groups.map((g) => (
               <div key={g.key} style={{ marginBottom: 22 }}>
@@ -460,7 +500,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         draft={subDrafts[todo.id] ?? ''}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
                         onDelete={() => deleteTodo(todo.id)}
                         onToggleSub={(s) => toggleSubtask(todo.id, s)}
                         onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -492,7 +532,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         draft={subDrafts[todo.id] ?? ''}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
                         onDelete={() => deleteTodo(todo.id)}
                         onToggleSub={(s) => toggleSubtask(todo.id, s)}
                         onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -506,18 +546,20 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             </div>
           )}
 
-          <div style={{ marginTop: 26, display: 'flex', gap: 20, alignItems: 'center' }}>
-            <button className="hb-link" onClick={() => setEditListOpen(true)}>
-              <Icon name="edit" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {t.todos.editList} „{active.name}"
-            </button>
-            {lists.length > 1 && (
-              <button className="hb-link hb-link--danger" onClick={() => setConfirmDelete(true)}>
-                <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-                {t.todos.deleteList} „{active.name}"
+          {active && (
+            <div style={{ marginTop: 26, display: 'flex', gap: 20, alignItems: 'center' }}>
+              <button className="hb-link" onClick={() => setEditListOpen(true)}>
+                <Icon name="edit" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+                {t.todos.editList} „{active.name}"
               </button>
-            )}
-          </div>
+              {lists.length > 1 && (
+                <button className="hb-link hb-link--danger" onClick={() => setConfirmDelete(true)}>
+                  <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+                  {t.todos.deleteList} „{active.name}"
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -540,6 +582,16 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         {plan && (
           <>
             <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t.todos.planHint}</p>
+            {!planTodo?.listId && lists.length > 0 && (
+              <Field label={t.todos.planList}>
+                <Select value={plan.listId} onChange={(v) => setPlan({ ...plan, listId: v })}>
+                  <option value="">{t.todos.planListInbox}</option>
+                  {lists.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <Field label={t.todos.assignee}>
               <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>

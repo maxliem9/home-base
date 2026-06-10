@@ -138,6 +138,13 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   Timer, Einkaufs-Peek und Digest-Vorschau; aggregiert die bestehenden Reads
   (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
   + Android `HeuteScreen`. Siehe Issue #131.
+- Aufgaben-View (`components/TodosView.tsx`): Inbox-Tab als erster Tab vor den
+  Listen-Tabs — zeigt alle Todos ohne `listId` (Dashboard-Quick-Add und Android-FAB
+  erzeugen solche), Badge zählt die offenen davon. Quick-Add im Inbox-Tab postet
+  ohne `listId`; das Planen-Modal bietet für Inbox-Todos zusätzlich eine
+  Listen-Auswahl (PUT mit `listId` verschiebt in die Liste). Default-Tab bleibt
+  die erste Liste; ohne Listen ist die Inbox der Default (kein „Noch keine
+  Liste"-Empty-State mehr). Siehe Issue #69.
 - WebSocket-Hook für Echtzeit-Updates
 - Kein Redux — useState/useContext reicht für MVP
 
