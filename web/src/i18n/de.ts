@@ -27,6 +27,7 @@ export const de = {
     INVALID_PROJECT: 'Projektname darf nicht leer sein.',
     INVALID_COLOR: 'Ungültige Farbe.',
     DEFAULT_REQUIRED: 'Solange Wochenstunden gesetzt sind, braucht es ein Standard-Projekt.',
+    ENTRY_RUNNING: 'Laufende Timer können nicht gesplittet werden — erst stoppen.',
     NOT_FOUND: 'Nicht gefunden – bitte neu laden.',
     NO_RUNNING_TIMER: 'Es läuft gerade kein Timer.',
     BAD_REQUEST: 'Ungültige Anfrage.',
@@ -380,6 +381,17 @@ export const de = {
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"
+    // Eintrag splitten (#62)
+    split: 'Splitten',
+    splitTitle: 'Eintrag splitten',
+    splitHint: 'Teilt den Eintrag an der Trennzeit in zwei. Eine Pause bleibt als Lücke zwischen den Teilen unerfasst — danach lässt sich Teil 2 wie gewohnt bearbeiten (z. B. anderes Projekt).',
+    splitAtLabel: 'Trennzeit',
+    breakLabel: 'Pause in Minuten (optional)',
+    splitPart1: 'Teil 1:',
+    splitPart2: 'Teil 2:',
+    splitInvalidCut: 'Die Trennzeit muss zwischen Start und Ende liegen',
+    splitBreakTooLong: 'Die Pause muss vor dem Ende des Eintrags enden',
+    splitFailed: 'Eintrag konnte nicht gesplittet werden',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

@@ -312,6 +312,25 @@ data class UpdateTimeEntryRequest(
     val description: String? = null
 )
 
+/**
+ * Split a completed entry at [splitAt] into two (#62) — e.g. a forgotten lunch
+ * break or a missed project switch. [breakMinutes] inserts a gap after the cut:
+ * the second part starts that much later (the break is just untracked time, no
+ * row of its own).
+ */
+@Serializable
+data class SplitTimeEntryRequest(
+    val splitAt: String,
+    val breakMinutes: Int? = null
+)
+
+/** Both halves of a split: [first] keeps the original id, [second] is new. */
+@Serializable
+data class SplitTimeEntryResponse(
+    val first: TimeEntryDto,
+    val second: TimeEntryDto
+)
+
 @Serializable
 data class TimeWsMessage(
     val type: String,

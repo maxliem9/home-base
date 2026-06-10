@@ -58,6 +58,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [showManual, setShowManual] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
+  const [splitEntry, setSplitEntry] = useState<TimeEntry | null>(null)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -330,6 +331,28 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return null
   }
 
+  // Split an entry at a cut time, optionally with an untracked break (#62).
+  // Inline-error convention as in the other modals: null on success, else a
+  // message the modal shows while staying open.
+  const splitEntryAction = async (id: string, body: object): Promise<string | null> => {
+    const res = await authFetch(token, `${API_BASE}/time/entries/${id}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.status === 401) {
+      onLogout()
+      return null
+    }
+    if (!res.ok) return errorText(await errorCode(res), t.time.splitFailed)
+    const { first, second }: { first: TimeEntry; second: TimeEntry } = await res.json()
+    upsertEntry(first)
+    upsertEntry(second)
+    setSplitEntry(null)
+    fetchForecast()
+    return null
+  }
+
   // Fetch the server-rendered CSV with the JWT in the Authorization header (keeping
   // the token out of the URL), then trigger a download from the returned blob.
   const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
@@ -466,6 +489,15 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         />
       )}
 
+      {splitEntry && (
+        <SplitEntryModal
+          key={splitEntry.id}
+          entry={splitEntry}
+          onSave={splitEntryAction}
+          onClose={() => setSplitEntry(null)}
+        />
+      )}
+
       {toast && (
         <div className="hb-toast hb-toast--error" role="alert">
           <Icon name="x" size={18} stroke={2.4} />
@@ -487,6 +519,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           me={me}
           onDelete={deleteEntry}
           onEdit={setEditEntry}
+          onSplit={setSplitEntry}
           onBack={() => setDetailProject(null)}
         />
         {sharedModals}
@@ -673,7 +706,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
               {recent.length === 0 ? (
                 <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
               ) : (
-                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} onEdit={setEditEntry} showProject />
+                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} onEdit={setEditEntry} onSplit={setSplitEntry} showProject />
               )}
             </Card>
           </div>
@@ -894,12 +927,13 @@ function groupByDay(entries: TimeEntry[]) {
   return groups
 }
 
-function EntryRow({ entry, project, me, onDelete, onEdit, showProject }: {
+function EntryRow({ entry, project, me, onDelete, onEdit, onSplit, showProject }: {
   entry: TimeEntry
   project?: Project
   me: string | null
   onDelete: (id: string) => void
   onEdit: (entry: TimeEntry) => void
+  onSplit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
   const own = !me || entry.userId === me
@@ -921,6 +955,7 @@ function EntryRow({ entry, project, me, onDelete, onEdit, showProject }: {
         {own ? (
           <>
             <IconButton icon="edit" label={t.common.edit} onClick={() => onEdit(entry)} />
+            <IconButton icon="scissors" label={t.time.split} onClick={() => onSplit(entry)} />
             <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry.id)} />
           </>
         ) : (
@@ -933,12 +968,13 @@ function EntryRow({ entry, project, me, onDelete, onEdit, showProject }: {
 
 // Reusable day-grouped entry list. `showProject` toggles whether the project
 // name (recent list) or the description (project detail) is the row title.
-function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, showProject }: {
+function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, onSplit, showProject }: {
   entries: TimeEntry[]
   projectsById: Record<string, Project>
   me: string | null
   onDelete: (id: string) => void
   onEdit: (entry: TimeEntry) => void
+  onSplit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
   const groups = groupByDay(entries)
@@ -952,7 +988,7 @@ function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, showProje
             <span className="hb-daysep__sum hb-mono">{fmtDurationShort(g.seconds)}</span>
           </div>
           {g.entries.map((e) => (
-            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} onEdit={onEdit} showProject={showProject} />
+            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={showProject} />
           ))}
         </Fragment>
       ))}
@@ -969,13 +1005,14 @@ interface WeekBucket {
   byUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onBack }: {
+function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onSplit, onBack }: {
   project: Project
   entries: TimeEntry[]
   projectsById: Record<string, Project>
   me: string | null
   onDelete: (id: string) => void
   onEdit: (entry: TimeEntry) => void
+  onSplit: (entry: TimeEntry) => void
   onBack: () => void
 }) {
   const projEntries = useMemo(
@@ -1077,7 +1114,7 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, o
             </div>
 
             <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
-            <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} showProject={false} />
+            <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={false} />
           </>
         )}
       </Card>
@@ -1395,6 +1432,84 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
             </div>
           </div>
         ))
+      )}
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
+    </Modal>
+  )
+}
+
+// Split a completed entry at a cut time into two parts, optionally with an
+// untracked break between them (#62) — the break is just a gap, no row of its
+// own. Typical uses: a forgotten lunch break, or a missed project switch
+// (split, then edit part two). Shows a live preview of both resulting parts;
+// same inline-error convention as the other modals.
+function SplitEntryModal({ entry, onSave, onClose }: {
+  entry: TimeEntry
+  onSave: (id: string, body: object) => Promise<string | null>
+  onClose: () => void
+}) {
+  const startMs = new Date(entry.startedAt).getTime()
+  const stopMs = new Date(entry.stoppedAt!).getTime()
+  // default cut: the entry's midpoint, snapped to the full minute
+  const [cut, setCut] = useState(() => toLocalInput(new Date(Math.floor((startMs + stopMs) / 2 / 60000) * 60000).toISOString()))
+  const [breakMin, setBreakMin] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const submitRef = useRef(false)
+
+  const cutMs = cut ? new Date(cut).getTime() : NaN
+  const breakNum = breakMin.trim() === '' ? 0 : Number(breakMin.trim())
+  const secondStartMs = cutMs + breakNum * 60000
+  const cutValid = Number.isFinite(cutMs) && cutMs > startMs && cutMs < stopMs
+  const breakValid = Number.isInteger(breakNum) && breakNum >= 0 && secondStartMs < stopMs
+
+  const submit = async () => {
+    if (submitRef.current) return
+    if (!cutValid) return setError(t.time.splitInvalidCut)
+    if (!breakValid) return setError(t.time.splitBreakTooLong)
+    submitRef.current = true
+    setError(null)
+    // On failure the modal stays open; re-enable submit and show the reason.
+    // The catch covers transport errors (offline) so the button can't get stuck.
+    try {
+      const err = await onSave(entry.id, {
+        splitAt: new Date(cutMs).toISOString(),
+        breakMinutes: breakNum > 0 ? breakNum : undefined,
+      })
+      if (err) {
+        submitRef.current = false
+        setError(err)
+      }
+    } catch {
+      submitRef.current = false
+      setError(t.time.splitFailed)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t.time.splitTitle}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button icon="scissors" onClick={submit} disabled={!cut}>{t.common.save}</Button>
+        </>
+      }
+    >
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.splitHint}</p>
+      <Field label={t.time.splitAtLabel}>
+        <TextInput type="datetime-local" value={cut} onChange={setCut} />
+      </Field>
+      <Field label={t.time.breakLabel}>
+        <TextInput value={breakMin} onChange={setBreakMin} placeholder="0" />
+      </Field>
+      {cutValid && breakValid && (
+        <p className="hb-mono hb-muted" style={{ fontSize: 13.5, margin: 0 }}>
+          {t.time.splitPart1} {clockTime(entry.startedAt)}–{clockTime(new Date(cutMs).toISOString())}
+          {' · '}
+          {t.time.splitPart2} {clockTime(new Date(secondStartMs).toISOString())}–{clockTime(entry.stoppedAt!)}
+        </p>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
     </Modal>

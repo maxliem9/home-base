@@ -174,6 +174,14 @@ description?, created_at, updated_at
   entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
   `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
   Dezimalstunden und hh:mm. Siehe Issue #42.
+- Eintrag splitten (#62): POST /api/v1/time/entries/{id}/split {splitAt,
+  breakMinutes?} teilt einen **abgeschlossenen** Eintrag atomar an der Trennzeit —
+  Teil 1 behält die id (Ende = splitAt), Teil 2 wird neu angelegt (Start =
+  splitAt + Pause, erbt Projekt/Beschreibung). Die Pause ist bewusst nur eine
+  unerfasste Lücke, kein eigener Datensatz. Validierung: Trennzeit strikt im
+  Eintrag, Pause endet vor dem Eintragsende (400 INVALID_RANGE), laufende Timer
+  → 409 ENTRY_RUNNING. Broadcasts: ENTRY_UPDATED (Teil 1) + ENTRY_CREATED (Teil 2).
+  Web: Scissors-Aktion an eigenen Einträgen (Liste + Projekt-Detail); Android folgt.
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 
