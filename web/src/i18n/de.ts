@@ -508,6 +508,7 @@ export const de = {
     rangeClearHint: 'Entfernt alle Einträge der gewählten Person(en) im Zeitraum.',
     // settings
     settingsTitle: 'Kalender-Einstellungen',
+    backToCalendar: 'Zurück zum Kalender',
     bundesland: 'Bundesland',
     yearAllowance: 'Jahresanspruch (Tage)',
     restLeave: 'Resturlaub Vorjahr',

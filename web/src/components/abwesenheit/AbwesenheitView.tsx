@@ -212,6 +212,18 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
     setRangeOpen(true)
   }
 
+  // Settings as its own full-width page (not a modal) — like the time-tracking
+  // project detail (#32, #29). Early-return the settings page instead of the
+  // calendar overview; "‹ Zurück" returns to the calendar.
+  if (showSettings && !loading && userIds.length > 0) {
+    return (
+      <div className="hb-page hb-page--wide">
+        <AbwSettings ctx={ctx} data={data} api={api} userIds={userIds} year={year} onBack={() => setShowSettings(false)} />
+        {errorToast}
+      </div>
+    )
+  }
+
   return (
     <div className="hb-page hb-page--wide">
       <div className="hb-pagehead">
@@ -276,7 +288,6 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
 
       {editDs ? <AbwDayEditor ctx={ctx} ds={editDs} api={api} userIds={userIds} onClose={() => setEditDs(null)} /> : null}
       {rangeOpen ? <AbwRangeModal data={data} api={api} userIds={userIds} prefill={rangePrefill} onClose={() => setRangeOpen(false)} /> : null}
-      {showSettings ? <AbwSettings ctx={ctx} data={data} api={api} userIds={userIds} year={year} onClose={() => setShowSettings(false)} /> : null}
 
       {errorToast}
     </div>
@@ -343,6 +354,10 @@ function HalfToggle({ value, onChange }: { value: HalfDay | null; onChange: (v: 
   )
 }
 
+// Day editor as a slide-over panel (right edge on desktop, bottom sheet on
+// mobile) instead of a centered modal — comfortable on a 360px phone (#44, #29).
+// Dimmed backdrop closes on click; Escape closes too (preserving the Modal's
+// affordance).
 function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string; api: Api; userIds: string[]; onClose: () => void }) {
   const d = C.parse(ds)
   const title = `${C.WD_LONG[d.getDay()]}, ${d.getDate()}. ${C.MON_FULL[d.getMonth()]} ${d.getFullYear()}`
@@ -353,8 +368,21 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
     { id: 'KRANK', label: t.abwesenheit.krank },
     { id: 'KIND_KRANK', label: t.abwesenheit.kindKrank },
   ]
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
   return (
-    <Modal open onClose={onClose} width={480} title={title} footer={<Button onClick={onClose}>{t.abwesenheit.done}</Button>}>
+    <div className="abw-sheet-scrim" onClick={onClose}>
+      <div className="abw-sheet" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="abw-sheet__head">
+          <h3>{title}</h3>
+          <IconButton icon="x" onClick={onClose} label={t.common.cancel} />
+        </div>
+        <div className="abw-sheet__body">
       {userIds.map((uid) => {
         const st = personDay(ctx, uid, ds)
         const note = st.holiday
@@ -406,7 +434,12 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
           <TextInput value={kita.label} onChange={(v) => api.toggleKita(ds, v || t.abwesenheit.kitaDefaultLabel, true)} placeholder={t.abwesenheit.occasionPlaceholder} />
         </Field>
       ) : null}
-    </Modal>
+        </div>
+        <div className="abw-sheet__foot">
+          <Button onClick={onClose}>{t.abwesenheit.done}</Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -475,14 +508,14 @@ function AbwRangeModal({ data, api, userIds, prefill, onClose }: {
   )
 }
 
-/* ---------- Settings ---------- */
-function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
+/* ---------- Settings (own page, not a modal — #43) ---------- */
+function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
   ctx: Ctx
   data: AbsenceState
   api: Api
   userIds: string[]
   year: number
-  onClose: () => void
+  onBack: () => void
 }) {
   const num = (v: string, fallback: number): number => {
     const n = parseFloat(String(v).replace(',', '.'))
@@ -496,7 +529,18 @@ function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
   const wd = t.abwesenheit.weekdaysShort
 
   return (
-    <Modal open onClose={onClose} width={620} title={t.abwesenheit.settingsTitle} footer={<Button onClick={onClose}>{t.abwesenheit.done}</Button>}>
+    <>
+      <div className="hb-detailnav">
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t.abwesenheit.backToCalendar}</Button>
+      </div>
+      <div className="hb-pagehead">
+        <div>
+          <div className="hb-pagehead__eyebrow">{t.abwesenheit.eyebrow}</div>
+          <h1>{t.abwesenheit.settingsTitle}</h1>
+        </div>
+      </div>
+
+      <Card className="hb-card--pad abw-set-page">
       {userIds.map((uid) => {
         const s = ctx.settings[uid]
         const rules = data.partTime.filter((r) => r.userId === uid)
@@ -576,6 +620,7 @@ function AbwSettings({ ctx, data, api, userIds, year, onClose }: {
           <div className="hb-muted abw-set-kita__hint">{t.abwesenheit.kitaRangeHint}</div>
         </div>
       </div>
-    </Modal>
+      </Card>
+    </>
   )
 }
