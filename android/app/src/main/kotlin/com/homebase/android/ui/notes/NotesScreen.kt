@@ -150,7 +150,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
     val allFolders = remember(state.notes) {
         state.notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
             .distinct()
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+            .sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.GERMAN)) { it }) // deutsche Kollation, Parität zu web localeCompare('de')
     }
 
     when (val e = editor) {
@@ -203,7 +203,7 @@ private fun NoteList(
     val allFolders = remember(notes) {
         notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
             .distinct()
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+            .sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.GERMAN)) { it }) // deutsche Kollation, Parität zu web localeCompare('de')
     }
     val shown = remember(notes, selectedTag, selectedFolder) {
         notes.filter { note ->
