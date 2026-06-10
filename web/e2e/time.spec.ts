@@ -179,9 +179,10 @@ test.describe('Time tracking', () => {
     const modal = page.locator('.hb-modal')
     await expect(modal.getByText('Wochensoll konfigurieren')).toBeVisible()
 
-    // 40 hours on Arbeit for Max, who also gets it as default project
+    // 40 hours on Arbeit for Max — entering the first hours auto-selects the
+    // project as the (required) default (#59)
     await modal.getByLabel('Std/Woche Arbeit Max').fill('40')
-    await modal.getByLabel('Standard Arbeit Max').check()
+    await expect(modal.getByLabel('Standard Arbeit Max')).toBeChecked()
     const requestPromise = page.waitForRequest((r) => r.url().includes('/time/targets/max/p1') && r.method() === 'PUT')
     await modal.getByRole('button', { name: 'Speichern' }).click()
     const request = await requestPromise
@@ -203,6 +204,48 @@ test.describe('Time tracking', () => {
     await modal.getByLabel('Std/Woche Arbeit Max').fill('200')
     await modal.getByRole('button', { name: 'Speichern' }).click()
     await expect(modal.getByText('Stunden müssen zwischen 0 und 168 liegen')).toBeVisible()
+  })
+
+  // The tile specs pin the browser clock (like abwesenheit.spec.ts) so day labels
+  // and fallback windows never drift with the real run date.
+  test('project tiles show today/this week, falling back to the last active day and week', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        // one 2h entry on Wed 2026-06-03 — the week before the pinned "today"
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
+      ])
+    await mock.install(page)
+    await page.clock.setFixedTime(new Date('2026-06-10T12:00:00Z'))
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Zeiterfassung' }).click()
+
+    const tile = page.locator('.hb-projcard', { hasText: 'Arbeit' })
+    // no entry today/this week → both lines fall back to the last active day/week
+    await expect(tile.locator('.hb-projcard__stat')).toContainText('2:00')
+    await expect(tile.locator('.hb-projcard__stat')).toContainText('3. Juni')
+    await expect(tile.locator('.hb-projcard__stat2')).toContainText('2:00')
+    await expect(tile.locator('.hb-projcard__stat2')).toContainText('Letzte Woche')
+  })
+
+  test('project tiles count a running timer into today live', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        // running since 30 min before the pinned "now"
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-10T11:30:00Z', stoppedAt: undefined, durationSeconds: undefined }),
+      ])
+    await mock.install(page)
+    await page.clock.setFixedTime(new Date('2026-06-10T12:00:00Z'))
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Zeiterfassung' }).click()
+
+    const tile = page.locator('.hb-projcard', { hasText: 'Arbeit' })
+    await expect(tile.locator('.hb-projcard__stat')).toContainText('Heute')
+    await expect(tile.locator('.hb-projcard__stat')).toContainText('0:30')
+    await expect(tile.locator('.hb-projcard__stat2')).toContainText('Diese Woche')
   })
 
   test('exports entries as a CSV download with the server-supplied filename', async ({ page }) => {

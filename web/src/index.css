@@ -541,6 +541,9 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-projcard__name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .hb-projcard__stat { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .hb-projcard__stat span { font-size: 12.5px; font-weight: 500; color: var(--ink-3); margin-left: 5px; font-family: var(--font-ui); }
+.hb-projcard__statbtn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.hb-projcard__stat2 { font-size: 14px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.hb-projcard__stat2 span { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 5px; font-family: var(--font-ui); }
 .hb-projcard .hb-btn { align-self: flex-start; }
 .hb-swatches { display: flex; gap: 10px; flex-wrap: wrap; }
 .hb-swatch { width: 34px; height: 34px; border-radius: 10px; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s; }

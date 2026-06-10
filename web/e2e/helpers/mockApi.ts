@@ -790,6 +790,10 @@ export class MockApi {
         if (b.isDefault) for (const o of this.targets) if (o.userId === userId) o.isDefault = false
         tgt.isDefault = b.isDefault
       }
+      // hours > 0 ⇒ a default must exist — mirrors the backend's auto-assign (#59)
+      if (tgt.weeklyHours > 0 && !this.targets.some((x) => x.userId === userId && x.isDefault)) {
+        tgt.isDefault = true
+      }
       return this.jsonWithFrames(route, tgt, 200, 'time', [{ type: 'TARGET_UPDATED', target: tgt }])
     }
     if (path.endsWith('/time/forecast') && method === 'GET') {
