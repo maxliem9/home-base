@@ -392,8 +392,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         actions={
           <>
             <Button variant="ghost" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.exportCsv}</Button>
-            <Button variant="secondary" size="sm" icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
-            <Button icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
+            <Button icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
+            <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
           </>
         }
       />
