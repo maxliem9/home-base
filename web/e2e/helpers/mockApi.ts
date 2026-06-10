@@ -8,14 +8,16 @@ import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe,
   NoteVisibility, NoteImage, Note,
-  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
+  Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
+  Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 } from '../../src/types'
 
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe,
   NoteVisibility, NoteImage, Note,
-  Project, TimeEntry, Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
+  Project, TimeEntry, WorkTarget, TimeForecast,
+  Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 }
 
 export interface AbsenceSeed {
@@ -70,6 +72,7 @@ export class MockApi {
   private notes: Note[] = []
   private projects: Project[] = []
   private entries: TimeEntry[] = []
+  private targets: WorkTarget[] = []
   private absUsers: string[] = []
   private absences: Absence[] = []
   private partTime: PartTimeRule[] = []
@@ -124,6 +127,11 @@ export class MockApi {
 
   seedEntries(entries: TimeEntry[]): this {
     this.entries = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  seedTargets(targets: WorkTarget[]): this {
+    this.targets = targets.map((t) => ({ ...t }))
     return this
   }
 
@@ -251,6 +259,68 @@ export class MockApi {
       createdAt: prev?.createdAt ?? ts,
       updatedAt: ts,
     }
+  }
+
+  // Simplified mirror of GET /time/forecast (#31) without absences/holidays:
+  // five workdays, no credits. Weekly target summed per user from the seeded
+  // targets, recorded time from this ISO week's entries (running → elapsed),
+  // today's target = open remainder spread over the remaining weekdays.
+  private buildForecast(): TimeForecast {
+    const now = new Date()
+    const monday = new Date(now)
+    monday.setHours(0, 0, 0, 0)
+    monday.setDate(monday.getDate() - ((now.getDay() + 6) % 7))
+    const nextMonday = new Date(monday)
+    nextMonday.setDate(monday.getDate() + 7)
+    const todayKey = ymdLocal(now)
+    const secondsOf = (e: TimeEntry) =>
+      e.stoppedAt ? (e.durationSeconds ?? 0) : Math.max(0, Math.floor((now.getTime() - Date.parse(e.startedAt)) / 1000))
+
+    const users: UserForecast[] = [...new Set(this.targets.map((t) => t.userId))].map((userId) => {
+      const own = this.targets.filter((t) => t.userId === userId)
+      const weeklyTargetHours = own.reduce((s, t) => s + t.weeklyHours, 0)
+      const weekTargetSeconds = Math.round(weeklyTargetHours * 3600)
+      const inWeek = this.entries.filter((e) => {
+        const started = new Date(e.startedAt)
+        return e.userId === userId && started >= monday && started < nextMonday
+      })
+      const weekRecordedSeconds = inWeek.reduce((s, e) => s + secondsOf(e), 0)
+      const todayRecordedSeconds = inWeek
+        .filter((e) => ymdLocal(new Date(e.startedAt)) === todayKey)
+        .reduce((s, e) => s + secondsOf(e), 0)
+      const recordedBefore = weekRecordedSeconds - todayRecordedSeconds
+      const isoDow = ((now.getDay() + 6) % 7) + 1
+      const remainingDays = isoDow <= 5 ? 5 - isoDow + 1 : 0
+      const todayTargetSeconds = remainingDays > 0
+        ? Math.round(Math.max(0, weekTargetSeconds - recordedBefore) / remainingDays)
+        : 0
+      const todayRemainingSeconds = todayTargetSeconds - todayRecordedSeconds
+      const running = this.entries.some((e) => e.userId === userId && !e.stoppedAt)
+      return {
+        userId,
+        weeklyTargetHours,
+        workdayCount: 5,
+        weekTargetSeconds,
+        weekRecordedSeconds,
+        weekCreditedSeconds: 0,
+        weekRemainingSeconds: weekTargetSeconds - weekRecordedSeconds,
+        todayTargetSeconds,
+        todayRecordedSeconds,
+        todayRemainingSeconds,
+        expectedEndAt: running ? new Date(now.getTime() + Math.max(0, todayRemainingSeconds) * 1000).toISOString() : undefined,
+        projects: own.filter((t) => t.weeklyHours > 0).map((t) => {
+          const recordedSeconds = inWeek.filter((e) => e.projectId === t.projectId).reduce((s, e) => s + secondsOf(e), 0)
+          return {
+            projectId: t.projectId,
+            weeklyHours: t.weeklyHours,
+            recordedSeconds,
+            creditedSeconds: 0,
+            deltaSeconds: recordedSeconds - Math.round(t.weeklyHours * 3600),
+          }
+        }),
+      }
+    })
+    return { date: todayKey, weekStart: ymdLocal(monday), users }
   }
 
   private async handle(route: Route) {
@@ -700,6 +770,32 @@ export class MockApi {
       })
     }
 
+    // ---- Time: Wochensoll targets + forecast (#31) ----
+    if (path.endsWith('/time/targets') && method === 'GET') {
+      return this.json(route, this.targets)
+    }
+    const targetMatch = path.match(/\/time\/targets\/([^/]+)\/([^/]+)$/)
+    if (targetMatch && method === 'PUT') {
+      const userId = decodeURIComponent(targetMatch[1])
+      const projectId = targetMatch[2]
+      const b = JSON.parse(req.postData() ?? '{}')
+      let tgt = this.targets.find((x) => x.userId === userId && x.projectId === projectId)
+      if (!tgt) {
+        tgt = { userId, projectId, weeklyHours: 0, isDefault: false }
+        this.targets.push(tgt)
+      }
+      if (typeof b.weeklyHours === 'number') tgt.weeklyHours = b.weeklyHours
+      if (typeof b.isDefault === 'boolean') {
+        // one default per person — mirrors the backend's clear-then-set
+        if (b.isDefault) for (const o of this.targets) if (o.userId === userId) o.isDefault = false
+        tgt.isDefault = b.isDefault
+      }
+      return this.jsonWithFrames(route, tgt, 200, 'time', [{ type: 'TARGET_UPDATED', target: tgt }])
+    }
+    if (path.endsWith('/time/forecast') && method === 'GET') {
+      return this.json(route, this.buildForecast())
+    }
+
     // ---- Time: projects (checked before /time/entries matchers) ----
     if (path.endsWith('/time/projects') && method === 'GET') {
       return this.json(route, this.projects)
@@ -1062,6 +1158,10 @@ export function project(partial: Partial<Project> & { id: string; name: string }
     createdAt: '2026-06-01T08:00:00Z',
     ...partial,
   }
+}
+
+export function workTarget(partial: Partial<WorkTarget> & { userId: string; projectId: string }): WorkTarget {
+  return { weeklyHours: 0, isDefault: false, ...partial }
 }
 
 export function timeEntry(partial: Partial<TimeEntry> & { id: string; projectId: string }): TimeEntry {

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Project, ShoppingItem, TimeEntry, Todo } from '../types'
+import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
 import { Avatar, Badge, Button, Card, Checkbox, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
-import { dueLabel, fmtClock, todayLabel, userMeta, usernameFromToken } from '../ui/format'
+import { clockTime, dueLabel, fmtClock, todayLabel, userMeta, usernameFromToken } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const wsUrl = (channel: string) => `${WS_SCHEME}://${window.location.host}/api/v1/ws/${channel}`
@@ -55,6 +55,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   // All currently running timers across the household (own + partner's), see #142.
   const [running, setRunning] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [forecast, setForecast] = useState<TimeForecast | null>(null)
   const [loading, setLoading] = useState(true)
   const [quick, setQuick] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -91,11 +92,19 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     if (result.res.ok) setProjects(await result.res.json())
   }, [onLogout, token])
 
+  // Non-critical read (#31): without it the timer peek just shows no expected end.
+  const fetchForecast = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/time/forecast`)
+    if (!result.ok) return
+    if (result.res.status === 401) return onLogout()
+    if (result.res.ok) setForecast(await result.res.json())
+  }, [onLogout, token])
+
   // Hold the data-dependent body behind `loading` until the first reads resolve,
   // so the landing page doesn't flash misleading zeros / empty states on every load.
   useEffect(() => {
-    Promise.all([fetchTodos(), fetchShopping(), fetchRunning(), fetchProjects()]).finally(() => setLoading(false))
-  }, [fetchTodos, fetchShopping, fetchRunning, fetchProjects])
+    Promise.all([fetchTodos(), fetchShopping(), fetchRunning(), fetchProjects(), fetchForecast()]).finally(() => setLoading(false))
+  }, [fetchTodos, fetchShopping, fetchRunning, fetchProjects, fetchForecast])
 
   // Live updates — the dashboard is read-only aggregation, so just refetch the
   // affected resource on any frame rather than fine-grained patching.
@@ -104,6 +113,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   useWebSocket({ url: wsUrl('time'), token }, () => {
     fetchRunning()
     fetchProjects() // a project rename/color change should re-style the running widget
+    fetchForecast() // entry/target changes shift the expected end (#31)
   })
 
   // tick the live clock once a second while any timer runs
@@ -311,6 +321,14 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                       const proj = projects.find((p) => p.id === entry.projectId)
                       const elapsed = Math.max(0, Math.floor((nowMs - new Date(entry.startedAt).getTime()) / 1000))
                       const ownTimer = entry.userId === me
+                      // expected end from the work forecast (#31) — only with a configured Wochensoll
+                      const userForecast = (forecast?.users ?? []).find((u) => u.userId === entry.userId && u.weekTargetSeconds > 0)
+                      const eta = userForecast?.expectedEndAt
+                      const etaSuffix = eta
+                        ? ` · ${new Date(eta).getTime() <= nowMs
+                          ? t.dashboard.targetReachedShort
+                          : t.dashboard.expectedEndShort.replace('{time}', clockTime(eta))}`
+                        : ''
                       return (
                         <div key={entry.id} className="hb-runwidget">
                           <span className="hb-runwidget__pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
@@ -322,6 +340,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                                 {ownTimer
                                   ? (entry.description || t.dashboard.timerRunningHint)
                                   : `${userMeta(entry.userId)?.name ?? entry.userId}${entry.description ? ` · ${entry.description}` : ''}`}
+                                {etaSuffix}
                               </span>
                             </div>
                           </div>

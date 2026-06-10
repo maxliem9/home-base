@@ -177,6 +177,29 @@ description?, created_at, updated_at
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 
+### Wochensoll & Ende-Prognose (Issue #31)
+- `time_work_targets`: Wochenstunden pro Person×Projekt (Default 0) + genau ein
+  Default-Projekt pro Person (`is_default`, partieller Unique-Index). Endpunkte:
+  GET /api/v1/time/targets, PUT /api/v1/time/targets/{userId}/{projectId}
+  ({weeklyHours?, isDefault?}; haushalts-geteilt wie der Abwesenheitskalender —
+  die userId ist die Zielperson). Änderungen senden TARGET_UPDATED auf Channel "time".
+- GET /api/v1/time/forecast (optional ?date=, für Tests) berechnet **serverseitig**
+  pro Person und ISO-Woche (Mo–So): Tagessoll = Wochensoll ÷ Arbeitstage (Mo–Fr
+  minus Teilzeit-freie Tage; Feiertage/Abwesenheiten verkleinern den Teiler nicht).
+  Urlaub/Krank/Kind-krank und Feiertage schreiben das Tagessoll dem Default-Projekt
+  gut (halbe Tage = 0,5×). Tagesziel = offener Wochenrest ÷ verbleibende erfassbare
+  Tage (Über-/Unterstunden verschieben sich so in die Restwoche); voraussichtliches
+  Ende = jetzt + (Tagesziel − heute erfasst), nur bei laufendem Timer, nie in der
+  Vergangenheit. Zusätzlich Pro-Projekt-Saldo. Einträge zählen zum lokalen Datum
+  ihres Starts (Serverzone, wie CSV-Export).
+- Gesetzliche Feiertage berechnet das Backend selbst: `holidays/GermanHolidays.kt`
+  ist der Kotlin-Port von `web/src/components/abwesenheit/holidays.ts` — **beide
+  synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year wie #144,
+  Fallback BE); eigene/halbe Feiertage (#51) kommen aus der DB.
+- Web: Ende-Prognose am Timer-Hero/Partner-Strip/Dashboard-Peek, „Wochensoll"-Karte
+  (Soll/Ist, Heute-Ziel, Gutschriften, Projekt-Saldi) + Konfigurations-Modal in
+  `TimeView`. Android folgt separat.
+
 ## Abwesenheit-Domänenmodell (Familienkalender)
 Geteilter Haushalts-Abwesenheitsplaner (Excel-Ersatz). Das Backend ist reine
 Persistenz; abgeleitete Tageszustände (Feiertage, Teilzeit-frei, Wochenende),

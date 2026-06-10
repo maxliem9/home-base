@@ -38,6 +38,8 @@ fun Route.timeRoutes() {
         projectRoutes(json)
         entryRoutes(json)
         exportRoutes()
+        workTargetRoutes(json)
+        forecastRoute()
 
         // All currently running timers across the shared household (0..2). Lets the
         // dashboard and the time view show the partner's live timer without pulling the

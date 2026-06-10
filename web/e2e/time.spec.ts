@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, project, timeEntry, TOKEN } from './helpers/mockApi'
+import { MockApi, project, timeEntry, workTarget, TOKEN } from './helpers/mockApi'
 
 /** Logs in, installs the mock backend, and navigates to the time view. */
 async function openTime(page: Page, mock: MockApi) {
@@ -137,6 +137,72 @@ test.describe('Time tracking', () => {
     await page.getByRole('button', { name: 'Zurück' }).click()
     await expect(page.getByRole('heading', { name: 'Zeiterfassung' })).toBeVisible()
     await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toBeVisible()
+  })
+
+  // --- Wochensoll & Forecast (#31) ---------------------------------------
+
+  test('shows the expected end at the running timer once a Wochensoll exists', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 40, isDefault: true })])
+      .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', startedAt: new Date().toISOString(), stoppedAt: undefined, durationSeconds: undefined })])
+    await openTime(page, mock)
+
+    // hero is running and carries the forecast line (on weekends the daily target
+    // is 0, so the projected end collapses into "Tagessoll erreicht")
+    await expect(page.locator('.hb-timerhero')).toHaveClass(/is-running/)
+    await expect(page.locator('.hb-timerhero__eta')).toBeVisible()
+    await expect(page.locator('.hb-timerhero__eta')).toHaveText(/Voraussichtlich fertig um \d{1,2}:\d{2}|Tagessoll erreicht/)
+  })
+
+  test('shows the week balance card with soll, ist and per-project saldo', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 40, isDefault: true })])
+    await openTime(page, mock)
+
+    const card = page.locator('.hb-weektargets')
+    await expect(card.getByRole('heading', { name: 'Wochensoll' })).toBeVisible()
+    // nothing recorded yet → 0:00 of 40:00, the full week still open
+    await expect(card).toContainText('0:00 / 40:00')
+    await expect(card).toContainText('noch 40:00')
+    // per-project saldo row for the targeted project
+    await expect(card.locator('.hb-weektarget__proj', { hasText: 'Arbeit' })).toContainText('-40:00')
+  })
+
+  test('configures a weekly target through the Wochensoll modal', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]))
+
+    // no targets yet → no week card, only the page-head button
+    await expect(page.locator('.hb-weektargets')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByText('Wochensoll konfigurieren')).toBeVisible()
+
+    // 40 hours on Arbeit for Max, who also gets it as default project
+    await modal.getByLabel('Std/Woche Arbeit Max').fill('40')
+    await modal.getByLabel('Standard Arbeit Max').check()
+    const requestPromise = page.waitForRequest((r) => r.url().includes('/time/targets/max/p1') && r.method() === 'PUT')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    const request = await requestPromise
+    expect(request.postDataJSON()).toEqual({ weeklyHours: 40, isDefault: true })
+
+    // the modal closes and the freshly configured week balance appears
+    await expect(modal).toBeHidden()
+    const card = page.locator('.hb-weektargets')
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('Max')
+    await expect(card).toContainText('/ 40:00')
+  })
+
+  test('rejects invalid weekly hours inline', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]))
+
+    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByLabel('Std/Woche Arbeit Max').fill('200')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    await expect(modal.getByText('Stunden müssen zwischen 0 und 168 liegen')).toBeVisible()
   })
 
   test('exports entries as a CSV download with the server-supplied filename', async ({ page }) => {

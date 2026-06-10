@@ -124,6 +124,8 @@ export const de = {
     timeTitle: 'Zeiterfassung',
     open: 'Öffnen',
     timerRunningHint: 'Läuft …',
+    expectedEndShort: 'bis ca. {time}', // forecast suffix at the running timer (#31)
+    targetReachedShort: 'Soll erreicht',
     stop: 'Stoppen',
     noTimer: 'Kein Timer läuft',
     noTimerHint: 'Starte einen Timer in der Zeiterfassung.',
@@ -361,6 +363,23 @@ export const de = {
     saveFailed: 'Konnte nicht gespeichert werden',
     deleteFailed: 'Eintrag konnte nicht gelöscht werden',
     archiveFailed: 'Projekt konnte nicht aktualisiert werden',
+    // Wochensoll & Forecast (#31)
+    expectedEnd: 'Voraussichtlich fertig um {time}', // shown at the running timer
+    targetReached: 'Tagessoll erreicht',
+    weekTargetTitle: 'Wochensoll',
+    configureTargets: 'Wochensoll',
+    targetsModalTitle: 'Wochensoll konfigurieren',
+    targetsModalHint: 'Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.',
+    hoursPerWeek: 'Std/Woche',
+    defaultColumn: 'Standard',
+    noDefaultProject: 'Kein Standard-Projekt',
+    invalidHours: 'Stunden müssen zwischen 0 und 168 liegen',
+    targetsFailed: 'Wochensoll konnte nicht gespeichert werden',
+    weekLeft: 'noch {time}', // remaining hours toward the weekly target
+    weekOver: '+{time}', // weekly target exceeded
+    todayLeft: 'Heute noch {time}',
+    todayOver: 'Heute {time} über Soll',
+    credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

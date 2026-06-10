@@ -14,6 +14,7 @@ import com.homebase.db.RecipesTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.ShoppingListsTable
 import com.homebase.db.TimeEntriesTable
+import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
@@ -59,7 +60,7 @@ fun ApplicationTestBuilder.configureTestApplication(): Path {
             SchemaUtils.create(
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
                 NotesTable, NoteImagesTable,
-                ProjectsTable, TimeEntriesTable,
+                ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable,
                 AbsencesTable, PartTimeRulesTable, KitaClosuresTable, CustomHolidaysTable, AbsSettingsTable,
             )
