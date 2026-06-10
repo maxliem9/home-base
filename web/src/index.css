@@ -191,11 +191,11 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 
 /* ---------- Main ---------- */
 .hb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.hb-page { width: 100%; max-width: 1120px; margin: 0 auto; padding: 34px 40px 80px; flex: 1; }
+.hb-page { width: 100%; max-width: 1120px; margin: 0 auto; padding: 34px 40px 80px; flex: 1; overflow-x: clip; }
 .hb-pagehead { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 26px; flex-wrap: wrap; }
 .hb-pagehead__eyebrow { font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 7px; }
 .hb-pagehead h1 { font-family: var(--font-display); font-size: 38px; font-weight: var(--disp-weight); line-height: 1.02; letter-spacing: var(--disp-tracking); }
-.hb-pagehead__actions { display: flex; gap: 10px; align-items: center; }
+.hb-pagehead__actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 .hb-sectionlabel { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px 2px; }
 
@@ -355,7 +355,7 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 /* quick add bar */
 .hb-quickadd { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 18px; box-shadow: var(--shadow-sm); }
 .hb-quickadd:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.hb-quickadd input { flex: 1; border: none; background: transparent; font-size: 15.5px; color: var(--ink); font-family: inherit; padding: 8px 0; }
+.hb-quickadd input { flex: 1; min-width: 0; border: none; background: transparent; font-size: 15.5px; color: var(--ink); font-family: inherit; padding: 8px 0; }
 .hb-quickadd input:focus { outline: none; }
 .hb-quickadd input::placeholder { color: var(--ink-3); }
 
