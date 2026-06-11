@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 /** Auth gate state. `Loading` covers the brief async read of the encrypted token at cold start. */
 sealed interface AuthState {
@@ -78,13 +79,20 @@ class AuthRepository(
     }
 
     suspend fun login(username: String, password: String): Result<String> = withContext(Dispatchers.IO) {
-        apiCatching {
+        apiCatching(mapHttpError = ::germanLoginError) {
             val response = api.login(LoginRequest(username, password))
             prefs.edit().putString(KEY_TOKEN, response.token).commit()
             onTokenChange(response.token)
             _state.value = AuthState.LoggedIn(response.token)
             response.token
         }
+    }
+
+    /** Maps a failed login HTTP response to German user-facing text. */
+    private fun germanLoginError(e: HttpException): String = when (e.code()) {
+        401 -> "Login fehlgeschlagen."
+        429 -> "Zu viele Versuche – bitte später erneut versuchen."
+        else -> "Login fehlgeschlagen."
     }
 
     suspend fun logout() = withContext(Dispatchers.IO) {

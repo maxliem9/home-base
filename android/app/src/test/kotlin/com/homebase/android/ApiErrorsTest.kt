@@ -99,6 +99,44 @@ class ApiErrorsTest {
     }
 
     @Test
+    fun `login 401 maps to German text via mapHttpError`() = runTest {
+        val e = httpException(401)
+
+        val mapped = apiCatching<Unit>(mapHttpError = { ex ->
+            when (ex.code()) {
+                401 -> "Login fehlgeschlagen."
+                429 -> "Zu viele Versuche – bitte später erneut versuchen."
+                else -> "Login fehlgeschlagen."
+            }
+        }) {
+            throw e
+        }.exceptionOrNull()
+
+        assertTrue("should map to ApiException", mapped is ApiException)
+        assertEquals("Login fehlgeschlagen.", mapped?.message)
+        assertSame(e, mapped?.cause)
+    }
+
+    @Test
+    fun `login 429 maps to German throttle text via mapHttpError`() = runTest {
+        val e = httpException(429)
+
+        val mapped = apiCatching<Unit>(mapHttpError = { ex ->
+            when (ex.code()) {
+                401 -> "Login fehlgeschlagen."
+                429 -> "Zu viele Versuche – bitte später erneut versuchen."
+                else -> "Login fehlgeschlagen."
+            }
+        }) {
+            throw e
+        }.exceptionOrNull()
+
+        assertTrue("should map to ApiException", mapped is ApiException)
+        assertEquals("Zu viele Versuche – bitte später erneut versuchen.", mapped?.message)
+        assertSame(e, mapped?.cause)
+    }
+
+    @Test
     fun `CancellationException is rethrown instead of captured`() = runTest {
         var rethrown: CancellationException? = null
 
