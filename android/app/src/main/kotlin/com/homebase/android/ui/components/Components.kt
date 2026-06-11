@@ -286,7 +286,12 @@ fun HbTextField(
         textStyle = style,
         singleLine = singleLine,
         minLines = minLines,
-        keyboardOptions = keyboardOptions,
+        // A password field uses the password IME (no suggestion strip / autocorrect caching).
+        keyboardOptions = if (password) {
+            keyboardOptions.copy(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password)
+        } else {
+            keyboardOptions
+        },
         visualTransformation = if (password) {
             androidx.compose.ui.text.input.PasswordVisualTransformation()
         } else {
