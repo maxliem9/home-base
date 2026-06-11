@@ -339,14 +339,11 @@ private fun ResultRow.toDto() = ShoppingItemDto(
 /** Mutable view of a list item used while a batch add reconciles against the existing entries. */
 private class WorkingItem(val id: UUID, var name: String)
 
-/** Short units recognised when parsing a "200 g Mehl" label back into parts (mirrors the clients). */
+/** Short units recognised when parsing a "200 g Mehl" shopping label back into parts. */
 //
-// ACHTUNG — bewusst gespiegelt: Diese Liste ist absichtlich identisch mit der KNOWN_UNITS-Liste
-// (und der parseQty/parseIngredientLine-Heuristik) auf der Android-Seite:
-//   android/app/src/main/kotlin/com/homebase/android/ui/recipes/RecipesScreen.kt
-// Es gibt keinen Mechanismus, der das erzwingt — wer hier eine Einheit ergänzt/entfernt oder die
-// Parse-Heuristik ändert, MUSS die andere Datei mitziehen, sonst driften Backend (Shopping-Merge)
-// und Android (Rezept-Freitext) still auseinander. Web hat keinen Freitext-Parser. Siehe Issue #103.
+// Backend-intern: nur die Shopping-Merge-Heuristik (parseQty) nutzt diese Liste. Früher war sie
+// bewusst mit dem Android-Rezept-Freitext-Parser gespiegelt; der ist mit #28 entfallen (Android
+// nutzt jetzt strukturierte Zutaten-Zeilen, Web hatte nie einen Freitext-Parser). Siehe Issue #103.
 private val KNOWN_UNITS = setOf(
     "g", "kg", "mg", "ml", "l", "el", "tl", "stk", "stück", "prise",
     "bund", "dose", "pkg", "pck", "tasse", "cup", "msp",
@@ -364,8 +361,8 @@ private data class ParsedQty(val amount: Double?, val unit: String?, val name: S
  * merge for such ingredients. Our own labels always carry structured units, so the whitelist is
  * enough. See issue #47.
  *
- * Diese Heuristik ist bewusst mit `parseIngredientLine` auf der Android-Seite gespiegelt
- * (RecipesScreen.kt) — Änderungen hier dort mitziehen. Siehe Issue #103.
+ * Backend-intern (nur Shopping-Merge): früher mit Androids `parseIngredientLine` gespiegelt, das
+ * mit #28 entfiel — kein Client teilt diese Heuristik mehr. Siehe Issue #103.
  */
 private fun parseQty(line: String): ParsedQty {
     val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
