@@ -215,6 +215,7 @@ private fun Route.entryRoutes(json: Json) {
                     // Stop any timer that is still running for the target user.
                     val stopped = TimeEntriesTable.selectAll()
                         .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
+                        .forUpdate(ForUpdateOption.ForUpdate)
                         .singleOrNull()
                     val stoppedDto = stopped?.let { row ->
                         val sid = row[TimeEntriesTable.id]
@@ -267,6 +268,7 @@ private fun Route.entryRoutes(json: Json) {
             val entry = transaction {
                 val running = TimeEntriesTable.selectAll()
                     .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
+                    .forUpdate(ForUpdateOption.ForUpdate)
                     .singleOrNull() ?: return@transaction null
                 val id = running[TimeEntriesTable.id]
                 val now = Instant.now()
