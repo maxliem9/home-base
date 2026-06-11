@@ -16,6 +16,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Sentinel tab id for the built-in Inbox tab (issue #77). Real list ids are
+ * UUIDs, so this can never collide — mirrors the web's `INBOX_ID`.
+ */
+const val INBOX_TAB_ID = "__inbox__"
+
 data class TodoUiState(
     val lists: List<TodoListDto> = emptyList(),
     val todos: List<TodoDto> = emptyList(),
@@ -23,21 +29,32 @@ data class TodoUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
 ) {
-    /** The selected list, falling back to the first one. */
-    val activeList: TodoListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
+    /**
+     * Whether the Inbox tab is active — either explicitly selected, or as the
+     * default tab when no lists exist yet (#77, same rule as the web TodosView).
+     */
+    val inboxActive: Boolean get() = activeListId == INBOX_TAB_ID || lists.isEmpty()
 
-    /** Whether [activeList] is the first (catch-all) tab — it also surfaces unfiled inbox todos. */
-    val activeIsFirst: Boolean get() = activeList != null && lists.firstOrNull()?.id == activeList?.id
+    /** The selected list, falling back to the first one; null while the Inbox tab is active. */
+    val activeList: TodoListDto?
+        get() = if (inboxActive) null else lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
     /**
-     * Todos shown for the active list. The first list doubles as the catch-all and additionally
-     * surfaces unfiled (listId == null) inbox todos so nothing is hidden on mobile.
+     * Todos shown for the active tab. Inbox = alles Unverplante (#71/#77): status-INBOX
+     * todos — auch wenn sie schon in einer Liste liegen — plus alle listen-losen Todos
+     * unabhängig vom Status, damit nichts unerreichbar wird. `listId` kann im JSON ganz
+     * fehlen (encodeDefaults=false, #46) und ist dann hier null. Listen-Tabs zeigen exakt
+     * ihre eigenen Todos — das frühere Catch-all-Verhalten des ersten Tabs entfällt.
      */
     val visibleTodos: List<TodoDto>
         get() {
-            val id = activeList?.id ?: return todos.filter { it.listId == null }
-            return todos.filter { it.listId == id || (activeIsFirst && it.listId == null) }
+            if (inboxActive) return todos.filter { it.status == "INBOX" || it.listId == null }
+            val id = activeList?.id ?: return emptyList()
+            return todos.filter { it.listId == id }
         }
+
+    /** Inbox tab badge: number of status-INBOX todos — same rule as the HeuteScreen tile (#71). */
+    val inboxCount: Int get() = todos.count { it.status == "INBOX" }
 
     /** Count of open (not done) todos across all lists — used for the drawer badge. */
     val openCount: Int get() = todos.count { it.status != "DONE" }
@@ -75,7 +92,11 @@ class TodoViewModel(
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
 
-    /** Quick-add an undated todo to the active list (or inbox if no list is selected). */
+    /**
+     * Quick-add an undated todo to the active list. In the Inbox tab [TodoUiState.activeList]
+     * is null, so the POST carries no listId at all — the backend then creates a plain INBOX
+     * todo (same contract as the Dashboard quick-add and the web Inbox tab, #77).
+     */
     fun addTodo(title: String) {
         if (title.isBlank()) return
         val listId = _uiState.value.activeList?.id
@@ -86,9 +107,17 @@ class TodoViewModel(
         }
     }
 
-    fun updateTodo(id: String, request: UpdateTodoRequest) {
+    /**
+     * Update a todo. [targetListId] files a list-less inbox todo into the picked list while
+     * planning (#77). It is only sent when the todo is still list-less at save time — if the
+     * partner moved it into a list while the sheet was open, the stale pick must not overwrite
+     * that move (mirrors the web plan modal, #69). Null = „Bleibt in der Inbox" (unchanged).
+     */
+    fun updateTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null) {
+        val fileInto = targetListId?.takeIf { _uiState.value.todos.firstOrNull { t -> t.id == id }?.listId == null }
+        val effective = if (fileInto != null) request.copy(listId = fileInto) else request
         viewModelScope.launch {
-            repository.updateTodo(id, request)
+            repository.updateTodo(id, effective)
                 .onSuccess { upsertTodo(it) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }

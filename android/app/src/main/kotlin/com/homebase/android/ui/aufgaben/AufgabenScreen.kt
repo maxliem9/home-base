@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.homebase.android.ui.aufgaben
 
 import androidx.compose.foundation.background
@@ -7,6 +9,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -30,6 +35,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +63,7 @@ import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbPick
+import com.homebase.android.ui.components.HbPickText
 import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbPriority
 import com.homebase.android.ui.components.HbQuickAdd
@@ -96,17 +103,19 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
             appBar = {
                 HbAppBar(
                     eyebrow = "Aufgaben",
-                    title = state.activeList?.name ?: "Aufgaben",
+                    title = if (state.inboxActive) "Inbox" else state.activeList?.name ?: "Aufgaben",
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.more, {}) },
                 )
             },
             fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = "Aufgabe") },
         ) {
-            // List tabs — full-bleed scrollable strip with a bottom hairline.
+            // Inbox + list tabs — full-bleed scrollable strip with a bottom hairline.
             ListTabs(
                 lists = state.lists,
                 todos = state.todos,
+                inboxActive = state.inboxActive,
+                inboxCount = state.inboxCount,
                 activeId = state.activeList?.id,
                 onSelect = { viewModel.selectList(it) },
                 onNewList = { sheet = AufgabenSheet.NewList },
@@ -114,12 +123,12 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
 
             Spacer(Modifier.size(18.dp))
 
-            // Quick-add bar.
+            // Quick-add bar. In the Inbox tab the todo is created without a listId (#77).
             Box(Modifier.padding(horizontal = 18.dp)) {
                 HbQuickAdd(
                     value = quickAddText,
                     onValueChange = { quickAddText = it },
-                    placeholder = "Aufgabe hinzufügen …",
+                    placeholder = if (state.inboxActive) "Neue Aufgabe in der Inbox …" else "Aufgabe hinzufügen …",
                     leading = HbIcons.plus,
                     onSubmit = {
                         viewModel.addTodo(quickAddText)
@@ -129,11 +138,15 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
             }
 
             if (openTodos.isEmpty()) {
-                HbEmpty(
-                    HbIcons.checkCircle,
-                    "Alles erledigt",
-                    "Keine offenen Aufgaben in dieser Liste.\nFüge oben eine neue hinzu.",
-                )
+                if (state.inboxActive) {
+                    HbEmpty(HbIcons.inbox, "Inbox ist leer", "Füge eine Aufgabe hinzu")
+                } else {
+                    HbEmpty(
+                        HbIcons.checkCircle,
+                        "Alles erledigt",
+                        "Keine offenen Aufgaben in dieser Liste.\nFüge oben eine neue hinzu.",
+                    )
+                }
             } else {
                 // Due-date groups in fixed order, skipping empty ones.
                 val grouped = openTodos.groupBy { Format.dueGroup(it.dueDate) }
@@ -146,6 +159,13 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                         items.forEach { todo ->
                             TaskRow(
                                 todo = todo,
+                                // Herkunfts-Liste als Meta: nur im Inbox-Tab für Status-INBOX-Todos,
+                                // die schon in einer Liste liegen (#71/#77).
+                                listName = if (state.inboxActive) {
+                                    todo.listId?.let { lid -> state.lists.firstOrNull { it.id == lid }?.name }
+                                } else {
+                                    null
+                                },
                                 expanded = expandedTaskId == todo.id,
                                 onToggleDone = { viewModel.toggleDone(todo) },
                                 onToggleExpand = {
@@ -175,10 +195,11 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
         when (val s = sheet) {
             is AufgabenSheet.Edit -> EditSheet(
                 todo = s.todo,
+                lists = state.lists,
                 householdUsers = householdUsers,
                 onDismiss = { sheet = null },
                 onSaveCreate = { title -> viewModel.addTodo(title) },
-                onSaveEdit = { id, req -> viewModel.updateTodo(id, req) },
+                onSaveEdit = { id, req, targetListId -> viewModel.updateTodo(id, req, targetListId) },
                 onDelete = { id -> viewModel.deleteTodo(id) },
             )
             AufgabenSheet.NewList -> NewListSheet(
@@ -198,11 +219,12 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
 private fun ListTabs(
     lists: List<TodoListDto>,
     todos: List<TodoDto>,
+    inboxActive: Boolean,
+    inboxCount: Int,
     activeId: String?,
     onSelect: (String) -> Unit,
     onNewList: () -> Unit,
 ) {
-    val firstId = lists.firstOrNull()?.id
     Row(
         Modifier
             .fillMaxWidth()
@@ -211,16 +233,22 @@ private fun ListTabs(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.width(18.dp))
+        // Built-in Inbox tab before the lists; its badge counts status-INBOX todos (#77).
+        ListTab(
+            name = "Inbox",
+            count = inboxCount,
+            icon = HbIcons.inbox,
+            active = inboxActive,
+            onClick = { onSelect(INBOX_TAB_ID) },
+        )
         lists.forEach { list ->
-            val active = activeId == list.id
-            val count = todos.count { todo ->
-                todo.status != "DONE" &&
-                    (todo.listId == list.id || (list.id == firstId && todo.listId == null))
-            }
+            val active = !inboxActive && activeId == list.id
+            // Exactly the list's own open todos — list-less ones live in the Inbox tab now.
+            val count = todos.count { it.listId == list.id && it.status != "DONE" }
             ListTab(
                 name = list.name,
                 count = count,
-                locked = list.visibility == "PRIVATE",
+                icon = if (list.visibility == "PRIVATE") HbIcons.lock else null,
                 active = active,
                 onClick = { onSelect(list.id) },
             )
@@ -249,7 +277,7 @@ private fun ListTabs(
 private fun ListTab(
     name: String,
     count: Int,
-    locked: Boolean,
+    icon: ImageVector?,
     active: Boolean,
     onClick: () -> Unit,
 ) {
@@ -261,7 +289,7 @@ private fun ListTab(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (locked) HbIcon(HbIcons.lock, size = 14.dp, tint = if (active) Hb.ink else Hb.ink3)
+        if (icon != null) HbIcon(icon, size = 14.dp, tint = if (active) Hb.ink else Hb.ink3)
         Text(
             name,
             style = HbType.label.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
@@ -324,6 +352,9 @@ private fun TaskRow(
     onOpenEdit: () -> Unit,
     onToggleSubtask: (SubtaskDto) -> Unit,
     onAddSubtask: (String) -> Unit,
+    // Herkunfts-Liste, im Inbox-Tab als Meta gezeigt, damit unverplante Listen-Todos
+    // von listen-losen unterscheidbar sind (#71/#77).
+    listName: String? = null,
 ) {
     val undated = todo.dueDate == null && todo.assignee == null
     Column {
@@ -340,13 +371,30 @@ private fun TaskRow(
             Column(Modifier.weight(1f)) {
                 Text(todo.title, style = HbType.rowTitle, color = Hb.ink)
                 val badge = Format.dueBadge(todo.dueDate)
-                val hasMeta = todo.priority != null || badge != null || todo.recurrence != null || !todo.description.isNullOrBlank()
+                val hasMeta = listName != null || todo.priority != null || badge != null ||
+                    todo.recurrence != null || !todo.description.isNullOrBlank()
                 if (hasMeta) {
                     Row(
                         Modifier.padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
+                        if (listName != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                HbIcon(HbIcons.folder, size = 12.dp, tint = Hb.ink3)
+                                Text(
+                                    listName,
+                                    style = HbType.meta,
+                                    color = Hb.ink3,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 140.dp),
+                                )
+                            }
+                        }
                         HbPriority(todo.priority)
                         badge?.let { HbBadge(it.label, it.tone) }
                         todo.recurrence?.let { HbBadge("↻ ${recurrenceLabel(it)}", HbTone.Neutral) }
@@ -563,10 +611,11 @@ private fun DoneSection(
 @Composable
 private fun EditSheet(
     todo: TodoDto?,
+    lists: List<TodoListDto>,
     householdUsers: List<String>,
     onDismiss: () -> Unit,
     onSaveCreate: (String) -> Unit,
-    onSaveEdit: (String, UpdateTodoRequest) -> Unit,
+    onSaveEdit: (String, UpdateTodoRequest, String?) -> Unit,
     onDelete: (String) -> Unit,
 ) {
     val isEdit = todo != null
@@ -580,6 +629,10 @@ private fun EditSheet(
     var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
     var intervalText by remember { mutableStateOf((todo?.recurrence?.interval ?: 1).toString()) }
     val recurrenceNeedsDue = recurrenceFreq != null && dueText.isBlank()
+    // Listen-Auswahl beim Planen: nur für listen-lose Todos — Listen-Todos behalten ihre
+    // Liste (#77, wie der Web-Plan-Dialog). Null = „Bleibt in der Inbox".
+    val showListPicker = isEdit && todo?.listId == null && lists.isNotEmpty()
+    var targetListId by remember { mutableStateOf<String?>(null) }
 
     HbBottomSheet(
         onDismiss = onDismiss,
@@ -618,6 +671,8 @@ private fun EditSheet(
                                         ?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) }
                                         ?: RecurrenceDto("NONE"),
                                 ),
+                                // target list picked while planning (#77); null = stays in the inbox
+                                targetListId,
                             )
                         } else {
                             onSaveCreate(title.trim())
@@ -640,6 +695,27 @@ private fun EditSheet(
                 singleLine = false,
                 minLines = 2,
             )
+        }
+        if (showListPicker) {
+            HbField("Liste") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    HbPickText(
+                        "Bleibt in der Inbox",
+                        active = targetListId == null,
+                        onClick = { targetListId = null },
+                    )
+                    lists.forEach { list ->
+                        HbPickText(
+                            list.name,
+                            active = targetListId == list.id,
+                            onClick = { targetListId = list.id },
+                        )
+                    }
+                }
+            }
         }
         HbField("Zuständig") {
             // A current assignee that isn't a household member (legacy free-text) stays

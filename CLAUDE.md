@@ -159,6 +159,14 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 - ViewModel + Repository Pattern
 - Basis-URL konfigurierbar über BuildConfig (zeigt auf DynDNS-Domain)
 - FAB → nur Titel eingeben → direkt in Inbox
+- Aufgaben-View (`ui/aufgaben/`): eigener Inbox-Tab als erster Tab vor den
+  Listen-Tabs mit derselben Semantik wie das Web (siehe Aufgaben-View-Absatz
+  unter Web-Konventionen, #71/#77): Status-INBOX-Todos plus alle listen-losen
+  Todos, Herkunfts-Liste als Meta, Badge = Anzahl Status-INBOX-Todos
+  (`TodoUiState.inboxCount`, auch von der HeuteScreen-Kachel genutzt). Quick-Add
+  im Inbox-Tab postet ohne `listId`; das Edit-Sheet bietet beim Planen
+  listen-loser Todos eine Listen-Auswahl. Das frühere Catch-all-Verhalten des
+  ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
 - Kein Hilt für MVP — manuelle DI reicht
 
 ## Datenbank
