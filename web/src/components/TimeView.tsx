@@ -4,7 +4,7 @@ import { t, errorText } from '../i18n'
 import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
-import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
+import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -1065,7 +1065,7 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   }
 
   return (
-    <Modal
+    <Sheet
       open
       onClose={onClose}
       title={t.time.recordEntry}
@@ -1092,7 +1092,7 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
         <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
       </Field>
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
-    </Modal>
+    </Sheet>
   )
 }
 
@@ -1163,7 +1163,7 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
   }
 
   return (
-    <Modal
+    <Sheet
       open
       onClose={onClose}
       title={running ? t.time.editRunning : t.time.editEntry}
@@ -1194,7 +1194,7 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
         </Field>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
-    </Modal>
+    </Sheet>
   )
 }
 
