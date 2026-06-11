@@ -86,19 +86,6 @@ import com.homebase.android.ui.util.Format
 
 private val CATEGORIES = listOf("Alle", "Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
 
-/** Short units recognised when parsing a "200 g Mehl" ingredient line. */
-//
-// ACHTUNG — bewusst gespiegelt: Diese Liste ist absichtlich identisch mit der KNOWN_UNITS-Liste
-// (und der parseQty/parseIngredientLine-Heuristik) auf der Backend-Seite:
-//   backend/src/main/kotlin/com/homebase/routes/ShoppingRoutes.kt
-// Es gibt keinen Mechanismus, der das erzwingt — wer hier eine Einheit ergänzt/entfernt oder die
-// Parse-Heuristik ändert, MUSS die andere Datei mitziehen, sonst driften Android (Rezept-Freitext)
-// und Backend (Shopping-Merge) still auseinander. Web hat keinen Freitext-Parser. Siehe Issue #103.
-private val KNOWN_UNITS = setOf(
-    "g", "kg", "mg", "ml", "l", "el", "tl", "stk", "stück", "prise",
-    "bund", "dose", "pkg", "pck", "tasse", "cup", "msp",
-)
-
 private fun totalTime(r: RecipeDto): Int = (r.prepTimeMinutes ?: 0) + (r.cookTimeMinutes ?: 0)
 
 /**
@@ -118,31 +105,51 @@ internal fun groupIngredientsBySection(items: List<IngredientDto>): List<Pair<St
     return groups.map { it.first to it.second.toList() }
 }
 
+/** Editor-local draft of one ingredient row (issue #28). amount/unit are raw text, parsed on save. */
+internal data class IngredientDraft(val name: String = "", val amount: String = "", val unit: String = "")
+
+/** Editor-local draft of one section: an optional name + its ingredient rows. */
+internal data class SectionDraft(val name: String = "", val ingredients: List<IngredientDraft> = listOf(IngredientDraft()))
+
 /**
- * Serialise stored ingredients back into the free-text editor format — the inverse of
- * [parseIngredients]. Groups by section (via [groupIngredientsBySection]), prefixes each named
- * group with a `# <section>` header line, and renders every ingredient as `<amount> <unit> <name>`
- * (omitting any missing part). Used to pre-fill the editor when editing an existing recipe so its
- * sections survive the round-trip instead of collapsing into the header-less top group (issue #11).
- *
- * The unit is only emitted together with an amount: the free-text format can't represent a
- * unit-without-amount unambiguously (a leading "g Mehl" would parse back as the name "g Mehl"),
- * so such a — in practice non-existent — ingredient keeps its name and drops the stray unit.
+ * Build the editor's section drafts from a stored recipe (issue #28) — the structured-editor
+ * counterpart of the detail view's [groupIngredientsBySection]. Each amount is shown as editable
+ * text (via [Format.amount], dot-decimal so it parses back cleanly). An empty recipe yields a
+ * single blank section so the editor always has one row to type into.
  */
-internal fun ingredientsToText(items: List<IngredientDto>): String {
-    val lines = mutableListOf<String>()
-    for ((section, group) in groupIngredientsBySection(items)) {
-        if (section != null) lines += "# $section"
-        for (ing in group) {
-            val prefix = ing.amount?.let { amount ->
-                listOfNotNull(Format.amount(amount), ing.unit?.trim()?.takeIf { it.isNotEmpty() })
-                    .joinToString(" ")
-            }
-            lines += if (prefix.isNullOrEmpty()) ing.name else "$prefix ${ing.name}"
-        }
+internal fun sectionsFromIngredients(items: List<IngredientDto>): List<SectionDraft> {
+    val groups = groupIngredientsBySection(items)
+    if (groups.isEmpty()) return listOf(SectionDraft())
+    return groups.map { (section, group) ->
+        SectionDraft(
+            name = section ?: "",
+            ingredients = group.map { ing ->
+                IngredientDraft(name = ing.name, amount = ing.amount?.let { Format.amount(it) } ?: "", unit = ing.unit ?: "")
+            },
+        )
     }
-    return lines.joinToString("\n")
 }
+
+/**
+ * Flatten the editor's sections back into [IngredientInput]s (issue #28), mirroring the web save:
+ * drop blank-name rows, parse the amount (comma or dot; blank ⇒ null), trim unit/section to null.
+ * Unlike the old free-text parser this keeps a **unit without an amount** and never mistakes a
+ * **numeric-looking name** for an amount — the two cases the free-text round-trip lost.
+ */
+internal fun sectionsToIngredients(sections: List<SectionDraft>): List<IngredientInput> =
+    sections.flatMap { sec ->
+        val section = sec.name.trim().ifBlank { null }
+        sec.ingredients
+            .filter { it.name.isNotBlank() }
+            .map { ing ->
+                IngredientInput(
+                    name = ing.name.trim(),
+                    amount = ing.amount.trim().takeIf { it.isNotEmpty() }?.replace(',', '.')?.toDoubleOrNull(),
+                    unit = ing.unit.trim().ifBlank { null },
+                    section = section,
+                )
+            }
+    }
 
 /** Serialise stored steps back into the free-text editor format — one step per line. */
 internal fun stepsToText(steps: List<RecipeStepDto>): String =
@@ -887,8 +894,17 @@ private fun RecipeFormSheet(
     var prep by remember { mutableStateOf(existing?.prepTimeMinutes?.toString() ?: "") }
     var cook by remember { mutableStateOf(existing?.cookTimeMinutes?.toString() ?: "") }
     var description by remember { mutableStateOf(existing?.description ?: "") }
-    var ingredientsText by remember { mutableStateOf(existing?.let { ingredientsToText(it.ingredients) } ?: "") }
+    var sections by remember { mutableStateOf(sectionsFromIngredients(existing?.ingredients ?: emptyList())) }
+    // Section-name fields appear once sections are in play; sticky for the editor's lifetime so
+    // clearing a name mid-edit doesn't make the field vanish (mirrors web `sectionsShown`).
+    var sectionsShown by remember { mutableStateOf(sections.size > 1 || sections.any { it.name.isNotBlank() }) }
     var stepsText by remember { mutableStateOf(existing?.let { stepsToText(it.steps) } ?: "") }
+
+    fun mutateSection(si: Int, f: (SectionDraft) -> SectionDraft) {
+        sections = sections.mapIndexed { i, s -> if (i == si) f(s) else s }
+    }
+    fun mutateIngredient(si: Int, ii: Int, f: (IngredientDraft) -> IngredientDraft) =
+        mutateSection(si) { s -> s.copy(ingredients = s.ingredients.mapIndexed { i, ing -> if (i == ii) f(ing) else ing }) }
 
     HbBottomSheet(
         onDismiss = onDismiss,
@@ -912,7 +928,7 @@ private fun RecipeFormSheet(
                             prepTimeMinutes = prep.toIntOrNull(),
                             cookTimeMinutes = cook.toIntOrNull(),
                             category = categoryLabelToEnum(categoryLabel),
-                            ingredients = parseIngredients(ingredientsText),
+                            ingredients = sectionsToIngredients(sections),
                             steps = parseSteps(stepsText),
                         ),
                     )
@@ -964,20 +980,81 @@ private fun RecipeFormSheet(
         }
 
         HbField("Zutaten") {
-            HbTextField(
-                value = ingredientsText,
-                onValueChange = { ingredientsText = it },
-                placeholder = "Eine pro Zeile, z. B. „200 g Mehl“",
-                singleLine = false,
-                minLines = 3,
-                mono = true,
-            )
-            Text(
-                "Eine pro Zeile, z. B. „200 g Mehl“. „# Boden“ beginnt einen Abschnitt.",
-                style = HbType.small.copy(fontSize = 12.sp),
-                color = Hb.ink3,
-                modifier = Modifier.padding(top = 4.dp, start = 2.dp),
-            )
+            val multiSection = sections.size > 1
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                sections.forEachIndexed { si, section ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Section name only shows once sections are in play (sticky, see sectionsShown).
+                        if (sectionsShown) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(Modifier.weight(1f)) {
+                                    HbTextField(
+                                        value = section.name,
+                                        onValueChange = { v -> mutateSection(si) { it.copy(name = v) } },
+                                        placeholder = "Abschnitt, z. B. Boden",
+                                    )
+                                }
+                                // can't remove the last section
+                                if (multiSection) {
+                                    HbIconButton(
+                                        HbIcons.x,
+                                        { sections = sections.filterIndexed { i, _ -> i != si } },
+                                        iconSize = 18.dp,
+                                    )
+                                }
+                            }
+                        }
+                        section.ingredients.forEachIndexed { ii, ing ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(Modifier.weight(1f)) {
+                                    HbTextField(
+                                        value = ing.name,
+                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(name = v) } },
+                                        placeholder = "Zutat",
+                                    )
+                                }
+                                Box(Modifier.width(56.dp)) {
+                                    HbTextField(
+                                        value = ing.amount,
+                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(amount = v) } },
+                                        placeholder = "Menge",
+                                        mono = true,
+                                    )
+                                }
+                                Box(Modifier.width(60.dp)) {
+                                    HbTextField(
+                                        value = ing.unit,
+                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(unit = v) } },
+                                        placeholder = "Einh.",
+                                    )
+                                }
+                                HbIconButton(
+                                    HbIcons.x,
+                                    {
+                                        mutateSection(si) {
+                                            it.copy(ingredients = it.ingredients.filterIndexed { i, _ -> i != ii })
+                                        }
+                                    },
+                                    iconSize = 18.dp,
+                                )
+                            }
+                        }
+                        AddRowLink("+ Zutat") {
+                            mutateSection(si) { it.copy(ingredients = it.ingredients + IngredientDraft()) }
+                        }
+                    }
+                }
+                AddRowLink("+ Abschnitt") {
+                    sectionsShown = true
+                    sections = sections + SectionDraft()
+                }
+            }
         }
 
         HbField("Schritte") {
@@ -996,69 +1073,23 @@ private fun RecipeFormSheet(
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a free-text textarea into [IngredientInput]s — one ingredient per non-blank line.
- * A line beginning with "#" starts a named section (e.g. "# Boden"); every ingredient after it
- * carries that section until the next "#"-line. A bare "#" resets to the header-less top group.
- * Mirrors the web editor's structured sections (issue #123).
- */
-internal fun parseIngredients(text: String): List<IngredientInput> {
-    val result = mutableListOf<IngredientInput>()
-    var section: String? = null
-    for (raw in text.lines()) {
-        val line = raw.trim()
-        if (line.isEmpty()) continue
-        if (line.startsWith("#")) {
-            section = line.removePrefix("#").trim().takeIf { it.isNotEmpty() }
-            continue
-        }
-        result += parseIngredientLine(line).copy(section = section)
-    }
-    return result
-}
-
-/**
- * Parse a single ingredient line. A leading numeric token (comma decimals allowed) becomes the
- * amount; a following token that is a known unit (KNOWN_UNITS) becomes the unit; the rest is the
- * name. Lines without a leading number become a name-only ingredient.
- *
- * Only KNOWN_UNITS count as a unit — earlier we also treated any short letter-only token as one,
- * which swallowed the first word of a multi-word name ("2 rote Paprika" → unit="rote") and mis-parsed
- * the ingredient. The whitelist is enough for our short-unit notation. Mirrors the backend
- * parseQty fix. See issues #92 / #47.
- *
- * Diese Heuristik ist bewusst mit `parseQty` auf der Backend-Seite gespiegelt
- * (ShoppingRoutes.kt) — Änderungen hier dort mitziehen. Siehe Issue #103.
- */
-internal fun parseIngredientLine(line: String): IngredientInput {
-    val trimmed = line.trim()
-    val tokens = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
-    if (tokens.isEmpty()) return IngredientInput(name = trimmed)
-
-    val amount = tokens[0].replace(',', '.').toDoubleOrNull()
-        ?: return IngredientInput(name = trimmed)
-
-    var idx = 1
-    var unit: String? = null
-    if (idx < tokens.size) {
-        val candidate = tokens[idx]
-        if (candidate.lowercase() in KNOWN_UNITS && idx < tokens.size - 1) {
-            unit = candidate
-            idx++
-        }
-    }
-
-    val name = tokens.drop(idx).joinToString(" ")
-    return if (name.isBlank()) {
-        IngredientInput(name = trimmed)
-    } else {
-        IngredientInput(name = name, amount = amount, unit = unit)
-    }
-}
-
 /** Parse a free-text textarea into [RecipeStepInput]s — one step per non-blank line. */
 private fun parseSteps(text: String): List<RecipeStepInput> =
     text.lines()
         .map { it.trim() }
         .filter { it.isNotEmpty() }
         .map { RecipeStepInput(it) }
+
+/** A text "+ …" affordance styled like the web `hb-addrow` link (issue #28). */
+@Composable
+private fun AddRowLink(text: String, onClick: () -> Unit) {
+    Text(
+        text,
+        style = HbType.small.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+        color = Hb.accentInk,
+        modifier = Modifier
+            .clip(HbRadiusSm)
+            .clickable { onClick() }
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    )
+}
