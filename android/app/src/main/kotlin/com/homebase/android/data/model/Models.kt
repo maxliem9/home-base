@@ -518,7 +518,8 @@ data class CustomHolidayDto(
     val id: String,
     val month: Int,
     val day: Int,
-    // backend omits this when false (encodeDefaults=false), so it must default — see CLAUDE.md
+    // defensive default: the backend has no default on `half` so it currently always serializes it;
+    // tolerate it missing anyway (future-proof against an added default)
     val half: Boolean = false,
     val label: String,
 )
