@@ -449,7 +449,8 @@ fun HbDrawerContent(
                 Text(displayName(currentUser), style = HbType.label.copy(fontSize = 14.5.sp), color = Hb.ink)
                 Text("Echtzeit-Sync aktiv", style = HbType.small, color = Hb.ink3)
             }
-            // Account-corner gear → central settings (#101), mirroring the web sidebar foot.
+            // Account-corner gear → central settings (#101). Web has it in the topbar; on a phone
+            // the drawer foot next to the user chip is the natural spot.
             HbIconButton(HbIcons.settings, onOpenSettings, tint = Hb.ink3, iconSize = 20.dp)
             Box(Modifier.size(8.dp).clip(HbPill).background(Hb.accent))
         }

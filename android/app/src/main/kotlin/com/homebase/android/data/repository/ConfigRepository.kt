@@ -15,7 +15,7 @@ class ConfigRepository(private val api: HomeBaseApi) {
      */
     suspend fun updateHouseholdName(name: String): Result<String> =
         apiCatching(mapHttpError = {
-            if (it.code() == 400) "Name muss 1–60 Zeichen lang sein." else "Speichern fehlgeschlagen."
+            if (it.code() == 400) "Name muss 1–60 Zeichen lang sein." else "Name konnte nicht gespeichert werden."
         }) { api.updateConfig(UpdateConfigRequest(name)).householdName }
 
     /** The household members' usernames (from GET /users), for assignee chips etc. Falls back gracefully. */

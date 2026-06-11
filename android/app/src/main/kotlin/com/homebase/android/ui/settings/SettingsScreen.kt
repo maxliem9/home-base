@@ -169,7 +169,7 @@ private fun HouseholdPage(
                             color = Hb.ink,
                         )
                         Text(
-                            "Erscheint als Marke in der Seitenleiste.",
+                            "Wird in der Seitenleiste angezeigt. Beide können ihn ändern.",
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
