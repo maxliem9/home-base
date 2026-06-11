@@ -113,9 +113,10 @@ test.describe('Abwesenheit', () => {
 
   test('opens calendar settings', async ({ page }) => {
     await open(page, seeded())
-    await page.locator('.abw-actions').getByRole('button', { name: 'Einstellungen' }).click()
-    // settings is a full page now (was a modal) — #43
-    await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
+    // settings moved into the central Einstellungen hub (#99): gear → Abwesenheit subpage
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Abwesenheit' }).click()
+    await expect(page.getByRole('heading', { name: 'Kontingente & Kalender' })).toBeVisible()
     await expect(page.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
     await expect(page.getByText('Kita-Schließtage')).toBeVisible()
     // the "Eigene Feiertage" section (#51) lists the seeded recurring holidays
@@ -166,8 +167,9 @@ test.describe('Abwesenheit', () => {
     // The calendar itself renders: one summary card per user (default settings) + the grid.
     await expect(page.locator('.abw-sumcard')).toHaveCount(2)
     await expect(page.locator(`button.abw-rcell--day[title^="${YEAR}-06-04"]`).first()).toBeVisible()
-    await page.locator('.abw-actions').getByRole('button', { name: 'Einstellungen' }).click()
-    await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Abwesenheit' }).click()
+    await expect(page.getByRole('heading', { name: 'Kontingente & Kalender' })).toBeVisible()
     await expect(page.getByText('Eigene Feiertage')).toBeVisible()
     await expect(page.getByText('Noch keine eigenen Feiertage erfasst.')).toBeVisible()
     await expect(page.getByText('Noch keine Schließtage erfasst.')).toBeVisible()
