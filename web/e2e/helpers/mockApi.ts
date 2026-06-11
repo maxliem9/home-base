@@ -855,6 +855,12 @@ export class MockApi {
     }
 
     // ---- Time: running / start / stop (checked before /time/entries/{id}) ----
+    // All running timers across the household (mirrors GET /time/running/all,
+    // #142) — the dashboard's timer peek reads this; backend orders by userId.
+    if (path.endsWith('/time/running/all') && method === 'GET') {
+      const running = this.entries.filter((e) => !e.stoppedAt).sort((a, b) => a.userId.localeCompare(b.userId))
+      return this.json(route, running)
+    }
     if (path.endsWith('/time/running') && method === 'GET') {
       const running = this.entries.find((e) => !e.stoppedAt)
       if (!running) return this.json(route, { message: 'no running timer' }, 404)

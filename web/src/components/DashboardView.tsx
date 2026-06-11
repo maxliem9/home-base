@@ -223,6 +223,10 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
+  // Digest preview only (#76): the Telegram digest counts INBOX todos *created
+  // today* (DigestService keys createdAt to the local day) — the stat tile and
+  // the Inbox tab badge intentionally keep showing the whole inbox (#71).
+  const inboxNewToday = todos.filter((x) => x.status === 'INBOX' && localIso(new Date(x.createdAt)) === todayIso).length
   const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
   // own timer first, then the partner's
@@ -297,7 +301,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                 <p className="hb-muted" style={{ fontSize: 13.5, margin: '2px 0 14px' }}>{t.dashboard.digestSub}</p>
                 <div className="hb-digest__body">
                   <div className="hb-digest__line"><span className="hb-digest__k">✓ {t.dashboard.digestDone}</span><span>{doneToday.length}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t.dashboard.digestInbox}</span><span>{inboxCount}</span></div>
+                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t.dashboard.digestInbox}</span><span>{inboxNewToday}</span></div>
                   <div className="hb-digest__line"><span className="hb-digest__k">↻ {t.dashboard.digestTomorrow}</span><span>{dueTomorrow.length}</span></div>
                   {dueTomorrow.slice(0, 3).map((todo) => (
                     <div key={todo.id} className="hb-digest__sub">· {todo.title}{todo.assignee ? ` (${userMeta(todo.assignee)?.name ?? todo.assignee})` : ''}</div>
