@@ -79,9 +79,9 @@ test.describe('Time tracking', () => {
 
     // record a manual entry → appears immediately
     await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
-    await expect(modal).toBeHidden()
+    const sheet = page.locator('.hb-sheet')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    await expect(sheet).toBeHidden()
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(2)
   })
 
@@ -100,10 +100,10 @@ test.describe('Time tracking', () => {
     await openTime(page, new MockApi().seedProjects([ARBEIT]))
 
     await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
-    const modal = page.locator('.hb-modal')
+    const sheet = page.locator('.hb-sheet')
     // defaults: today, 09:00–10:00 → a 1-hour entry
-    await modal.getByRole('button', { name: 'Speichern' }).click()
-    await expect(modal).toBeHidden()
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    await expect(sheet).toBeHidden()
 
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
     await expect(page.locator('.hb-list .hb-row')).toContainText('1 Std 0 Min')
@@ -113,12 +113,12 @@ test.describe('Time tracking', () => {
     await openTime(page, new MockApi().seedProjects([ARBEIT]))
 
     await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.getByLabel('Von').fill('10:00')
-    await modal.getByLabel('Bis').fill('09:00')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await sheet.getByLabel('Von').fill('10:00')
+    await sheet.getByLabel('Bis').fill('09:00')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
 
-    await expect(modal.getByText('Ende muss nach dem Start liegen')).toBeVisible()
+    await expect(sheet.getByText('Ende muss nach dem Start liegen')).toBeVisible()
   })
 
   test('archives a project and reveals it again (in settings)', async ({ page }) => {
