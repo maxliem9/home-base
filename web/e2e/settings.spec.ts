@@ -38,3 +38,49 @@ test.describe('Settings — Haushalt (#100)', () => {
     await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Projekte' })).toBeVisible()
   })
 })
+
+test.describe('Settings — Konto (#100)', () => {
+  async function openKonto(page: Page, mock: MockApi) {
+    await openApp(page, mock)
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Konto' }).click()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Passwort ändern' })).toBeVisible()
+  }
+
+  test('changes the password — sends current+new and shows the saved hint', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    await body.getByLabel('Aktuelles Passwort').fill('geheim')
+    await body.getByLabel('Neues Passwort', { exact: true }).fill('neuespasswort')
+    await body.getByLabel('Neues Passwort wiederholen').fill('neuespasswort')
+
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/users/me/password') && r.method() === 'PUT')
+    await body.getByRole('button', { name: 'Passwort ändern' }).click()
+    expect((await reqP).postDataJSON()).toEqual({ currentPassword: 'geheim', newPassword: 'neuespasswort' })
+
+    await expect(body.getByText('Passwort geändert')).toBeVisible()
+  })
+
+  test('surfaces the backend error when the current password is wrong', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    await body.getByLabel('Aktuelles Passwort').fill('falsch')
+    await body.getByLabel('Neues Passwort', { exact: true }).fill('neuespasswort')
+    await body.getByLabel('Neues Passwort wiederholen').fill('neuespasswort')
+    await body.getByRole('button', { name: 'Passwort ändern' }).click()
+    await expect(body.getByText('Aktuelles Passwort stimmt nicht.')).toBeVisible()
+  })
+
+  test('rejects mismatched new passwords client-side, without a request', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    let putFired = false
+    page.on('request', (r) => { if (r.url().endsWith('/users/me/password')) putFired = true })
+    await body.getByLabel('Aktuelles Passwort').fill('geheim')
+    await body.getByLabel('Neues Passwort', { exact: true }).fill('neuespasswort')
+    await body.getByLabel('Neues Passwort wiederholen').fill('anderspasswort')
+    await body.getByRole('button', { name: 'Passwort ändern' }).click()
+    await expect(body.getByText('Die neuen Passwörter stimmen nicht überein.')).toBeVisible()
+    expect(putFired).toBe(false)
+  })
+})

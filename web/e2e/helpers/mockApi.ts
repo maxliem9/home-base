@@ -68,6 +68,7 @@ const TINY_PNG = Buffer.from(
 export class MockApi {
   private silent = false
   private householdName = 'Mäxchen'
+  private password = 'geheim'
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -371,6 +372,16 @@ export class MockApi {
       if (!name) return this.json(route, { code: 'INVALID_NAME', message: 'empty' }, 400)
       this.householdName = name
       return this.json(route, { householdName: name })
+    }
+
+    // Change own password (#100). Mirrors UserRoutes: WEAK_PASSWORD (<8 chars),
+    // INVALID_PASSWORD (current wrong), else 204 and the stored password updates.
+    if (path.endsWith('/users/me/password') && method === 'PUT') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      if ((b.newPassword ?? '').length < 8) return this.json(route, { code: 'WEAK_PASSWORD', message: 'short' }, 400)
+      if (b.currentPassword !== this.password) return this.json(route, { code: 'INVALID_PASSWORD', message: 'wrong' }, 400)
+      this.password = b.newPassword
+      return route.fulfill({ status: 204, body: '' })
     }
 
     // ---- Todo lists (checked before the generic /todos/{id} matcher) ----
