@@ -58,10 +58,20 @@ DOMAIN=$DOMAIN
 UPLOAD_DIR=/data/uploads
 MAX_UPLOAD_MB=10
 
+# Trusted reverse-proxy hops in front of the backend (for login throttling / real client IP).
+# Default 2 matches prod (DSM reverse proxy + nginx web container). Set to 0 if no proxy.
+TRUSTED_PROXY_COUNT=2
+
+# Container timezone — controls digest/scheduler firing time and CSV-export timestamps.
+TZ=Europe/Berlin
+
 # Telegram daily digest (optional — leave blank to disable)
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 DIGEST_TIME=20:00
+
+# Recurring todos: daily time the safety-net scheduler rolls overdue todos forward (optional)
+RECURRING_TIME=00:30
 EOF
 
 chmod 600 "$ENV_FILE"
