@@ -21,31 +21,31 @@ class ShoppingRepository(
 
     // --- Items ---
 
-    suspend fun getItems(): Result<List<ShoppingItemDto>> = runCatching { api.getShoppingItems() }
+    suspend fun getItems(): Result<List<ShoppingItemDto>> = apiCatching { api.getShoppingItems() }
 
     suspend fun createItem(name: String, listId: String?): Result<ShoppingItemDto> =
-        runCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId)) }
+        apiCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId)) }
 
     suspend fun batchAdd(listId: String?, lines: List<ShoppingLineInput>): Result<BatchAddShoppingResponse> =
-        runCatching { api.batchAddShoppingItems(BatchAddShoppingRequest(listId, lines)) }
+        apiCatching { api.batchAddShoppingItems(BatchAddShoppingRequest(listId, lines)) }
 
     suspend fun updateItem(id: String, request: UpdateShoppingItemRequest): Result<ShoppingItemDto> =
-        runCatching { api.updateShoppingItem(id, request) }
+        apiCatching { api.updateShoppingItem(id, request) }
 
     suspend fun deleteItem(id: String): Result<Unit> =
-        runCatching { api.deleteShoppingItem(id) }
+        apiCatching { api.deleteShoppingItem(id) }
 
     // --- Lists ---
 
-    suspend fun getLists(): Result<List<ShoppingListDto>> = runCatching { api.getShoppingLists() }
+    suspend fun getLists(): Result<List<ShoppingListDto>> = apiCatching { api.getShoppingLists() }
 
     suspend fun createList(name: String): Result<ShoppingListDto> =
-        runCatching { api.createShoppingList(CreateShoppingListRequest(name)) }
+        apiCatching { api.createShoppingList(CreateShoppingListRequest(name)) }
 
     suspend fun updateList(id: String, request: UpdateShoppingListRequest): Result<ShoppingListDto> =
-        runCatching { api.updateShoppingList(id, request) }
+        apiCatching { api.updateShoppingList(id, request) }
 
-    suspend fun deleteList(id: String): Result<Unit> = runCatching { api.deleteShoppingList(id) }
+    suspend fun deleteList(id: String): Result<Unit> = apiCatching { api.deleteShoppingList(id) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

@@ -20,39 +20,39 @@ class TodoRepository(
 
     // --- Todos ---
 
-    suspend fun getTodos(): Result<List<TodoDto>> = runCatching { api.getTodos() }
+    suspend fun getTodos(): Result<List<TodoDto>> = apiCatching { api.getTodos() }
 
     suspend fun createTodo(request: CreateTodoRequest): Result<TodoDto> =
-        runCatching { api.createTodo(request) }
+        apiCatching { api.createTodo(request) }
 
     suspend fun updateTodo(id: String, request: UpdateTodoRequest): Result<TodoDto> =
-        runCatching { api.updateTodo(id, request) }
+        apiCatching { api.updateTodo(id, request) }
 
     suspend fun deleteTodo(id: String): Result<Unit> =
-        runCatching { api.deleteTodo(id) }
+        apiCatching { api.deleteTodo(id) }
 
     // --- Todo lists ---
 
-    suspend fun getLists(): Result<List<TodoListDto>> = runCatching { api.getTodoLists() }
+    suspend fun getLists(): Result<List<TodoListDto>> = apiCatching { api.getTodoLists() }
 
     suspend fun createList(name: String, visibility: String?): Result<TodoListDto> =
-        runCatching { api.createTodoList(CreateTodoListRequest(name, visibility)) }
+        apiCatching { api.createTodoList(CreateTodoListRequest(name, visibility)) }
 
     suspend fun updateList(id: String, request: UpdateTodoListRequest): Result<TodoListDto> =
-        runCatching { api.updateTodoList(id, request) }
+        apiCatching { api.updateTodoList(id, request) }
 
-    suspend fun deleteList(id: String): Result<Unit> = runCatching { api.deleteTodoList(id) }
+    suspend fun deleteList(id: String): Result<Unit> = apiCatching { api.deleteTodoList(id) }
 
     // --- Subtasks (all return the updated parent todo) ---
 
     suspend fun addSubtask(todoId: String, title: String): Result<TodoDto> =
-        runCatching { api.createSubtask(todoId, CreateSubtaskRequest(title)) }
+        apiCatching { api.createSubtask(todoId, CreateSubtaskRequest(title)) }
 
     suspend fun updateSubtask(todoId: String, subtaskId: String, request: UpdateSubtaskRequest): Result<TodoDto> =
-        runCatching { api.updateSubtask(todoId, subtaskId, request) }
+        apiCatching { api.updateSubtask(todoId, subtaskId, request) }
 
     suspend fun deleteSubtask(todoId: String, subtaskId: String): Result<TodoDto> =
-        runCatching { api.deleteSubtask(todoId, subtaskId) }
+        apiCatching { api.deleteSubtask(todoId, subtaskId) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

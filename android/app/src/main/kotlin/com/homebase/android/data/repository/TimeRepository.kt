@@ -26,26 +26,26 @@ class TimeRepository(
 ) {
     val incomingEvents: Flow<TimeWebSocketClient.WsEvent> = wsClient.events
 
-    suspend fun getProjects(): Result<List<ProjectDto>> = runCatching { api.getProjects() }
+    suspend fun getProjects(): Result<List<ProjectDto>> = apiCatching { api.getProjects() }
 
     /** Household members — used to resolve "the other user" for shared timers (#142). */
-    suspend fun getUsers(): Result<List<UserDto>> = runCatching { api.getUsers() }
+    suspend fun getUsers(): Result<List<UserDto>> = apiCatching { api.getUsers() }
 
     suspend fun createProject(name: String, color: String): Result<ProjectDto> =
-        runCatching { api.createProject(CreateProjectRequest(name, color)) }
+        apiCatching { api.createProject(CreateProjectRequest(name, color)) }
 
     suspend fun setArchived(id: String, archived: Boolean): Result<ProjectDto> =
-        runCatching { api.archiveProject(id, ArchiveProjectRequest(archived)) }
+        apiCatching { api.archiveProject(id, ArchiveProjectRequest(archived)) }
 
-    suspend fun getEntries(): Result<List<TimeEntryDto>> = runCatching { api.getTimeEntries() }
+    suspend fun getEntries(): Result<List<TimeEntryDto>> = apiCatching { api.getTimeEntries() }
 
     /** `userId` starts the timer on behalf of the partner (#142); null → self. */
     suspend fun startTimer(projectId: String, description: String?, userId: String? = null): Result<TimeEntryDto> =
-        runCatching { api.startTimer(StartTimerRequest(projectId, description, userId)) }
+        apiCatching { api.startTimer(StartTimerRequest(projectId, description, userId)) }
 
     /** `userId` stops the partner's timer (#142); null → own timer. */
     suspend fun stopTimer(userId: String? = null): Result<TimeEntryDto> =
-        runCatching { api.stopTimer(StopTimerRequest(userId)) }
+        apiCatching { api.stopTimer(StopTimerRequest(userId)) }
 
     suspend fun createEntry(
         projectId: String,
@@ -53,39 +53,27 @@ class TimeRepository(
         stoppedAt: String,
         description: String?,
     ): Result<TimeEntryDto> =
-        runCatching { api.createTimeEntry(CreateTimeEntryRequest(projectId, startedAt, stoppedAt, description)) }
+        apiCatching { api.createTimeEntry(CreateTimeEntryRequest(projectId, startedAt, stoppedAt, description)) }
 
+    // Surface the backend's ErrorResponse.code as German text instead of a
+    // raw "HTTP 409" so the edit sheet's failure toast is understandable.
     suspend fun updateEntry(id: String, request: UpdateTimeEntryRequest): Result<TimeEntryDto> =
-        runCatching {
-            try {
-                api.updateTimeEntry(id, request)
-            } catch (e: HttpException) {
-                // Surface the backend's ErrorResponse.code as German text instead of a
-                // raw "HTTP 409" so the edit sheet's failure toast is understandable.
-                throw IllegalStateException(germanTimeError(e), e)
-            }
-        }
+        apiCatching(mapHttpError = ::germanTimeError) { api.updateTimeEntry(id, request) }
 
-    suspend fun deleteEntry(id: String): Result<Unit> = runCatching { api.deleteTimeEntry(id) }
+    suspend fun deleteEntry(id: String): Result<Unit> = apiCatching { api.deleteTimeEntry(id) }
 
     /**
      * Split a completed entry at [splitAt] with an optional untracked break (#66) —
      * both halves come back in one response (part one keeps the id).
      */
     suspend fun splitEntry(id: String, splitAt: String, breakMinutes: Int?): Result<SplitTimeEntryResponse> =
-        runCatching {
-            try {
-                api.splitTimeEntry(id, SplitTimeEntryRequest(splitAt, breakMinutes))
-            } catch (e: HttpException) {
-                throw IllegalStateException(germanSplitError(e), e)
-            }
-        }
+        apiCatching(mapHttpError = ::germanSplitError) { api.splitTimeEntry(id, SplitTimeEntryRequest(splitAt, breakMinutes)) }
 
     // --- Wochensoll & Forecast (#31 / #55) ---
 
-    suspend fun getForecast(): Result<TimeForecastDto> = runCatching { api.getTimeForecast() }
+    suspend fun getForecast(): Result<TimeForecastDto> = apiCatching { api.getTimeForecast() }
 
-    suspend fun getTargets(): Result<List<WorkTargetDto>> = runCatching { api.getWorkTargets() }
+    suspend fun getTargets(): Result<List<WorkTargetDto>> = apiCatching { api.getWorkTargets() }
 
     /** Household-shared upsert: `userId` is the target person, not the caller. */
     suspend fun upsertTarget(
@@ -94,7 +82,7 @@ class TimeRepository(
         weeklyHours: Double? = null,
         isDefault: Boolean? = null,
     ): Result<WorkTargetDto> =
-        runCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault)) }
+        apiCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault)) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

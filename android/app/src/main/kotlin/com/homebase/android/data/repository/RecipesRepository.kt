@@ -14,23 +14,23 @@ class RecipesRepository(
     val incomingEvents: Flow<RecipeWebSocketClient.WsEvent> = wsClient.events
 
     suspend fun getRecipes(category: String? = null): Result<List<RecipeDto>> =
-        runCatching { api.getRecipes(category?.takeIf { it.isNotBlank() }) }
+        apiCatching { api.getRecipes(category?.takeIf { it.isNotBlank() }) }
 
     suspend fun getRecipe(id: String, servings: Int? = null): Result<RecipeDto> =
-        runCatching { api.getRecipe(id, servings) }
+        apiCatching { api.getRecipe(id, servings) }
 
     suspend fun createRecipe(request: CreateRecipeRequest): Result<RecipeDto> =
-        runCatching { api.createRecipe(request) }
+        apiCatching { api.createRecipe(request) }
 
     suspend fun updateRecipe(id: String, request: UpdateRecipeRequest): Result<RecipeDto> =
-        runCatching { api.updateRecipe(id, request) }
+        apiCatching { api.updateRecipe(id, request) }
 
     suspend fun deleteRecipe(id: String): Result<Unit> =
-        runCatching { api.deleteRecipe(id) }
+        apiCatching { api.deleteRecipe(id) }
 
     /** Download a recipe export (format "md" or "pdf") as raw bytes. */
     suspend fun exportRecipe(id: String, format: String, servings: Int? = null): Result<ByteArray> =
-        runCatching { api.exportRecipe(id, format, servings).use { it.bytes() } }
+        apiCatching { api.exportRecipe(id, format, servings).use { it.bytes() } }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

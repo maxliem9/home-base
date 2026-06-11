@@ -17,23 +17,23 @@ class NotesRepository(
     val incomingEvents: Flow<NotesWebSocketClient.WsEvent> = wsClient.events
 
     suspend fun getNotes(query: String? = null): Result<List<NoteDto>> =
-        runCatching { api.getNotes(query?.takeIf { it.isNotBlank() }) }
+        apiCatching { api.getNotes(query?.takeIf { it.isNotBlank() }) }
 
     suspend fun createNote(request: CreateNoteRequest): Result<NoteDto> =
-        runCatching { api.createNote(request) }
+        apiCatching { api.createNote(request) }
 
     suspend fun updateNote(id: String, request: UpdateNoteRequest): Result<NoteDto> =
-        runCatching { api.updateNote(id, request) }
+        apiCatching { api.updateNote(id, request) }
 
     suspend fun deleteNote(id: String): Result<Unit> =
-        runCatching { api.deleteNote(id) }
+        apiCatching { api.deleteNote(id) }
 
     suspend fun uploadImage(
         noteId: String,
         bytes: ByteArray,
         filename: String,
         contentType: String,
-    ): Result<NoteDto> = runCatching {
+    ): Result<NoteDto> = apiCatching {
         val part = MultipartBody.Part.createFormData(
             name = "file",
             filename = filename,
@@ -43,7 +43,7 @@ class NotesRepository(
     }
 
     suspend fun deleteImage(noteId: String, imageId: String): Result<NoteDto> =
-        runCatching { api.deleteNoteImage(noteId, imageId) }
+        apiCatching { api.deleteNoteImage(noteId, imageId) }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

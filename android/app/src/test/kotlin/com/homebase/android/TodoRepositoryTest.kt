@@ -4,9 +4,12 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateTodoRequest
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.UpdateTodoRequest
+import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
+import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import io.mockk.coEvery
+import java.net.UnknownHostException
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -49,13 +52,23 @@ class TodoRepositoryTest {
     }
 
     @Test
-    fun `getTodos returns failure on exception`() = runTest {
+    fun `getTodos maps unknown errors to the German fallback text`() = runTest {
         coEvery { api.getTodos() } throws RuntimeException("Network error")
 
         val result = repository.getTodos()
 
         assertTrue(result.isFailure)
-        assertEquals("Network error", result.exceptionOrNull()?.message)
+        assertEquals(GENERIC_ERROR_TEXT, result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `getTodos maps transport errors to the German offline text`() = runTest {
+        coEvery { api.getTodos() } throws UnknownHostException("Unable to resolve host api.example.com")
+
+        val result = repository.getTodos()
+
+        assertTrue(result.isFailure)
+        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
     }
 
     @Test
