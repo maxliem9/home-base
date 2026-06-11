@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AbsSettings, AbsenceState } from '../../types'
-import { buildContext, personDay, settingsFor, summarize, wouldWork } from './core'
+import { buildContext, isWorkdayFor, normalizeAbsenceState, personDay, settingsFor, summarize, wouldWork } from './core'
 
 const s = (year: number, over: Partial<AbsSettings> = {}): AbsSettings => ({
   userId: 'alice',
@@ -121,5 +121,60 @@ describe('custom holidays (#51)', () => {
     const st = personDay(buildContext(state, 2026, ['alice']), 'alice', '2026-01-01')
     expect(st.holiday).toBe('Neujahr')
     expect(st.holidayHalf).toBe(false)
+  })
+})
+
+describe('snapshots with missing lists (#54, encodeDefaults=false)', () => {
+  // With encodeDefaults=false the backend omits fields holding their default
+  // (CLAUDE.md / issue #46): a fresh household's snapshot can lack absences, partTime,
+  // kitaClosures, customHolidays and settings entirely. None of that may throw.
+
+  it('normalizeAbsenceState fills every missing list with []', () => {
+    expect(normalizeAbsenceState({})).toEqual({
+      users: [],
+      absences: [],
+      partTime: [],
+      kitaClosures: [],
+      customHolidays: [],
+      settings: [],
+    })
+  })
+
+  it('buildContext tolerates a snapshot missing all lists', () => {
+    const ctx = buildContext({ users: ['alice'] }, 2026, ['alice'])
+    expect(ctx.absByUser['alice']).toEqual({})
+    expect(ctx.kita).toEqual({})
+    expect(ctx.customHol).toEqual({})
+    expect(ctx.parttime).toEqual([])
+    // settings fall back to the hard defaults
+    expect(ctx.settings['alice']).toMatchObject({ userId: 'alice', year: 2026, state: 'BE', allowance: 30 })
+  })
+
+  it('summarize yields a plain default summary on an all-empty snapshot', () => {
+    const ctx = buildContext({}, 2026, ['alice'])
+    const sum = summarize(ctx, 'alice', '2026-06-01')
+    expect(sum).toMatchObject({ taken: 0, planned: 0, krank: 0, kind: 0, used: 0, remaining: 30 })
+  })
+
+  it('counts absences when every other list is missing', () => {
+    // 2026-05-04 is a plain Monday — one taken vacation day, even though partTime,
+    // kitaClosures, customHolidays and settings are all omitted from the snapshot.
+    const ctx = buildContext(
+      { users: ['alice'], absences: [{ id: 'a1', userId: 'alice', date: '2026-05-04', type: 'URLAUB' }] },
+      2026,
+      ['alice'],
+    )
+    expect(summarize(ctx, 'alice', '2026-06-01').taken).toBe(1)
+  })
+
+  it('personDay still derives weekends and statutory holidays without stored data', () => {
+    const ctx = buildContext({}, 2026, ['alice'])
+    expect(personDay(ctx, 'alice', '2026-01-01').holiday).toBe('Neujahr')
+    expect(personDay(ctx, 'alice', '2026-01-03').weekend).toBe(true) // a Saturday
+  })
+
+  it('isWorkdayFor works on a snapshot without settings/partTime/customHolidays', () => {
+    expect(isWorkdayFor({}, 'alice', '2026-06-02')).toBe(true) // a plain Tuesday
+    expect(isWorkdayFor({}, 'alice', '2026-06-06')).toBe(false) // a Saturday
   })
 })

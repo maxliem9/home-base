@@ -19,6 +19,7 @@ import {
   eachDate,
   fmtDays,
   isWorkdayFor,
+  normalizeAbsenceState,
   palette,
   personDay,
   summarize,
@@ -97,7 +98,9 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
       onLogout()
       return
     }
-    if (res.ok) setData(await res.json())
+    // Any snapshot list may be missing when empty (encodeDefaults=false, CLAUDE.md /
+    // issue #46) — normalise once at the read so the whole view can rely on arrays (#54).
+    if (res.ok) setData(normalizeAbsenceState(await res.json()))
     setLoading(false)
   }, [token, onLogout])
 
@@ -527,9 +530,8 @@ function AbwSettings({ ctx, data, api, userIds, year, onBack }: {
   const [hDate, setHDate] = useState(`${year}-12-24`)
   const [hHalf, setHHalf] = useState(true)
   const [hLabel, setHLabel] = useState('')
-  // `customHolidays` may be omitted from the snapshot when empty (encodeDefaults=false,
-  // see CLAUDE.md / issue #46) — guard the spread with ?? [].
-  const holidays = [...(data.customHolidays ?? [])].sort((a, b) => a.month - b.month || a.day - b.day)
+  // `data` is normalised in fetchState (#54): every snapshot list is a real array here.
+  const holidays = [...data.customHolidays].sort((a, b) => a.month - b.month || a.day - b.day)
   // MM-DD of a custom holiday → a YYYY-MM-DD value the date input understands (year = the
   // currently viewed year, just a carrier).
   const holDateValue = (h: { month: number; day: number }): string => `${year}-${C.pad(h.month)}-${C.pad(h.day)}`
