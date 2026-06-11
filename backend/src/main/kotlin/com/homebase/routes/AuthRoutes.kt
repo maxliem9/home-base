@@ -27,7 +27,7 @@ fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
         val key = clientKey(call, trustedProxyCount)
         val retryAfter = throttler.retryAfterSeconds(key)
         if (retryAfter > 0) {
-            log.info("Login attempt blocked for ip=$key — still locked, retry-after=${retryAfter}s")
+            log.debug("Login attempt blocked for ip=$key — still locked, retry-after=${retryAfter}s")
             call.response.header(HttpHeaders.RetryAfter, retryAfter.toString())
             call.respond(
                 HttpStatusCode.TooManyRequests,
