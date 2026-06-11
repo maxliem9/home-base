@@ -1,6 +1,8 @@
 package com.homebase
 
 import com.homebase.db.DatabaseFactory
+import com.homebase.db.ProjectsTable
+import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
@@ -22,6 +24,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * Runs the real Flyway migrations against a throwaway PostgreSQL and exercises the writes
@@ -68,7 +71,8 @@ class MigrationIntegrationTest {
     }
 
     /**
-     * Removes the rows the test body seeded, in FK order (subtasks → todos → lists → users).
+     * Removes the rows the test body seeded, in FK order
+     * (work_targets → time_entries → projects → subtasks → todos → lists → users).
      * JUnit instantiates the class once per `@Test`, so [createdUsers] holds only the user(s)
      * the just-finished method created. Runs even if the test failed; never fails the build —
      * a skipped run (gate unmet) has nothing to clean, and a best-effort delete that finds
@@ -79,6 +83,10 @@ class MigrationIntegrationTest {
         if (!hasPostgres || createdUsers.isEmpty()) return
         runCatching {
             transaction {
+                // time_work_targets and time_entries reference projects + users — delete first
+                TimeWorkTargetsTable.deleteWhere { TimeWorkTargetsTable.userId inList createdUsers }
+                ProjectsTable.deleteWhere { ProjectsTable.createdBy inList createdUsers }
+
                 val todoIds = TodosTable.selectAll()
                     .where { TodosTable.createdBy inList createdUsers }
                     .map { it[TodosTable.id] }
@@ -281,5 +289,105 @@ class MigrationIntegrationTest {
                 }
             }
         }
+    }
+
+    /**
+     * Guards the V20 partial unique index `time_work_targets_one_default` (issue #108).
+     *
+     * H2 does not support partial (WHERE-filtered) unique indexes, so this constraint only
+     * exists against real Postgres. Without this test a concurrent second PUT that sets
+     * `is_default=true` for a different project — without first clearing the existing default —
+     * would hit a Postgres unique-violation that previously surfaced as an unhandled 500.
+     * PR #103 maps that violation to a 409; this test proves:
+     *
+     *  (a) the partial index actually rejects a second `is_default=true` row per user, and
+     *  (b) the thrown [ExposedSQLException] carries SQLState `23505` and the index name
+     *      `time_work_targets_one_default` — exactly the signal that
+     *      `TimeForecastRoutes.isDefaultIndexConflict()` uses to translate the DB error
+     *      into a 409 response (#57).
+     */
+    @Test
+    fun `V20 partial index rejects second is_default=true per user and exception matches #57 detection`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_def_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
+
+        val projectAId = UUID.randomUUID()
+        val projectBId = UUID.randomUUID()
+
+        // Seed: one user, two projects, one work-target with is_default=true for project A.
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            ProjectsTable.insert {
+                it[id] = projectAId
+                it[name] = "Projekt A"
+                it[color] = "#ff0000"
+                it[archived] = false
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            ProjectsTable.insert {
+                it[id] = projectBId
+                it[name] = "Projekt B"
+                it[color] = "#0000ff"
+                it[archived] = false
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            TimeWorkTargetsTable.insert {
+                it[id] = UUID.randomUUID()
+                it[userId] = userName
+                it[projectId] = projectAId
+                it[weeklyHours] = 20.0
+                it[isDefault] = true   // first default — must succeed
+            }
+        }
+
+        // Now attempt to set is_default=true for project B without clearing A first.
+        // The partial unique index `time_work_targets_one_default` must reject this.
+        val ex = assertFailsWith<ExposedSQLException>(
+            message = "Partial index time_work_targets_one_default must reject a second is_default=true row",
+        ) {
+            transaction {
+                TimeWorkTargetsTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[userId] = userName
+                    it[projectId] = projectBId
+                    it[weeklyHours] = 0.0
+                    it[isDefault] = true   // second default — must be rejected
+                }
+            }
+        }
+
+        // Part (b): verify that the exception carries the exact signals that
+        // TimeForecastRoutes.isDefaultIndexConflict() uses to map this to a 409.
+        // SQLState 23505 = unique_violation; message must name the index.
+        val sqlEx = ex.cause as? java.sql.SQLException
+        assertTrue(
+            sqlEx != null,
+            "ExposedSQLException.cause must be a java.sql.SQLException (got ${ex.cause?.javaClass})",
+        )
+        assertEquals(
+            "23505",
+            sqlEx.sqlState,
+            "SQLState must be 23505 (unique_violation) so isDefaultIndexConflict() recognises it",
+        )
+        assertTrue(
+            sqlEx.message.orEmpty().contains("time_work_targets_one_default", ignoreCase = true),
+            "Exception message must contain the index name 'time_work_targets_one_default' " +
+                "so isDefaultIndexConflict() can map it to 409. Actual message: ${sqlEx.message}",
+        )
     }
 }
