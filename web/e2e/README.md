@@ -35,6 +35,9 @@ npx playwright install chromium
   `timeEntry`, …). Todos/shopping are seeded via the constructor; recipes,
   notes, projects and time entries via the fluent `seed*` helpers.
 - `auth.spec.ts` — login form, validation, error handling, logout.
+- `dashboard.spec.ts` — stat tiles (pinned clock), quick-add, "Heute dran"
+  check-off, shopping peek, running-timer peek incl. expected end (#31/#142),
+  digest preview vs. inbox tile (#76).
 - `todos.spec.ts` — inbox rendering, add/plan/complete/delete flows, tab nav.
 - `shopping.spec.ts` — list rendering, add/check items, tabs, list CRUD.
 - `recipes.spec.ts` — cards, category filter, create/edit/delete, servings
