@@ -89,8 +89,10 @@ test.describe('Shopping lists', () => {
     await page.getByRole('tab', { name: 'Drogerie' }).click()
     await expect(page.getByText('Shampoo')).toBeVisible()
 
-    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: /Liste löschen „Drogerie/ }).click()
+    // a confirmation modal must appear first — no immediate delete
+    await expect(page.getByRole('heading', { name: 'Liste löschen?' })).toBeVisible()
+    await page.locator('.hb-modal').getByRole('button', { name: 'Endgültig löschen' }).click()
 
     await expect(page.locator('.hb-tabs').getByRole('tab', { name: 'Drogerie' })).toHaveCount(0)
     await expect(page.getByText('Shampoo')).toHaveCount(0)

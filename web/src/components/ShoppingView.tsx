@@ -23,6 +23,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
+  const [confirmDeleteList, setConfirmDeleteList] = useState(false)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchAll = useCallback(async () => {
@@ -190,9 +191,9 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const removeList = async () => {
     if (!active || lists.length <= 1) return
-    if (!confirm(`${t.shopping.deleteListConfirm}\n\n„${active.name}"`)) return
     const idx = lists.findIndex((l) => l.id === active.id)
     const next = lists[idx + 1] ?? lists[idx - 1]
+    setConfirmDeleteList(false)
     setLists((prev) => prev.filter((l) => l.id !== active.id))
     setItems((prev) => prev.filter((i) => i.listId !== active.id))
     setActiveId(next ? next.id : null)
@@ -311,13 +312,33 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           )}
 
           {lists.length > 1 && (
-            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={removeList}>
+            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
               <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
               {t.shopping.deleteList} „{active.name}"
             </button>
           )}
         </>
       )}
+
+      <Modal
+        open={confirmDeleteList && !!active}
+        onClose={() => setConfirmDeleteList(false)}
+        title={t.shopping.deleteListTitle}
+        width={440}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDeleteList(false)}>{t.common.cancel}</Button>
+            <Button variant="danger" icon="trash" onClick={removeList}>{t.shopping.deleteListBtn}</Button>
+          </>
+        }
+      >
+        {active && (
+          <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
+            {t.shopping.deleteListConfirm}
+            {' '}„<strong>{active.name}</strong>"
+          </p>
+        )}
+      </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
 
