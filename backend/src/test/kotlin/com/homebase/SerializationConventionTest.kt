@@ -1,6 +1,7 @@
 package com.homebase
 
 import com.homebase.model.AbsenceStateDto
+import com.homebase.model.SubtaskDto
 import com.homebase.model.TodoDto
 import com.homebase.plugins.appJson
 import kotlin.test.Test
@@ -81,6 +82,7 @@ class SerializationConventionTest {
             assignee = "max",
             dueDate = "2026-06-12",
             priority = "HIGH",
+            subtasks = listOf(SubtaskDto(id = "s1", title = "Milch", done = false, sortOrder = 0)),
             createdBy = "max",
             createdAt = "2026-06-11T10:00:00Z"
         )
@@ -96,6 +98,10 @@ class SerializationConventionTest {
             "priority (gesetzt) muss im JSON stehen, war: $json")
         assertTrue(json.contains("\"title\""),
             "title (gesetzt) muss im JSON stehen, war: $json")
+        // Befüllte Liste (kein Default) muss erscheinen — fängt einen "Liste immer
+        // weggelassen"-Fehler, den der emptyList()-Negativfall allein nicht sieht.
+        assertTrue(json.contains("\"subtasks\""),
+            "subtasks (befüllt) muss im JSON stehen, war: $json")
     }
 
     // ── AbsenceStateDto — nur emptyList()-Defaults (vollständige Listen) ─────
