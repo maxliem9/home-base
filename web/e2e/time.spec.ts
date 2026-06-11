@@ -10,6 +10,12 @@ async function openTime(page: Page, mock: MockApi) {
   await expect(page.getByRole('heading', { name: 'Zeiterfassung' })).toBeVisible()
 }
 
+/** Opens the dedicated config view (#86) from the time view's "Einstellungen" gear. */
+async function openConfig(page: Page) {
+  await page.getByRole('button', { name: 'Einstellungen' }).click()
+  await expect(page.getByRole('heading', { name: 'Zeit-Einstellungen' })).toBeVisible()
+}
+
 const ARBEIT = project({ id: 'p1', name: 'Arbeit', color: '#4F7A52' })
 
 test.describe('Time tracking', () => {
@@ -71,10 +77,30 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(2)
   })
 
-  test('creates a project', async ({ page }) => {
+  test('creates a project from the config view', async ({ page }) => {
     await openTime(page, new MockApi())
 
+    // "Neues Projekt" now lives in the dedicated config view (#86)
+    await openConfig(page)
     await page.getByRole('button', { name: 'Neues Projekt' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByPlaceholder('Projektname…').fill('Garten')
+    await modal.getByRole('button', { name: 'Anlegen' }).click()
+
+    // the new project shows up in the config view's project list…
+    await expect(page.locator('.hb-row', { hasText: 'Garten' })).toBeVisible()
+    // …and on the main view once we go back
+    await page.getByRole('button', { name: 'Zurück' }).click()
+    await expect(page.locator('.hb-projcard', { hasText: 'Garten' })).toBeVisible()
+  })
+
+  // The issue's explicit empty-state requirement (#86): with zero projects the MAIN
+  // view must offer a bootstrap action so the first project can be created without
+  // ever entering the config view.
+  test('bootstraps the first project from the main view when there are none', async ({ page }) => {
+    await openTime(page, new MockApi())
+
+    await page.getByRole('button', { name: 'Erstes Projekt anlegen' }).first().click()
     const modal = page.locator('.hb-modal')
     await modal.getByPlaceholder('Projektname…').fill('Garten')
     await modal.getByRole('button', { name: 'Anlegen' }).click()
@@ -173,9 +199,10 @@ test.describe('Time tracking', () => {
   test('configures a weekly target through the Wochensoll modal', async ({ page }) => {
     await openTime(page, new MockApi().seedProjects([ARBEIT]))
 
-    // no targets yet → no week card, only the page-head button
+    // no targets yet → no week card; the editor lives in the config view now (#86)
     await expect(page.locator('.hb-weektargets')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    await openConfig(page)
+    await page.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal.getByText('Wochensoll konfigurieren')).toBeVisible()
 
@@ -188,8 +215,9 @@ test.describe('Time tracking', () => {
     const request = await requestPromise
     expect(request.postDataJSON()).toEqual({ weeklyHours: 40, isDefault: true })
 
-    // the modal closes and the freshly configured week balance appears
+    // the modal closes; back on the main view the freshly configured week balance appears
     await expect(modal).toBeHidden()
+    await page.getByRole('button', { name: 'Zurück' }).click()
     const card = page.locator('.hb-weektargets')
     await expect(card).toBeVisible()
     await expect(card).toContainText('Max')
@@ -199,7 +227,8 @@ test.describe('Time tracking', () => {
   test('rejects invalid weekly hours inline', async ({ page }) => {
     await openTime(page, new MockApi().seedProjects([ARBEIT]))
 
-    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    await openConfig(page)
+    await page.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     const modal = page.locator('.hb-modal')
     await modal.getByLabel('Std/Woche Arbeit Max').fill('200')
     await modal.getByRole('button', { name: 'Speichern' }).click()
@@ -300,7 +329,9 @@ test.describe('Time tracking', () => {
       .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', description: 'Meeting', durationSeconds: 5400 })])
     await openTime(page, mock)
 
-    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    // CSV export now lives in the dedicated config view (#86)
+    await openConfig(page)
+    await page.getByRole('button', { name: 'CSV exportieren' }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal).toBeVisible()
 
@@ -327,7 +358,8 @@ test.describe('Time tracking', () => {
       ])
     await openTime(page, mock)
 
-    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    await openConfig(page)
+    await page.getByRole('button', { name: 'CSV exportieren' }).click()
     const modal = page.locator('.hb-modal')
     await modal.getByLabel('Von').fill('2026-06-01')
     await modal.getByLabel('Bis').fill('2026-06-30')

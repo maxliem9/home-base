@@ -60,6 +60,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
   const [splitEntry, setSplitEntry] = useState<TimeEntry | null>(null)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
+  // Dedizierte Einstellungen-Ansicht (#86): bündelt Projekte, Wochensoll & CSV-Export
+  const [showConfig, setShowConfig] = useState(false)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   // Wochensoll & Forecast (#31)
@@ -474,9 +476,12 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   // away or deleted while open.
   const detailLive = detailProject ? (projectsById[detailProject.id] ?? detailProject) : null
 
-  // Shared modals — rendered in BOTH the overview and the project-detail page so the
-  // entry-edit modal opens over a single layer (the detail used to be a modal itself,
-  // stacking two modals and burying this one behind it — issue #32).
+  // Shared modals — rendered in EVERY page variant (overview, project detail and the
+  // config view) so the entry-edit modal opens over a single layer (the detail used to
+  // be a modal itself, stacking two modals and burying this one behind it — issue #32).
+  // The project/Wochensoll/CSV modals live here too because they are now reachable from
+  // both the config view AND the main view (the "no projects yet" bootstrap, #86); each
+  // is gated by its own state flag, so rendering it on any page is a harmless no-op.
   const sharedModals = (
     <>
       {editEntry && (
@@ -496,6 +501,50 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           onSave={splitEntryAction}
           onClose={() => setSplitEntry(null)}
         />
+      )}
+
+      {/* Project create/edit modal */}
+      <Modal
+        open={!!projectDraft}
+        onClose={() => setProjectDraft(null)}
+        title={projectDraft?.id ? t.time.editProject : t.time.newProject}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setProjectDraft(null)}>{t.common.cancel}</Button>
+            <Button onClick={() => projectDraft && saveProject(projectDraft)} disabled={!projectDraft?.name.trim()}>
+              {projectDraft?.id ? t.common.save : t.time.create}
+            </Button>
+          </>
+        }
+      >
+        {projectDraft && (
+          <>
+            <Field label={t.time.project}>
+              <TextInput autoFocus value={projectDraft.name} onChange={(v) => setProjectDraft({ ...projectDraft, name: v })} placeholder={t.time.projectNamePlaceholder} />
+            </Field>
+            <Field label={t.time.color}>
+              <div className="hb-swatches">
+                {COLOR_CHOICES.map((c) => (
+                  <button
+                    key={c}
+                    className={`hb-swatch${projectDraft.color === c ? ' is-active' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => setProjectDraft({ ...projectDraft, color: c })}
+                    aria-label={`${t.time.colorLabel} ${c}`}
+                  />
+                ))}
+              </div>
+            </Field>
+          </>
+        )}
+      </Modal>
+
+      {showExport && (
+        <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
+      )}
+
+      {showTargets && (
+        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
       )}
 
       {toast && (
@@ -527,6 +576,83 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     )
   }
 
+  // Dedizierte Einstellungen-Ansicht als eigene Seite (kein Modal, gleiche Mechanik
+  // wie die Projekt-Detailseite #32): bündelt Projektverwaltung, Wochensoll und
+  // CSV-Export, die vorher als einzelne Header-Buttons über der Hauptansicht lagen
+  // (#86). Wochensoll & CSV öffnen ihre bestehenden Modals von hier aus.
+  if (showConfig) {
+    return (
+      <div className="hb-page">
+        <div className="hb-detailnav">
+          <Button variant="ghost" size="sm" icon="chevronLeft" onClick={() => setShowConfig(false)}>{t.time.backToOverview}</Button>
+        </div>
+        <PageHead eyebrow={t.time.title} title={t.time.configTitle} />
+
+        {/* Projekte: Liste mit Bearbeiten/Archivieren + „Neues Projekt" */}
+        <Card className="hb-card--pad">
+          <div className="hb-cardhead">
+            <h3>{t.time.configProjectsSection}</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {archivedProjects.length > 0 && (
+                <button className="hb-link" onClick={() => setShowArchived((v) => !v)}>
+                  {showArchived ? t.time.hideArchived : t.time.showArchived}
+                </button>
+              )}
+              <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
+            </div>
+          </div>
+          <p className="hb-muted" style={{ marginTop: -6 }}>{t.time.configProjectsHint}</p>
+          {shownProjects.length === 0 ? (
+            <EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsConfigHint} />
+          ) : (
+            <div className="hb-list">
+              {shownProjects.map((p) => (
+                <div key={p.id} className={`hb-row${p.archived ? ' is-archived' : ''}`}>
+                  <span className="hb-pdot" style={{ background: p.color }} />
+                  <div className="hb-row__main">
+                    <div className="hb-row__title">
+                      {p.name}
+                      {p.archived && <span className="hb-muted"> · {t.time.archivedSection}</span>}
+                    </div>
+                  </div>
+                  <div className="hb-row__right">
+                    <IconButton icon="edit" label={t.common.edit} onClick={() => setProjectDraft({ id: p.id, name: p.name, color: p.color })} />
+                    <IconButton
+                      icon="archive"
+                      label={p.archived ? t.time.reactivate : t.time.archive}
+                      active={p.archived}
+                      onClick={() => setArchived(p, !p.archived)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Wochensoll: öffnet den bestehenden Editor (#31) */}
+        <Card className="hb-card--pad" style={{ marginTop: 16 }}>
+          <div className="hb-cardhead">
+            <h3>{t.time.configTargetsSection}</h3>
+            <Button variant="secondary" size="sm" icon="settings" onClick={() => setShowTargets(true)}>{t.time.configTargetsOpen}</Button>
+          </div>
+          <p className="hb-muted" style={{ marginTop: -6, marginBottom: 0 }}>{t.time.configTargetsHint}</p>
+        </Card>
+
+        {/* CSV-Export: öffnet den bestehenden Filter-Dialog (#42) */}
+        <Card className="hb-card--pad" style={{ marginTop: 16 }}>
+          <div className="hb-cardhead">
+            <h3>{t.time.configExportSection}</h3>
+            <Button variant="secondary" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.configExportOpen}</Button>
+          </div>
+          <p className="hb-muted" style={{ marginTop: -6, marginBottom: 0 }}>{t.time.configExportHint}</p>
+        </Card>
+
+        {sharedModals}
+      </div>
+    )
+  }
+
   return (
     <div className="hb-page">
       <PageHead
@@ -534,10 +660,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         title={t.time.title}
         actions={
           <>
-            <Button variant="ghost" size="sm" icon="settings" onClick={() => setShowTargets(true)}>{t.time.configureTargets}</Button>
-            <Button variant="ghost" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.exportCsv}</Button>
             <Button icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
-            <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
+            <Button variant="ghost" size="sm" icon="settings" onClick={() => setShowConfig(true)}>{t.time.settings}</Button>
           </>
         }
       />
@@ -572,7 +696,16 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           <div className="hb-timerhero__left">
             <span className="hb-timerhero__live" style={{ color: 'var(--ink-3)' }}>{t.time.noTimer}</span>
             {activeProjects.length === 0 ? (
-              <div className="hb-muted">{t.time.noProjectsHint}</div>
+              // Bootstrap: ohne jedes Projekt direkt von der Hauptansicht aus eins anlegen
+              // können, ohne erst in die Einstellungen zu müssen (#86).
+              projects.length === 0 ? (
+                <div className="hb-stack" style={{ gap: 10, alignItems: 'flex-start' }}>
+                  <div className="hb-muted">{t.time.noProjectsConfigHint}</div>
+                  <Button variant="soft" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.firstProject}</Button>
+                </div>
+              ) : (
+                <div className="hb-muted">{t.time.noProjectsHint}</div>
+              )
             ) : (
               <>
                 <div className="hb-muted">{t.time.startPrompt}</div>
@@ -657,7 +790,12 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
               )}
             </div>
             {shownProjects.length === 0 ? (
-              <Card className="hb-card--pad"><EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsHint} /></Card>
+              <Card className="hb-card--pad" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                <EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsConfigHint} />
+                {/* Bootstrap-Aktion auch hier, damit das erste Projekt ohne Umweg über
+                    die Einstellungen entsteht (#86). */}
+                <Button variant="soft" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.firstProject}</Button>
+              </Card>
             ) : (
               <div className="hb-proj-grid">
                 {shownProjects.map((p) => {
@@ -713,52 +851,8 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         </div>
       )}
 
-      {/* Project create/edit modal */}
-      <Modal
-        open={!!projectDraft}
-        onClose={() => setProjectDraft(null)}
-        title={projectDraft?.id ? t.time.editProject : t.time.newProject}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setProjectDraft(null)}>{t.common.cancel}</Button>
-            <Button onClick={() => projectDraft && saveProject(projectDraft)} disabled={!projectDraft?.name.trim()}>
-              {projectDraft?.id ? t.common.save : t.time.create}
-            </Button>
-          </>
-        }
-      >
-        {projectDraft && (
-          <>
-            <Field label={t.time.project}>
-              <TextInput autoFocus value={projectDraft.name} onChange={(v) => setProjectDraft({ ...projectDraft, name: v })} placeholder={t.time.projectNamePlaceholder} />
-            </Field>
-            <Field label={t.time.color}>
-              <div className="hb-swatches">
-                {COLOR_CHOICES.map((c) => (
-                  <button
-                    key={c}
-                    className={`hb-swatch${projectDraft.color === c ? ' is-active' : ''}`}
-                    style={{ background: c }}
-                    onClick={() => setProjectDraft({ ...projectDraft, color: c })}
-                    aria-label={`${t.time.colorLabel} ${c}`}
-                  />
-                ))}
-              </div>
-            </Field>
-          </>
-        )}
-      </Modal>
-
       {showManual && (
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
-      )}
-
-      {showExport && (
-        <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
-      )}
-
-      {showTargets && (
-        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
       )}
 
       {sharedModals}
