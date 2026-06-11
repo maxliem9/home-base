@@ -354,7 +354,7 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
                     }
                     if (loaded && !enabled) {
                         Text(
-                            "Telegram ist serverseitig nicht konfiguriert — die Uhrzeit ist trotzdem editierbar.",
+                            "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.",
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
