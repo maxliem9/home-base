@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,7 @@ import com.homebase.android.ui.notes.NotesScreen
 import com.homebase.android.ui.notes.NotesViewModel
 import com.homebase.android.ui.recipes.RecipesScreen
 import com.homebase.android.ui.recipes.RecipesViewModel
+import com.homebase.android.ui.settings.SettingsScreen
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
@@ -123,9 +125,12 @@ class MainActivity : ComponentActivity() {
 
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
         var drawerOpen by remember { mutableStateOf(false) }
+        var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
-        val household by produceState(initialValue = "Max & Lea") {
-            container.configRepository.getHouseholdName().onSuccess { value = it }
+        // Mutable so the settings Haushalt subpage can update the live sidebar brand (#101).
+        var household by rememberSaveable(token) { mutableStateOf("Max & Lea") }
+        LaunchedEffect(token) {
+            container.configRepository.getHouseholdName().onSuccess { household = it }
         }
 
         // Household members for the assignee chips; falls back to the known seed users.
@@ -213,6 +218,18 @@ class MainActivity : ComponentActivity() {
                     badges = badges,
                     dots = dots,
                     onSelect = { route = it; drawerOpen = false },
+                    onOpenSettings = { settingsOpen = true; drawerOpen = false },
+                )
+            }
+
+            // Central settings (#101) — full-screen overlay above everything; it owns its own
+            // back handling (subpage → list → close).
+            if (settingsOpen) {
+                SettingsScreen(
+                    configRepository = container.configRepository,
+                    householdName = household,
+                    onHouseholdRenamed = { household = it },
+                    onClose = { settingsOpen = false },
                 )
             }
         }
