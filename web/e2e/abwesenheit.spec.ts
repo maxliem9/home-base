@@ -113,7 +113,7 @@ test.describe('Abwesenheit', () => {
 
   test('opens calendar settings', async ({ page }) => {
     await open(page, seeded())
-    await page.getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.abw-actions').getByRole('button', { name: 'Einstellungen' }).click()
     // settings is a full page now (was a modal) — #43
     await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
     await expect(page.getByText('Teilzeit · feste freie Tage').first()).toBeVisible()
@@ -166,7 +166,7 @@ test.describe('Abwesenheit', () => {
     // The calendar itself renders: one summary card per user (default settings) + the grid.
     await expect(page.locator('.abw-sumcard')).toHaveCount(2)
     await expect(page.locator(`button.abw-rcell--day[title^="${YEAR}-06-04"]`).first()).toBeVisible()
-    await page.getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.abw-actions').getByRole('button', { name: 'Einstellungen' }).click()
     await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
     await expect(page.getByText('Eigene Feiertage')).toBeVisible()
     await expect(page.getByText('Noch keine eigenen Feiertage erfasst.')).toBeVisible()

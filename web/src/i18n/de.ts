@@ -81,6 +81,7 @@ export const de = {
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
     abwesenheit: 'Kalender',
+    settings: 'Einstellungen',
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
       dashboard: 'Start',
@@ -396,6 +397,18 @@ export const de = {
     splitInvalidBreak: 'Pause in Minuten angeben (z. B. 30)',
     splitBreakTooLong: 'Die Pause muss vor dem Ende des Eintrags enden',
     splitFailed: 'Eintrag konnte nicht gesplittet werden',
+  },
+  // Zentrale Einstellungen (#99): Sammelort für selten geänderte Konfiguration,
+  // nach Unterseiten getrennt. Reine Frontend-Verlagerung bestehender Configs.
+  settings: {
+    title: 'Einstellungen',
+    time: 'Zeiterfassung',
+    projectsTitle: 'Projekte',
+    projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
+    wochensollEdit: 'Wochensoll bearbeiten',
+    wochensollEmpty: 'Noch kein Wochensoll festgelegt.',
+    perWeek: 'Std/Woche', // rendered as "{n} Std/Woche"
+    defaultBadge: 'Standard',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

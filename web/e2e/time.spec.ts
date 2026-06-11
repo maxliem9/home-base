@@ -10,6 +10,18 @@ async function openTime(page: Page, mock: MockApi) {
   await expect(page.getByRole('heading', { name: 'Zeiterfassung' })).toBeVisible()
 }
 
+/** Logs in, installs the mock backend, and opens Einstellungen → Zeiterfassung,
+ *  where project management + the Wochensoll editor now live (#99). */
+async function openTimeSettings(page: Page, mock: MockApi) {
+  await mock.install(page)
+  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  await page.goto('/')
+  // the gear in the account corner (sidebar foot); scoped so it never matches a
+  // view's own "Einstellungen" button (e.g. the calendar's).
+  await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+  await expect(page.locator('.hb-settings-body')).toBeVisible()
+}
+
 const ARBEIT = project({ id: 'p1', name: 'Arbeit', color: '#4F7A52' })
 
 test.describe('Time tracking', () => {
@@ -107,15 +119,16 @@ test.describe('Time tracking', () => {
     await expect(modal.getByText('Ende muss nach dem Start liegen')).toBeVisible()
   })
 
-  test('archives a project and reveals it again', async ({ page }) => {
-    await openTime(page, new MockApi().seedProjects([ARBEIT]))
+  test('archives a project and reveals it again (in settings)', async ({ page }) => {
+    await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
+    const body = page.locator('.hb-settings-body')
 
-    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Archivieren' }).click()
+    await body.locator('.hb-row', { hasText: 'Arbeit' }).getByRole('button', { name: 'Archivieren' }).click()
     // archived projects are hidden until toggled on
-    await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toHaveCount(0)
+    await expect(body.locator('.hb-row', { hasText: 'Arbeit' })).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Archivierte anzeigen' }).click()
-    await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toBeVisible()
+    await body.getByRole('button', { name: 'Archivierte anzeigen' }).click()
+    await expect(body.locator('.hb-row', { hasText: 'Arbeit' })).toBeVisible()
   })
 
   test('opens the project detail page with totals and returns to the overview', async ({ page }) => {
@@ -170,12 +183,13 @@ test.describe('Time tracking', () => {
     await expect(card.locator('.hb-weektarget__proj', { hasText: 'Arbeit' })).toContainText('-40:00')
   })
 
-  test('configures a weekly target through the Wochensoll modal', async ({ page }) => {
-    await openTime(page, new MockApi().seedProjects([ARBEIT]))
+  test('configures a weekly target through the Wochensoll editor (in settings)', async ({ page }) => {
+    await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
+    const body = page.locator('.hb-settings-body')
 
-    // no targets yet → no week card, only the page-head button
-    await expect(page.locator('.hb-weektargets')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    // no targets yet → the summary says so
+    await expect(body.getByText('Noch kein Wochensoll festgelegt.')).toBeVisible()
+    await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal.getByText('Wochensoll konfigurieren')).toBeVisible()
 
@@ -188,18 +202,16 @@ test.describe('Time tracking', () => {
     const request = await requestPromise
     expect(request.postDataJSON()).toEqual({ weeklyHours: 40, isDefault: true })
 
-    // the modal closes and the freshly configured week balance appears
+    // the modal closes and the summary now lists the configured target
     await expect(modal).toBeHidden()
-    const card = page.locator('.hb-weektargets')
-    await expect(card).toBeVisible()
-    await expect(card).toContainText('Max')
-    await expect(card).toContainText('/ 40:00')
+    await expect(body).toContainText('Max')
+    await expect(body).toContainText('40 Std/Woche')
   })
 
-  test('rejects invalid weekly hours inline', async ({ page }) => {
-    await openTime(page, new MockApi().seedProjects([ARBEIT]))
+  test('rejects invalid weekly hours inline (in settings)', async ({ page }) => {
+    await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
 
-    await page.getByRole('button', { name: 'Wochensoll' }).click()
+    await page.locator('.hb-settings-body').getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     const modal = page.locator('.hb-modal')
     await modal.getByLabel('Std/Woche Arbeit Max').fill('200')
     await modal.getByRole('button', { name: 'Speichern' }).click()

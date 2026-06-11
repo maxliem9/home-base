@@ -13,6 +13,7 @@ import { ShoppingView } from './components/ShoppingView'
 import { TimeView } from './components/TimeView'
 import { RecipesView } from './components/RecipesView'
 import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
+import { SettingsView, type SettingsTab } from './components/settings/SettingsView'
 
 type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
@@ -124,6 +125,10 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   const count: Partial<Record<Tab, number>> = { todos: badges.inbox, shopping: badges.shopping }
   const [household, setHousehold] = useState(t.shell.brandSub)
   const [confirmLogout, setConfirmLogout] = useState(false)
+  // Central settings hub (#99): a separate surface reached via the gear in the
+  // account corner — not a primary nav tab. null = closed; opening a nav tab closes it.
+  const [settings, setSettings] = useState<SettingsTab | null>(null)
+  const openSettings = () => setSettings('time')
 
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
@@ -142,7 +147,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
         <nav className="hb-nav">
           {NAV.map((n) => (
-            <button key={n.id} className={`hb-navitem${tab === n.id ? ' is-active' : ''}`} onClick={() => setTab(n.id)}>
+            <button key={n.id} className={`hb-navitem${!settings && tab === n.id ? ' is-active' : ''}`} onClick={() => { setSettings(null); setTab(n.id) }}>
               <Icon name={n.icon} size={20} stroke={2} />
               <span>{n.label}</span>
               {n.id === 'time' && badges.timerRunning && (
@@ -154,6 +159,10 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         </nav>
 
         <div className="hb-side-foot">
+          <button className={`hb-navitem hb-side-foot__settings${settings ? ' is-active' : ''}`} onClick={openSettings}>
+            <Icon name="settings" size={20} stroke={2} />
+            <span>{t.nav.settings}</span>
+          </button>
           <button className="hb-userchip" onClick={() => setConfirmLogout(true)} title={t.common.logout}>
             <Avatar user={me} size={34} />
             <div>
@@ -176,23 +185,45 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
               <div className="hb-brand__sub">{household}</div>
             </div>
           </div>
-          <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t.common.logout} aria-label={t.common.logout}>
-            <Avatar user={me} size={32} />
-            <div className="hb-userchip__text">
-              <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
-              <div className="hb-userchip__sub">{t.shell.syncActive}</div>
-            </div>
-            <span className="hb-syncdot" title={t.shell.syncActive} />
-          </button>
+          <div className="hb-topbar__actions">
+            <button
+              className={`hb-iconbtn hb-topbar__gear${settings ? ' is-active' : ''}`}
+              onClick={openSettings}
+              aria-label={t.nav.settings}
+              title={t.nav.settings}
+            >
+              <Icon name="settings" size={20} stroke={2} />
+            </button>
+            <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t.common.logout} aria-label={t.common.logout}>
+              <Avatar user={me} size={32} />
+              <div className="hb-userchip__text">
+                <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
+                <div className="hb-userchip__sub">{t.shell.syncActive}</div>
+              </div>
+              <span className="hb-syncdot" title={t.shell.syncActive} />
+            </button>
+          </div>
         </header>
 
-        {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={setTab} />}
-        {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
-        {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
-        {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
-        {tab === 'time' && <TimeView token={token} onLogout={onLogout} />}
-        {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
-        {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
+        {settings ? (
+          <SettingsView
+            token={token}
+            active={settings}
+            onChangeTab={setSettings}
+            onClose={() => setSettings(null)}
+            onLogout={onLogout}
+          />
+        ) : (
+          <>
+            {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={setTab} />}
+            {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
+            {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
+            {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
+            {tab === 'time' && <TimeView token={token} onLogout={onLogout} />}
+            {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
+            {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
+          </>
+        )}
       </main>
 
       {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
@@ -201,9 +232,9 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         {NAV.map((n) => (
           <button
             key={n.id}
-            className={`hb-tabbar__item${tab === n.id ? ' is-active' : ''}`}
-            onClick={() => setTab(n.id)}
-            aria-current={tab === n.id ? 'page' : undefined}
+            className={`hb-tabbar__item${!settings && tab === n.id ? ' is-active' : ''}`}
+            onClick={() => { setSettings(null); setTab(n.id) }}
+            aria-current={!settings && tab === n.id ? 'page' : undefined}
           >
             <span className="hb-tabbar__icon">
               <Icon name={n.icon} size={22} stroke={2} />
