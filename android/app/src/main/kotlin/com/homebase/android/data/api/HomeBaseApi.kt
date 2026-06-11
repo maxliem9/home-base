@@ -16,8 +16,17 @@ interface HomeBaseApi {
     @PUT("config")
     suspend fun updateConfig(@Body request: UpdateConfigRequest): AppConfigResponse
 
+    @GET("config/digest")
+    suspend fun getDigest(): DigestConfigResponse
+
+    @PUT("config/digest")
+    suspend fun updateDigest(@Body request: UpdateDigestRequest): DigestConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
+
+    @PUT("users/me/password")
+    suspend fun changePassword(@Body request: ChangePasswordRequest)
 
     // --- Todos ---
 

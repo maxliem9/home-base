@@ -268,6 +268,7 @@ fun HbTextField(
     singleLine: Boolean = true,
     minLines: Int = 1,
     mono: Boolean = false,
+    password: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -286,6 +287,11 @@ fun HbTextField(
         singleLine = singleLine,
         minLines = minLines,
         keyboardOptions = keyboardOptions,
+        visualTransformation = if (password) {
+            androidx.compose.ui.text.input.PasswordVisualTransformation()
+        } else {
+            androidx.compose.ui.text.input.VisualTransformation.None
+        },
         cursorBrush = SolidColor(Hb.accent),
         interactionSource = interaction,
         decorationBox = { inner ->
