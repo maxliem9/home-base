@@ -74,6 +74,7 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
             placeholder={t.shell.brandSub}
             onKeyDown={(e) => e.key === 'Enter' && save()}
             disabled={!loaded}
+            maxLength={60}
           />
         </Field>
         <Button onClick={save} disabled={saving || !loaded || !name.trim()}>{t.common.save}</Button>
