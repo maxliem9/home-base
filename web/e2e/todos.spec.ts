@@ -332,6 +332,51 @@ test.describe('Inbox', () => {
     await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
     await expect(page.locator('.hb-row', { hasText: 'Versicherung kündigen' })).toBeVisible()
   })
+
+  // Inbox semantics (#71): "everything unplanned" — a status-INBOX todo counts
+  // even when it already sits in a list, and the tab badge uses the exact same
+  // rule as the dashboard's inbox tile. Planning it removes it from the inbox
+  // while it stays in its list.
+  test('counts unplanned list todos like the dashboard tile and releases them once planned', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        todo({ id: 't1', title: 'Akku laden' }), // list-less
+        todo({ id: 't2', title: 'Fenster putzen', listId: 'l1' }), // unplanned, in a list
+      ],
+      [HAUSHALT],
+    )
+    await mock.install(page)
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+
+    // dashboard tile counts status INBOX — both todos
+    await expect(page.locator('.hb-stat', { hasText: 'In der Inbox' }).locator('.hb-stat__value')).toHaveText('2')
+
+    // the inbox tab badge agrees with the tile
+    await page.getByRole('button', { name: 'Aufgaben', exact: true }).click()
+    const inboxTab = page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' })
+    await expect(inboxTab.locator('.hb-tab__count')).toHaveText('2')
+
+    await inboxTab.click()
+    await expect(page.getByText('Akku laden')).toBeVisible()
+    // the unplanned list todo shows up too, marked with its source list
+    const listRow = page.locator('.hb-row', { hasText: 'Fenster putzen' })
+    await expect(listRow).toContainText('Haushalt')
+
+    // planning it (no list picker — it already has one) releases it from the inbox …
+    await listRow.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog.getByLabel('Liste')).toHaveCount(0)
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    await expect(page.locator('.hb-row', { hasText: 'Fenster putzen' })).toHaveCount(0)
+    await expect(inboxTab.locator('.hb-tab__count')).toHaveText('1')
+
+    // … while it stays in its list
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Fenster putzen' })).toBeVisible()
+  })
 })
 
 test.describe('Subtasks', () => {
