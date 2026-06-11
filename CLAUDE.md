@@ -152,6 +152,23 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   Siehe Issues #69/#71.
 - WebSocket-Hook für Echtzeit-Updates
 - Kein Redux — useState/useContext reicht für MVP
+- **Modal vs. Seite/Panel — Leitlinie (Umbrella #29):** Dialoge sparsam einsetzen; pro Stelle die
+  passende Form wählen (Primitiven `<Modal>` und `<Sheet>` in `ui/primitives.tsx`, gleiche
+  Prop-Surface → mechanischer Tausch):
+  - **`<Modal>`** (zentriert) für **kurze, fokussierte** Aktionen: 1–3 Felder, Bestätigungen, keine
+    Verschachtelung — z. B. Liste anlegen/umbenennen, Projekt anlegen, Eintrag splitten, Lösch-Confirm,
+    Bild-Lightbox.
+  - **`<Sheet>`** (Slide-over, mobil als Bottom-Sheet) für **mittlere Formulare mit Mobile-Relevanz**
+    (`datetime`-Picker, mehrere Selects) — z. B. Abwesenheits-Tageseditor (#44), Rezept-Zutatenauswahl
+    (#48), TimeView-Eintrag-Editoren (#124).
+  - **Eigene Seite/Route** für **viel Inhalt / tabellarische, wachsende Formulare / verschachtelte
+    Detail-Ansichten** — z. B. Projekt-Detail (#32), Abwesenheits-Einstellungen (#43).
+  - **Keine nativen `window.confirm()`** für (destruktive) Aktionen — stets ein Custom-`<Modal>`
+    (Konsistenz, #125).
+  - Beim Modal→Seite/Slide-over-Umbau die zugehörige `web/e2e/<view>.spec.ts` **im selben PR**
+    anpassen (`.hb-modal`-Locator → `.hb-sheet`/Seite) — nur der `e2e`-CI-Job fängt das.
+  - Offene Konvertierungs-Kandidaten leben als eigene Issues (z. B. #128 TargetsModal→Seite,
+    #129 Partner-Timer-Confirms→Modal).
 
 ## Android-Konventionen
 - Jetpack Compose, Kotlin Coroutines + Flow
