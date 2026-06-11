@@ -191,13 +191,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const removeList = async () => {
     if (!active || lists.length <= 1) return
-    const idx = lists.findIndex((l) => l.id === active.id)
+    const removedId = active.id
+    const idx = lists.findIndex((l) => l.id === removedId)
     const next = lists[idx + 1] ?? lists[idx - 1]
     setConfirmDeleteList(false)
-    setLists((prev) => prev.filter((l) => l.id !== active.id))
-    setItems((prev) => prev.filter((i) => i.listId !== active.id))
+    setLists((prev) => prev.filter((l) => l.id !== removedId))
+    setItems((prev) => prev.filter((i) => i.listId !== removedId))
     setActiveId(next ? next.id : null)
-    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${removedId}`, { method: 'DELETE' })
     // On failure refetch to resync rather than restoring a captured snapshot,
     // which could clobber a concurrent WS update.
     if (!result.ok) {
@@ -334,8 +335,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       >
         {active && (
           <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
-            {t.shopping.deleteListConfirm}
-            {' '}„<strong>{active.name}</strong>"
+            Die Liste „<strong>{active.name}</strong>" und alle Einträge darin werden gelöscht.{' '}
+            {t.shopping.deleteListWarn}
           </p>
         )}
       </Modal>
