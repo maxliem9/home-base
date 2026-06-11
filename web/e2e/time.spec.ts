@@ -218,6 +218,36 @@ test.describe('Time tracking', () => {
     await expect(modal.getByText('Stunden müssen zwischen 0 und 168 liegen')).toBeVisible()
   })
 
+  test('deep-links from the tracker Wochensoll card into settings', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 40, isDefault: true })])
+    await openTime(page, mock)
+
+    // the read-only week-balance card stays in the tracker; its gear deep-links into
+    // Einstellungen → Zeiterfassung, where the Wochensoll is actually edited (#99).
+    const card = page.locator('.hb-weektargets')
+    await expect(card).toBeVisible()
+    await card.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
+    await expect(page.locator('.hb-settings-body')).toBeVisible()
+    await expect(page.locator('.hb-settings-body')).toContainText('Wochensoll')
+  })
+
+  test('opens settings from the mobile top-bar gear', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await new MockApi().seedProjects([ARBEIT]).install(page)
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+
+    // on mobile the sidebar (and its settings entry) is hidden; the gear lives in
+    // the top bar instead (#99). Tapping it opens the same settings surface.
+    await expect(page.locator('.hb-sidebar')).toBeHidden()
+    await page.locator('.hb-topbar__gear').click()
+    const body = page.locator('.hb-settings-body')
+    await expect(body).toBeVisible()
+    await expect(body.locator('.hb-row', { hasText: 'Arbeit' })).toBeVisible()
+  })
+
   // The tile specs pin the browser clock (like abwesenheit.spec.ts) so day labels
   // and fallback windows never drift with the real run date.
   test('project tiles show today/this week, falling back to the last active day and week', async ({ page }) => {

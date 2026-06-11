@@ -219,7 +219,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
             {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
             {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
-            {tab === 'time' && <TimeView token={token} onLogout={onLogout} />}
+            {tab === 'time' && <TimeView token={token} onLogout={onLogout} onOpenSettings={openSettings} />}
             {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
             {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
           </>

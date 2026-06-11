@@ -15,6 +15,9 @@ export const COLOR_CHOICES = ['#B4654A', '#C98A3B', '#4F7A52', '#3F7C8C', '#6E5A
 interface TimeViewProps {
   token: string
   onLogout: () => void
+  // Deep-link into Einstellungen → Zeiterfassung, where Wochensoll/projects are
+  // configured (the tracker only displays the balance now, #99).
+  onOpenSettings: () => void
 }
 
 function elapsedSeconds(startedAt: string, nowMs: number): number {
@@ -46,7 +49,7 @@ export interface ProjectDraft {
   color: string
 }
 
-export function TimeView({ token, onLogout }: TimeViewProps) {
+export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const me = useMemo(() => usernameFromToken(token), [token])
   const [projects, setProjects] = useState<Project[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -563,6 +566,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <Card className="hb-card--pad hb-weektargets" style={{ marginTop: 12 }}>
           <div className="hb-cardhead">
             <h3>{t.time.weekTargetTitle}</h3>
+            <IconButton icon="settings" label={t.settings.wochensollEdit} onClick={onOpenSettings} />
           </div>
           <div className="hb-stack" style={{ gap: 16 }}>
             {weekUsers.map((u) => {
