@@ -135,7 +135,7 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
                 .firstOrNull { it[CustomHolidaysTable.month] == d.monthValue && it[CustomHolidaysTable.day] == d.dayOfMonth }
                 ?.let { if (it[CustomHolidaysTable.half]) 0.5 else 1.0 } ?: 0.0
             val absence = absences
-                .firstOrNull { it[AbsencesTable.date] == d }
+                .firstOrNull { it[AbsencesTable.date].isEqual(d) }
                 ?.let { if (it[AbsencesTable.half] != null) 0.5 else 1.0 } ?: 0.0
             return min(1.0, holiday + absence)
         }
@@ -180,7 +180,7 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
         // (start-date convention), so today's recorded stays 0 and this projection
         // moves forward with `now` instead of staying start-anchored — accepted
         // edge case for over-midnight sessions.
-        val expectedEndAt = if (day == today && runningEntry != null) {
+        val expectedEndAt = if (day.isEqual(today) && runningEntry != null) {
             now.plusSeconds(max(0L, todayRemaining)).toString()
         } else null
 
