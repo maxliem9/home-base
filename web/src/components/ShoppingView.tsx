@@ -23,6 +23,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
+  const [confirmDeleteList, setConfirmDeleteList] = useState(false)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchAll = useCallback(async () => {
@@ -190,13 +191,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const removeList = async () => {
     if (!active || lists.length <= 1) return
-    if (!confirm(`${t.shopping.deleteListConfirm}\n\n„${active.name}"`)) return
-    const idx = lists.findIndex((l) => l.id === active.id)
+    const removedId = active.id
+    const idx = lists.findIndex((l) => l.id === removedId)
     const next = lists[idx + 1] ?? lists[idx - 1]
-    setLists((prev) => prev.filter((l) => l.id !== active.id))
-    setItems((prev) => prev.filter((i) => i.listId !== active.id))
+    setConfirmDeleteList(false)
+    setLists((prev) => prev.filter((l) => l.id !== removedId))
+    setItems((prev) => prev.filter((i) => i.listId !== removedId))
     setActiveId(next ? next.id : null)
-    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${active.id}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${removedId}`, { method: 'DELETE' })
     // On failure refetch to resync rather than restoring a captured snapshot,
     // which could clobber a concurrent WS update.
     if (!result.ok) {
@@ -311,13 +313,33 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           )}
 
           {lists.length > 1 && (
-            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={removeList}>
+            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
               <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
               {t.shopping.deleteList} „{active.name}"
             </button>
           )}
         </>
       )}
+
+      <Modal
+        open={confirmDeleteList && !!active}
+        onClose={() => setConfirmDeleteList(false)}
+        title={t.shopping.deleteListTitle}
+        width={440}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDeleteList(false)}>{t.common.cancel}</Button>
+            <Button variant="danger" icon="trash" onClick={removeList}>{t.shopping.deleteListBtn}</Button>
+          </>
+        }
+      >
+        {active && (
+          <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
+            Die Liste „<strong>{active.name}</strong>" und alle Einträge darin werden gelöscht.{' '}
+            {t.shopping.deleteListWarn}
+          </p>
+        )}
+      </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
 

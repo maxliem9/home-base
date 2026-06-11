@@ -237,7 +237,10 @@ export const de = {
     listNamePlaceholder: 'z. B. Wocheneinkauf',
     createList: 'Erstellen',
     deleteList: 'Liste löschen', // rendered as `Liste „{name}" löschen`
-    deleteListConfirm: 'Liste und alle Einträge löschen?', // rendered with the list name
+    deleteListTitle: 'Liste löschen?', // confirm-modal title
+    deleteListConfirm: 'Liste und alle Einträge löschen?', // modal body (legacy, no longer used in body)
+    deleteListBtn: 'Endgültig löschen', // danger button in the confirm modal
+    deleteListWarn: 'Das kann nicht rückgängig gemacht werden.', // shown in delete-list modal body
     noLists: 'Noch keine Liste',
     noListsHint: 'Lege oben deine erste Einkaufsliste an.',
     emptyTitle: 'Liste ist leer',
