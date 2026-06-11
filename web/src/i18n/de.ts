@@ -81,6 +81,7 @@ export const de = {
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
     abwesenheit: 'Kalender',
+    settings: 'Einstellungen',
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
       dashboard: 'Start',
@@ -359,6 +360,7 @@ export const de = {
     date: 'Datum',
     from: 'Von',
     to: 'Bis',
+    exportCsv: 'CSV-Export', // card title in Einstellungen → Zeiterfassung (#99)
     exportTitle: 'Als CSV exportieren',
     exportHint: 'Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.',
     exportAllProjects: 'Alle Projekte',
@@ -372,7 +374,6 @@ export const de = {
     expectedEnd: 'Voraussichtlich fertig um {time}', // shown at the running timer
     targetReached: 'Tagessoll erreicht',
     weekTargetTitle: 'Wochensoll',
-    configureTargets: 'Wochensoll',
     targetsModalTitle: 'Wochensoll konfigurieren',
     targetsModalHint: 'Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.',
     hoursPerWeek: 'Std/Woche',
@@ -385,17 +386,6 @@ export const de = {
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"
-    // Einstellungen-Ansicht (#86): Wochensoll, CSV-Export & Projekte gebündelt
-    settings: 'Einstellungen',
-    configTitle: 'Zeit-Einstellungen',
-    configProjectsSection: 'Projekte',
-    configProjectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
-    configTargetsSection: 'Wochensoll',
-    configTargetsHint: 'Wochenstunden pro Person und Projekt — Grundlage für Saldo und Ende-Prognose.',
-    configTargetsOpen: 'Wochensoll bearbeiten',
-    configExportSection: 'CSV-Export',
-    configExportHint: 'Abgeschlossene Einträge als CSV herunterladen (optional nach Zeitraum/Projekt gefiltert).',
-    configExportOpen: 'CSV exportieren',
     // Eintrag splitten (#62)
     split: 'Splitten',
     splitTitle: 'Eintrag splitten',
@@ -408,6 +398,19 @@ export const de = {
     splitInvalidBreak: 'Pause in Minuten angeben (z. B. 30)',
     splitBreakTooLong: 'Die Pause muss vor dem Ende des Eintrags enden',
     splitFailed: 'Eintrag konnte nicht gesplittet werden',
+  },
+  // Zentrale Einstellungen (#99): Sammelort für selten geänderte Konfiguration,
+  // nach Unterseiten getrennt. Reine Frontend-Verlagerung bestehender Configs.
+  settings: {
+    title: 'Einstellungen',
+    time: 'Zeiterfassung',
+    projectsTitle: 'Projekte',
+    projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
+    wochensollEdit: 'Wochensoll bearbeiten',
+    wochensollEmpty: 'Noch kein Wochensoll festgelegt.',
+    exportOpen: 'CSV herunterladen', // opens the export filter dialog
+    perWeek: 'Std/Woche', // rendered as "{n} Std/Woche"
+    defaultBadge: 'Standard',
   },
   recipes: {
     headerTitle: 'HomeBase — Rezepte',

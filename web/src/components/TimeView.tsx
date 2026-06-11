@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Project, TimeEntry, TimeForecast, User, UserForecast, WorkTarget } from '../types'
+import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../ui/primitives'
@@ -10,11 +10,14 @@ import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, userMeta, usernam
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
 
-const COLOR_CHOICES = ['#B4654A', '#C98A3B', '#4F7A52', '#3F7C8C', '#6E5AA6', '#A6537A', '#7A8B57', '#64748B']
+export const COLOR_CHOICES = ['#B4654A', '#C98A3B', '#4F7A52', '#3F7C8C', '#6E5AA6', '#A6537A', '#7A8B57', '#64748B']
 
 interface TimeViewProps {
   token: string
   onLogout: () => void
+  // Deep-link into Einstellungen → Zeiterfassung, where Wochensoll/projects are
+  // configured (the tracker only displays the balance now, #99).
+  onOpenSettings: () => void
 }
 
 function elapsedSeconds(startedAt: string, nowMs: number): number {
@@ -40,28 +43,24 @@ function toLocalInput(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-interface ProjectDraft {
+export interface ProjectDraft {
   id?: string
   name: string
   color: string
 }
 
-export function TimeView({ token, onLogout }: TimeViewProps) {
+export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const me = useMemo(() => usernameFromToken(token), [token])
   const [projects, setProjects] = useState<Project[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [users, setUsers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [nowMs, setNowMs] = useState(() => Date.now())
-  const [showArchived, setShowArchived] = useState(false)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
-  const [showExport, setShowExport] = useState(false)
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null)
   const [splitEntry, setSplitEntry] = useState<TimeEntry | null>(null)
   const [detailProject, setDetailProject] = useState<Project | null>(null)
-  // Dedizierte Einstellungen-Ansicht (#86): bündelt Projekte, Wochensoll & CSV-Export
-  const [showConfig, setShowConfig] = useState(false)
   const [desc, setDesc] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   // Wochensoll & Forecast (#31)
@@ -69,8 +68,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   // when the forecast snapshot was taken — lets a running timer tick the displayed
   // soll/ist live instead of freezing it at fetch time (#59)
   const [forecastAtMs, setForecastAtMs] = useState(0)
-  const [targets, setTargets] = useState<WorkTarget[]>([])
-  const [showTargets, setShowTargets] = useState(false)
 
   // Surface a write failure to the user. The backend cleanly rejects the
   // mutation (no data loss), but without this the action would just silently
@@ -111,13 +108,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     }
   }, [onLogout, token])
 
-  const fetchTargets = useCallback(async () => {
-    const result = await safeFetch(token, `${API_BASE}/time/targets`)
-    if (!result.ok) return
-    if (result.res.status === 401) return onLogout()
-    if (result.res.ok) setTargets(await result.res.json())
-  }, [onLogout, token])
-
   const fetchAll = useCallback(async () => {
     try {
       const [pResult, eResult, uResult] = await Promise.all([
@@ -125,7 +115,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         safeFetch(token, `${API_BASE}/time/entries`),
         safeFetch(token, `${API_BASE}/users`),
         fetchForecast(),
-        fetchTargets(),
       ])
       // a transport reject on either core read → fire the global toast once, keep existing data
       if (!pResult.ok || !eResult.ok) {
@@ -174,7 +163,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         // any entry change shifts the forecast (recorded time, expected end)
         fetchForecast()
       } else if (msg.type === 'TARGET_UPDATED') {
-        fetchTargets()
+        // a target change shifts the forecast (credits, daily target) the tracker shows
         fetchForecast()
       }
     } catch {
@@ -267,19 +256,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     fetchForecast()
   }
 
-  const setArchived = async (p: Project, archived: boolean) => {
-    const result = await safeFetch(token, `${API_BASE}/time/projects/${p.id}/archive`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived }),
-    })
-    if (!result.ok) return flashError(errorText(null, t.time.archiveFailed))
-    const { res } = result
-    if (res.status === 401) return onLogout()
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.archiveFailed))
-    upsertProject(await res.json())
-  }
-
   const saveProject = async (d: ProjectDraft) => {
     if (!d.name.trim()) return
     const body = JSON.stringify({ name: d.name.trim(), color: d.color })
@@ -355,61 +331,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     return null
   }
 
-  // Fetch the server-rendered CSV with the JWT in the Authorization header (keeping
-  // the token out of the URL), then trigger a download from the returned blob.
-  const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
-    const params = new URLSearchParams()
-    if (from) params.set('from', new Date(`${from}T00:00:00`).toISOString())
-    if (to) params.set('to', new Date(`${to}T23:59:59.999`).toISOString())
-    if (projectId) params.set('project_id', projectId)
-    const qs = params.toString()
-    const result = await safeFetch(token, `${API_BASE}/time/export.csv${qs ? `?${qs}` : ''}`)
-    // transport reject → fire the global toast once and abort the download
-    if (!result.ok) {
-      notifyTransportError()
-      return
-    }
-    const { res } = result
-    if (res.status === 401) {
-      onLogout()
-      return
-    }
-    if (!res.ok) return
-    const blob = await res.blob()
-    const filename = res.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1] ?? 'zeiterfassung.csv'
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    setShowExport(false)
-  }
-
-  // Persist the Wochensoll edits (#31): one PUT per changed person×project cell.
-  // Same inline-error convention as the other modals — returns null on success,
-  // or a message the modal shows while staying open for a retry.
-  const saveTargets = async (puts: { userId: string; projectId: string; body: object }[]): Promise<string | null> => {
-    for (const { userId, projectId, body } of puts) {
-      const result = await safeFetch(token, `${API_BASE}/time/targets/${encodeURIComponent(userId)}/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!result.ok) return errorText(null, t.time.targetsFailed)
-      if (result.res.status === 401) {
-        onLogout()
-        return null
-      }
-      if (!result.res.ok) return errorText(await errorCode(result.res), t.time.targetsFailed)
-    }
-    await Promise.all([fetchTargets(), fetchForecast()])
-    setShowTargets(false)
-    return null
-  }
-
   // Day + week saldo per project for the tiles (#59): today's / this week's sums —
   // or, when the current day/week has no entries yet, the last active day / week
   // (e.g. on Sunday show Friday's saldo if the weekend is empty). Running timers
@@ -443,8 +364,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   }, [entries, nowMs])
 
   const activeProjects = projects.filter((p) => !p.archived)
-  const archivedProjects = projects.filter((p) => p.archived)
-  const shownProjects = showArchived ? projects : activeProjects
 
   const recent = useMemo(
     () => entries.filter((e) => e.stoppedAt).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 40),
@@ -463,25 +382,14 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
   const weekUsers = useMemo(() => (forecast?.users ?? []).filter((u) => u.weekTargetSeconds > 0), [forecast])
   const runningForecast = running ? forecastByUser[running.userId] : undefined
 
-  // Projects offered in the targets modal: the active ones plus archived projects
-  // that still carry a target (hours or default) — otherwise an archived project's
-  // Wochensoll would keep counting server-side with no way left to clear it.
-  const targetProjects = useMemo(
-    () => projects.filter((p) => !p.archived || targets.some((x) => x.projectId === p.id && (x.weeklyHours > 0 || x.isDefault))),
-    [projects, targets],
-  )
-
   // The currently shown detail project, re-read from the live list so its name/color
   // stay in sync after an edit; falls back to the captured snapshot if it was archived
   // away or deleted while open.
   const detailLive = detailProject ? (projectsById[detailProject.id] ?? detailProject) : null
 
-  // Shared modals — rendered in EVERY page variant (overview, project detail and the
-  // config view) so the entry-edit modal opens over a single layer (the detail used to
-  // be a modal itself, stacking two modals and burying this one behind it — issue #32).
-  // The project/Wochensoll/CSV modals live here too because they are now reachable from
-  // both the config view AND the main view (the "no projects yet" bootstrap, #86); each
-  // is gated by its own state flag, so rendering it on any page is a harmless no-op.
+  // Shared modals — rendered in BOTH the overview and the project-detail page so the
+  // entry-edit modal opens over a single layer (the detail used to be a modal itself,
+  // stacking two modals and burying this one behind it — issue #32).
   const sharedModals = (
     <>
       {editEntry && (
@@ -501,50 +409,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           onSave={splitEntryAction}
           onClose={() => setSplitEntry(null)}
         />
-      )}
-
-      {/* Project create/edit modal */}
-      <Modal
-        open={!!projectDraft}
-        onClose={() => setProjectDraft(null)}
-        title={projectDraft?.id ? t.time.editProject : t.time.newProject}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setProjectDraft(null)}>{t.common.cancel}</Button>
-            <Button onClick={() => projectDraft && saveProject(projectDraft)} disabled={!projectDraft?.name.trim()}>
-              {projectDraft?.id ? t.common.save : t.time.create}
-            </Button>
-          </>
-        }
-      >
-        {projectDraft && (
-          <>
-            <Field label={t.time.project}>
-              <TextInput autoFocus value={projectDraft.name} onChange={(v) => setProjectDraft({ ...projectDraft, name: v })} placeholder={t.time.projectNamePlaceholder} />
-            </Field>
-            <Field label={t.time.color}>
-              <div className="hb-swatches">
-                {COLOR_CHOICES.map((c) => (
-                  <button
-                    key={c}
-                    className={`hb-swatch${projectDraft.color === c ? ' is-active' : ''}`}
-                    style={{ background: c }}
-                    onClick={() => setProjectDraft({ ...projectDraft, color: c })}
-                    aria-label={`${t.time.colorLabel} ${c}`}
-                  />
-                ))}
-              </div>
-            </Field>
-          </>
-        )}
-      </Modal>
-
-      {showExport && (
-        <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
-      )}
-
-      {showTargets && (
-        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
       )}
 
       {toast && (
@@ -576,83 +440,6 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
     )
   }
 
-  // Dedizierte Einstellungen-Ansicht als eigene Seite (kein Modal, gleiche Mechanik
-  // wie die Projekt-Detailseite #32): bündelt Projektverwaltung, Wochensoll und
-  // CSV-Export, die vorher als einzelne Header-Buttons über der Hauptansicht lagen
-  // (#86). Wochensoll & CSV öffnen ihre bestehenden Modals von hier aus.
-  if (showConfig) {
-    return (
-      <div className="hb-page">
-        <div className="hb-detailnav">
-          <Button variant="ghost" size="sm" icon="chevronLeft" onClick={() => setShowConfig(false)}>{t.time.backToOverview}</Button>
-        </div>
-        <PageHead eyebrow={t.time.title} title={t.time.configTitle} />
-
-        {/* Projekte: Liste mit Bearbeiten/Archivieren + „Neues Projekt" */}
-        <Card className="hb-card--pad">
-          <div className="hb-cardhead">
-            <h3>{t.time.configProjectsSection}</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {archivedProjects.length > 0 && (
-                <button className="hb-link" onClick={() => setShowArchived((v) => !v)}>
-                  {showArchived ? t.time.hideArchived : t.time.showArchived}
-                </button>
-              )}
-              <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
-            </div>
-          </div>
-          <p className="hb-muted" style={{ marginTop: -6 }}>{t.time.configProjectsHint}</p>
-          {shownProjects.length === 0 ? (
-            <EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsConfigHint} />
-          ) : (
-            <div className="hb-list">
-              {shownProjects.map((p) => (
-                <div key={p.id} className={`hb-row${p.archived ? ' is-archived' : ''}`}>
-                  <span className="hb-pdot" style={{ background: p.color }} />
-                  <div className="hb-row__main">
-                    <div className="hb-row__title">
-                      {p.name}
-                      {p.archived && <span className="hb-muted"> · {t.time.archivedSection}</span>}
-                    </div>
-                  </div>
-                  <div className="hb-row__right">
-                    <IconButton icon="edit" label={t.common.edit} onClick={() => setProjectDraft({ id: p.id, name: p.name, color: p.color })} />
-                    <IconButton
-                      icon="archive"
-                      label={p.archived ? t.time.reactivate : t.time.archive}
-                      active={p.archived}
-                      onClick={() => setArchived(p, !p.archived)}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* Wochensoll: öffnet den bestehenden Editor (#31) */}
-        <Card className="hb-card--pad" style={{ marginTop: 16 }}>
-          <div className="hb-cardhead">
-            <h3>{t.time.configTargetsSection}</h3>
-            <Button variant="secondary" size="sm" icon="settings" onClick={() => setShowTargets(true)}>{t.time.configTargetsOpen}</Button>
-          </div>
-          <p className="hb-muted" style={{ marginTop: -6, marginBottom: 0 }}>{t.time.configTargetsHint}</p>
-        </Card>
-
-        {/* CSV-Export: öffnet den bestehenden Filter-Dialog (#42) */}
-        <Card className="hb-card--pad" style={{ marginTop: 16 }}>
-          <div className="hb-cardhead">
-            <h3>{t.time.configExportSection}</h3>
-            <Button variant="secondary" size="sm" icon="download" onClick={() => setShowExport(true)}>{t.time.configExportOpen}</Button>
-          </div>
-          <p className="hb-muted" style={{ marginTop: -6, marginBottom: 0 }}>{t.time.configExportHint}</p>
-        </Card>
-
-        {sharedModals}
-      </div>
-    )
-  }
-
   return (
     <div className="hb-page">
       <PageHead
@@ -661,7 +448,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         actions={
           <>
             <Button icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
-            <Button variant="ghost" size="sm" icon="settings" onClick={() => setShowConfig(true)}>{t.time.settings}</Button>
+            <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
           </>
         }
       />
@@ -696,16 +483,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
           <div className="hb-timerhero__left">
             <span className="hb-timerhero__live" style={{ color: 'var(--ink-3)' }}>{t.time.noTimer}</span>
             {activeProjects.length === 0 ? (
-              // Bootstrap: ohne jedes Projekt direkt von der Hauptansicht aus eins anlegen
-              // können, ohne erst in die Einstellungen zu müssen (#86).
-              projects.length === 0 ? (
-                <div className="hb-stack" style={{ gap: 10, alignItems: 'flex-start' }}>
-                  <div className="hb-muted">{t.time.noProjectsConfigHint}</div>
-                  <Button variant="soft" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.firstProject}</Button>
-                </div>
-              ) : (
-                <div className="hb-muted">{t.time.noProjectsHint}</div>
-              )
+              <div className="hb-muted">{t.time.noProjectsHint}</div>
             ) : (
               <>
                 <div className="hb-muted">{t.time.startPrompt}</div>
@@ -753,7 +531,7 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <Card className="hb-card--pad hb-weektargets" style={{ marginTop: 12 }}>
           <div className="hb-cardhead">
             <h3>{t.time.weekTargetTitle}</h3>
-            <IconButton icon="settings" label={t.time.configureTargets} onClick={() => setShowTargets(true)} />
+            <IconButton icon="settings" label={t.settings.wochensollEdit} onClick={onOpenSettings} />
           </div>
           <div className="hb-stack" style={{ gap: 16 }}>
             {weekUsers.map((u) => {
@@ -779,41 +557,21 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
       ) : (
         <div className="hb-zeit-grid">
-          {/* Projects */}
+          {/* Projects — the tracker lists active projects to start timers on; project
+              management (edit/colour/archive) lives in Einstellungen → Zeiterfassung (#99). */}
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div className="hb-sectionlabel">{t.time.projectsLabel}</div>
-              {archivedProjects.length > 0 && (
-                <button className="hb-link" onClick={() => setShowArchived((v) => !v)}>
-                  {showArchived ? t.time.hideArchived : t.time.showArchived}
-                </button>
-              )}
-            </div>
-            {shownProjects.length === 0 ? (
-              <Card className="hb-card--pad" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-                <EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsConfigHint} />
-                {/* Bootstrap-Aktion auch hier, damit das erste Projekt ohne Umweg über
-                    die Einstellungen entsteht (#86). */}
-                <Button variant="soft" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.firstProject}</Button>
-              </Card>
+            <div className="hb-sectionlabel">{t.time.projectsLabel}</div>
+            {activeProjects.length === 0 ? (
+              <Card className="hb-card--pad"><EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsHint} /></Card>
             ) : (
               <div className="hb-proj-grid">
-                {shownProjects.map((p) => {
+                {activeProjects.map((p) => {
                   const isRunning = running?.projectId === p.id
                   return (
-                    <Card key={p.id} className={`hb-projcard${isRunning ? ' is-running' : ''}${p.archived ? ' is-archived' : ''}`}>
+                    <Card key={p.id} className={`hb-projcard${isRunning ? ' is-running' : ''}`}>
                       <div className="hb-projcard__head">
                         <span className="hb-pdot" style={{ background: p.color }} />
                         <button className="hb-projcard__name hb-projcard__namebtn" title={t.time.viewDetails} onClick={() => setDetailProject(p)}>{p.name}</button>
-                        <div style={{ display: 'flex', gap: 2 }}>
-                          <IconButton icon="edit" label={t.common.edit} onClick={() => setProjectDraft({ id: p.id, name: p.name, color: p.color })} />
-                          <IconButton
-                            icon="archive"
-                            label={p.archived ? t.time.reactivate : t.time.archive}
-                            active={p.archived}
-                            onClick={() => setArchived(p, !p.archived)}
-                          />
-                        </div>
                       </div>
                       <button className="hb-projcard__statbtn" onClick={() => setDetailProject(p)}>
                         <span className="hb-projcard__stat hb-mono">
@@ -823,12 +581,10 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
                           {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span> {projectStats[p.id]?.weekLabel ?? t.time.thisWeek}</span>
                         </span>
                       </button>
-                      {!p.archived && (
-                        isRunning ? (
-                          <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
-                        ) : (
-                          <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t.time.start}</Button>
-                        )
+                      {isRunning ? (
+                        <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
+                      ) : (
+                        <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t.time.start}</Button>
                       )}
                     </Card>
                   )
@@ -851,12 +607,61 @@ export function TimeView({ token, onLogout }: TimeViewProps) {
         </div>
       )}
 
+      {/* Lightweight project create — you need a project to start a timer; full
+          project management lives in Einstellungen → Zeiterfassung (#99). */}
+      {projectDraft && (
+        <ProjectModal draft={projectDraft} onChange={setProjectDraft} onSave={saveProject} onClose={() => setProjectDraft(null)} />
+      )}
+
       {showManual && (
         <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
 
       {sharedModals}
     </div>
+  )
+}
+
+// Project create/edit dialog. Shared by the tracker (lightweight create) and the
+// Einstellungen → Zeiterfassung subpage (full management). Purely presentational —
+// the caller owns the draft state and the save (#99).
+export function ProjectModal({ draft, onChange, onSave, onClose }: {
+  draft: ProjectDraft
+  onChange: (d: ProjectDraft) => void
+  onSave: (d: ProjectDraft) => void
+  onClose: () => void
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={draft.id ? t.time.editProject : t.time.newProject}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button onClick={() => onSave(draft)} disabled={!draft.name.trim()}>
+            {draft.id ? t.common.save : t.time.create}
+          </Button>
+        </>
+      }
+    >
+      <Field label={t.time.project}>
+        <TextInput autoFocus value={draft.name} onChange={(v) => onChange({ ...draft, name: v })} placeholder={t.time.projectNamePlaceholder} />
+      </Field>
+      <Field label={t.time.color}>
+        <div className="hb-swatches">
+          {COLOR_CHOICES.map((c) => (
+            <button
+              key={c}
+              className={`hb-swatch${draft.color === c ? ' is-active' : ''}`}
+              style={{ background: c }}
+              onClick={() => onChange({ ...draft, color: c })}
+              aria-label={`${t.time.colorLabel} ${c}`}
+            />
+          ))}
+        </div>
+      </Field>
+    </Modal>
   )
 }
 
@@ -1393,145 +1198,6 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
   )
 }
 
-// Wochensoll configuration (#31): weekly hours per person × project plus the
-// person's default project (absence/holiday credits are booked there). Saving
-// PUTs only the changed cells; the household may edit either person (like the
-// absence planner, #127). Inline-error convention as in the other modals.
-function TargetsModal({ users, projects, targets, onSave, onClose }: {
-  users: string[]
-  projects: Project[]
-  targets: WorkTarget[]
-  onSave: (puts: { userId: string; projectId: string; body: object }[]) => Promise<string | null>
-  onClose: () => void
-}) {
-  const targetFor = (u: string, p: string) => targets.find((x) => x.userId === u && x.projectId === p)
-  const defaultFor = (u: string) => targets.find((x) => x.userId === u && x.isDefault)?.projectId ?? ''
-  const [draft, setDraft] = useState<Record<string, { hours: Record<string, string>; def: string }>>(() =>
-    Object.fromEntries(users.map((u) => [u, {
-      hours: Object.fromEntries(projects.map((p) => {
-        const h = targetFor(u, p.id)?.weeklyHours ?? 0
-        return [p.id, h > 0 ? String(h).replace('.', ',') : '']
-      })),
-      def: defaultFor(u),
-    }])),
-  )
-  const [error, setError] = useState<string | null>(null)
-  const submitRef = useRef(false)
-
-  // Hours > 0 require a default project (#59) — entering the first hours for a
-  // person without one auto-selects that project (mirrors the backend's behavior).
-  const setHours = (u: string, p: string, v: string) =>
-    setDraft((d) => ({
-      ...d,
-      [u]: {
-        def: d[u].def === '' && Number(v.trim().replace(',', '.')) > 0 ? p : d[u].def,
-        hours: { ...d[u].hours, [p]: v },
-      },
-    }))
-  const setDef = (u: string, p: string) =>
-    setDraft((d) => ({ ...d, [u]: { ...d[u], def: p } }))
-
-  const submit = async () => {
-    if (submitRef.current) return
-    const puts: { userId: string; projectId: string; body: object }[] = []
-    for (const u of users) {
-      let sumHours = 0
-      for (const p of projects) {
-        const raw = (draft[u].hours[p.id] ?? '').trim()
-        const hours = raw === '' ? 0 : Number(raw.replace(',', '.'))
-        if (!Number.isFinite(hours) || hours < 0 || hours > 168) {
-          setError(t.time.invalidHours)
-          return
-        }
-        sumHours += hours
-        const body: { weeklyHours?: number; isDefault?: boolean } = {}
-        if (hours !== (targetFor(u, p.id)?.weeklyHours ?? 0)) body.weeklyHours = hours
-        const defBefore = defaultFor(u)
-        // setting the new default clears the old one server-side
-        if (draft[u].def !== defBefore && draft[u].def === p.id) body.isDefault = true
-        if (Object.keys(body).length > 0) puts.push({ userId: u, projectId: p.id, body })
-      }
-      // hours > 0 ⇒ a default project must be chosen (#59); auto-select normally
-      // covers this — backstop for legacy data without a default
-      if (sumHours > 0 && draft[u].def === '') {
-        setError(t.time.defaultRequired)
-        return
-      }
-    }
-    if (puts.length === 0) return onClose()
-    submitRef.current = true
-    setError(null)
-    try {
-      const err = await onSave(puts)
-      if (err) {
-        submitRef.current = false
-        setError(err)
-      }
-    } catch {
-      submitRef.current = false
-      setError(t.time.targetsFailed)
-    }
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t.time.targetsModalTitle}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button onClick={submit}>{t.common.save}</Button>
-        </>
-      }
-    >
-      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.targetsModalHint}</p>
-      {projects.length === 0 ? (
-        <p className="hb-muted">{t.time.noProjectsHint}</p>
-      ) : (
-        users.map((u) => (
-          <div key={u} style={{ marginBottom: 18 }}>
-            <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
-            </div>
-            <div className="hb-targetgrid">
-              <span className="hb-muted hb-targetgrid__h">{t.time.project}</span>
-              <span className="hb-muted hb-targetgrid__h">{t.time.hoursPerWeek}</span>
-              <span className="hb-muted hb-targetgrid__h">{t.time.defaultColumn}</span>
-              {projects.map((p) => (
-                <Fragment key={p.id}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                    <span className="hb-pdot" style={{ background: p.color }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name}{p.archived && <span className="hb-muted"> ({t.time.archivedSection})</span>}
-                    </span>
-                  </span>
-                  <input
-                    className="hb-input"
-                    inputMode="decimal"
-                    value={draft[u].hours[p.id] ?? ''}
-                    onChange={(e) => setHours(u, p.id, e.target.value)}
-                    placeholder="0"
-                    aria-label={`${t.time.hoursPerWeek} ${p.name} ${userMeta(u)?.name ?? u}`}
-                  />
-                  <input
-                    type="radio"
-                    name={`hb-default-${u}`}
-                    checked={draft[u].def === p.id}
-                    onChange={() => setDef(u, p.id)}
-                    aria-label={`${t.time.defaultColumn} ${p.name} ${userMeta(u)?.name ?? u}`}
-                  />
-                </Fragment>
-              ))}
-            </div>
-          </div>
-        ))
-      )}
-      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
-    </Modal>
-  )
-}
-
 // Split a completed entry at a cut time into two parts, optionally with an
 // untracked break between them (#62) — the break is just a gap, no row of its
 // own. Typical uses: a forgotten lunch break, or a missed project switch
@@ -1612,47 +1278,6 @@ function SplitEntryModal({ entry, onSave, onClose }: {
         </p>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
-    </Modal>
-  )
-}
-
-// CSV export with optional date-range and project filters. All fields are optional;
-// an empty form exports every completed entry. Includes archived projects so their
-// history can still be exported.
-function ExportModal({ projects, onExport, onClose }: {
-  projects: Project[]
-  onExport: (opts: { from?: string; to?: string; projectId?: string }) => void
-  onClose: () => void
-}) {
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [projectId, setProjectId] = useState('')
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t.time.exportTitle}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button icon="download" onClick={() => onExport({ from: from || undefined, to: to || undefined, projectId: projectId || undefined })}>
-            {t.time.exportSubmit}
-          </Button>
-        </>
-      }
-    >
-      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.exportHint}</p>
-      <div className="hb-formgrid">
-        <Field label={t.time.from}><TextInput type="date" value={from} onChange={setFrom} /></Field>
-        <Field label={t.time.to}><TextInput type="date" value={to} onChange={setTo} /></Field>
-      </div>
-      <Field label={t.time.project}>
-        <Select value={projectId} onChange={setProjectId}>
-          <option value="">{t.time.exportAllProjects}</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </Select>
-      </Field>
     </Modal>
   )
 }
