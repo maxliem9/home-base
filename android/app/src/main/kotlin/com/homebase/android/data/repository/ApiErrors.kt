@@ -52,3 +52,10 @@ internal fun mapApiError(e: Throwable, mapHttpError: ((HttpException) -> String)
     is IOException -> ApiException(NETWORK_ERROR_TEXT, e)
     else -> ApiException(GENERIC_ERROR_TEXT, e)
 }
+
+/** Maps a failed login HTTP response to a German user-facing message (issue #83). */
+internal fun germanLoginError(e: HttpException): String = when (e.code()) {
+    401 -> "Login fehlgeschlagen."
+    429 -> "Zu viele Versuche – bitte später erneut versuchen."
+    else -> "Login fehlgeschlagen."
+}
