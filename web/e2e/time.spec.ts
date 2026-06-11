@@ -19,6 +19,8 @@ async function openTimeSettings(page: Page, mock: MockApi) {
   // the gear in the account corner (sidebar foot); scoped so it never matches a
   // view's own "Einstellungen" button (e.g. the calendar's).
   await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+  // the gear opens the Haushalt subpage by default (#100) — switch to Zeiterfassung
+  await page.locator('.hb-settings-nav').getByRole('button', { name: 'Zeiterfassung' }).click()
   await expect(page.locator('.hb-settings-body')).toBeVisible()
 }
 
@@ -245,7 +247,8 @@ test.describe('Time tracking', () => {
     await page.locator('.hb-topbar__gear').click()
     const body = page.locator('.hb-settings-body')
     await expect(body).toBeVisible()
-    await expect(body.locator('.hb-row', { hasText: 'Arbeit' })).toBeVisible()
+    // the gear opens the Haushalt subpage by default (#100)
+    await expect(body.getByRole('heading', { name: 'Haushaltsname' })).toBeVisible()
   })
 
   // The tile specs pin the browser clock (like abwesenheit.spec.ts) so day labels

@@ -128,7 +128,9 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   // Central settings hub (#99): a separate surface reached via the gear in the
   // account corner — not a primary nav tab. null = closed; opening a nav tab closes it.
   const [settings, setSettings] = useState<SettingsTab | null>(null)
-  const openSettings = () => setSettings('time')
+  // The gear opens the general Haushalt subpage; a view's deep-link can target its own
+  // subpage (e.g. the tracker's Wochensoll card → 'time').
+  const openSettings = (tab: SettingsTab = 'household') => setSettings(tab)
 
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
@@ -159,7 +161,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         </nav>
 
         <div className="hb-side-foot">
-          <button className={`hb-navitem hb-side-foot__settings${settings ? ' is-active' : ''}`} onClick={openSettings}>
+          <button className={`hb-navitem hb-side-foot__settings${settings ? ' is-active' : ''}`} onClick={() => openSettings()}>
             <Icon name="settings" size={20} stroke={2} />
             <span>{t.nav.settings}</span>
           </button>
@@ -188,7 +190,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
           <div className="hb-topbar__actions">
             <button
               className={`hb-iconbtn hb-topbar__gear${settings ? ' is-active' : ''}`}
-              onClick={openSettings}
+              onClick={() => openSettings()}
               aria-label={t.nav.settings}
               title={t.nav.settings}
             >
@@ -212,6 +214,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             onChangeTab={setSettings}
             onClose={() => setSettings(null)}
             onLogout={onLogout}
+            onHouseholdRenamed={setHousehold}
           />
         ) : (
           <>
@@ -219,7 +222,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
             {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
             {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
-            {tab === 'time' && <TimeView token={token} onLogout={onLogout} onOpenSettings={openSettings} />}
+            {tab === 'time' && <TimeView token={token} onLogout={onLogout} onOpenSettings={() => openSettings('time')} />}
             {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
             {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
           </>

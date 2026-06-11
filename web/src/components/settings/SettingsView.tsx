@@ -1,25 +1,28 @@
 // Zentrale Einstellungen (#99). A dedicated hub reached via the gear in the
 // account corner (not a primary nav tab), split into subpages by domain. Only
 // rarely-changed configuration lives here; workflow objects (todo lists, the
-// time tracker itself) stay in their own views. PR 1 ships the Zeiterfassung
-// subpage; Abwesenheit follows in PR 2. The left sub-rail is built to grow.
+// time tracker itself) stay in their own views. Subpages so far: Haushalt (#100)
+// and Zeiterfassung (#99). The left sub-rail is built to grow.
 import { t } from '../../i18n'
 import { Icon } from '../../ui/Icon'
 import { Button, PageHead } from '../../ui/primitives'
+import { HouseholdSettings } from './HouseholdSettings'
 import { TimeSettings } from './TimeSettings'
 
-export type SettingsTab = 'time'
+export type SettingsTab = 'household' | 'time'
 
 const SUBNAV: { id: SettingsTab; label: string; icon: string }[] = [
+  { id: 'household', label: t.settings.household, icon: 'home' },
   { id: 'time', label: t.settings.time, icon: 'clock' },
 ]
 
-export function SettingsView({ token, active, onChangeTab, onClose, onLogout }: {
+export function SettingsView({ token, active, onChangeTab, onClose, onLogout, onHouseholdRenamed }: {
   token: string
   active: SettingsTab
   onChangeTab: (tab: SettingsTab) => void
   onClose: () => void
   onLogout: () => void
+  onHouseholdRenamed: (name: string) => void
 }) {
   const current = SUBNAV.find((s) => s.id === active) ?? SUBNAV[0]
   return (
@@ -43,6 +46,7 @@ export function SettingsView({ token, active, onChangeTab, onClose, onLogout }: 
           ))}
         </nav>
         <div className="hb-settings-body">
+          {active === 'household' && <HouseholdSettings token={token} onLogout={onLogout} onRenamed={onHouseholdRenamed} />}
           {active === 'time' && <TimeSettings token={token} onLogout={onLogout} />}
         </div>
       </div>

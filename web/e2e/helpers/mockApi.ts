@@ -67,6 +67,7 @@ const TINY_PNG = Buffer.from(
  */
 export class MockApi {
   private silent = false
+  private householdName = 'Mäxchen'
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -358,6 +359,18 @@ export class MockApi {
     // Household members — drives the assignee chips (and the shared-timer partner).
     if (path.endsWith('/users') && method === 'GET') {
       return this.json(route, [{ username: 'max' }, { username: 'lea' }])
+    }
+
+    // App config — editable household name (#100). Mirrors ConfigRoutes: GET reads
+    // the (in-memory) value, PUT trims + rejects blank with 400 INVALID_NAME.
+    if (path.endsWith('/config') && method === 'GET') {
+      return this.json(route, { householdName: this.householdName })
+    }
+    if (path.endsWith('/config') && method === 'PUT') {
+      const name = (JSON.parse(req.postData() ?? '{}').householdName ?? '').trim()
+      if (!name) return this.json(route, { code: 'INVALID_NAME', message: 'empty' }, 400)
+      this.householdName = name
+      return this.json(route, { householdName: name })
     }
 
     // ---- Todo lists (checked before the generic /todos/{id} matcher) ----

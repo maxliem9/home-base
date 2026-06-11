@@ -12,6 +12,9 @@ data class HealthResponse(val status: String)
 data class AppConfigResponse(val householdName: String)
 
 @Serializable
+data class UpdateConfigRequest(val householdName: String)
+
+@Serializable
 data class LoginRequest(val username: String, val password: String)
 
 @Serializable

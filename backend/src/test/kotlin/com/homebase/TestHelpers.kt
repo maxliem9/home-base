@@ -2,6 +2,7 @@ package com.homebase
 
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
+import com.homebase.db.AppSettingsTable
 import com.homebase.db.CustomHolidaysTable
 import com.homebase.db.IngredientsTable
 import com.homebase.db.KitaClosuresTable
@@ -58,6 +59,7 @@ fun ApplicationTestBuilder.configureTestApplication(): Path {
         )
         transaction {
             SchemaUtils.create(
+                AppSettingsTable,
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
                 NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
