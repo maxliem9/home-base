@@ -321,6 +321,8 @@ export const de = {
     entryMany: 'Einträge',
     noProjects: 'Noch keine Projekte',
     noProjectsHint: 'Lege oben rechts ein Projekt an',
+    noProjectsConfigHint: 'Lege ein erstes Projekt an, um die Zeit zu erfassen', // shown on the main view's empty state (#86)
+    firstProject: 'Erstes Projekt anlegen', // bootstrap action on the main view when there are no projects yet (#86)
     noEntries: 'Noch keine Einträge',
     ownEntriesOnly: 'Nur eigene Einträge',
     partnerIdle: 'Kein Timer aktiv',
@@ -357,7 +359,6 @@ export const de = {
     date: 'Datum',
     from: 'Von',
     to: 'Bis',
-    exportCsv: 'CSV-Export',
     exportTitle: 'Als CSV exportieren',
     exportHint: 'Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.',
     exportAllProjects: 'Alle Projekte',
@@ -384,6 +385,17 @@ export const de = {
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"
+    // Einstellungen-Ansicht (#86): Wochensoll, CSV-Export & Projekte gebündelt
+    settings: 'Einstellungen',
+    configTitle: 'Zeit-Einstellungen',
+    configProjectsSection: 'Projekte',
+    configProjectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
+    configTargetsSection: 'Wochensoll',
+    configTargetsHint: 'Wochenstunden pro Person und Projekt — Grundlage für Saldo und Ende-Prognose.',
+    configTargetsOpen: 'Wochensoll bearbeiten',
+    configExportSection: 'CSV-Export',
+    configExportHint: 'Abgeschlossene Einträge als CSV herunterladen (optional nach Zeitraum/Projekt gefiltert).',
+    configExportOpen: 'CSV exportieren',
     // Eintrag splitten (#62)
     split: 'Splitten',
     splitTitle: 'Eintrag splitten',
