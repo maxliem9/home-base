@@ -1,8 +1,10 @@
 package com.homebase
 
 import com.homebase.security.LoginThrottler
+import com.homebase.security.LockoutResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -125,5 +127,24 @@ class LoginThrottlerTest {
         repeat(3) { t.recordFailure("attacker") }
         assertTrue(t.retryAfterSeconds("attacker") > 0)
         assertEquals(0, t.retryAfterSeconds("victim"))
+    }
+
+    @Test
+    fun `recordFailure signals new lockout on the threshold failure`() {
+        val clock = FakeClock()
+        val t = throttler(clock, maxFailures = 3, baseLockoutMillis = 2_000L)
+        // First two failures are free — no lockout yet.
+        assertFalse(t.recordFailure("ip").newLockoutSet)
+        assertFalse(t.recordFailure("ip").newLockoutSet)
+        // Third failure (= maxFailures) triggers the first lockout.
+        val result = t.recordFailure("ip")
+        assertTrue(result.newLockoutSet)
+        assertEquals(3, result.failures)
+        assertEquals(2L, result.lockoutSeconds)
+        // A subsequent failure while still locked escalates the lockout but is also a new lock.
+        val escalated = t.recordFailure("ip")
+        assertTrue(escalated.newLockoutSet)
+        assertEquals(4, escalated.failures)
+        assertTrue(escalated.lockoutSeconds > result.lockoutSeconds)
     }
 }

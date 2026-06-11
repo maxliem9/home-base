@@ -5,6 +5,16 @@ import io.ktor.server.plugins.*
 import io.ktor.server.request.*
 
 /**
+ * Result returned by [LoginThrottler.recordFailure], giving the caller enough context to emit
+ * structured log events without the throttler needing to know about the logger.
+ *
+ * @param newLockoutSet  `true` when this failure caused a *new* lockout to be set (lock transition).
+ * @param failures       Consecutive failure count after recording the current attempt.
+ * @param lockoutSeconds Seconds the key is now locked for; 0 if not yet locked.
+ */
+data class LockoutResult(val newLockoutSet: Boolean, val failures: Int, val lockoutSeconds: Long)
+
+/**
  * In-memory, per-source throttle for `POST /auth/login` (issue #8).
  *
  * Both usernames are effectively public (seeded from `SEED_USERS`), so the password is the only
@@ -53,15 +63,23 @@ class LoginThrottler(
         return if (remaining > 0) (remaining + 999) / 1000 else 0
     }
 
-    /** Record a failed attempt for [key], escalating the lockout once the free attempts run out. */
+    /**
+     * Record a failed attempt for [key], escalating the lockout once the free attempts run out.
+     *
+     * Returns a [LockoutResult] the caller can use to emit log events. The throttler itself stays
+     * free of any logger dependency, keeping it easy to unit-test.
+     */
     @Synchronized
-    fun recordFailure(key: String) {
+    fun recordFailure(key: String): LockoutResult {
         val now = clock()
         val st = states.getOrPut(key) { State() }
         if (now - st.lastFailureAt > failureWindowMillis) st.failures = 0
         st.failures += 1
         st.lastFailureAt = now
+        val prevLockedUntil = st.lockedUntil
         if (st.failures >= maxFailures) st.lockedUntil = now + lockoutMillisFor(st.failures)
+        val newLockoutSet = st.lockedUntil > now && st.lockedUntil != prevLockedUntil
+        val lockoutSeconds = if (st.lockedUntil > now) (st.lockedUntil - now + 999) / 1000 else 0
         if (states.size > PRUNE_THRESHOLD) {
             prune(now)
             // Hard cap: if pruning freed nothing (a sustained flood keeps every key fresh and
@@ -69,6 +87,7 @@ class LoginThrottler(
             // threshold regardless of how many distinct sources attack.
             if (states.size > PRUNE_THRESHOLD) evictOldest()
         }
+        return LockoutResult(newLockoutSet = newLockoutSet, failures = st.failures, lockoutSeconds = lockoutSeconds)
     }
 
     /** A successful login wipes the key's slate so the user starts fresh next time. */

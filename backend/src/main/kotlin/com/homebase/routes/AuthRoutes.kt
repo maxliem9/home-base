@@ -20,12 +20,14 @@ import java.util.*
 
 fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
     post("/auth/login") {
+        val log = call.application.log
         // Throttle by source before touching the body or the DB: once a client IP has failed too
         // often it is locked out (429) without any password check, so this reveals nothing about
         // which accounts exist and sheds the load cheaply. See issue #8.
         val key = clientKey(call, trustedProxyCount)
         val retryAfter = throttler.retryAfterSeconds(key)
         if (retryAfter > 0) {
+            log.info("Login attempt blocked for ip=$key — still locked, retry-after=${retryAfter}s")
             call.response.header(HttpHeaders.RetryAfter, retryAfter.toString())
             call.respond(
                 HttpStatusCode.TooManyRequests,
@@ -46,13 +48,19 @@ fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
             // it would make missing usernames answer faster and leak which accounts exist
             // (username enumeration via timing). See issue #71.
             Passwords.verifyDummy(request.password)
-            throttler.recordFailure(key)
+            val result = throttler.recordFailure(key)
+            if (result.newLockoutSet) {
+                log.warn("Login lockout set for ip=$key — failures=${result.failures}, locked-for=${result.lockoutSeconds}s")
+            }
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
 
         if (!Passwords.verify(request.password, user[UsersTable.passwordHash])) {
-            throttler.recordFailure(key)
+            val result = throttler.recordFailure(key)
+            if (result.newLockoutSet) {
+                log.warn("Login lockout set for ip=$key — failures=${result.failures}, locked-for=${result.lockoutSeconds}s")
+            }
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse("INVALID_CREDENTIALS", "Invalid username or password"))
             return@post
         }
