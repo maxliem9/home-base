@@ -12,8 +12,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -26,7 +26,6 @@ private const val RECIPES_WS_CHANNEL = "recipes"
 private val VALID_CATEGORIES = setOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
 
 fun Route.recipeRoutes() {
-    val json = Json { ignoreUnknownKeys = true }
 
     route("/recipes") {
         // List recipes, optionally filtered by ?category=. Newest first.
@@ -135,7 +134,7 @@ fun Route.recipeRoutes() {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.single().toRecipeDto()
             }
 
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, json.encodeToString(RecipeWsMessage("RECIPE_CREATED", recipe)))
+            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_CREATED", recipe)))
             call.respond(HttpStatusCode.Created, recipe)
         }
 
@@ -186,7 +185,7 @@ fun Route.recipeRoutes() {
                 return@put
             }
 
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, json.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
             call.respond(recipe)
         }
 
@@ -205,7 +204,7 @@ fun Route.recipeRoutes() {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@delete
             }
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, json.encodeToString(RecipeWsMessage("RECIPE_DELETED", deleted)))
+            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_DELETED", deleted)))
             call.respond(HttpStatusCode.NoContent)
         }
     }

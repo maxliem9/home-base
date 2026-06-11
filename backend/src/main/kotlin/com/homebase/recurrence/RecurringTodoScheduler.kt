@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.LocalDate
@@ -26,7 +25,6 @@ class RecurringTodoScheduler(
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
     private val logger = LoggerFactory.getLogger(RecurringTodoScheduler::class.java)
-    private val json = Json { ignoreUnknownKeys = true }
 
     fun start() {
         scope.launch {
@@ -49,7 +47,7 @@ class RecurringTodoScheduler(
         val rolled = service.rollForwardOverdue(today)
         for (r in rolled) {
             // visibility is unchanged (we only moved the due date), so was/is shared are equal
-            broadcastTodoUpdate(json, wasShared = r.shared, isShared = r.shared, todo = r.todo)
+            broadcastTodoUpdate(wasShared = r.shared, isShared = r.shared, todo = r.todo)
         }
         if (rolled.isNotEmpty()) {
             logger.info("Rolled {} overdue recurring todo(s) forward for {}", rolled.size, today)

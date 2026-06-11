@@ -15,8 +15,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -42,10 +42,8 @@ private val STATE_CODES = setOf(
 private val SETTINGS_YEAR_RANGE = 2000..2200
 
 fun Route.absenceRoutes() {
-    val json = Json { ignoreUnknownKeys = true }
-
     suspend fun notify() =
-        WsSessionManager.broadcast(ABSENCE_WS_CHANNEL, json.encodeToString(AbsenceWsMessage("ABSENCE_CHANGED")))
+        WsSessionManager.broadcast(ABSENCE_WS_CHANNEL, appJson.encodeToString(AbsenceWsMessage("ABSENCE_CHANGED")))
 
     route("/absence") {
 

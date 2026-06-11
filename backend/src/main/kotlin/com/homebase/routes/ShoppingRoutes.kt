@@ -10,8 +10,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -21,13 +21,11 @@ import java.util.UUID
 private const val SHOPPING_WS_CHANNEL = "shopping"
 
 fun Route.shoppingRoutes() {
-    val json = Json { ignoreUnknownKeys = true }
-
     suspend fun broadcastItem(type: String, item: ShoppingItemDto) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, json.encodeToString(ShoppingWsMessage(type, item)))
+        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingWsMessage(type, item)))
 
     suspend fun broadcastList(type: String, list: ShoppingListDto) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, json.encodeToString(ShoppingListWsMessage(type, list)))
+        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingListWsMessage(type, list)))
 
     route("/shopping") {
         // ---- Lists (registered before /{id} so the static segment wins) ----

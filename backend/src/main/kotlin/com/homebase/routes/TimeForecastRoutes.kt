@@ -13,8 +13,8 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -50,7 +50,7 @@ private const val MAX_WEEKLY_HOURS = 168.0
  * configure either person's weekly hours and default project — the userId in the
  * path is the *target* person, not the caller.
  */
-fun Route.workTargetRoutes(json: Json) {
+fun Route.workTargetRoutes() {
     route("/targets") {
         get {
             val targets = transaction {
@@ -149,7 +149,7 @@ fun Route.workTargetRoutes(json: Json) {
                     target,
                 )
                 is WorkTargetDto -> {
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("TARGET_UPDATED", target = target)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("TARGET_UPDATED", target = target)))
                     call.respond(target)
                 }
             }

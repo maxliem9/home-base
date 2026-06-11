@@ -12,8 +12,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
@@ -31,8 +31,6 @@ private val VALID_TODO_PRIORITIES = setOf("LOW", "MEDIUM", "HIGH")
 private val VALID_LIST_VISIBILITIES = setOf(VISIBILITY_SHARED, VISIBILITY_PRIVATE)
 
 fun Route.todoRoutes() {
-    val json = Json { ignoreUnknownKeys = true }
-
     route("/todos") {
         // ---- Lists (registered before /{id} so the static segment wins) ----
         route("/lists") {
@@ -71,7 +69,7 @@ fun Route.todoRoutes() {
                     }
                     TodoListsTable.selectAll().where { TodoListsTable.id eq id }.single().toListDto()
                 }
-                broadcastListCreate(json, list)
+                broadcastListCreate(list)
                 call.respond(HttpStatusCode.Created, list)
             }
 
@@ -115,7 +113,7 @@ fun Route.todoRoutes() {
                     return@put
                 }
                 val (wasShared, list, revealedTodos) = result
-                broadcastListUpdate(json, wasShared, list, revealedTodos)
+                broadcastListUpdate(wasShared, list, revealedTodos)
                 call.respond(list)
             }
 
@@ -144,7 +142,7 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
                     return@delete
                 }
-                broadcastListDelete(json, deleted)
+                broadcastListDelete(deleted)
                 call.respond(HttpStatusCode.NoContent)
             }
         }
@@ -219,7 +217,7 @@ fun Route.todoRoutes() {
                 return@post
             }
             result as TodoMutation
-            broadcastTodoCreate(json, result.isShared, result.todo)
+            broadcastTodoCreate(result.isShared, result.todo)
             call.respond(HttpStatusCode.Created, result.todo)
         }
 
@@ -346,9 +344,9 @@ fun Route.todoRoutes() {
             }
 
             result as TodoMutation
-            broadcastTodoUpdate(json, result.wasShared, result.isShared, result.todo)
+            broadcastTodoUpdate(result.wasShared, result.isShared, result.todo)
             // the recurrence successor (if any) reaches the other client as a fresh create
-            result.spawned?.let { broadcastTodoCreate(json, result.spawnedShared, it) }
+            result.spawned?.let { broadcastTodoCreate(result.spawnedShared, it) }
             call.respond(result.todo)
         }
 
@@ -371,7 +369,7 @@ fun Route.todoRoutes() {
                 return@delete
             }
             val (deletedTodo, shared) = result
-            broadcastTodoDelete(json, shared, deletedTodo)
+            broadcastTodoDelete(shared, deletedTodo)
             call.respond(HttpStatusCode.NoContent)
         }
 
@@ -404,7 +402,7 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Todo not found"))
                     return@post
                 }
-                broadcastTodoSubtaskChange(json, result)
+                broadcastTodoSubtaskChange(result)
                 call.respond(HttpStatusCode.Created, result.todo)
             }
 
@@ -434,7 +432,7 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Subtask not found"))
                     return@put
                 }
-                broadcastTodoSubtaskChange(json, result)
+                broadcastTodoSubtaskChange(result)
                 call.respond(result.todo)
             }
 
@@ -455,7 +453,7 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Subtask not found"))
                     return@delete
                 }
-                broadcastTodoSubtaskChange(json, result)
+                broadcastTodoSubtaskChange(result)
                 call.respond(result.todo)
             }
         }
@@ -543,9 +541,9 @@ private fun todoWithVisibility(todoId: UUID): TodoMutation {
     return TodoMutation(row.toTodoDto(), wasShared = shared, isShared = shared)
 }
 
-private suspend fun broadcastTodoCreate(json: Json, shared: Boolean, todo: TodoDto) {
+private suspend fun broadcastTodoCreate(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_CREATED", todo)))
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
     }
 }
 
@@ -554,33 +552,32 @@ private suspend fun broadcastTodoCreate(json: Json, shared: Boolean, todo: TodoD
  * *other* client: a todo entering a private list looks like a deletion; a todo that is (or becomes)
  * shared looks like an upsert; a todo that stays private is never sent.
  */
-internal suspend fun broadcastTodoUpdate(json: Json, wasShared: Boolean, isShared: Boolean, todo: TodoDto) {
+internal suspend fun broadcastTodoUpdate(wasShared: Boolean, isShared: Boolean, todo: TodoDto) {
     val type = when {
         isShared -> "TODO_UPDATED"   // other client upserts (covers private -> shared too)
         wasShared -> "TODO_DELETED"  // shared -> private: remove it for the other client
         else -> return               // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage(type, todo)))
+    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage(type, todo)))
 }
 
-private suspend fun broadcastTodoDelete(json: Json, shared: Boolean, todo: TodoDto) {
+private suspend fun broadcastTodoDelete(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_DELETED", todo)))
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_DELETED", todo)))
     }
 }
 
-private suspend fun broadcastTodoSubtaskChange(json: Json, mutation: TodoMutation) =
-    broadcastTodoUpdate(json, mutation.wasShared, mutation.isShared, mutation.todo)
+private suspend fun broadcastTodoSubtaskChange(mutation: TodoMutation) =
+    broadcastTodoUpdate(mutation.wasShared, mutation.isShared, mutation.todo)
 
-private suspend fun broadcastListCreate(json: Json, list: TodoListDto) {
+private suspend fun broadcastListCreate(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(TodoListWsMessage("TODO_LIST_CREATED", list)))
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_CREATED", list)))
     }
 }
 
 /** Same visibility rules as todos, applied to the list's own metadata (its name leaks otherwise). */
 private suspend fun broadcastListUpdate(
-    json: Json,
     wasShared: Boolean,
     list: TodoListDto,
     revealedTodos: List<TodoDto>,
@@ -592,20 +589,20 @@ private suspend fun broadcastListUpdate(
         wasShared -> "TODO_LIST_DELETED"              // shared -> private: other client drops list + todos
         else -> return                                // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(TodoListWsMessage(type, list)))
+    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage(type, list)))
     // private -> shared: the TODO_LIST_CREATED above only carries list metadata. The list's todos were
     // never broadcast while it was private, so the other client would render it empty until a manual
     // reload. Replay each as a TODO_CREATED upsert (the frontend handler is idempotent). See issue #75.
     if (isShared && !wasShared) {
         revealedTodos.forEach { todo ->
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(WsMessage("TODO_CREATED", todo)))
+            WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
         }
     }
 }
 
-private suspend fun broadcastListDelete(json: Json, list: TodoListDto) {
+private suspend fun broadcastListDelete(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, json.encodeToString(TodoListWsMessage("TODO_LIST_DELETED", list)))
+        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_DELETED", list)))
     }
 }
 
