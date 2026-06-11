@@ -19,9 +19,17 @@ import io.ktor.server.routing.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 fun Application.configureRouting() {
     val householdName = environment.config.propertyOrNull("app.householdName")?.getString() ?: "Mäxchen"
+    // Digest time default + whether Telegram is configured, surfaced read/write via
+    // /config/digest (#100). The stored value (app_settings) overrides this default.
+    val digestDefaultTime = (parseDigestTime(environment.config.propertyOrNull("telegram.digestTime")?.getString())
+        ?: LocalTime.of(20, 0)).format(DateTimeFormatter.ofPattern("HH:mm"))
+    val telegramEnabled = !environment.config.propertyOrNull("telegram.botToken")?.getString().isNullOrBlank() &&
+        !environment.config.propertyOrNull("telegram.chatId")?.getString().isNullOrBlank()
     val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
     val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
@@ -38,7 +46,7 @@ fun Application.configureRouting() {
             healthRoutes()
             authRoutes(loginThrottler, trustedProxyCount)
             authenticate("auth-jwt") {
-                configRoutes(householdName)
+                configRoutes(householdName, digestDefaultTime, telegramEnabled)
                 userRoutes()
                 todoRoutes()
                 shoppingRoutes()

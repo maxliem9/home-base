@@ -69,6 +69,8 @@ export class MockApi {
   private silent = false
   private householdName = 'Mäxchen'
   private password = 'geheim'
+  private digestTime = '20:00'
+  private telegramEnabled = false
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -372,6 +374,20 @@ export class MockApi {
       if (!name) return this.json(route, { code: 'INVALID_NAME', message: 'empty' }, 400)
       this.householdName = name
       return this.json(route, { householdName: name })
+    }
+
+    // Telegram digest time (#100). Mirrors /config/digest: GET returns {time, enabled},
+    // PUT validates HH:mm (with INVALID_TIME), normalizes to HH:mm, stores.
+    if (path.endsWith('/config/digest') && method === 'GET') {
+      return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
+    }
+    if (path.endsWith('/config/digest') && method === 'PUT') {
+      const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
+      // Match the backend's LocalTime.parse: zero-padded HH:mm (seconds optional, dropped).
+      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      this.digestTime = `${m[1]}:${m[2]}`
+      return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
     }
 
     // Change own password (#100). Mirrors UserRoutes: WEAK_PASSWORD (<8 chars),

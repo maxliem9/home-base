@@ -107,7 +107,7 @@ class DigestTest {
     fun `runDigest sends rendered message when content is present`() = runBlocking {
         insertTodo("Erledigt heute", status = "DONE", doneAt = today.atTime(12, 0).atZone(zone).toInstant())
         val client = FakeTelegramClient()
-        val scheduler = DigestScheduler(LocalTime.of(20, 0), service, client, CoroutineScope(EmptyCoroutineContext), zone)
+        val scheduler = DigestScheduler({ LocalTime.of(20, 0) }, service, client, CoroutineScope(EmptyCoroutineContext), zone)
 
         scheduler.runDigest(today)
 
@@ -118,7 +118,7 @@ class DigestTest {
     @Test
     fun `runDigest skips sending when digest is empty`() = runBlocking {
         val client = FakeTelegramClient()
-        val scheduler = DigestScheduler(LocalTime.of(20, 0), service, client, CoroutineScope(EmptyCoroutineContext), zone)
+        val scheduler = DigestScheduler({ LocalTime.of(20, 0) }, service, client, CoroutineScope(EmptyCoroutineContext), zone)
 
         scheduler.runDigest(today)
 
@@ -127,7 +127,7 @@ class DigestTest {
 
     @Test
     fun `millisUntilNextRun targets today when digest time is still ahead`() {
-        val scheduler = DigestScheduler(LocalTime.of(20, 0), service, FakeTelegramClient(), CoroutineScope(EmptyCoroutineContext), zone)
+        val scheduler = DigestScheduler({ LocalTime.of(20, 0) }, service, FakeTelegramClient(), CoroutineScope(EmptyCoroutineContext), zone)
         val now = ZonedDateTime.of(2026, 6, 1, 10, 0, 0, 0, zone)
 
         assertEquals(10 * 60 * 60 * 1000L, scheduler.millisUntilNextRun(now))
@@ -135,9 +135,22 @@ class DigestTest {
 
     @Test
     fun `millisUntilNextRun rolls to tomorrow when digest time has passed`() {
-        val scheduler = DigestScheduler(LocalTime.of(20, 0), service, FakeTelegramClient(), CoroutineScope(EmptyCoroutineContext), zone)
+        val scheduler = DigestScheduler({ LocalTime.of(20, 0) }, service, FakeTelegramClient(), CoroutineScope(EmptyCoroutineContext), zone)
         val now = ZonedDateTime.of(2026, 6, 1, 21, 0, 0, 0, zone)
 
         assertEquals(23 * 60 * 60 * 1000L, scheduler.millisUntilNextRun(now))
+    }
+
+    @Test
+    fun `millisUntilNextRun re-reads the provided time each call so an in-app edit is picked up`() {
+        var time = LocalTime.of(20, 0)
+        val scheduler = DigestScheduler({ time }, service, FakeTelegramClient(), CoroutineScope(EmptyCoroutineContext), zone)
+        val now = ZonedDateTime.of(2026, 6, 1, 10, 0, 0, 0, zone)
+        assertEquals(10 * 60 * 60 * 1000L, scheduler.millisUntilNextRun(now))
+
+        // Changing the provider's value (as an in-app edit to app_settings would) is
+        // reflected on the next computation — the scheduler isn't pinned to a start-time value.
+        time = LocalTime.of(12, 0)
+        assertEquals(2 * 60 * 60 * 1000L, scheduler.millisUntilNextRun(now))
     }
 }

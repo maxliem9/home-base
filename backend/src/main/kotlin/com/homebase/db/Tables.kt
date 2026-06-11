@@ -11,6 +11,10 @@ object AppSettingsTable : Table("app_settings") {
     val key = varchar("key", 64)
     val value = text("value")
     override val primaryKey = PrimaryKey(key)
+
+    // Shared setting key so the route that writes it and the scheduler that reads it
+    // can never drift apart (#100).
+    const val DIGEST_TIME = "digest_time"
 }
 
 object UsersTable : Table("users") {
