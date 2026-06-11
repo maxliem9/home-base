@@ -340,6 +340,8 @@ export function TextInput({
   type = 'text',
   style,
   className = '',
+  disabled,
+  maxLength,
 }: {
   value: string
   onChange: (v: string) => void
@@ -349,6 +351,8 @@ export function TextInput({
   type?: string
   style?: CSSProperties
   className?: string
+  disabled?: boolean
+  maxLength?: number
 }) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -364,6 +368,8 @@ export function TextInput({
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={onKeyDown}
       style={style}
+      disabled={disabled}
+      maxLength={maxLength}
     />
   )
 }

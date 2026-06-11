@@ -34,6 +34,7 @@ export const de = {
     INTERNAL_ERROR: 'Serverfehler – bitte später erneut versuchen.',
     FORBIDDEN: 'Dazu fehlt dir die Berechtigung.',
     MISSING_PARAM: 'Pflichtangabe fehlt.',
+    INVALID_NAME: 'Name darf nicht leer sein (max. 60 Zeichen).',
     // Todos / Lists
     INVALID_TODO: 'Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.',
     INVALID_STATUS: 'Ungültiger Status.',
@@ -403,6 +404,14 @@ export const de = {
   // nach Unterseiten getrennt. Reine Frontend-Verlagerung bestehender Configs.
   settings: {
     title: 'Einstellungen',
+    // Haushalt-Unterseite (#100): editierbarer Haushaltsname.
+    household: 'Haushalt',
+    householdNameTitle: 'Haushaltsname',
+    householdNameHint: 'Wird in der Seitenleiste angezeigt. Beide können ihn ändern.',
+    householdNameLabel: 'Name',
+    householdNameRequired: 'Bitte einen Namen angeben.',
+    householdSaved: 'Gespeichert',
+    householdSaveFailed: 'Name konnte nicht gespeichert werden.',
     time: 'Zeiterfassung',
     projectsTitle: 'Projekte',
     projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',

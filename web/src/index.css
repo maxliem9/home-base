@@ -162,6 +162,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-settings-grid { display: grid; grid-template-columns: 220px 1fr; gap: 30px; align-items: start; }
 .hb-settings-nav { display: flex; flex-direction: column; gap: 3px; }
 .hb-settings-body { min-width: 0; }
+.hb-input:disabled { opacity: 0.6; cursor: not-allowed; }
 /* Archived project rows in the settings list read as muted but still actionable. */
 .hb-settings-body .hb-row.is-archived { opacity: 0.55; }
 

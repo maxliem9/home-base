@@ -5,6 +5,14 @@ import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestamp
 import org.jetbrains.exposed.sql.javatime.date
 
+// Generic household-level key/value settings (#100). Currently holds the editable
+// household name under key 'household_name'; reusable for future shared settings.
+object AppSettingsTable : Table("app_settings") {
+    val key = varchar("key", 64)
+    val value = text("value")
+    override val primaryKey = PrimaryKey(key)
+}
+
 object UsersTable : Table("users") {
     val id = uuid("id")
     val username = varchar("username", 50)
