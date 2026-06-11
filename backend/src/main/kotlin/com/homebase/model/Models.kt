@@ -15,6 +15,9 @@ data class AppConfigResponse(val householdName: String)
 data class UpdateConfigRequest(val householdName: String)
 
 @Serializable
+data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
+
+@Serializable
 data class LoginRequest(val username: String, val password: String)
 
 @Serializable
