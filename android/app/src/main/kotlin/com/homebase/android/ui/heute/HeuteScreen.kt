@@ -89,7 +89,8 @@ fun HeuteScreen(
     val dueTodayCount = todoState.todos.count {
         it.status != "DONE" && Format.dueGroup(it.dueDate) == Format.DueGroup.HEUTE
     }
-    val inboxCount = todoState.todos.count { it.status == "INBOX" }
+    // Same rule as the Inbox-tab badge in AufgabenScreen (TodoUiState.inboxCount, #71/#77).
+    val inboxCount = todoState.inboxCount
     val tomorrow = today.plusDays(1)
     val dueTomorrowCount = todoState.todos.count {
         it.status != "DONE" && Format.parseLocalDate(it.dueDate) == tomorrow
