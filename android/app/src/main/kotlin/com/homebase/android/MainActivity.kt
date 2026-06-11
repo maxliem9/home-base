@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
                     container.authRepository.login(username, password)
                         .onFailure { e ->
                             isLoading = false
-                            error = e.message ?: "Login failed"
+                            error = e.message ?: "Login fehlgeschlagen."
                         }
                         .onSuccess { isLoading = false }
                 }

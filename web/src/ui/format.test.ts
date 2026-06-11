@@ -156,18 +156,17 @@ describe('userMeta', () => {
     expect(userMeta(null)).toBeNull()
   })
 
-  it('resolves known seed users case-insensitively', () => {
-    expect(userMeta('Max')).toEqual({ name: 'Max', initials: 'M', hue: 150 })
-    expect(userMeta('MAX')).toEqual({ name: 'Max', initials: 'M', hue: 150 })
-    expect(userMeta('lea')).toEqual({ name: 'Lea', initials: 'L', hue: 250 })
+  it('capitalises the name and uses the first letter as the initial', () => {
+    expect(userMeta('max')).toMatchObject({ name: 'Max', initials: 'M' })
+    expect(userMeta('chen')).toMatchObject({ name: 'Chen', initials: 'C' })
   })
 
-  it('derives a stable hue and initials for unknown users', () => {
-    const a = userMeta('bob')
+  it('derives a stable, case-insensitive hue and initials for any user', () => {
+    const a = userMeta('Bob')
     const b = userMeta('bob')
-    expect(a).toEqual(b) // stable
-    expect(a?.name).toBe('bob')
-    expect(a?.initials).toBe('BO')
+    expect(a?.name).toBe('Bob')
+    expect(a?.initials).toBe('B')
+    expect(a?.hue).toBe(b?.hue) // case-insensitive, stable
     expect(a?.hue).toBeGreaterThanOrEqual(0)
     expect(a?.hue).toBeLessThan(360)
   })

@@ -296,6 +296,9 @@ RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default 
 TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
                       ZoneId.systemDefault(): Digest-/Scheduler-Uhrzeit und CSV-Export-Zeitstempel
 HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
+DOMAIN              — öffentliche HTTPS-Domain des Deployments (z. B. homebase.example.com,
+                      ohne Schema/Slash). scripts/deploy.sh prüft damit nach dem Deploy den
+                      Health-Endpunkt https://<DOMAIN>/api/v1/health; leer ⇒ Check entfällt.
 UPLOAD_DIR          — Speicherort der Notizbilder (prod: gemountetes Volume, default "uploads")
 MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 TRUSTED_PROXY_COUNT — Anzahl vertrauenswürdiger Reverse-Proxy-Hops vor dem Backend (default 2:

@@ -405,6 +405,35 @@ class TimeViewModelTest {
     }
 
     @Test
+    fun `saveTargets stamps forecastAt on success`() = runTest {
+        // forecastAt is already set after load(); saveTargets must refresh it so the
+        // live-tick counter resets to the new snapshot (#64, same as load/refreshForecast).
+        coEvery { repository.upsertTarget("alice", "p1", 38.0, null) } returns
+            Result.success(WorkTargetDto("alice", "p1", 38.0, false))
+        coEvery { repository.getTargets() } returns Result.success(
+            listOf(WorkTargetDto("alice", "p1", 38.0, false))
+        )
+        coEvery { repository.getForecast() } returns Result.success(forecast(listOf(userForecast("alice"))))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        val before = vm.uiState.value.forecastAt
+        assertNotNull(before)
+
+        vm.saveTargets(listOf(TargetChange("alice", "p1", weeklyHours = 38.0)))
+        advanceUntilIdle()
+
+        val after = vm.uiState.value.forecastAt
+        assertNotNull(after)
+        // Stamp must not move backwards (test dispatcher uses real wall-clock, so equality is fine).
+        assertFalse(after!!.isBefore(before!!))
+        // ...and getForecast() must have run a second time (load + saveTargets) — proves the stamp
+        // was actually refreshed by saveTargets, not merely preserved from load().
+        coVerify(exactly = 2) { repository.getForecast() }
+    }
+
+    @Test
     fun `saveTargets with no changes does nothing`() = runTest {
         val vm = createVm()
         advanceUntilIdle()

@@ -271,4 +271,17 @@ class TimeMathTest {
             (check as SplitCheck.Invalid).message,
         )
     }
+
+    @Test
+    fun `checkSplit cut error wins over break error when both are invalid`() {
+        // Cut is outside the entry (before start) AND break text is unparseable — the
+        // cut-range message must win, mirroring the web's SplitEntryModal precedence
+        // (cutValid first, breakParses second, breakValid third).
+        val cutBeforeStart = Instant.parse("2026-06-03T11:00:00Z") // before start
+        val check = checkSplit(start, stop, cutBeforeStart, "abc")
+        assertEquals(
+            "Die Trennzeit muss zwischen Start und Ende liegen",
+            (check as SplitCheck.Invalid).message,
+        )
+    }
 }

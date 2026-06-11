@@ -114,32 +114,33 @@ interface UserMeta {
   hue: number
 }
 
-// Known users from the seed; everyone else gets a stable hashed hue.
-const KNOWN: Record<string, UserMeta> = {
-  max: { name: 'Max', initials: 'M', hue: 150 },
-  lea: { name: 'Lea', initials: 'L', hue: 250 },
-}
-
-// The two fixed household members (the seeded users) — used e.g. for the
-// assignee chips. Order is the KNOWN insertion order.
-export const HOUSEHOLD_USERS: string[] = Object.keys(KNOWN)
-
+// No hard-coded roster: a member's display name, avatar initial and colour are
+// all derived from the username, so HomeBase works for any household — not just
+// the seeded one (#88). Name = capitalised username, initial = its first letter,
+// colour = a stable hash of the lower-cased username.
+// Caveat: two members whose names share a first letter share an initial (Max &
+// Martina → "M"); disambiguating that needs the whole roster — deferred, see #89.
 function hashHue(s: string): number {
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
   return h
 }
 
+const capitalize = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
+
 export function userMeta(username?: string | null): UserMeta | null {
   if (!username) return null
-  const key = username.toLowerCase()
-  if (KNOWN[key]) return KNOWN[key]
   return {
-    name: username,
-    initials: username.slice(0, 2).toUpperCase(),
-    hue: hashHue(key),
+    name: capitalize(username),
+    initials: username[0].toUpperCase(),
+    hue: hashHue(username.toLowerCase()),
   }
 }
+
+// Fallback household usernames for offline dev only (npm run dev with no backend
+// to hit GET /users); real deployments resolve the seeded usernames from the API.
+// Keeps the assignee chips populated locally. Mirrors SEED_USERS in .env.example.
+export const HOUSEHOLD_USERS: string[] = ['max', 'partner']
 
 /** Decode the `username` claim from a JWT without verifying it. */
 export function usernameFromToken(token: string): string | null {

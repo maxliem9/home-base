@@ -541,12 +541,12 @@ data class AbsSettingsDto(
 /** Full snapshot of the planner — clients refetch this after any change. */
 @Serializable
 data class AbsenceStateDto(
-    val users: List<String>,
-    val absences: List<AbsenceDto>,
-    val partTime: List<PartTimeRuleDto>,
-    val kitaClosures: List<KitaClosureDto>,
-    val customHolidays: List<CustomHolidayDto>,
-    val settings: List<AbsSettingsDto>
+    val users: List<String> = emptyList(),
+    val absences: List<AbsenceDto> = emptyList(),
+    val partTime: List<PartTimeRuleDto> = emptyList(),
+    val kitaClosures: List<KitaClosureDto> = emptyList(),
+    val customHolidays: List<CustomHolidayDto> = emptyList(),
+    val settings: List<AbsSettingsDto> = emptyList()
 )
 
 @Serializable

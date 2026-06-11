@@ -4,6 +4,7 @@ import com.homebase.android.data.repository.ApiException
 import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
 import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
 import com.homebase.android.data.repository.apiCatching
+import com.homebase.android.data.repository.germanLoginError
 import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.JsonEncodingException
 import java.io.IOException
@@ -95,6 +96,45 @@ class ApiErrorsTest {
 
         assertTrue(mapped is ApiException)
         assertEquals(GENERIC_ERROR_TEXT, mapped?.message)
+        assertSame(e, mapped?.cause)
+    }
+
+    @Test
+    fun `login 401 maps to German text via germanLoginError`() = runTest {
+        val e = httpException(401)
+
+        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+            throw e
+        }.exceptionOrNull()
+
+        assertTrue("should map to ApiException", mapped is ApiException)
+        assertEquals("Login fehlgeschlagen.", mapped?.message)
+        assertSame(e, mapped?.cause)
+    }
+
+    @Test
+    fun `login 429 maps to German throttle text via germanLoginError`() = runTest {
+        val e = httpException(429)
+
+        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+            throw e
+        }.exceptionOrNull()
+
+        assertTrue("should map to ApiException", mapped is ApiException)
+        assertEquals("Zu viele Versuche – bitte später erneut versuchen.", mapped?.message)
+        assertSame(e, mapped?.cause)
+    }
+
+    @Test
+    fun `login unknown status maps to generic German fallback via germanLoginError`() = runTest {
+        val e = httpException(500)
+
+        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+            throw e
+        }.exceptionOrNull()
+
+        assertTrue("should map to ApiException", mapped is ApiException)
+        assertEquals("Login fehlgeschlagen.", mapped?.message)
         assertSame(e, mapped?.cause)
     }
 

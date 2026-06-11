@@ -15,6 +15,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.vendors.ForUpdateOption
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -214,6 +215,7 @@ private fun Route.entryRoutes(json: Json) {
                     // Stop any timer that is still running for the target user.
                     val stopped = TimeEntriesTable.selectAll()
                         .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
+                        .forUpdate(ForUpdateOption.ForUpdate)
                         .singleOrNull()
                     val stoppedDto = stopped?.let { row ->
                         val sid = row[TimeEntriesTable.id]
@@ -266,6 +268,7 @@ private fun Route.entryRoutes(json: Json) {
             val entry = transaction {
                 val running = TimeEntriesTable.selectAll()
                     .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
+                    .forUpdate(ForUpdateOption.ForUpdate)
                     .singleOrNull() ?: return@transaction null
                 val id = running[TimeEntriesTable.id]
                 val now = Instant.now()
@@ -342,8 +345,10 @@ private fun Route.entryRoutes(json: Json) {
             }
 
             val outcome: Any? = transaction {
-                val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                val existing = TimeEntriesTable.selectAll()
+                    .where { TimeEntriesTable.id eq id }
+                    .forUpdate(ForUpdateOption.ForUpdate)
+                    .singleOrNull() ?: return@transaction null
                 val stopped = existing[TimeEntriesTable.stoppedAt]
                     ?: return@transaction ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first")
                 val started = existing[TimeEntriesTable.startedAt]
@@ -407,8 +412,10 @@ private fun Route.entryRoutes(json: Json) {
             }
 
             val outcome = transaction {
-                val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                val existing = TimeEntriesTable.selectAll()
+                    .where { TimeEntriesTable.id eq id }
+                    .forUpdate(ForUpdateOption.ForUpdate)
+                    .singleOrNull() ?: return@transaction null
                 if (newProjectId != null) {
                     val project = ProjectsTable.selectAll().where { ProjectsTable.id eq newProjectId }.singleOrNull()
                         ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
@@ -451,8 +458,10 @@ private fun Route.entryRoutes(json: Json) {
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
             val deleted = transaction {
-                val existing = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                val existing = TimeEntriesTable.selectAll()
+                    .where { TimeEntriesTable.id eq id }
+                    .forUpdate(ForUpdateOption.ForUpdate)
+                    .singleOrNull() ?: return@transaction null
                 TimeEntriesTable.deleteWhere { TimeEntriesTable.id eq id }
                 existing.toEntryDto()
             }
