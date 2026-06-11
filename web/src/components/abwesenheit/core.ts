@@ -113,6 +113,25 @@ const mdKey = (month: number, day: number): string => `${C.pad(month)}-${C.pad(d
 /** MM-DD slice of a YYYY-MM-DD date string. */
 const mdOf = (dateStr: string): string => dateStr.slice(5)
 
+/**
+ * The GET /absence snapshot as it may really arrive: the backend omits fields holding
+ * their default (encodeDefaults=false, see CLAUDE.md / issue #46), so *every* list can
+ * be missing — e.g. a household without absences/part-time rules/kita closures (#54).
+ */
+export type AbsenceSnapshot = Partial<AbsenceState>
+
+/** Fill every missing snapshot list with [] so downstream code can rely on real arrays. */
+export function normalizeAbsenceState(raw: AbsenceSnapshot): AbsenceState {
+  return {
+    users: raw.users ?? [],
+    absences: raw.absences ?? [],
+    partTime: raw.partTime ?? [],
+    kitaClosures: raw.kitaClosures ?? [],
+    customHolidays: raw.customHolidays ?? [],
+    settings: raw.settings ?? [],
+  }
+}
+
 export interface Ctx {
   year: number
   settings: Record<string, AbsSettings>
@@ -127,7 +146,8 @@ export interface Ctx {
 }
 
 /** Build a lookup context once per render: holidays per user, absence map, etc. */
-export function buildContext(state: AbsenceState, year: number, users: string[]): Ctx {
+export function buildContext(snapshot: AbsenceSnapshot, year: number, users: string[]): Ctx {
+  const state = normalizeAbsenceState(snapshot) // tolerate raw snapshots with missing lists (#54)
   const settings: Record<string, AbsSettings> = {}
   const holidays: Record<string, Record<string, string>> = {}
   const absByUser: Record<string, Record<string, Absence>> = {}
@@ -148,10 +168,8 @@ export function buildContext(state: AbsenceState, year: number, users: string[])
   state.kitaClosures.forEach((k) => {
     kita[k.date] = k
   })
-  // `customHolidays` may be omitted from the snapshot when empty (encodeDefaults=false,
-  // see CLAUDE.md / issue #46) — normalise to [].
   const customHol: Record<string, CustomHoliday> = {}
-  ;(state.customHolidays ?? []).forEach((h) => {
+  state.customHolidays.forEach((h) => {
     customHol[mdKey(h.month, h.day)] = h
   })
   return { year, settings, holidays, absByUser, kita, customHol, parttime: state.partTime, hue }
@@ -269,12 +287,13 @@ export function eachDate(from: string, to: string): string[] {
 /** would this date be a working day for this user (not weekend / holiday / part-time-off)?
  *  A whole-day custom holiday (#51) counts as non-working; a half-day one stays workable
  *  (the other half is bookable), so range-booking still applies on it. */
-export function isWorkdayFor(state: AbsenceState, userId: string, ds: string): boolean {
+export function isWorkdayFor(snapshot: AbsenceSnapshot, userId: string, ds: string): boolean {
+  const state = normalizeAbsenceState(snapshot) // tolerate raw snapshots with missing lists (#54)
   const s = settingsFor(state.settings, userId, Number(ds.slice(0, 4)))
   const date = C.parse(ds)
   if (C.isWeekend(date)) return false
   if (C.holidays(date.getFullYear(), s.state)[ds]) return false
-  const custom = (state.customHolidays ?? []).find((h) => h.month === date.getMonth() + 1 && h.day === date.getDate())
+  const custom = state.customHolidays.find((h) => h.month === date.getMonth() + 1 && h.day === date.getDate())
   if (custom && !custom.half) return false
   if (partTimeOff(state.partTime, userId, date, ds)) return false
   return true

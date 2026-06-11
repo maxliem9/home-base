@@ -138,10 +138,11 @@ test.describe('Abwesenheit', () => {
     await expect(page.locator('.abw-mchip__txt', { hasText: '½ Heiligabend' }).first()).toBeVisible()
   })
 
-  test('settings survive a snapshot that omits customHolidays (encodeDefaults=false)', async ({ page }) => {
-    // The backend drops empty list fields from the payload (issue #46), so a household
-    // with no custom holidays sends a snapshot WITHOUT the customHolidays key at all.
-    // Opening the settings page must not crash and must show the empty hint.
+  test('calendar and settings survive a snapshot that omits every list (encodeDefaults=false)', async ({ page }) => {
+    // The backend drops fields holding their default from the payload (issue #46), so a
+    // fresh household sends a snapshot WITHOUT absences/partTime/kitaClosures/
+    // customHolidays/settings keys at all. Neither the calendar (buildContext/summarize)
+    // nor the settings page may crash on that (#51 guarded customHolidays, #54 the rest).
     const mock = new MockApi().seedAbsence({
       users: ['max', 'lea'],
       settings: [absSettings({ userId: 'max', year: YEAR }), absSettings({ userId: 'lea', year: YEAR })],
@@ -149,28 +150,28 @@ test.describe('Abwesenheit', () => {
     await page.clock.setFixedTime(FIXED_NOW)
     await mock.install(page)
     // Registered AFTER install so it takes precedence (Playwright matches newest first):
-    // return a snapshot that literally omits the customHolidays key (seedAbsence emits []).
+    // return a snapshot that literally omits every list key (seedAbsence emits []).
     await page.route('**/api/v1/absence', (route) => {
       if (route.request().method() !== 'GET') return route.fallback()
-      // Includes the other (pre-existing) list fields but deliberately omits customHolidays
-      // — that omission is exactly the #51 regression this test guards.
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ users: ['max', 'lea'], absences: [], partTime: [], kitaClosures: [], settings: [
-          { userId: 'max', year: YEAR, state: 'BE', allowance: 30, carryover: 0, kindKrankCap: 15 },
-          { userId: 'lea', year: YEAR, state: 'BE', allowance: 30, carryover: 0, kindKrankCap: 15 },
-        ] }),
+        body: JSON.stringify({ users: ['max', 'lea'] }),
       })
     })
     await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
     await page.goto('/')
     await page.getByRole('button', { name: 'Kalender' }).click()
     await expect(page.getByRole('heading', { name: 'Kalender' })).toBeVisible()
+    // The calendar itself renders: one summary card per user (default settings) + the grid.
+    await expect(page.locator('.abw-sumcard')).toHaveCount(2)
+    await expect(page.locator(`button.abw-rcell--day[title^="${YEAR}-06-04"]`).first()).toBeVisible()
     await page.getByRole('button', { name: 'Einstellungen' }).click()
     await expect(page.getByRole('heading', { name: 'Kalender-Einstellungen' })).toBeVisible()
     await expect(page.getByText('Eigene Feiertage')).toBeVisible()
     await expect(page.getByText('Noch keine eigenen Feiertage erfasst.')).toBeVisible()
+    await expect(page.getByText('Noch keine Schließtage erfasst.')).toBeVisible()
+    await expect(page.getByText('Keine Regel — Vollzeit.')).toHaveCount(2)
   })
 
   test('books a vacation period across working days', async ({ page }) => {
