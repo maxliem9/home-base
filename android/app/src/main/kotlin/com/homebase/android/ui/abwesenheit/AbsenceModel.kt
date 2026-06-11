@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.homebase.android.data.model.AbsSettingsDto
 import com.homebase.android.data.model.AbsenceDto
 import com.homebase.android.data.model.AbsenceStateDto
+import com.homebase.android.data.model.CustomHolidayDto
 import com.homebase.android.data.model.KitaClosureDto
 import com.homebase.android.data.model.PartTimeRuleDto
 import com.homebase.android.ui.theme.Hb
@@ -53,6 +54,9 @@ data class DayState(
     val type: String?,
     val half: String?,
     val holiday: String?,
+    // true only for a *half-day* custom holiday (#51): the day shows the holiday marker but is
+    // still half a regular work/tracking day. Statutory + full custom holidays are full days.
+    val holidayHalf: Boolean,
     val weekend: Boolean,
     val ptOff: Boolean,
 )
@@ -102,6 +106,12 @@ fun settingsFor(all: List<AbsSettingsDto>, userId: String, year: Int): AbsSettin
     return base.copy(year = year, carryover = 0.0, carryoverExpires = "$year-03-31")
 }
 
+/** MM-DD key for a custom holiday (recurring by month+day, year-agnostic). */
+private fun mdKey(month: Int, day: Int): String = "${AbwCal.pad(month)}-${AbwCal.pad(day)}"
+
+/** MM-DD slice of a YYYY-MM-DD date string. */
+private fun mdOf(dateStr: String): String = dateStr.substring(5)
+
 /** Lookup context built once per (snapshot, year): per-user holidays, absence map, etc. */
 data class AbsCtx(
     val year: Int,
@@ -109,6 +119,8 @@ data class AbsCtx(
     val holidays: Map<String, Map<String, String>>,
     val absByUser: Map<String, Map<String, AbsenceDto>>,
     val kita: Map<String, KitaClosureDto>,
+    // Household-wide custom holidays (#51), keyed by MM-DD so a fixed date matches every year.
+    val customHol: Map<String, CustomHolidayDto>,
     val partTime: List<PartTimeRuleDto>,
     val hue: Map<String, Double>,
 )
@@ -131,7 +143,9 @@ fun buildContext(state: AbsenceStateDto, year: Int, users: List<String>): AbsCtx
     }
     val kita = HashMap<String, KitaClosureDto>()
     state.kitaClosures.forEach { kita[it.date] = it }
-    return AbsCtx(year, settings, holidays, absByUser, kita, state.partTime, hue)
+    val customHol = HashMap<String, CustomHolidayDto>()
+    state.customHolidays.forEach { customHol[mdKey(it.month, it.day)] = it }
+    return AbsCtx(year, settings, holidays, absByUser, kita, customHol, state.partTime, hue)
 }
 
 /** Resolve a single person's day. */
@@ -139,19 +153,25 @@ fun personDay(ctx: AbsCtx, userId: String, dateStr: String): DayState {
     val date = AbwCal.parse(dateStr)
     val hue = ctx.hue[userId] ?: hueOf(userId)
     val abs = ctx.absByUser[userId]?.get(dateStr)
-    val holiday = ctx.holidays[userId]?.get(dateStr)
+    // Statutory holiday (per Bundesland, always full-day) wins; otherwise fall back to a
+    // household-wide custom holiday matched by month+day (#51), which may be a half day.
+    val statutory = ctx.holidays[userId]?.get(dateStr)
+    val custom = if (statutory != null) null else ctx.customHol[mdOf(dateStr)]
     return DayState(
         hue = hue,
         type = abs?.type,
         half = abs?.half,
-        holiday = holiday,
+        holiday = statutory ?: custom?.label,
+        holidayHalf = custom?.half ?: false,
         weekend = AbwCal.isWeekend(date),
         ptOff = partTimeOff(ctx.partTime, userId, date, dateStr),
     )
 }
 
-/** Would this be a working day absent any leave? (used for counting) */
-fun wouldWork(st: DayState): Boolean = !st.weekend && st.holiday == null && !st.ptOff
+/** Would this be a working day absent any leave? (used for counting) A *half* custom holiday
+ *  (#51) still leaves the other half a regular work day, so it does not disqualify the day here —
+ *  only full holidays (statutory + whole-day custom) do. */
+fun wouldWork(st: DayState): Boolean = !st.weekend && !(st.holiday != null && !st.holidayHalf) && !st.ptOff
 
 data class AbsSummary(
     val allowance: Double,
@@ -235,12 +255,16 @@ fun eachDate(from: String, to: String): List<String> {
     return out
 }
 
-/** Would this date be a working day for this user (not weekend / holiday / part-time-off)? */
+/** Would this date be a working day for this user (not weekend / holiday / part-time-off)?
+ *  A whole-day custom holiday (#51) counts as non-working; a half-day one stays workable
+ *  (the other half is bookable), so range-booking still applies on it. */
 fun isWorkdayFor(state: AbsenceStateDto, userId: String, ds: String): Boolean {
     val date = AbwCal.parse(ds)
     val stateCode = settingsFor(state.settings, userId, date.year).state
     if (AbwCal.isWeekend(date)) return false
     if (AbwCal.holidays(date.year, stateCode).containsKey(ds)) return false
+    val custom = state.customHolidays.find { it.month == date.monthValue && it.day == date.dayOfMonth }
+    if (custom != null && !custom.half) return false
     if (partTimeOff(state.partTime, userId, date, ds)) return false
     return true
 }

@@ -406,7 +406,12 @@ private fun MonthCell(
 @Composable
 private fun MonthChip(uid: String, st: DayState) {
     if (st.type == null && st.holiday == null && !st.ptOff) return
-    val txt = if (st.type != null && st.half != null) (if (st.half == "vm") "AM" else "PM") else initialOf(uid)
+    val txt = when {
+        st.type != null && st.half != null -> if (st.half == "vm") "AM" else "PM"
+        // ½ prefix marks a half-day custom holiday (#51); statutory ones are full days.
+        st.type == null && st.holiday != null && st.holidayHalf -> "½"
+        else -> initialOf(uid)
+    }
     Box(
         Modifier.heightIn(min = 16.dp).widthIn(min = 16.dp).clip(RoundedCornerShape(5.dp))
             .background(colorFor(st), RoundedCornerShape(5.dp)).padding(horizontal = 3.dp),
@@ -472,11 +477,13 @@ private fun YearGrid(
                             Box(Modifier.weight(1f).height(16.dp).background(Hb.surface).alpha(0.4f))
                         } else {
                             val ds = "$year-${AbwCal.pad(m + 1)}-${AbwCal.pad(d)}"
-                            val colorA = colorFor(uA?.let { personDay(ctx, it, ds) })
-                            val colorB = colorFor(uB?.let { personDay(ctx, it, ds) })
+                            val dayA = uA?.let { personDay(ctx, it, ds) }
+                            val dayB = uB?.let { personDay(ctx, it, ds) }
                             YearCell(
                                 modifier = Modifier.weight(1f),
-                                colorA = colorA, colorB = colorB,
+                                colorA = colorFor(dayA), colorB = colorFor(dayB),
+                                // half custom holiday is household-wide — key off A, like web (#51)
+                                halfHoliday = dayA?.holidayHalf == true,
                                 isToday = ds == today, kita = ctx.kita.containsKey(ds),
                                 onClick = { onPick(ds) },
                             )
@@ -489,7 +496,7 @@ private fun YearGrid(
 }
 
 @Composable
-private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, isToday: Boolean, kita: Boolean, onClick: () -> Unit) {
+private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHoliday: Boolean, isToday: Boolean, kita: Boolean, onClick: () -> Unit) {
     Box(
         modifier
             .height(16.dp)
@@ -506,7 +513,13 @@ private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, isToday: 
                     drawRect(Hb.accent, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
                 }
             },
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        // ½ marks a half-day custom holiday (#51); statutory + full ones carry no glyph.
+        if (halfHoliday) {
+            Text("½", style = HbType.mono.copy(fontSize = 8.sp, fontWeight = FontWeight.Black), color = AbwPalette.onFill)
+        }
+    }
 }
 
 /** Diagonal two-person split: upper-left = A, lower-right = B (anti-diagonal divider). */
@@ -547,7 +560,7 @@ private fun DayEditorSheet(ctx: AbsCtx, ds: String, userIds: List<String>, vm: A
 private fun EditorPerson(ctx: AbsCtx, uid: String, ds: String, vm: AbsenceViewModel) {
     val st = personDay(ctx, uid, ds)
     val note = when {
-        st.holiday != null -> "Feiertag · ${st.holiday}"
+        st.holiday != null -> "Feiertag · ${st.holiday}" + if (st.holidayHalf) " (½)" else ""
         st.ptOff -> "ohnehin frei"
         st.weekend -> "Wochenende"
         else -> null

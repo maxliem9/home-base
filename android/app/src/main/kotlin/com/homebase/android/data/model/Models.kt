@@ -507,6 +507,23 @@ data class KitaClosureDto(
     val label: String,
 )
 
+/**
+ * A household-wide custom holiday (#51), recurring every year on a fixed [month]+[day].
+ * [half] = true marks a half day (½ free; the other half stays a regular work/tracking day).
+ * No user/Bundesland — it applies to everyone. Display-only on Android for now; managing them
+ * lives in the absence settings, deferred to the Android settings screen (#101).
+ */
+@JsonClass(generateAdapter = true)
+data class CustomHolidayDto(
+    val id: String,
+    val month: Int,
+    val day: Int,
+    // defensive default: the backend has no default on `half` so it currently always serializes it;
+    // tolerate it missing anyway (future-proof against an added default)
+    val half: Boolean = false,
+    val label: String,
+)
+
 @JsonClass(generateAdapter = true)
 data class AbsSettingsDto(
     val userId: String,
@@ -525,6 +542,7 @@ data class AbsenceStateDto(
     val absences: List<AbsenceDto> = emptyList(),
     val partTime: List<PartTimeRuleDto> = emptyList(),
     val kitaClosures: List<KitaClosureDto> = emptyList(),
+    val customHolidays: List<CustomHolidayDto> = emptyList(),
     val settings: List<AbsSettingsDto> = emptyList(),
 )
 
