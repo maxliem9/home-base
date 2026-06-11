@@ -5,6 +5,7 @@ import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
+import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import io.mockk.coEvery
@@ -73,13 +74,13 @@ class NotesRepositoryTest {
     }
 
     @Test
-    fun `getNotes returns failure on exception`() = runTest {
+    fun `getNotes maps unknown errors to the German fallback text`() = runTest {
         coEvery { api.getNotes(null) } throws RuntimeException("Network error")
 
         val result = repository.getNotes()
 
         assertTrue(result.isFailure)
-        assertEquals("Network error", result.exceptionOrNull()?.message)
+        assertEquals(GENERIC_ERROR_TEXT, result.exceptionOrNull()?.message)
     }
 
     @Test

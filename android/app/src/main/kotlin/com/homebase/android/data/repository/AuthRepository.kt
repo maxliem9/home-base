@@ -78,7 +78,7 @@ class AuthRepository(
     }
 
     suspend fun login(username: String, password: String): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
+        apiCatching {
             val response = api.login(LoginRequest(username, password))
             prefs.edit().putString(KEY_TOKEN, response.token).commit()
             onTokenChange(response.token)
