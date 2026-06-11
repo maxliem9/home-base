@@ -39,8 +39,9 @@ class AbsenceRouteTest {
         val token = loginAndGetToken()
         val snap = state(token)
         assertEquals(listOf("alice", "bob"), snap["users"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertTrue(snap["absences"]!!.jsonArray.isEmpty())
-        assertTrue(snap["settings"]!!.jsonArray.isEmpty())
+        // Empty lists are omitted by encodeDefaults=false — absent key means empty.
+        assertTrue("absences" !in snap)
+        assertTrue("settings" !in snap)
     }
 
     @Test
@@ -97,7 +98,8 @@ class AbsenceRouteTest {
         }
         val del = client.delete("/api/v1/absence/entries?userId=alice&date=2026-04-06") { bearerAuth(token) }
         assertEquals(HttpStatusCode.NoContent, del.status)
-        assertTrue(state(token)["absences"]!!.jsonArray.isEmpty())
+        // After clearing the only entry, the absences list is empty and omitted (encodeDefaults=false).
+        assertTrue("absences" !in state(token))
     }
 
     @Test
@@ -140,7 +142,8 @@ class AbsenceRouteTest {
         assertTrue(body["end"].let { it == null || it is JsonNull })
 
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/absence/parttime/$id") { bearerAuth(token) }.status)
-        assertTrue(state(token)["partTime"]!!.jsonArray.isEmpty())
+        // After deleting the rule, partTime is empty and omitted (encodeDefaults=false).
+        assertTrue("partTime" !in state(token))
     }
 
     @Test
@@ -226,7 +229,8 @@ class AbsenceRouteTest {
             setBody("""{"from":"2026-01-01","to":"2029-01-01"}""")
         }
         assertEquals(HttpStatusCode.BadRequest, res.status)
-        assertTrue(state(token)["kitaClosures"]!!.jsonArray.isEmpty())
+        // Rejected range creates no closures; empty list is omitted (encodeDefaults=false).
+        assertTrue("kitaClosures" !in state(token))
     }
 
     @Test
@@ -273,7 +277,8 @@ class AbsenceRouteTest {
             setBody("""{"userId":"alice","type":"URLAUB","dates":$datesJson}""")
         }
         assertEquals(HttpStatusCode.BadRequest, res.status)
-        assertTrue(state(token)["absences"]!!.jsonArray.isEmpty())
+        // Rejected batch creates no entries; empty list is omitted (encodeDefaults=false).
+        assertTrue("absences" !in state(token))
     }
 
     @Test
@@ -512,7 +517,8 @@ class AbsenceRouteTest {
         assertEquals("Ganztag", body["label"]?.jsonPrimitive?.content)
 
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/absence/holidays/$id") { bearerAuth(token) }.status)
-        assertTrue(state(token)["customHolidays"]!!.jsonArray.isEmpty())
+        // After deleting the only holiday, customHolidays is empty and omitted (encodeDefaults=false).
+        assertTrue("customHolidays" !in state(token))
     }
 
     @Test
