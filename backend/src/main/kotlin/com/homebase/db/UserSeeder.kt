@@ -16,9 +16,11 @@ import java.util.UUID
  *
  * HomeBase has no self-registration (PRD: "2 feste Nutzer, kein Self-Registration"),
  * so without this the users table stays empty and login can never succeed. Seeding
- * runs on every startup and is idempotent: existing users get their password hash
- * refreshed, new users are inserted. Credentials stay out of the repo, per the
- * env-var-only configuration convention.
+ * runs on every startup and is idempotent. It is bootstrap-only for passwords: a new
+ * user is inserted with the SEED_USERS password, and a legacy (pre-bcrypt) hash is
+ * upgraded to bcrypt — but an existing bcrypt hash is never overwritten, so a password
+ * a user changed in-app (#100) survives restarts instead of reverting to the env value.
+ * Credentials stay out of the repo, per the env-var-only configuration convention.
  *
  * Format: "username:password,username2:password2"
  */
@@ -75,14 +77,17 @@ object UserSeeder {
                         it[createdAt] = Instant.now()
                     }
                     log.info("Seeded new user '{}'.", user.username)
-                } else if (!Passwords.verify(user.password, existing[UsersTable.passwordHash])) {
-                    // Each bcrypt hash carries a random salt, so equal passwords don't yield
-                    // equal hashes — detect a changed (or legacy SHA-256) password via verify,
-                    // not string comparison, and re-hash only then.
+                } else if (!existing[UsersTable.passwordHash].startsWith("\$2")) {
+                    // Upgrade ONLY a legacy, pre-bcrypt hash (e.g. raw SHA-256) to bcrypt.
+                    // An existing bcrypt hash ("$2…") is deliberately left untouched: once a
+                    // user changes their own password in-app (#100), re-seeding from SEED_USERS
+                    // on the next restart must not reset it back to the env value. SEED_USERS is
+                    // thus bootstrap-only for passwords — initial insert + legacy rescue, never
+                    // an overwrite of a real, current hash.
                     UsersTable.update({ UsersTable.username eq user.username }) {
                         it[passwordHash] = Passwords.hash(user.password)
                     }
-                    log.info("Updated password for existing user '{}'.", user.username)
+                    log.info("Upgraded legacy password hash for existing user '{}' to bcrypt.", user.username)
                 }
             }
         }

@@ -7,6 +7,7 @@ import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.update
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
@@ -99,14 +100,22 @@ class UserSeederTest {
     }
 
     @Test
-    fun `seed updates password hash when password changes`() {
-        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "old")))
-        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "new")))
+    fun `seed does not overwrite an existing bcrypt hash so an in-app password change survives`() {
+        // Seed alice, then simulate her changing her password in-app (a fresh bcrypt hash of
+        // a different password). A later seed — e.g. on the next restart — must NOT reset it
+        // back to the SEED_USERS value, or the self-service change (#100) would be silently
+        // lost. Regression guard for the seeder-vs-self-service interaction.
+        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "seed-pw")))
+        val changed = Passwords.hash("user-chosen-pw")
+        transaction {
+            UsersTable.update({ UsersTable.username eq "alice" }) { it[passwordHash] = changed }
+        }
 
-        assertEquals(1, userCount())
-        val stored = hashOf("alice")!!
-        assertTrue(Passwords.verify("new", stored))
-        assertFalse(Passwords.verify("old", stored))
+        UserSeeder.seed(listOf(UserSeeder.SeedUser("alice", "seed-pw")))
+
+        assertEquals(changed, hashOf("alice"))
+        assertTrue(Passwords.verify("user-chosen-pw", hashOf("alice")!!))
+        assertFalse(Passwords.verify("seed-pw", hashOf("alice")!!))
     }
 
     @Test
