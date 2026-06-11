@@ -727,7 +727,7 @@ function TodoRow({
           <div className="hb-row__title">{todo.title}</div>
           <div className="hb-row__meta">
             {listName && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 <Icon name="folder" size={12} stroke={2} />
                 {listName}
               </span>
