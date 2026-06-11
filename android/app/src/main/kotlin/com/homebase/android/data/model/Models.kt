@@ -19,6 +19,17 @@ data class AppConfigResponse(val householdName: String)
 @JsonClass(generateAdapter = true)
 data class UpdateConfigRequest(val householdName: String)
 
+/** Body for PUT /users/me/password (#101). Backend checks the current password + min length 8. */
+@JsonClass(generateAdapter = true)
+data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
+
+/** GET/PUT /config/digest (#101). [enabled] = Telegram configured server-side; time stays editable. */
+@JsonClass(generateAdapter = true)
+data class DigestConfigResponse(val time: String, val enabled: Boolean)
+
+@JsonClass(generateAdapter = true)
+data class UpdateDigestRequest(val time: String)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers (#142), since the usernames are configurable, not hard-codeable.
 @JsonClass(generateAdapter = true)
