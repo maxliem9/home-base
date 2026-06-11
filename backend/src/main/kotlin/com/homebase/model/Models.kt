@@ -14,6 +14,14 @@ data class AppConfigResponse(val householdName: String)
 @Serializable
 data class UpdateConfigRequest(val householdName: String)
 
+// Telegram digest time (#100). `enabled` = whether Telegram is configured at all
+// (bot token + chat id); the time is editable regardless so it's ready once it is.
+@Serializable
+data class DigestConfigResponse(val time: String, val enabled: Boolean)
+
+@Serializable
+data class UpdateDigestRequest(val time: String)
+
 @Serializable
 data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
 

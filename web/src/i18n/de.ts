@@ -37,6 +37,7 @@ export const de = {
     INVALID_NAME: 'Name darf nicht leer sein (max. 60 Zeichen).',
     INVALID_PASSWORD: 'Aktuelles Passwort stimmt nicht.',
     WEAK_PASSWORD: 'Neues Passwort braucht mindestens 8 Zeichen.',
+    INVALID_TIME: 'Ungültige Uhrzeit (HH:mm).',
     // Todos / Lists
     INVALID_TODO: 'Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.',
     INVALID_STATUS: 'Ungültiger Status.',
@@ -427,6 +428,15 @@ export const de = {
     passwordChangeFailed: 'Passwort konnte nicht geändert werden.',
     passwordMismatch: 'Die neuen Passwörter stimmen nicht überein.',
     passwordTooShort: 'Mindestens 8 Zeichen.',
+    // Benachrichtigungen-Unterseite (#100): Telegram-Digest-Zeit.
+    notifications: 'Benachrichtigungen',
+    digestTitle: 'Telegram-Digest',
+    digestHint: 'Tägliche Zusammenfassung (heute erledigt, neue Inbox, morgen fällig).',
+    digestTimeLabel: 'Uhrzeit',
+    digestSaved: 'Gespeichert',
+    digestSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
+    digestApplies: 'Änderungen greifen ab dem nächsten geplanten Digest.',
+    digestDisabled: 'Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.',
     time: 'Zeiterfassung',
     projectsTitle: 'Projekte',
     projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',

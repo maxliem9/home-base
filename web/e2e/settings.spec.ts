@@ -84,3 +84,27 @@ test.describe('Settings — Konto (#100)', () => {
     expect(putFired).toBe(false)
   })
 })
+
+test.describe('Settings — Benachrichtigungen (#100)', () => {
+  async function openDigest(page: Page, mock: MockApi) {
+    await openApp(page, mock)
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Benachrichtigungen' }).click()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Telegram-Digest' })).toBeVisible()
+  }
+
+  test('shows the digest time (+ inactive note) and saves a change', async ({ page }) => {
+    await openDigest(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+
+    // the mock reports Telegram disabled → the inactive note shows, but the time is editable
+    await expect(body.getByText(/Telegram ist nicht konfiguriert/)).toBeVisible()
+    await expect(body.getByLabel('Uhrzeit')).toHaveValue('20:00')
+
+    await body.getByLabel('Uhrzeit').fill('07:30')
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/config/digest') && r.method() === 'PUT')
+    await body.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toEqual({ time: '07:30' })
+    await expect(body.getByText('Gespeichert')).toBeVisible()
+  })
+})
