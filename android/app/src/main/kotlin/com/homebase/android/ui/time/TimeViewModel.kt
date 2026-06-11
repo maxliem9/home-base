@@ -156,7 +156,7 @@ class TimeViewModel(
                     upsertEntry(halves.second)
                     refreshForecast()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Eintrag konnte nicht gesplittet werden") } }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Eintrag konnte nicht gesplittet werden.") } }
         }
     }
 
@@ -181,7 +181,7 @@ class TimeViewModel(
                     targets = targets.getOrDefault(state.targets),
                     forecast = forecast.getOrNull() ?: state.forecast,
                     forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
-                    error = if (failed) "Wochensoll konnte nicht gespeichert werden" else state.error,
+                    error = if (failed) "Wochensoll konnte nicht gespeichert werden." else state.error,
                 )
             }
         }
