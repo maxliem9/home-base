@@ -340,9 +340,9 @@ test.describe('Time tracking', () => {
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', description: 'Meeting', durationSeconds: 5400 })])
-    await openTime(page, mock)
+    await openTimeSettings(page, mock)
 
-    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    await page.locator('.hb-settings-body').getByRole('button', { name: 'CSV herunterladen' }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal).toBeVisible()
 
@@ -367,9 +367,9 @@ test.describe('Time tracking', () => {
         timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T09:00:00Z' }),
         timeEntry({ id: 'e2', projectId: 'p2', startedAt: '2026-06-10T10:00:00Z', stoppedAt: '2026-06-10T11:00:00Z' }),
       ])
-    await openTime(page, mock)
+    await openTimeSettings(page, mock)
 
-    await page.getByRole('button', { name: 'CSV-Export' }).click()
+    await page.locator('.hb-settings-body').getByRole('button', { name: 'CSV herunterladen' }).click()
     const modal = page.locator('.hb-modal')
     await modal.getByLabel('Von').fill('2026-06-01')
     await modal.getByLabel('Bis').fill('2026-06-30')

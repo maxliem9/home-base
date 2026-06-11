@@ -360,7 +360,7 @@ export const de = {
     date: 'Datum',
     from: 'Von',
     to: 'Bis',
-    exportCsv: 'CSV-Export', // page-head download button in the tracker (CSV-Export stays here, #99)
+    exportCsv: 'CSV-Export', // card title in Einstellungen → Zeiterfassung (#99)
     exportTitle: 'Als CSV exportieren',
     exportHint: 'Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.',
     exportAllProjects: 'Alle Projekte',
@@ -408,6 +408,7 @@ export const de = {
     projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
     wochensollEdit: 'Wochensoll bearbeiten',
     wochensollEmpty: 'Noch kein Wochensoll festgelegt.',
+    exportOpen: 'CSV herunterladen', // opens the export filter dialog
     perWeek: 'Std/Woche', // rendered as "{n} Std/Woche"
     defaultBadge: 'Standard',
   },
