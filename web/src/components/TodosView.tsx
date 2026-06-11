@@ -398,9 +398,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const inboxActive = activeId === INBOX_ID
   const active = inboxActive ? null : lists.find((l) => l.id === activeId) ?? null
   const openCount = (id: string) => todos.filter((x) => x.listId === id && x.status !== 'DONE').length
-  // `listId` may be missing entirely (encodeDefaults=false drops nulls, #46)
-  const inboxTodos = todos.filter((x) => !x.listId)
-  const inboxOpenCount = inboxTodos.filter((x) => x.status !== 'DONE').length
+  // Inbox = alles Unverplante: Status INBOX zählt auch dann, wenn das Todo schon
+  // in einer Liste liegt (Entscheidung #71 — gleiche Semantik wie die
+  // Dashboard-Kachel). Listen-lose Todos bleiben unabhängig vom Status drin,
+  // damit nichts unerreichbar wird (#69). `listId` may be missing entirely
+  // (encodeDefaults=false drops nulls, #46).
+  const inboxTodos = todos.filter((x) => x.status === 'INBOX' || !x.listId)
+  // badge counts unplanned todos — the exact rule of the dashboard's inbox tile
+  const inboxOpenCount = todos.filter((x) => x.status === 'INBOX').length
 
   const listTodos = inboxActive ? inboxTodos : active ? todos.filter((x) => x.listId === active.id) : []
   const openTodos = listTodos.filter((x) => x.status !== 'DONE')
@@ -498,6 +503,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         todo={todo}
                         open={expanded.has(todo.id)}
                         draft={subDrafts[todo.id] ?? ''}
+                        listName={inboxActive && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
                         onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
@@ -530,6 +536,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                         todo={todo}
                         open={expanded.has(todo.id)}
                         draft={subDrafts[todo.id] ?? ''}
+                        listName={inboxActive && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
                         onToggleDone={() => toggleDone(todo)}
                         onToggleExpand={() => toggleExpand(todo.id)}
                         onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
@@ -682,6 +689,7 @@ function TodoRow({
   todo,
   open,
   draft,
+  listName,
   onToggleDone,
   onToggleExpand,
   onPlan,
@@ -694,6 +702,9 @@ function TodoRow({
   todo: Todo
   open: boolean
   draft: string
+  // source list shown in the row meta — set in the Inbox tab for unplanned
+  // list todos (#71), so they are distinguishable from list-less ones
+  listName?: string
   onToggleDone: () => void
   onToggleExpand: () => void
   onPlan: () => void
@@ -715,6 +726,12 @@ function TodoRow({
         <div className="hb-row__main">
           <div className="hb-row__title">{todo.title}</div>
           <div className="hb-row__meta">
+            {listName && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="folder" size={12} stroke={2} />
+                {listName}
+              </span>
+            )}
             {todo.description && (
               <span style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.description}</span>
             )}

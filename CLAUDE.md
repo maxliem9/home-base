@@ -139,12 +139,17 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
   + Android `HeuteScreen`. Siehe Issue #131.
 - Aufgaben-View (`components/TodosView.tsx`): Inbox-Tab als erster Tab vor den
-  Listen-Tabs — zeigt alle Todos ohne `listId` (Dashboard-Quick-Add und Android-FAB
-  erzeugen solche), Badge zählt die offenen davon. Quick-Add im Inbox-Tab postet
-  ohne `listId`; das Planen-Modal bietet für Inbox-Todos zusätzlich eine
-  Listen-Auswahl (PUT mit `listId` verschiebt in die Liste). Default-Tab bleibt
-  die erste Liste; ohne Listen ist die Inbox der Default (kein „Noch keine
-  Liste"-Empty-State mehr). Siehe Issue #69.
+  Listen-Tabs. **Inbox-Semantik (#71): „alles Unverplante"** — der Tab zeigt alle
+  Todos mit Status INBOX (auch wenn sie schon in einer Liste liegen; Quick-Add in
+  eine Liste erzeugt solche) **plus** alle listen-losen Todos unabhängig vom Status
+  (Dashboard-Quick-Add/Android-FAB; so bleibt nichts unerreichbar, #69). Unverplante
+  Listen-Todos tragen im Inbox-Tab ihre Herkunfts-Liste als Meta. Badge = Anzahl
+  Status-INBOX-Todos — dieselbe Zählweise wie die Dashboard-Kachel „In der Inbox"
+  und die Digest-Vorschau. Quick-Add im Inbox-Tab postet ohne `listId`; das
+  Planen-Modal bietet für listen-lose Todos zusätzlich eine Listen-Auswahl (PUT mit
+  `listId` verschiebt in die Liste). Default-Tab bleibt die erste Liste; ohne
+  Listen ist die Inbox der Default (kein „Noch keine Liste"-Empty-State mehr).
+  Siehe Issues #69/#71.
 - WebSocket-Hook für Echtzeit-Updates
 - Kein Redux — useState/useContext reicht für MVP
 
