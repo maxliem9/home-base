@@ -41,7 +41,7 @@ class RecurringTodoService {
             val freq = row[TodosTable.recurrence] ?: continue
             val interval = row[TodosTable.recurrenceInterval] ?: 1
             val newDue = Recurrence.rollOpenDueForward(due, freq, interval, today)
-            if (newDue == due) continue
+            if (newDue.isEqual(due)) continue
             val todoId = row[TodosTable.id]
             TodosTable.update({ TodosTable.id eq todoId }) { it[dueDate] = newDue }
             val dto = TodosTable.selectAll().where { TodosTable.id eq todoId }.single().toTodoDto()
