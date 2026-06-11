@@ -89,7 +89,7 @@ class TimeRepositoryTest {
         val result = repository.splitEntry("e1", "2026-06-03T07:30:00Z", null)
 
         assertTrue(result.isFailure)
-        assertEquals("Eintrag konnte nicht gesplittet werden", result.exceptionOrNull()?.message)
+        assertEquals("Eintrag konnte nicht gesplittet werden.", result.exceptionOrNull()?.message)
     }
 
     @Test

@@ -435,7 +435,7 @@ private fun RecipeDetailPage(
         viewModel.exportRecipe(recipe.id, format, servings.takeIf { it != baseServings }) { result ->
             result
                 .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes) }
-                .onFailure { toastMsg = "Export fehlgeschlagen" }
+                .onFailure { toastMsg = "Rezept konnte nicht exportiert werden." }
         }
     }
 

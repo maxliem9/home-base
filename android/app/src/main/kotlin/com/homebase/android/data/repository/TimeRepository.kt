@@ -103,7 +103,7 @@ class TimeRepository(
         "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
         "INVALID_DATE" -> "Ungültiges Datum."
         "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
-        else -> "Eintrag konnte nicht gesplittet werden"
+        else -> "Eintrag konnte nicht gesplittet werden."
     }
 
     private fun errorCodeOf(e: HttpException): String? = runCatching {

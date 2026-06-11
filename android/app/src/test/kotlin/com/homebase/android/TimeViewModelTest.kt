@@ -455,7 +455,7 @@ class TimeViewModelTest {
         vm.saveTargets(listOf(TargetChange("alice", "p1", weeklyHours = 10.0)))
         advanceUntilIdle()
 
-        assertEquals("Wochensoll konnte nicht gespeichert werden", vm.uiState.value.error)
+        assertEquals("Wochensoll konnte nicht gespeichert werden.", vm.uiState.value.error)
     }
 
     // --- Live-Tick (#64): forecastAt snapshot timestamp ---
