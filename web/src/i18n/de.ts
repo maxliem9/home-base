@@ -359,7 +359,6 @@ export const de = {
     date: 'Datum',
     from: 'Von',
     to: 'Bis',
-    exportCsv: 'CSV-Export',
     exportTitle: 'Als CSV exportieren',
     exportHint: 'Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.',
     exportAllProjects: 'Alle Projekte',
