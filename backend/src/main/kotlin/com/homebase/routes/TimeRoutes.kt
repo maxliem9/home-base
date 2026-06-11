@@ -11,8 +11,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.vendors.ForUpdateOption
@@ -33,13 +33,11 @@ private val HEX_COLOR = Regex("^#[0-9A-Fa-f]{6}$")
 private val TIMER_START_LOCKS = ConcurrentHashMap<String, Any>()
 
 fun Route.timeRoutes() {
-    val json = Json { ignoreUnknownKeys = true }
-
     route("/time") {
-        projectRoutes(json)
-        entryRoutes(json)
+        projectRoutes()
+        entryRoutes()
         exportRoutes()
-        workTargetRoutes(json)
+        workTargetRoutes()
         forecastRoute()
 
         // All currently running timers across the shared household (0..2). Lets the
@@ -68,7 +66,7 @@ fun Route.timeRoutes() {
     }
 }
 
-private fun Route.projectRoutes(json: Json) {
+private fun Route.projectRoutes() {
     route("/projects") {
         get {
             val projects = transaction {
@@ -105,7 +103,7 @@ private fun Route.projectRoutes(json: Json) {
                 ProjectsTable.selectAll().where { ProjectsTable.id eq id }.single().toProjectDto()
             }
 
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("PROJECT_CREATED", project = project)))
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("PROJECT_CREATED", project = project)))
             call.respond(HttpStatusCode.Created, project)
         }
 
@@ -135,7 +133,7 @@ private fun Route.projectRoutes(json: Json) {
                 return@put
             }
 
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("PROJECT_UPDATED", project = project)))
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("PROJECT_UPDATED", project = project)))
             call.respond(project)
         }
 
@@ -158,13 +156,13 @@ private fun Route.projectRoutes(json: Json) {
                 return@patch
             }
 
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("PROJECT_UPDATED", project = project)))
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("PROJECT_UPDATED", project = project)))
             call.respond(project)
         }
     }
 }
 
-private fun Route.entryRoutes(json: Json) {
+private fun Route.entryRoutes() {
     route("/entries") {
         get {
             val projectId = call.request.queryParameters["project_id"]
@@ -249,9 +247,9 @@ private fun Route.entryRoutes(json: Json) {
                     val stoppedDto = result.first as TimeEntryDto?
                     val startedDto = result.second as TimeEntryDto
                     stoppedDto?.let {
-                        WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = it)))
+                        WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = it)))
                     }
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = startedDto)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = startedDto)))
                     call.respond(HttpStatusCode.Created, startedDto)
                 }
             }
@@ -282,7 +280,7 @@ private fun Route.entryRoutes(json: Json) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NO_RUNNING_TIMER", "No timer is currently running"))
                 return@post
             }
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = entry)))
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = entry)))
             call.respond(entry)
         }
 
@@ -324,7 +322,7 @@ private fun Route.entryRoutes(json: Json) {
                 null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Project not found"))
                 is ErrorResponse -> call.respond(HttpStatusCode.Conflict, entry)
                 is TimeEntryDto -> {
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = entry)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = entry)))
                     call.respond(HttpStatusCode.Created, entry)
                 }
             }
@@ -390,8 +388,8 @@ private fun Route.entryRoutes(json: Json) {
                     outcome,
                 )
                 is SplitTimeEntryResponse -> {
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = outcome.first)))
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = outcome.second)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = outcome.first)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_CREATED", entry = outcome.second)))
                     call.respond(outcome)
                 }
             }
@@ -449,7 +447,7 @@ private fun Route.entryRoutes(json: Json) {
                     call.respond(status, outcome)
                 }
                 is TimeEntryDto -> {
-                    WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = outcome)))
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_UPDATED", entry = outcome)))
                     call.respond(outcome)
                 }
             }
@@ -469,7 +467,7 @@ private fun Route.entryRoutes(json: Json) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Time entry not found"))
                 return@delete
             }
-            WsSessionManager.broadcast(TIME_WS_CHANNEL, json.encodeToString(TimeWsMessage("ENTRY_DELETED", entry = deleted)))
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("ENTRY_DELETED", entry = deleted)))
             call.respond(HttpStatusCode.NoContent)
         }
     }

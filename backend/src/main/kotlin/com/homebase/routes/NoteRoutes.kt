@@ -14,8 +14,8 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
 import io.ktor.websocket.*
+import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -42,8 +42,6 @@ private val ALLOWED_IMAGE_TYPES = mapOf(
 data class NoteImageConfig(val uploadDir: Path, val maxBytes: Long)
 
 fun Route.noteRoutes(imageConfig: NoteImageConfig) {
-    val json = Json { ignoreUnknownKeys = true }
-
     route("/notes") {
         // List notes visible to the caller (own notes + all shared), newest first.
         // Optional ?q= performs a case-insensitive search over title, content and tags.
@@ -107,7 +105,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                 NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto(emptyList())
             }
 
-            broadcastCreate(json, note)
+            broadcastCreate(note)
             call.respond(HttpStatusCode.Created, note)
         }
 
@@ -167,7 +165,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                         ErrorResponse("VISIBILITY_FORBIDDEN", "only the note's owner may change its visibility"),
                     )
                 is NoteUpdateResult.Success -> {
-                    broadcastUpdate(json, result.wasShared, result.note)
+                    broadcastUpdate(result.wasShared, result.note)
                     call.respond(result.note)
                 }
             }
@@ -196,7 +194,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
             files.forEach { deleteImageFile(imageConfig, it) }
             // only notify the other client about notes it could actually see
             if (deleted.visibility == VISIBILITY_SHARED) {
-                WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage("NOTE_DELETED", deleted)))
+                WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage("NOTE_DELETED", deleted)))
             }
             call.respond(HttpStatusCode.NoContent)
         }
@@ -309,7 +307,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
                 return@post
             }
 
-            broadcastUpdate(json, wasShared = result.visibility == VISIBILITY_SHARED, note = result)
+            broadcastUpdate(wasShared = result.visibility == VISIBILITY_SHARED, note = result)
             call.respond(HttpStatusCode.Created, result)
         }
 
@@ -371,7 +369,7 @@ fun Route.noteRoutes(imageConfig: NoteImageConfig) {
             }
             val (filename, note) = outcome
             deleteImageFile(imageConfig, filename)
-            broadcastUpdate(json, wasShared = note.visibility == VISIBILITY_SHARED, note = note)
+            broadcastUpdate(wasShared = note.visibility == VISIBILITY_SHARED, note = note)
             call.respond(note)
         }
     }
@@ -422,19 +420,19 @@ private fun ResultRow.isVisibleTo(username: String): Boolean =
  * On visibility transitions we translate the change into the event the *other* client needs:
  * a note becoming private looks like a deletion; a note becoming shared looks like a creation.
  */
-private suspend fun broadcastCreate(json: Json, note: NoteDto) {
+private suspend fun broadcastCreate(note: NoteDto) {
     if (note.visibility == VISIBILITY_SHARED) {
-        WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage("NOTE_CREATED", note)))
+        WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage("NOTE_CREATED", note)))
     }
 }
 
-private suspend fun broadcastUpdate(json: Json, wasShared: Boolean, note: NoteDto) {
+private suspend fun broadcastUpdate(wasShared: Boolean, note: NoteDto) {
     val type = when {
         note.visibility == VISIBILITY_SHARED -> "NOTE_UPDATED"     // other client upserts
         wasShared -> "NOTE_DELETED"                                 // shared -> private: remove it
         else -> return                                              // private -> private: nothing to share
     }
-    WsSessionManager.broadcast(NOTES_WS_CHANNEL, json.encodeToString(NoteWsMessage(type, note)))
+    WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage(type, note)))
 }
 
 private fun encodeTags(tags: List<String>?): String =
