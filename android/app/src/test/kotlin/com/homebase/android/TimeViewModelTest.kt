@@ -426,11 +426,11 @@ class TimeViewModelTest {
 
         val after = vm.uiState.value.forecastAt
         assertNotNull(after)
-        // The stamp must be at least as recent as the one set by load() — in the test
-        // dispatcher time does not advance on its own, so equality is fine; in a real
-        // clock it moves forward. The important invariant is that forecastAt is not null
-        // and is not cleared by the saveTargets path.
+        // Stamp must not move backwards (test dispatcher uses real wall-clock, so equality is fine).
         assertFalse(after!!.isBefore(before!!))
+        // ...and getForecast() must have run a second time (load + saveTargets) — proves the stamp
+        // was actually refreshed by saveTargets, not merely preserved from load().
+        coVerify(exactly = 2) { repository.getForecast() }
     }
 
     @Test
