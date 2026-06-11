@@ -383,9 +383,10 @@ export class MockApi {
     }
     if (path.endsWith('/config/digest') && method === 'PUT') {
       const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
-      const m = /^(\d{1,2}):(\d{2})(:\d{2})?$/.exec(raw)
+      // Match the backend's LocalTime.parse: zero-padded HH:mm (seconds optional, dropped).
+      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
       if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
-      this.digestTime = `${String(Number(m[1])).padStart(2, '0')}:${m[2]}`
+      this.digestTime = `${m[1]}:${m[2]}`
       return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
     }
 
