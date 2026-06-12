@@ -11,7 +11,7 @@
   const TODAY = "2026-06-04";
   const PEOPLE = [
     { id: "max", name: "Max", hue: 150, state: "BE" },
-    { id: "lea", name: "Chen", hue: 250, state: "BY" },
+    { id: "lea", name: "Lea", hue: 250, state: "BY" },
   ];
   const HOL = { max: C.holidays(YEAR, "BE"), lea: C.holidays(YEAR, "BY") };
   const PT = {
@@ -244,7 +244,7 @@
       h("div", { className: "hb-field" }, h("label", { className: "hb-field__label" }, "Für wen"),
         h("div", { className: "hb-pickrow" },
           h("button", { className: "hb-pick is-active" }, "Max"),
-          h("button", { className: "hb-pick is-active" }, "Chen"))),
+          h("button", { className: "hb-pick is-active" }, "Lea"))),
       h("div", { className: "hb-field" }, h("label", { className: "hb-field__label" }, "Art"),
         h("div", { className: "hb-pickrow" },
           h("button", { className: "hb-pick is-active" }, "Urlaub"),
