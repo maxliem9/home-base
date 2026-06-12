@@ -15,6 +15,10 @@ data class TokenResponse(val token: String)
 @JsonClass(generateAdapter = true)
 data class AppConfigResponse(val householdName: String)
 
+/** Body for PUT /config (#100/#101). The backend validates 1..60 chars. */
+@JsonClass(generateAdapter = true)
+data class UpdateConfigRequest(val householdName: String)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers (#142), since the usernames are configurable, not hard-codeable.
 @JsonClass(generateAdapter = true)

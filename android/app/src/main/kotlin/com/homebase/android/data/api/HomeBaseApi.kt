@@ -13,6 +13,9 @@ interface HomeBaseApi {
     @GET("config")
     suspend fun getConfig(): AppConfigResponse
 
+    @PUT("config")
+    suspend fun updateConfig(@Body request: UpdateConfigRequest): AppConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 
