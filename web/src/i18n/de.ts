@@ -282,6 +282,8 @@ export const de = {
     images: 'Bilder',
     addImage: 'Bild hinzufügen',
     removeImage: 'Bild entfernen',
+    insertImage: 'In Text einfügen',
+    insertImageLabel: 'Bild in den Text einfügen',
     uploading: 'Wird hochgeladen…',
     imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
     imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',

@@ -3,6 +3,7 @@
 import {
   useEffect,
   useRef,
+  Fragment,
   type CSSProperties,
   type ReactNode,
   type KeyboardEvent,
@@ -448,24 +449,63 @@ export function Select({
 
 // --- Tiny markdown renderer ------------------------------------------------
 
-export function renderMarkdown(md: string): ReactNode[] {
+export interface MarkdownOptions {
+  // Resolve a `![alt](image:<id>)` reference to a node (e.g. an authed <img>).
+  // Return null/undefined to fall back to the alt text. Keeps this generic
+  // renderer free of any token/auth knowledge — NotesView supplies <AuthedImage>.
+  resolveImage?: (imageId: string, alt: string) => ReactNode
+}
+
+// Only http(s), mailto and in-app relative targets may become real links/images;
+// anything else (javascript:, data:, …) renders as plain text. The renderer stays
+// XSS-safe because it builds React elements, never innerHTML — this guards the one
+// place an attacker-controlled URL reaches the DOM (href / external img src).
+const SAFE_URL_RE = /^(https?:|mailto:|\/|#)/i
+
+export function renderMarkdown(md: string, opts: MarkdownOptions = {}): ReactNode[] {
   const lines = (md || '').split('\n')
   const out: ReactNode[] = []
   let list: ReactNode[] | null = null
   let listType: 'ul' | 'ol' | null = null
   let key = 0
 
+  // `![alt](src)`: an `image:<id>` ref goes through resolveImage (authed attachment);
+  // an external http(s) URL becomes a plain <img>; anything else degrades to alt text.
+  const mdImage = (src: string, alt: string, i: number): ReactNode => {
+    const ref = src.trim()
+    const imageRef = ref.match(/^image:(.+)$/i)
+    if (imageRef) {
+      const node = opts.resolveImage?.(imageRef[1], alt)
+      return node ? <Fragment key={`img${i}`}>{node}</Fragment> : alt || null
+    }
+    if (/^https?:\/\//i.test(ref)) {
+      return <img key={`img${i}`} src={ref} alt={alt} className="hb-md-img" loading="lazy" />
+    }
+    return alt || null
+  }
+
+  // `[text](href)`: render an <a> only for allowlisted schemes; otherwise keep the words.
+  const mdLink = (href: string, text: string, i: number): ReactNode => {
+    const h = href.trim()
+    if (!SAFE_URL_RE.test(h)) return text
+    return <a key={`a${i}`} href={h} target="_blank" rel="noopener noreferrer">{text}</a>
+  }
+
   const inline = (s: string): ReactNode[] => {
     const parts: ReactNode[] = []
     let rest = s
     let i = 0
-    const re = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/
+    // image must precede link in the alternation: at a `!` the image arm wins, so
+    // `![alt](src)` is never mis-parsed as the link `[alt](src)` one char to the right.
+    const re = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\))/
     let m: RegExpExecArray | null
     while ((m = re.exec(rest))) {
       if (m.index > 0) parts.push(rest.slice(0, m.index))
       if (m[2] != null) parts.push(<strong key={`b${i}`}>{m[2]}</strong>)
       else if (m[3] != null) parts.push(<em key={`i${i}`}>{m[3]}</em>)
       else if (m[4] != null) parts.push(<code key={`c${i}`} className="hb-md-code">{m[4]}</code>)
+      else if (m[6] != null) parts.push(mdImage(m[6], m[5] ?? '', i))
+      else if (m[8] != null) parts.push(mdLink(m[8], m[7], i))
       rest = rest.slice(m.index + m[0].length)
       i++
     }

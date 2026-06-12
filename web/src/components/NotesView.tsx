@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ImgHTMLAttributes } from 'react'
 import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
-import { Note, NoteVisibility } from '../types'
+import { Note, NoteImage, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -62,6 +62,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const contentRef = useRef<HTMLTextAreaElement>(null)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchNotes = useCallback(async (q: string) => {
@@ -194,6 +195,9 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     return true
   })
   const selected = notes.find((n) => n.id === selectedId) ?? null
+  // attachments of the note currently being edited — the source for caret-insertion.
+  // Only existing (saved) notes have images; a brand-new draft has none yet.
+  const editImages = draft?.id ? (notes.find((n) => n.id === draft.id)?.images ?? []) : []
 
   // images are managed from the read view; clear any stale upload error on selection change
   useEffect(() => { setImageError(null) }, [selectedId])
@@ -244,6 +248,30 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     } else {
       setImageError(errorText(await errorCode(res), t.notes.imageDeleteFailed))
     }
+  }
+
+  // Insert an inline reference to an already-uploaded attachment at the editor caret
+  // (issue follow-up tracks paste/drag-to-upload). The snippet `![name](image:id)`
+  // replaces the current selection / lands at the cursor; renderMarkdown resolves it
+  // to the authed image on the read side. Caret is restored after React re-renders the
+  // controlled textarea. Only offered while editing an existing note (images need an id).
+  const insertAtCaret = (img: NoteImage) => {
+    if (!draft) return
+    const snippet = `![${img.originalName}](image:${img.id})`
+    const el = contentRef.current
+    const text = draft.content
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    const next = text.slice(0, start) + snippet + text.slice(end)
+    setDraft({ ...draft, content: next })
+    const caret = start + snippet.length
+    requestAnimationFrame(() => {
+      const e2 = contentRef.current
+      if (e2) {
+        e2.focus()
+        e2.setSelectionRange(caret, caret)
+      }
+    })
   }
 
   return (
@@ -340,6 +368,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               </Field>
               <Field label={t.notes.contentPlaceholder}>
                 <textarea
+                  ref={contentRef}
                   className="hb-input hb-mono-area"
                   rows={12}
                   value={draft.content}
@@ -347,6 +376,24 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
                 />
               </Field>
+              {editImages.length > 0 && (
+                <Field label={t.notes.insertImageLabel}>
+                  <div className="hb-note-insert-strip">
+                    {editImages.map((img) => (
+                      <button
+                        key={img.id}
+                        type="button"
+                        className="hb-note-insert-thumb"
+                        title={`${t.notes.insertImage}: ${img.originalName}`}
+                        aria-label={`${t.notes.insertImage}: ${img.originalName}`}
+                        onClick={() => insertAtCaret(img)}
+                      >
+                        <AuthedImage noteId={draft.id!} imageId={img.id} token={token} alt={img.originalName} />
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              )}
               <Field label={t.notes.tagsPlaceholder}>
                 <TextInput value={draft.tags} onChange={(v) => setDraft({ ...draft, tags: v })} placeholder={t.notes.tagsPlaceholder} />
               </Field>
@@ -409,7 +456,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   <IconButton icon="trash" label={t.common.delete} danger onClick={() => handleDelete(selected.id)} />
                 </div>
               </div>
-              <div className="hb-md">{renderMarkdown(selected.content)}</div>
+              <div className="hb-md">
+                {renderMarkdown(selected.content, {
+                  // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery
+                  resolveImage: (imageId, alt) => (
+                    <AuthedImage noteId={selected.id} imageId={imageId} token={token} alt={alt} className="hb-md-img" />
+                  ),
+                })}
+              </div>
 
               <div className="hb-note-images">
                 <div className="hb-note-images__head">
