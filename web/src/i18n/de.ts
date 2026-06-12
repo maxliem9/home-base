@@ -440,6 +440,10 @@ export const de = {
     digestSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
     digestApplies: 'Änderungen greifen ab dem nächsten geplanten Digest.',
     digestDisabled: 'Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.',
+    // Abwesenheit-Unterseite (#99): Kalender-Konfiguration im Hub.
+    absence: 'Abwesenheit',
+    absenceTitle: 'Kontingente & Kalender',
+    absenceHint: 'Pro Person Urlaubskontingent, Übertrag, Bundesland und Teilzeit; dazu haushaltsweite Schließ- und Feiertage. Kontingent und Übertrag gelten pro Jahr.',
     time: 'Zeiterfassung',
     projectsTitle: 'Projekte',
     projectsHint: 'Projekte anlegen, umbenennen, einfärben oder archivieren.',
@@ -528,7 +532,6 @@ export const de = {
     layoutYear: 'Jahr',
     layoutMonth: 'Monat',
     period: 'Zeitraum',
-    settings: 'Einstellungen',
     today: 'Heute',
     prevYear: 'Vorheriges Jahr',
     nextYear: 'Nächstes Jahr',
@@ -594,9 +597,6 @@ export const de = {
     rangePreview: '≈ {n} Tage für {name}',
     rangeHalfHint: 'Für halbe Tage einen einzelnen Tag anklicken.',
     rangeClearHint: 'Entfernt alle Einträge der gewählten Person(en) im Zeitraum.',
-    // settings
-    settingsTitle: 'Kalender-Einstellungen',
-    backToCalendar: 'Zurück zum Kalender',
     bundesland: 'Bundesland',
     yearAllowance: 'Jahresanspruch (Tage)',
     restLeave: 'Resturlaub Vorjahr',
