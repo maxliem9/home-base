@@ -1,4 +1,13 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ImgHTMLAttributes } from 'react'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  type ImgHTMLAttributes,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+} from 'react'
 import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
@@ -199,36 +208,90 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // Only existing (saved) notes have images; a brand-new draft has none yet.
   const editImages = draft?.id ? (notes.find((n) => n.id === draft.id)?.images ?? []) : []
 
-  // images are managed from the read view; clear any stale upload error on selection change
-  useEffect(() => { setImageError(null) }, [selectedId])
+  // clear any stale image upload error when the read selection changes or the editor
+  // opens/closes/switches notes — paste/drop errors must not leak across views (#146)
+  useEffect(() => { setImageError(null) }, [selectedId, draft?.id, draft === null])
 
   // clear a stale save error whenever the editor opens on a different note (or closes)
   useEffect(() => { setSaveError(null) }, [draft?.id, draft === null])
 
-  const handleUploadImage = async (file: File) => {
-    if (!selected) return
+  // Upload one image file to a saved note and refresh that note in state. Returns the
+  // newly-attached NoteImage on success (so the editor can insert a ref to it at the
+  // caret), or null on any failure — in which case the inline imageError is already set.
+  // Shared by the read-view gallery upload and the editor paste/drop upload. Error
+  // mapping mirrors the backend contract: 413 too large, 415 unsupported type (#146).
+  const uploadImageToNote = async (noteId: string, file: File): Promise<NoteImage | null> => {
     setImageError(null)
     setUploadingImage(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images`, { method: 'POST', body: fd })
-      if (res.status === 401) return onLogout()
+      const res = await authFetch(token, `${API_BASE}/notes/${noteId}/images`, { method: 'POST', body: fd })
+      if (res.status === 401) { onLogout(); return null }
       if (res.ok) {
         const updated: Note = await res.json()
         setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
-      } else if (res.status === 413) {
-        setImageError(t.notes.imageTooLarge)
-      } else if (res.status === 415) {
-        setImageError(t.notes.imageBadType)
-      } else {
-        setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
+        // the upload returns the whole note; the newest attachment is the last image
+        return updated.images[updated.images.length - 1] ?? null
       }
+      if (res.status === 413) setImageError(t.notes.imageTooLarge)
+      else if (res.status === 415) setImageError(t.notes.imageBadType)
+      else setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
+      return null
     } catch {
       setImageError(t.notes.imageUploadFailed)
+      return null
     } finally {
       setUploadingImage(false)
     }
+  }
+
+  const handleUploadImage = async (file: File) => {
+    if (!selected) return
+    await uploadImageToNote(selected.id, file)
+  }
+
+  // Paste/drop an image directly into the editor: upload it to the (saved) note, then
+  // insert an inline `![name](image:<id>)` ref at the caret — the "GitHub feel" (#146).
+  // Guarded by draft.id: a brand-new, unsaved draft has no note to attach to, so we
+  // hint to save first rather than dropping the file silently.
+  const uploadAndInsert = async (file: File) => {
+    if (!draft) return
+    if (!draft.id) { setImageError(t.notes.imageSaveFirst); return }
+    const img = await uploadImageToNote(draft.id, file)
+    if (img) insertAtCaret(img)
+  }
+
+  // first image among dropped/pasted items, JPEG/PNG/WebP/GIF only (backend-allowed set)
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  const firstImageFile = (files: readonly File[]): File | null =>
+    files.find((f) => ALLOWED_IMAGE_TYPES.includes(f.type)) ?? null
+
+  const handleEditorPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    // pull image files out of the clipboard items; ignore plain-text pastes entirely
+    const files = Array.from(e.clipboardData.items)
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f != null)
+    const img = firstImageFile(files)
+    if (!img) return // let the browser handle non-image pastes (text etc.)
+    e.preventDefault()
+    void uploadAndInsert(img)
+  }
+
+  const handleEditorDrop = (e: ReactDragEvent<HTMLTextAreaElement>) => {
+    const img = firstImageFile(Array.from(e.dataTransfer.files))
+    if (!img) return // non-image drop → leave default behaviour
+    e.preventDefault()
+    void uploadAndInsert(img)
+  }
+
+  const handleEditorDragOver = (e: ReactDragEvent<HTMLTextAreaElement>) => {
+    // only intercept when an actual file is being dragged in, so text drag/drop within
+    // the textarea keeps working; signal a copy cursor for the drop.
+    if (!Array.from(e.dataTransfer.items).some((it) => it.kind === 'file')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
   }
 
   const handleDeleteImage = async (imageId: string) => {
@@ -377,7 +440,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   value={draft.content}
                   placeholder={t.notes.contentPlaceholder}
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+                  // paste/drag an image straight into the editor → upload + inline ref (#146)
+                  onPaste={handleEditorPaste}
+                  onDrop={handleEditorDrop}
+                  onDragOver={handleEditorDragOver}
                 />
+                {/* subtle inline feedback for the paste/drop upload flow */}
+                {uploadingImage && (
+                  <p className="hb-note-editor__uploading">
+                    <Icon name="image" size={14} stroke={2} /> {t.notes.imageUploadingInline}
+                  </p>
+                )}
+                {imageError && <p className="hb-note-images__error">{imageError}</p>}
               </Field>
               {editImages.length > 0 && (
                 <Field label={t.notes.insertImageLabel}>

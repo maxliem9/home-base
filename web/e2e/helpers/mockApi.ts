@@ -104,6 +104,10 @@ export class MockApi {
   private nextShopListId = 100
   private nextRecipeId = 100
   private nextNoteId = 100
+  private nextNoteImageId = 100
+  // optional HTTP status forced on the next note-image upload, to exercise the
+  // editor's 413/415 error paths (#146). One-shot: consumed by the next upload.
+  private nextImageUploadStatus: number | null = null
   private nextProjectId = 100
   private nextEntryId = 100
   private nextChildId = 100
@@ -127,6 +131,12 @@ export class MockApi {
 
   seedNotes(notes: Note[]): this {
     this.notes = notes.map((n) => ({ ...n }))
+    return this
+  }
+
+  /** Force the HTTP status of the NEXT note-image upload (e.g. 413/415) — one-shot. */
+  failNextImageUpload(status: number): this {
+    this.nextImageUploadStatus = status
     return this
   }
 
@@ -770,6 +780,37 @@ export class MockApi {
       }
       this.notes.unshift(note)
       return this.json(route, note, 201)
+    }
+
+    // Upload an image to a note (mirrors POST /notes/{id}/images, multipart). On
+    // success appends a new NoteImage and returns the updated note (the contract the
+    // editor's paste/drop flow relies on, #146); failNextImageUpload() forces a 413/415
+    // to drive the error paths. The original_name is parsed from the multipart body.
+    const noteImagesPost = path.match(/\/notes\/([^/]+)\/images$/)
+    if (noteImagesPost && method === 'POST') {
+      const noteId = noteImagesPost[1]
+      const idx = this.notes.findIndex((n) => n.id === noteId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      if (this.nextImageUploadStatus !== null) {
+        const status = this.nextImageUploadStatus
+        this.nextImageUploadStatus = null
+        return this.json(route, { code: status === 413 ? 'PAYLOAD_TOO_LARGE' : 'UNSUPPORTED_MEDIA_TYPE', message: 'rejected' }, status)
+      }
+      // best-effort filename from the multipart payload; falls back to a default
+      const original = /filename="([^"]+)"/.exec(req.postData() ?? '')?.[1] ?? 'upload.png'
+      const id = `noteimg-${this.nextNoteImageId++}`
+      const img: NoteImage = {
+        id,
+        noteId,
+        originalName: original,
+        contentType: 'image/png',
+        sizeBytes: TINY_PNG.length,
+        sortOrder: this.notes[idx].images.length,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.notes[idx] = { ...this.notes[idx], images: [...this.notes[idx].images, img], updatedAt: new Date().toISOString() }
+      return this.json(route, this.notes[idx], 201)
     }
 
     // Serve a seeded note's image as a real image blob (mirrors GET

@@ -131,4 +131,84 @@ test.describe('Notes', () => {
     await lightbox.click({ position: { x: 5, y: 5 } })
     await expect(lightbox).toHaveCount(0)
   })
+
+  // ---- Editor image upload: paste / drag&drop straight into the textarea (#146) ----
+  // Fires a real `paste`/`drop` event carrying an image File at the caret, then asserts
+  // the upload happened (POST /notes/{id}/images) and an inline `![name](image:<id>)`
+  // ref was inserted. Both go through the same uploadImageToNote → insertAtCaret flow.
+
+  // Dispatch a clipboard/drag event carrying a synthetic PNG File onto the editor
+  // textarea, at the given caret offset. Returns nothing; the app reacts to the event.
+  const fireEditorImageEvent = (page: Page, kind: 'paste' | 'drop', filename: string, caret = 0) =>
+    page.evaluate(
+      ({ kind, filename, caret }) => {
+        const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+        ta.focus()
+        ta.setSelectionRange(caret, caret)
+        const dt = new DataTransfer()
+        dt.items.add(new File([new Uint8Array([1, 2, 3])], filename, { type: 'image/png' }))
+        const ev =
+          kind === 'paste'
+            ? new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+            : new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+        ta.dispatchEvent(ev)
+      },
+      { kind, filename, caret },
+    )
+
+  const openEditorFor = async (page: Page, titleRe: RegExp) => {
+    await page.getByRole('button', { name: titleRe }).click()
+    await page.getByRole('button', { name: 'Bearbeiten' }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+  }
+
+  test('pastes an image into the editor → uploads and inserts a markdown ref', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'pasted.png', 0)
+    await upload
+
+    // the upload response (note + new image) drives an inline ref at the caret
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^!\[pasted\.png\]\(image:noteimg-\d+\)Router: \*\*abc123\*\*$/)
+  })
+
+  test('drops an image onto the editor → uploads and inserts a markdown ref', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    // drop at the end of the existing content
+    await fireEditorImageEvent(page, 'drop', 'dropped.png', 'Router: **abc123**'.length)
+    await upload
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^Router: \*\*abc123\*\*!\[dropped\.png\]\(image:noteimg-\d+\)$/)
+  })
+
+  test('surfaces a 415 upload error in the editor (German text, no insert)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    await fireEditorImageEvent(page, 'paste', 'weird.tiff', 0)
+
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Nur JPEG, PNG, WebP oder GIF erlaubt.')
+    // nothing was inserted — content is unchanged
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+  })
+
+  test('a brand-new unsaved draft hints to save first instead of uploading', async ({ page }) => {
+    await openNotes(page, new MockApi())
+    await page.getByRole('button', { name: 'Neue Notiz' }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+
+    let uploaded = false
+    page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
+    await fireEditorImageEvent(page, 'paste', 'early.png', 0)
+
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Notiz zuerst speichern, dann Bilder einfügen.')
+    expect(uploaded).toBe(false)
+  })
 })
