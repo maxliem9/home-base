@@ -31,6 +31,10 @@ fun Application.configureRouting() {
         ?: LocalTime.of(20, 0)).format(DateTimeFormatter.ofPattern("HH:mm"))
     val telegramEnabled = !environment.config.propertyOrNull("telegram.botToken")?.getString().isNullOrBlank() &&
         !environment.config.propertyOrNull("telegram.chatId")?.getString().isNullOrBlank()
+    // Recurring-todo safety-net run-time default + read/write via /config/recurring (#100).
+    // The stored value (app_settings) overrides this default, exactly like the digest time.
+    val recurringDefaultTime = (parseDigestTime(environment.config.propertyOrNull("recurring.time")?.getString())
+        ?: LocalTime.of(0, 30)).format(DateTimeFormatter.ofPattern("HH:mm"))
     val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
     val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
@@ -47,7 +51,7 @@ fun Application.configureRouting() {
             healthRoutes()
             authRoutes(loginThrottler, trustedProxyCount)
             authenticate("auth-jwt") {
-                configRoutes(householdName, digestDefaultTime, telegramEnabled)
+                configRoutes(householdName, digestDefaultTime, telegramEnabled, recurringDefaultTime)
                 userRoutes()
                 userPrefsRoutes()
                 todoRoutes()

@@ -15,6 +15,10 @@ object AppSettingsTable : Table("app_settings") {
     // Shared setting key so the route that writes it and the scheduler that reads it
     // can never drift apart (#100).
     const val DIGEST_TIME = "digest_time"
+
+    // Daily run time of the recurring-todo safety-net scheduler, editable in-app like the
+    // digest time (#100); the scheduler re-reads it each cycle so a change needs no restart.
+    const val RECURRING_TIME = "recurring_time"
 }
 
 // Generic PER-USER key/value preferences (#100). Personal (each user reads/writes

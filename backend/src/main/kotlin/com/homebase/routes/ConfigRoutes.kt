@@ -4,8 +4,10 @@ import com.homebase.db.AppSettingsTable
 import com.homebase.model.AppConfigResponse
 import com.homebase.model.DigestConfigResponse
 import com.homebase.model.ErrorResponse
+import com.homebase.model.RecurringConfigResponse
 import com.homebase.model.UpdateConfigRequest
 import com.homebase.model.UpdateDigestRequest
+import com.homebase.model.UpdateRecurringRequest
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -34,8 +36,16 @@ private val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
  *   scheduler re-reads this each cycle, so a change applies from the next run.
  *   [telegramEnabled] reports whether Telegram is configured at all; the time is editable
  *   regardless, ready for when it is.
+ * - recurring time — when the recurring-todo safety-net runs ([recurringDefaultTime]
+ *   fallback). Same shape as the digest time (re-read each cycle), but always-on, so no
+ *   enabled flag.
  */
-fun Route.configRoutes(defaultHouseholdName: String, digestDefaultTime: String, telegramEnabled: Boolean) {
+fun Route.configRoutes(
+    defaultHouseholdName: String,
+    digestDefaultTime: String,
+    telegramEnabled: Boolean,
+    recurringDefaultTime: String,
+) {
     get("/config") {
         call.respond(AppConfigResponse(householdName = readSetting(HOUSEHOLD_NAME_KEY) ?: defaultHouseholdName))
     }
@@ -70,6 +80,23 @@ fun Route.configRoutes(defaultHouseholdName: String, digestDefaultTime: String, 
         val normalized = parsed.format(HH_MM)
         upsertSetting(AppSettingsTable.DIGEST_TIME, normalized)
         call.respond(DigestConfigResponse(time = normalized, enabled = telegramEnabled))
+    }
+
+    get("/config/recurring") {
+        call.respond(
+            RecurringConfigResponse(time = readSetting(AppSettingsTable.RECURRING_TIME) ?: recurringDefaultTime),
+        )
+    }
+
+    put("/config/recurring") {
+        val parsed = runCatching { LocalTime.parse(call.receive<UpdateRecurringRequest>().time.trim()) }.getOrNull()
+            ?: return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_TIME", "time must be a valid HH:mm"),
+            )
+        val normalized = parsed.format(HH_MM)
+        upsertSetting(AppSettingsTable.RECURRING_TIME, normalized)
+        call.respond(RecurringConfigResponse(time = normalized))
     }
 }
 

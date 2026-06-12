@@ -461,6 +461,14 @@ export const de = {
     digestSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
     digestApplies: 'Änderungen greifen ab dem nächsten geplanten Digest.',
     digestDisabled: 'Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.',
+    // Wiederholungs-Planer-Uhrzeit (#100): tägliche Laufzeit des Sicherheitsnetzes für
+    // wiederkehrende Aufgaben (rollt verpasste offene Wiederholungen vor).
+    recurringTitle: 'Wiederholungs-Planer',
+    recurringHint: 'Tägliches Sicherheitsnetz: rollt verpasste, noch offene wiederkehrende Aufgaben auf die aktuelle Periode vor.',
+    recurringTimeLabel: 'Uhrzeit für wiederkehrende Aufgaben',
+    recurringSaved: 'Gespeichert',
+    recurringSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
+    recurringApplies: 'Änderungen greifen ab dem nächsten geplanten Lauf.',
     // Abwesenheit-Unterseite (#99): Kalender-Konfiguration im Hub.
     absence: 'Abwesenheit',
     absenceTitle: 'Kontingente & Kalender',
