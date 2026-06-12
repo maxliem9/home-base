@@ -432,6 +432,9 @@ export const de = {
     householdNameRequired: 'Bitte einen Namen angeben.',
     householdSaved: 'Gespeichert',
     householdSaveFailed: 'Name konnte nicht gespeichert werden.',
+    // Mitglieder-Übersicht (#100): read-only Liste der Haushaltsmitglieder.
+    householdMembersTitle: 'Mitglieder',
+    householdMembersHint: 'Alle Personen in diesem Haushalt.',
     // Konto-Unterseite (#100): Darstellung (Theme) + eigenes Passwort ändern.
     account: 'Konto',
     accountSignedInAs: 'Angemeldet als',

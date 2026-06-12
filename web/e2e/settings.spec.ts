@@ -37,6 +37,24 @@ test.describe('Settings — Haushalt (#100)', () => {
     await page.locator('.hb-settings-nav').getByRole('button', { name: 'Zeiterfassung' }).click()
     await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Projekte' })).toBeVisible()
   })
+
+  test('shows the household members list with avatars and capitalised names (#100)', async ({ page }) => {
+    // The mock's /users stub returns [{ username: 'max' }, { username: 'lea' }].
+    await openApp(page, new MockApi())
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+
+    const body = page.locator('.hb-settings-body')
+    // The Mitglieder section heading must be visible
+    await expect(body.getByRole('heading', { name: 'Mitglieder' })).toBeVisible()
+
+    const card = body.locator('.hb-members-card')
+    // Each member must be rendered with their display name (capitalised username)
+    await expect(card.getByText('Max')).toBeVisible()
+    await expect(card.getByText('Lea')).toBeVisible()
+    // Each member must have an avatar (hb-avatar)
+    const avatars = card.locator('.hb-avatar')
+    await expect(avatars).toHaveCount(2)
+  })
 })
 
 test.describe('Settings — Konto (#100)', () => {
