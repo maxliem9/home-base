@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,12 +51,18 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.homebase.android.data.model.NoteImageDto
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,6 +83,7 @@ import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbRadius
+import com.homebase.android.ui.components.HbRadiusSm
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbSegmented
 import com.homebase.android.ui.components.HbTagChip
@@ -128,6 +136,16 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             onBack = { selectedNoteId = null },
             onEdit = { editor = Editor.Edit(openNote) },
             imageUrl = viewModel::imageUrl,
+            // resolve an inline markdown image ref to a loadable URL: `image:<id>` →
+            // this note's authed attachment; external http(s) as-is; anything else → null (alt text)
+            resolveContentImageUrl = { src ->
+                when {
+                    src.startsWith("image:") -> viewModel.imageUrl(openNote.id, src.removePrefix("image:"))
+                    src.startsWith("http://", ignoreCase = true) ||
+                        src.startsWith("https://", ignoreCase = true) -> src
+                    else -> null
+                }
+            },
             onAddImage = { bytes, filename, contentType ->
                 viewModel.uploadImage(openNote.id, bytes, filename, contentType)
             },
@@ -158,6 +176,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
         is Editor.Create -> NoteEditorSheet(
             note = null,
             knownFolders = allFolders,
+            imageUrl = viewModel::imageUrl,
             onDismiss = { editor = null },
             onSave = { title, content, tags, folder, visibility ->
                 viewModel.saveNote(null, title, content, tags, folder, visibility)
@@ -168,6 +187,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
         is Editor.Edit -> NoteEditorSheet(
             note = e.note,
             knownFolders = allFolders,
+            imageUrl = viewModel::imageUrl,
             onDismiss = { editor = null },
             onSave = { title, content, tags, folder, visibility ->
                 viewModel.saveNote(e.note.id, title, content, tags, folder, visibility)
@@ -419,6 +439,7 @@ private fun NoteDetail(
     onBack: () -> Unit,
     onEdit: () -> Unit,
     imageUrl: (NoteImageDto) -> String,
+    resolveContentImageUrl: (String) -> String?,
     onAddImage: (bytes: ByteArray, filename: String, contentType: String) -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
 ) {
@@ -494,8 +515,8 @@ private fun NoteDetail(
                 }
             }
 
-            // Rendered markdown body
-            MarkdownText(note.content)
+            // Rendered markdown body (inline images + links)
+            MarkdownText(note.content, resolveImageUrl = resolveContentImageUrl)
 
             NoteImagesSection(
                 images = note.images,
@@ -629,20 +650,32 @@ private fun ImageLightbox(url: String, onDismiss: () -> Unit) {
 private fun NoteEditorSheet(
     note: NoteDto?,
     knownFolders: List<String>,
+    imageUrl: (NoteImageDto) -> String,
     onDismiss: () -> Unit,
     onSave: (title: String, content: String, tags: List<String>, folder: String, visibility: String) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     var title by remember { mutableStateOf(note?.title ?: "") }
-    var content by remember { mutableStateOf(note?.content ?: "") }
+    // TextFieldValue (not String) so an image insert lands at the caret / replaces the selection
+    var content by remember { mutableStateOf(TextFieldValue(note?.content ?: "")) }
     var tagsText by remember { mutableStateOf(note?.tags?.joinToString(", ") ?: "") }
     var folderText by remember { mutableStateOf(note?.folder ?: "") }
     var segIndex by remember { mutableStateOf(if (note?.visibility == "PRIVATE") 1 else 0) }
 
+    // Insert an attachment reference at the cursor; MarkdownText resolves image:<id> on read.
+    fun insertImage(img: NoteImageDto) {
+        val snippet = "![${img.originalName}](image:${img.id})"
+        val t = content.text
+        val start = content.selection.start.coerceIn(0, t.length)
+        val end = content.selection.end.coerceIn(start, t.length)
+        val next = t.substring(0, start) + snippet + t.substring(end)
+        content = content.copy(text = next, selection = TextRange(start + snippet.length))
+    }
+
     fun submit() {
         val tags = tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val visibility = if (segIndex == 0) "SHARED" else "PRIVATE"
-        onSave(title.trim(), content, tags, folderText, visibility)
+        onSave(title.trim(), content.text, tags, folderText, visibility)
     }
 
     HbBottomSheet(
@@ -674,6 +707,33 @@ private fun NoteEditorSheet(
                 singleLine = false,
                 minLines = 6,
             )
+        }
+        // Tap an existing attachment to drop its ![name](image:id) reference at the cursor.
+        if (note != null && note.images.isNotEmpty()) {
+            HbField("Bild in den Text einfügen") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    note.images.forEach { img ->
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(HbRadiusSm)
+                                .background(Hb.surface2)
+                                .border(1.dp, Hb.lineSoft, HbRadiusSm)
+                                .clickable { insertImage(img) },
+                        ) {
+                            AsyncImage(
+                                model = imageUrl(img),
+                                contentDescription = img.originalName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
+            }
         }
         HbField("Tags") {
             HbTextField(
@@ -728,7 +788,7 @@ private val MdHeading3 = HbType.body.copy(fontSize = 16.sp, fontWeight = FontWei
 private val MdBodyStyle = HbType.body.copy(fontSize = 15.sp, lineHeight = 24.sp)
 
 @Composable
-private fun MarkdownText(md: String) {
+private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { null }) {
     val blocks = remember(md) { parseMarkdown(md) }
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         blocks.forEach { block ->
@@ -736,6 +796,26 @@ private fun MarkdownText(md: String) {
                 is MdBlock.Heading2 -> Text(inlineSpans(block.text), style = MdHeading2, color = Hb.ink)
                 is MdBlock.Heading3 -> Text(inlineSpans(block.text), style = MdHeading3, color = Hb.ink2)
                 is MdBlock.Paragraph -> Text(inlineSpans(block.text), style = MdBodyStyle, color = Hb.ink)
+                is MdBlock.Image -> {
+                    val url = resolveImageUrl(block.src)
+                    if (url != null) {
+                        AsyncImage(
+                            model = url,
+                            contentDescription = block.alt.ifBlank { null },
+                            contentScale = ContentScale.FillWidth,
+                            // reserve space + a surface tile while loading / on failure, so the body
+                            // doesn't jump as images arrive and a failed load isn't an invisible gap
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp)
+                                .clip(HbRadius)
+                                .background(Hb.surface2),
+                        )
+                    } else if (block.alt.isNotBlank()) {
+                        // unresolved / disallowed src → show the alt text, never a broken or unsafe image
+                        Text(inlineSpans(block.alt), style = MdBodyStyle, color = Hb.ink)
+                    }
+                }
                 is MdBlock.Quote -> Row(
                     Modifier
                         .fillMaxWidth()
@@ -772,84 +852,8 @@ private fun MarkdownText(md: String) {
     }
 }
 
-private sealed interface MdBlock {
-    data class Heading2(val text: String) : MdBlock
-    data class Heading3(val text: String) : MdBlock
-    data class Paragraph(val text: String) : MdBlock
-    data class Quote(val text: String) : MdBlock
-    data class BulletList(val items: List<String>) : MdBlock
-    data class NumberedList(val items: List<String>) : MdBlock
-}
-
-/** Line-by-line markdown block parser. Robust to plain text (→ paragraphs). */
-private fun parseMarkdown(md: String): List<MdBlock> {
-    val blocks = mutableListOf<MdBlock>()
-    val lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-    val paragraph = StringBuilder()
-    var bullets: MutableList<String>? = null
-    var numbers: MutableList<String>? = null
-
-    fun flushParagraph() {
-        val text = paragraph.toString().trim()
-        if (text.isNotEmpty()) blocks.add(MdBlock.Paragraph(text))
-        paragraph.setLength(0)
-    }
-    fun flushBullets() {
-        bullets?.let { if (it.isNotEmpty()) blocks.add(MdBlock.BulletList(it)) }
-        bullets = null
-    }
-    fun flushNumbers() {
-        numbers?.let { if (it.isNotEmpty()) blocks.add(MdBlock.NumberedList(it)) }
-        numbers = null
-    }
-    fun flushAll() { flushParagraph(); flushBullets(); flushNumbers() }
-
-    for (raw in lines) {
-        val trimmed = raw.trim()
-        when {
-            trimmed.isEmpty() -> flushAll()
-
-            trimmed.startsWith("### ") -> {
-                flushAll(); blocks.add(MdBlock.Heading3(trimmed.removePrefix("### ").trim()))
-            }
-            trimmed.startsWith("## ") -> {
-                flushAll(); blocks.add(MdBlock.Heading2(trimmed.removePrefix("## ").trim()))
-            }
-            trimmed.startsWith("# ") -> {
-                flushAll(); blocks.add(MdBlock.Heading2(trimmed.removePrefix("# ").trim()))
-            }
-            trimmed.startsWith("> ") -> {
-                flushParagraph(); flushBullets(); flushNumbers()
-                blocks.add(MdBlock.Quote(trimmed.removePrefix("> ").trim()))
-            }
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                flushParagraph(); flushNumbers()
-                val list = bullets ?: mutableListOf<String>().also { bullets = it }
-                list.add(trimmed.substring(2).trim())
-            }
-            isOrderedItem(trimmed) -> {
-                flushParagraph(); flushBullets()
-                val list = numbers ?: mutableListOf<String>().also { numbers = it }
-                list.add(trimmed.substringAfter(". ").trim())
-            }
-            else -> {
-                flushBullets(); flushNumbers()
-                if (paragraph.isNotEmpty()) paragraph.append(' ')
-                paragraph.append(trimmed)
-            }
-        }
-    }
-    flushAll()
-    return blocks
-}
-
-/** True for lines like "1. text" / "12. text". */
-private fun isOrderedItem(line: String): Boolean {
-    val dot = line.indexOf(". ")
-    if (dot <= 0) return false
-    return line.substring(0, dot).all { it.isDigit() }
-}
+// MdBlock, parseMarkdown and the URL allowlist (isSafeLinkUrl) live in the Compose-free
+// NotesMarkdown.kt so they can be unit-tested (see NotesMarkdownTest).
 
 private val MonoFamily = FontFamily.Monospace
 
@@ -893,6 +897,30 @@ private fun inlineSpans(text: String): AnnotatedString = buildAnnotatedString {
                 if (end > i) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(text.substring(i + 1, end)) }
                     i = end + 1
+                } else {
+                    append(c); i++
+                }
+            }
+            // link [text](url) — '!' prefix means an image, which is handled as its own block
+            c == '[' && (i == 0 || text[i - 1] != '!') -> {
+                val close = text.indexOf(']', i + 1)
+                val urlEnd = if (close > i && close + 1 < n && text[close + 1] == '(') {
+                    text.indexOf(')', close + 2).takeIf { it > close + 1 }
+                } else null
+                if (urlEnd != null) {
+                    val label = text.substring(i + 1, close)
+                    val href = text.substring(close + 2, urlEnd).trim()
+                    if (isSafeLinkUrl(href)) {
+                        withLink(
+                            LinkAnnotation.Url(
+                                href,
+                                TextLinkStyles(SpanStyle(color = Hb.accent, textDecoration = TextDecoration.Underline)),
+                            ),
+                        ) { append(label) }
+                    } else {
+                        append(label) // disallowed scheme → keep the words, drop the link
+                    }
+                    i = urlEnd + 1
                 } else {
                     append(c); i++
                 }
