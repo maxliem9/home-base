@@ -315,7 +315,10 @@ data class CreateTimeEntryRequest(
     val projectId: String,
     val startedAt: String,
     val stoppedAt: String,
-    val description: String? = null
+    val description: String? = null,
+    // Optional target user (shared household): record the entry on behalf of
+    // another household member. Null/absent → the calling user, as before.
+    val userId: String? = null
 )
 
 @Serializable

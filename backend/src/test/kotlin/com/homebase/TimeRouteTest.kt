@@ -693,4 +693,52 @@ class TimeRouteTest {
         }
         assertEquals(HttpStatusCode.NotFound, missing.status)
     }
+
+    // --- Eintrag für den Partner erfassen (userId auf POST /entries, wie /start) ---
+
+    @Test
+    fun `POST entry with userId records it for the partner`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val projectId = createProject(alice)
+
+        val res = client.post("/api/v1/time/entries") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z","userId":"bob"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, res.status)
+        assertEquals("bob", Json.parseToJsonElement(res.bodyAsText()).jsonObject["userId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST entry for an unknown user returns 404`() = testApplication {
+        configureTestApplication()
+        val alice = loginAndGetToken("alice", "password123")
+        val projectId = createProject(alice)
+
+        val res = client.post("/api/v1/time/entries") {
+            bearerAuth(alice); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z","userId":"mallory"}""")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, res.status)
+        assertTrue(res.bodyAsText().contains("USER_NOT_FOUND"), "expected USER_NOT_FOUND in: ${res.bodyAsText()}")
+    }
+
+    @Test
+    fun `CSV export neutralises a leading formula character`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val projectId = createProject(token)
+        client.post("/api/v1/time/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"projectId":"$projectId","startedAt":"2026-06-03T08:00:00Z","stoppedAt":"2026-06-03T09:00:00Z","description":"=1+2"}""")
+        }
+
+        val body = client.get("/api/v1/time/export.csv") { bearerAuth(token) }.bodyAsText()
+        // a leading apostrophe forces text interpretation in Excel/LibreOffice (CSV injection)
+        assertTrue(body.contains(";'=1+2"), "formula start not neutralised in: $body")
+        assertTrue(!body.contains(";=1+2"), "raw formula leaked into: $body")
+    }
 }

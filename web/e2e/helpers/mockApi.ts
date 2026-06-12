@@ -32,8 +32,18 @@ export interface AbsenceSeed {
 export const TOKEN = 'test-jwt-token'
 
 // `Buffer` is a Node global present in the Playwright runtime; the e2e tsconfig
-// has no @types/node, so declare just the one call we use here.
-declare const Buffer: { from(input: string, encoding: 'base64'): Uint8Array }
+// has no @types/node, so declare just the calls we use here.
+declare const Buffer: {
+  from(input: string, encoding: 'base64'): Uint8Array
+  from(input: string): { toString(encoding: 'base64'): string }
+}
+
+// An (unsigned but decodable) JWT whose payload carries {username: "max"}. TOKEN
+// above is opaque, so views derive me = null and treat every entry as their own —
+// fine for most specs. Specs that exercise partner semantics (cross-person confirm
+// dialogs, "Für {name}" timer starts) log in with this token instead: me = "max",
+// and the mock's default entry user "alice" becomes the partner.
+export const TOKEN_MAX = ['e30', Buffer.from(JSON.stringify({ username: 'max' })).toString('base64'), 'sig'].join('.')
 
 // 1×1 transparent PNG, served for note-image GETs so <AuthedImage>'s
 // authFetch → res.blob() → URL.createObjectURL() path is exercised end-to-end.
@@ -921,7 +931,7 @@ export class MockApi {
       const entry: TimeEntry = {
         id: `entry-${this.nextEntryId++}`,
         projectId: b.projectId,
-        userId: 'alice',
+        userId: b.userId ?? 'alice', // a partner start carries the target user (mirrors the backend)
         startedAt: ts,
         description: b.description,
         createdAt: ts,
@@ -954,7 +964,7 @@ export class MockApi {
       const entry: TimeEntry = {
         id: `entry-${this.nextEntryId++}`,
         projectId: b.projectId,
-        userId: 'alice',
+        userId: b.userId ?? 'alice', // manual entries can target the partner (mirrors the backend)
         startedAt: b.startedAt,
         stoppedAt: b.stoppedAt,
         description: b.description,

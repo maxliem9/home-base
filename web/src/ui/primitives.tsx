@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { Icon } from './Icon'
 import { userMeta } from './format'
+import { t } from '../i18n'
 import { TodoPriority } from '../types'
 
 // --- Page head -------------------------------------------------------------
@@ -316,6 +317,40 @@ export function Sheet({
         {footer && <div className="hb-sheet__foot">{footer}</div>}
       </div>
     </div>
+  )
+}
+
+// --- Confirm dialog ----------------------------------------------------------
+
+// Custom confirm step for destructive or cross-person actions. Native
+// window.confirm() is banned (#125): it can't be styled, ignores the modal
+// conventions and is auto-dismissed in e2e runs. Renders above an open Sheet
+// (same scrim z-index, later in the DOM), so a form can stay open behind it.
+export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onClose }: {
+  title: ReactNode
+  message: ReactNode
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      width={400}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={() => { onClose(); onConfirm() }}>
+            {confirmLabel ?? t.common.confirm}
+          </Button>
+        </>
+      }
+    >
+      <p style={{ margin: 0 }}>{message}</p>
+    </Modal>
   )
 }
 

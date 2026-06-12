@@ -5,7 +5,7 @@ import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
-import { Avatar, Badge, Button, Card, Checkbox, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
+import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
 import { clockTime, dueLabel, fmtClock, todayLabel, userMeta, usernameFromToken } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -61,6 +61,9 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   const [submitting, setSubmitting] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const { flashError, errorToast } = useErrorToast()
+  // Pending stop of the partner's timer — confirmed via custom ConfirmDialog,
+  // never window.confirm() (#125/#129). Mirrors TimeView.
+  const [partnerConfirm, setPartnerConfirm] = useState<{ message: string; run: () => void } | null>(null)
 
   // Each read is independent; a transport reject fires the global toast once and
   // keeps the existing data (the dashboard stays usable on a flaky connection).
@@ -192,12 +195,20 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   }
 
   // Stop a specific running timer — own (no body) or the partner's (target userId).
-  const stopTimer = async (entry: TimeEntry) => {
-    // Stopping the partner's timer is a cross-person action — confirm first.
-    if (entry.userId !== me) {
+  // Stopping the partner's timer is a cross-person action — confirm first (#129).
+  const stopTimer = (entry: TimeEntry) => {
+    if (me && entry.userId !== me) {
       const name = userMeta(entry.userId)?.name ?? entry.userId
-      if (!confirm(t.time.confirmStopPartner.replace('{name}', name))) return
+      setPartnerConfirm({
+        message: t.time.confirmStopPartner.replace('{name}', name),
+        run: () => void doStopTimer(entry),
+      })
+      return
     }
+    void doStopTimer(entry)
+  }
+
+  const doStopTimer = async (entry: TimeEntry) => {
     setRunning((prev) => prev.filter((e) => e.id !== entry.id)) // optimistic; the time WS frame reconciles
     const init: RequestInit = entry.userId === me
       ? { method: 'POST' }
@@ -390,6 +401,15 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
             </div>
           </div>
         </>
+      )}
+
+      {partnerConfirm && (
+        <ConfirmDialog
+          title={t.time.partnerActionTitle}
+          message={partnerConfirm.message}
+          onConfirm={partnerConfirm.run}
+          onClose={() => setPartnerConfirm(null)}
+        />
       )}
 
       {errorToast}

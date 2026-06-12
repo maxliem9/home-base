@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, TOKEN, project, shoppingItem, timeEntry, todo, workTarget } from './helpers/mockApi'
+import { MockApi, TOKEN, TOKEN_MAX, project, shoppingItem, timeEntry, todo, workTarget } from './helpers/mockApi'
 
 /**
  * Dashboard ("Heute") view — the app's default tab (#131). Date-bucket tests
@@ -10,10 +10,10 @@ import { MockApi, TOKEN, project, shoppingItem, timeEntry, todo, workTarget } fr
  */
 
 /** Logs in, installs the mock backend and lands on the dashboard (default tab). */
-async function openDashboard(page: Page, mock: MockApi, fixedTime?: Date) {
+async function openDashboard(page: Page, mock: MockApi, fixedTime?: Date, token: string = TOKEN) {
   await mock.install(page)
   if (fixedTime) await page.clock.setFixedTime(fixedTime)
-  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
   // the stat row only renders once the initial reads resolved (loading gate)
   await expect(page.locator('.hb-stats')).toBeVisible()
@@ -187,7 +187,8 @@ test.describe('Dashboard (Heute)', () => {
           durationSeconds: undefined,
         }),
       ])
-    await openDashboard(page, mock)
+    // log in as max so alice's timer is a *partner* timer (TOKEN_MAX decodes to max)
+    await openDashboard(page, mock, undefined, TOKEN_MAX)
 
     const widget = page.locator('.hb-runwidget')
     await expect(widget).toContainText('Arbeit')
@@ -196,10 +197,13 @@ test.describe('Dashboard (Heute)', () => {
     // running for ~30 minutes
     await expect(widget.locator('.hb-runwidget__clock')).toHaveText(/^00:3\d:\d{2}$/)
 
-    // stopping another person's timer asks for confirmation first
-    page.once('dialog', (dialog) => dialog.accept())
-    const stopPromise = page.waitForRequest((r) => r.url().includes('/time/entries/stop') && r.method() === 'POST')
+    // stopping another person's timer asks for confirmation first — via the custom
+    // ConfirmDialog (#129), never a native confirm()
     await widget.getByRole('button', { name: 'Stoppen' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Timer von Alice stoppen?')
+    const stopPromise = page.waitForRequest((r) => r.url().includes('/time/entries/stop') && r.method() === 'POST')
+    await dialog.getByRole('button', { name: 'Bestätigen' }).click()
 
     expect((await stopPromise).postDataJSON()).toEqual({ userId: 'alice' })
     await expect(page.getByText('Kein Timer läuft')).toBeVisible()

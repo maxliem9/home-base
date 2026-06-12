@@ -285,7 +285,7 @@ private fun Route.entryRoutes() {
         }
 
         post {
-            val username = call.username()
+            val caller = call.username()
             val req = call.receive<CreateTimeEntryRequest>()
             val projectId = runCatching { UUID.fromString(req.projectId) }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
@@ -296,6 +296,12 @@ private fun Route.entryRoutes() {
             if (!stopped.isAfter(started)) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RANGE", "stoppedAt must be after startedAt"))
                 return@post
+            }
+            // Shared household: record the entry for the partner when a userId is given
+            // (mirrors /start and /stop). The clients confirm cross-person writes (#129).
+            val targetUser = req.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
+            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+                return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
             }
 
             val entry: Any? = transaction {
@@ -309,7 +315,7 @@ private fun Route.entryRoutes() {
                 TimeEntriesTable.insert {
                     it[TimeEntriesTable.id] = id
                     it[TimeEntriesTable.projectId] = projectId
-                    it[userId] = username
+                    it[userId] = targetUser
                     it[startedAt] = started
                     it[stoppedAt] = stopped
                     it[description] = req.description?.trim()?.takeIf { d -> d.isNotEmpty() }
@@ -559,13 +565,25 @@ private fun buildTimeCsv(rows: List<CsvRow>, zone: ZoneId): String {
     return sb.toString()
 }
 
-/** RFC-4180 escaping: quote fields containing the delimiter, quotes or newlines. */
-private fun csvField(value: String): String =
-    if (value.any { it == ';' || it == '"' || it == '\n' || it == '\r' }) {
-        "\"" + value.replace("\"", "\"\"") + "\""
+// Leading characters Excel/LibreOffice interpret as a formula — even inside a quoted
+// field — turning a crafted description into executable spreadsheet content (CSV
+// injection, e.g. "=HYPERLINK(…)").
+private val FORMULA_TRIGGERS = setOf('=', '+', '-', '@', '\t')
+
+/**
+ * RFC-4180 escaping (quote fields containing the delimiter, quotes or newlines) plus
+ * formula neutralisation: a field starting with a formula trigger gets a leading
+ * apostrophe, which spreadsheet apps read as "treat as text". The apostrophe stays
+ * visible in the cell — the accepted tradeoff of the standard mitigation.
+ */
+private fun csvField(value: String): String {
+    val neutralized = if (value.firstOrNull() in FORMULA_TRIGGERS) "'$value" else value
+    return if (neutralized.any { it == ';' || it == '"' || it == '\n' || it == '\r' }) {
+        "\"" + neutralized.replace("\"", "\"\"") + "\""
     } else {
-        value
+        neutralized
     }
+}
 
 private fun exportFilename(from: Instant?, to: Instant?, zone: ZoneId): String =
     if (from != null && to != null) {
