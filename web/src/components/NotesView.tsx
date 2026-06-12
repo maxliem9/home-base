@@ -313,23 +313,28 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     }
   }
 
-  // Insert an inline reference to an already-uploaded attachment at the editor caret
-  // (issue follow-up tracks paste/drag-to-upload). The snippet `![name](image:id)`
-  // replaces the current selection / lands at the cursor; renderMarkdown resolves it
-  // to the authed image on the read side. Caret is restored after React re-renders the
-  // controlled textarea. Only offered while editing an existing note (images need an id).
+  // Insert an inline reference to an already-uploaded attachment at the editor caret.
+  // The snippet `![name](image:id)` replaces the current selection / lands at the cursor;
+  // renderMarkdown resolves it to the authed image on the read side. Caret is restored
+  // after React re-renders the controlled textarea.
+  //
+  // Both the thumbnail-click and the async paste/drop upload (#146) funnel here. The
+  // paste/drop path `await`s the upload first, so the user may have typed (or edited
+  // other fields) in the meantime — therefore read the CURRENT content + selection from
+  // the live DOM (el.value/selectionStart), not this render's captured `draft`, and merge
+  // with a functional setState. Mixing a stale `text` with the live caret index used to
+  // drop in-flight edits and misplace the snippet.
   const insertAtCaret = (img: NoteImage) => {
-    if (!draft) return
-    const snippet = `![${img.originalName}](image:${img.id})`
     const el = contentRef.current
-    const text = draft.content
+    const snippet = `![${img.originalName}](image:${img.id})`
+    const text = el ? el.value : (draft?.content ?? '')
     // insert at the caret / replace the selection; with no textarea fall back to the end.
     // (Edge: a textarea the user never focused reports caret 0, so a blind insert lands at
     // the start — acceptable; the normal flow is click-in-text-then-insert.)
     const start = el ? el.selectionStart : text.length
     const end = el ? el.selectionEnd : text.length
     const next = text.slice(0, start) + snippet + text.slice(end)
-    setDraft({ ...draft, content: next })
+    setDraft((prev) => (prev ? { ...prev, content: next } : prev))
     const caret = start + snippet.length
     requestAnimationFrame(() => {
       const e2 = contentRef.current

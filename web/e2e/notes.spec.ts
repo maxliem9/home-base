@@ -199,6 +199,32 @@ test.describe('Notes', () => {
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
   })
 
+  test('keeps edits typed WHILE the upload is in flight (no stale-draft clobber)', async ({ page }) => {
+    const mock = new MockApi().seedNotes([WLAN]).holdNextImageUpload()
+    await openNotes(page, mock)
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    // paste an image at the very start; the upload is held open by the mock
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'inflight.png', 0)
+    await upload // request is now pending in the mock
+
+    // the user keeps typing at the end of the content while the upload hasn't returned
+    await ta.focus()
+    await page.evaluate(() => {
+      const el = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+      el.setSelectionRange(el.value.length, el.value.length)
+    })
+    await ta.pressSequentially(' EDIT')
+    await expect(ta).toHaveValue('Router: **abc123** EDIT')
+
+    // now let the upload resolve → the insert must NOT wipe the typed " EDIT", and the
+    // snippet lands at the LIVE caret (end), not at the stale paste position.
+    await mock.releaseImageUpload()
+    await expect(ta).toHaveValue(/^Router: \*\*abc123\*\* EDIT!\[inflight\.png\]\(image:noteimg-\d+\)$/)
+  })
+
   test('a brand-new unsaved draft hints to save first instead of uploading', async ({ page }) => {
     await openNotes(page, new MockApi())
     await page.getByRole('button', { name: 'Neue Notiz' }).click()

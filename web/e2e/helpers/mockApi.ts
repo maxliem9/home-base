@@ -108,6 +108,11 @@ export class MockApi {
   // optional HTTP status forced on the next note-image upload, to exercise the
   // editor's 413/415 error paths (#146). One-shot: consumed by the next upload.
   private nextImageUploadStatus: number | null = null
+  // optional gate that holds the NEXT note-image upload until releaseImageUpload()
+  // is called — lets a test type into the editor *while the upload is in flight*
+  // and prove the in-flight edits survive (#146 stale-draft regression).
+  private imageUploadGate: Promise<void> | null = null
+  private releaseImageUploadGate: (() => void) | null = null
   private nextProjectId = 100
   private nextEntryId = 100
   private nextChildId = 100
@@ -138,6 +143,19 @@ export class MockApi {
   failNextImageUpload(status: number): this {
     this.nextImageUploadStatus = status
     return this
+  }
+
+  /** Hold the NEXT note-image upload open until releaseImageUpload() is called. */
+  holdNextImageUpload(): this {
+    this.imageUploadGate = new Promise((resolve) => { this.releaseImageUploadGate = resolve })
+    return this
+  }
+
+  /** Release an upload held by holdNextImageUpload(), letting it respond. */
+  releaseImageUpload(): void {
+    this.releaseImageUploadGate?.()
+    this.releaseImageUploadGate = null
+    this.imageUploadGate = null
   }
 
   seedProjects(projects: Project[]): this {
@@ -789,6 +807,8 @@ export class MockApi {
     const noteImagesPost = path.match(/\/notes\/([^/]+)\/images$/)
     if (noteImagesPost && method === 'POST') {
       const noteId = noteImagesPost[1]
+      // keep the request pending while a test holds it (in-flight-edit scenarios)
+      if (this.imageUploadGate) await this.imageUploadGate
       const idx = this.notes.findIndex((n) => n.id === noteId)
       if (idx === -1) return this.json(route, { message: 'not found' }, 404)
       if (this.nextImageUploadStatus !== null) {
