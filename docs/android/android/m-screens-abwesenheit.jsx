@@ -11,7 +11,7 @@
   const TODAY = "2026-06-04";
   const PEOPLE = [
     { id: "max", name: "Max", hue: 150, state: "BE" },
-    { id: "lea", name: "Chen", hue: 250, state: "BY" },
+    { id: "lea", name: "Lea", hue: 250, state: "BY" },
   ];
   const HOL = { max: C.holidays(YEAR, "BE"), lea: C.holidays(YEAR, "BY") };
   const PT = {
@@ -136,8 +136,8 @@
   // ---- MONTH grid (June 2026) ----
   function chipFor(pid, st) {
     if (!st.type && !st.holiday && !st.ptOff) return null;
-    const txt = st.type ? (st.half ? (st.half === "vm" ? "AM" : "PM") : (pid === "max" ? "M" : "C"))
-      : st.holiday ? (pid === "max" ? "M" : "C") : (pid === "max" ? "M" : "C");
+    const txt = st.type ? (st.half ? (st.half === "vm" ? "AM" : "PM") : (pid === "max" ? "M" : "L"))
+      : st.holiday ? (pid === "max" ? "M" : "L") : (pid === "max" ? "M" : "L");
     const title = `${PEOPLE.find((p) => p.id === pid).name}: ` +
       (st.type ? (st.half ? (st.half === "vm" ? "½ vormittags " : "½ nachmittags ") : "") + TYPES[st.type]
         : st.holiday ? "Feiertag · " + st.holiday : "frei");
@@ -244,7 +244,7 @@
       h("div", { className: "hb-field" }, h("label", { className: "hb-field__label" }, "Für wen"),
         h("div", { className: "hb-pickrow" },
           h("button", { className: "hb-pick is-active" }, "Max"),
-          h("button", { className: "hb-pick is-active" }, "Chen"))),
+          h("button", { className: "hb-pick is-active" }, "Lea"))),
       h("div", { className: "hb-field" }, h("label", { className: "hb-field__label" }, "Art"),
         h("div", { className: "hb-pickrow" },
           h("button", { className: "hb-pick is-active" }, "Urlaub"),
