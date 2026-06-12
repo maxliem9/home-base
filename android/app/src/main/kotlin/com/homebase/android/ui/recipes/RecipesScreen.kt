@@ -1307,12 +1307,14 @@ private val KNOWN_UNITS = setOf(
     "tasse", "tassen", "becher", "glas", "cm", "mm", "kugel", "kugeln", "blatt", "blätter",
 )
 
-// leading amount: a number (1, 1.5, 1,5) optionally a range/fraction (1-2, 1/2), then the rest
-private val AMOUNT_PREFIX = Regex("""^([0-9]+(?:[.,][0-9]+)?(?:\s*[-–/]\s*[0-9]+(?:[.,][0-9]+)?)?)\s+(.*)$""")
+// leading amount: a single number (1, 1.5, 1,5), then the rest. Ranges/fractions (1-2, 1/2) are
+// intentionally NOT split off (amount is a single Double) — such a line keeps its full text as the
+// name, identical to the web parser, instead of storing a wrong number.
+private val AMOUNT_PREFIX = Regex("""^([0-9]+(?:[.,][0-9]+)?)\s+(.*)$""")
 
 private fun parseIngredientLine(line: String): IngredientDraft {
     val m = AMOUNT_PREFIX.matchEntire(line) ?: return IngredientDraft(name = line.trim())
-    val amount = m.groupValues[1].replace(" ", "")
+    val amount = m.groupValues[1]
     val rest = m.groupValues[2].trim()
     val parts = rest.split(Regex("\\s+"))
     val unitKey = parts.firstOrNull()?.trimEnd('.')?.lowercase()

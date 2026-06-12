@@ -86,10 +86,12 @@ const KNOWN_UNITS = new Set([
 const isUnitToken = (tok: string) => KNOWN_UNITS.has(tok.toLowerCase().replace(/\.$/, ''))
 
 const parseIngredientLine = (line: string): IngredientDraft => {
-  // leading amount: a number (1, 1.5, 1,5) optionally a range/fraction (1-2, 1/2)
-  const m = line.match(/^([0-9]+(?:[.,][0-9]+)?(?:\s*[-–/]\s*[0-9]+(?:[.,][0-9]+)?)?)\s+(.*)$/)
+  // leading amount: a single number (1, 1.5, 1,5). Ranges/fractions (1-2, 1/2) are intentionally
+  // NOT split off — amount is a single Double, so such a line keeps its full text as the name
+  // (honest + identical to the Android parser) instead of silently storing a wrong number.
+  const m = line.match(/^([0-9]+(?:[.,][0-9]+)?)\s+(.*)$/)
   if (!m) return { name: line.trim(), amount: '', unit: '' }
-  const amount = m[1].replace(/\s+/g, '')
+  const amount = m[1]
   const rest = m[2].trim()
   const parts = rest.split(/\s+/)
   if (parts.length > 1 && isUnitToken(parts[0])) {
