@@ -260,8 +260,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     const snippet = `![${img.originalName}](image:${img.id})`
     const el = contentRef.current
     const text = draft.content
-    const start = el?.selectionStart ?? text.length
-    const end = el?.selectionEnd ?? text.length
+    // insert at the caret / replace the selection; with no textarea fall back to the end.
+    // (Edge: a textarea the user never focused reports caret 0, so a blind insert lands at
+    // the start — acceptable; the normal flow is click-in-text-then-insert.)
+    const start = el ? el.selectionStart : text.length
+    const end = el ? el.selectionEnd : text.length
     const next = text.slice(0, start) + snippet + text.slice(end)
     setDraft({ ...draft, content: next })
     const caret = start + snippet.length

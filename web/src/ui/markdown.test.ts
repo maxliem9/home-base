@@ -51,6 +51,26 @@ describe('renderMarkdown — inline images & links', () => {
     expect(out).toContain('danger')
   })
 
+  it('strips a protocol-relative //host link (looks internal, navigates off-site)', () => {
+    const out = html('[go](//evil.com/phish)')
+    expect(out).not.toContain('<a')
+    expect(out).not.toContain('evil.com')
+    expect(out).toContain('go')
+  })
+
+  it('strips a case-variant JavaScript: link', () => {
+    const out = html('[x](JavaScriPt:alert(1))')
+    expect(out).not.toContain('<a')
+    expect(out.toLowerCase()).not.toContain('javascript:')
+  })
+
+  it('degrades a data: image to its alt text', () => {
+    const out = html('![pic](data:text/html,<script>alert(1)</script>)')
+    expect(out).not.toContain('<img')
+    expect(out).not.toContain('data:')
+    expect(out).toContain('pic')
+  })
+
   it('still renders basic inline formatting (regression)', () => {
     expect(html('**bold**')).toContain('<strong>bold</strong>')
   })

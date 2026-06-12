@@ -460,7 +460,9 @@ export interface MarkdownOptions {
 // anything else (javascript:, data:, …) renders as plain text. The renderer stays
 // XSS-safe because it builds React elements, never innerHTML — this guards the one
 // place an attacker-controlled URL reaches the DOM (href / external img src).
-const SAFE_URL_RE = /^(https?:|mailto:|\/|#)/i
+// `\/(?!\/)` allows a single leading slash (in-app path) but rejects protocol-relative
+// `//host` URLs, which look internal yet navigate off-site.
+const SAFE_URL_RE = /^(https?:|mailto:|#|\/(?!\/))/i
 
 export function renderMarkdown(md: string, opts: MarkdownOptions = {}): ReactNode[] {
   const lines = (md || '').split('\n')
@@ -497,6 +499,8 @@ export function renderMarkdown(md: string, opts: MarkdownOptions = {}): ReactNod
     let i = 0
     // image must precede link in the alternation: at a `!` the image arm wins, so
     // `![alt](src)` is never mis-parsed as the link `[alt](src)` one char to the right.
+    // URLs are `[^)\s]+` (stop at the first `)` or space) — simple by design; a URL that
+    // itself contains `)` (rare, e.g. Wikipedia) is truncated. Acceptable for a tiny renderer.
     const re = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\))/
     let m: RegExpExecArray | null
     while ((m = re.exec(rest))) {
