@@ -136,8 +136,8 @@
   // ---- MONTH grid (June 2026) ----
   function chipFor(pid, st) {
     if (!st.type && !st.holiday && !st.ptOff) return null;
-    const txt = st.type ? (st.half ? (st.half === "vm" ? "AM" : "PM") : (pid === "max" ? "M" : "C"))
-      : st.holiday ? (pid === "max" ? "M" : "C") : (pid === "max" ? "M" : "C");
+    const txt = st.type ? (st.half ? (st.half === "vm" ? "AM" : "PM") : (pid === "max" ? "M" : "L"))
+      : st.holiday ? (pid === "max" ? "M" : "L") : (pid === "max" ? "M" : "L");
     const title = `${PEOPLE.find((p) => p.id === pid).name}: ` +
       (st.type ? (st.half ? (st.half === "vm" ? "½ vormittags " : "½ nachmittags ") : "") + TYPES[st.type]
         : st.holiday ? "Feiertag · " + st.holiday : "frei");
