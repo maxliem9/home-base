@@ -22,6 +22,14 @@ data class DigestConfigResponse(val time: String, val enabled: Boolean)
 @Serializable
 data class UpdateDigestRequest(val time: String)
 
+// Recurring-todo safety-net run time (#100). Always-on scheduler (no Telegram-style
+// `enabled` flag), so just the editable HH:mm time. Mirrors the digest-time shape.
+@Serializable
+data class RecurringConfigResponse(val time: String)
+
+@Serializable
+data class UpdateRecurringRequest(val time: String)
+
 // Per-user preference write (#100). The key is in the path; this is just the value.
 // GET /user-prefs returns a plain Map<String, String> (no wrapper DTO) so new keys
 // surface without a model change. First consumer: 'theme' (light|dark|system).

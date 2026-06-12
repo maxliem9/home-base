@@ -3,7 +3,9 @@ package com.homebase
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.recurrence.Recurrence
+import com.homebase.recurrence.RecurringTodoScheduler
 import com.homebase.recurrence.RecurringTodoService
+import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
@@ -11,7 +13,11 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.UUID
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -144,5 +150,45 @@ class RecurrenceTest {
         assertEquals(LocalDate.of(2026, 6, 15), dueOf(recent))
         assertEquals(LocalDate.of(2026, 6, 1), dueOf(done))
         assertEquals(LocalDate.of(2026, 6, 1), dueOf(oneOff))
+    }
+
+    // ---- scheduler: reads the run time from a provider each cycle (#100) -----
+    // Mirrors DigestScheduler: the run time is a () -> LocalTime so an in-app edit to
+    // app_settings.recurring_time is picked up on the next computation without a restart.
+
+    private val utc = ZoneId.of("UTC")
+
+    private fun scheduler(runTime: () -> LocalTime) = RecurringTodoScheduler(
+        runTime = runTime,
+        service = RecurringTodoService(),
+        scope = CoroutineScope(EmptyCoroutineContext),
+        zone = utc,
+    )
+
+    @Test
+    fun `millisUntilNextRun targets today when run time is still ahead`() {
+        val s = scheduler { LocalTime.of(0, 30) }
+        val now = ZonedDateTime.of(2026, 6, 1, 0, 0, 0, 0, utc)
+        assertEquals(30 * 60 * 1000L, s.millisUntilNextRun(now))
+    }
+
+    @Test
+    fun `millisUntilNextRun rolls to tomorrow when run time has passed`() {
+        val s = scheduler { LocalTime.of(0, 30) }
+        val now = ZonedDateTime.of(2026, 6, 1, 1, 0, 0, 0, utc)
+        assertEquals((24 * 60 - 30) * 60 * 1000L, s.millisUntilNextRun(now))
+    }
+
+    @Test
+    fun `millisUntilNextRun re-reads the provided time each call so an in-app edit is picked up`() {
+        var time = LocalTime.of(0, 30)
+        val s = scheduler { time }
+        val now = ZonedDateTime.of(2026, 6, 1, 0, 0, 0, 0, utc)
+        assertEquals(30 * 60 * 1000L, s.millisUntilNextRun(now))
+
+        // Changing the provider's value (as an in-app edit to app_settings.recurring_time
+        // would) is reflected on the next computation — not pinned to a start-time value.
+        time = LocalTime.of(2, 0)
+        assertEquals(2 * 60 * 60 * 1000L, s.millisUntilNextRun(now))
     }
 }

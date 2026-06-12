@@ -147,16 +147,31 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
 
   test('shows the digest time (+ inactive note) and saves a change', async ({ page }) => {
     await openDigest(page, new MockApi())
-    const body = page.locator('.hb-settings-body')
+    // scope to the digest card — the page now also has a recurring-todo card with its own time
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Telegram-Digest' })
 
     // the mock reports Telegram disabled → the inactive note shows, but the time is editable
-    await expect(body.getByText(/Telegram ist nicht konfiguriert/)).toBeVisible()
-    await expect(body.getByLabel('Uhrzeit')).toHaveValue('20:00')
+    await expect(card.getByText(/Telegram ist nicht konfiguriert/)).toBeVisible()
+    await expect(card.getByLabel('Uhrzeit', { exact: true })).toHaveValue('20:00')
 
-    await body.getByLabel('Uhrzeit').fill('07:30')
+    await card.getByLabel('Uhrzeit', { exact: true }).fill('07:30')
     const reqP = page.waitForRequest((r) => r.url().endsWith('/config/digest') && r.method() === 'PUT')
-    await body.getByRole('button', { name: 'Speichern' }).click()
+    await card.getByRole('button', { name: 'Speichern' }).click()
     expect((await reqP).postDataJSON()).toEqual({ time: '07:30' })
-    await expect(body.getByText('Gespeichert')).toBeVisible()
+    await expect(card.getByText('Gespeichert')).toBeVisible()
+  })
+
+  test('shows the recurring-todo run time and saves a change (#100)', async ({ page }) => {
+    await openDigest(page, new MockApi())
+    // the recurring-todo card sits in the same Benachrichtigungen page, below the digest card
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Wiederholungs-Planer' })
+    await expect(card).toBeVisible()
+    await expect(card.getByLabel('Uhrzeit für wiederkehrende Aufgaben')).toHaveValue('00:30')
+
+    await card.getByLabel('Uhrzeit für wiederkehrende Aufgaben').fill('05:45')
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/config/recurring') && r.method() === 'PUT')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toEqual({ time: '05:45' })
+    await expect(card.getByText('Gespeichert')).toBeVisible()
   })
 })

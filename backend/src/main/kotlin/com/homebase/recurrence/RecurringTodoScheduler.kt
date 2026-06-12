@@ -19,7 +19,11 @@ import java.time.ZonedDateTime
  * clients refresh it.
  */
 class RecurringTodoScheduler(
-    private val runTime: LocalTime,
+    // A provider, not a fixed value, so an edited recurring time (#100) is picked up: the loop
+    // re-reads it each iteration via [millisUntilNextRun], so a change applies from the next
+    // scheduled run (the currently-pending run still fires at the previously-computed time).
+    // Mirrors DigestScheduler.digestTime.
+    private val runTime: () -> LocalTime,
     private val service: RecurringTodoService,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
@@ -38,7 +42,7 @@ class RecurringTodoScheduler(
 
     /** Milliseconds from now until the next occurrence of [runTime] in [zone]. */
     fun millisUntilNextRun(now: ZonedDateTime = ZonedDateTime.now(zone)): Long {
-        var next = now.toLocalDate().atTime(runTime).atZone(zone)
+        var next = now.toLocalDate().atTime(runTime()).atZone(zone)
         if (!next.isAfter(now)) next = next.plusDays(1)
         return Duration.between(now, next).toMillis()
     }

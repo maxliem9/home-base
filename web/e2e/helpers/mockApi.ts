@@ -81,6 +81,7 @@ export class MockApi {
   private password = 'geheim'
   private digestTime = '20:00'
   private telegramEnabled = false
+  private recurringTime = '00:30'
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
   // upserts via PUT /user-prefs/{key}.
   private userPrefs: Record<string, string> = {}
@@ -429,6 +430,20 @@ export class MockApi {
       if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
       this.digestTime = `${m[1]}:${m[2]}`
       return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
+    }
+
+    // Recurring-todo safety-net time (#100). Mirrors /config/recurring: GET returns {time},
+    // PUT validates HH:mm (with INVALID_TIME), normalizes to HH:mm, stores. Always-on, so no
+    // enabled flag.
+    if (path.endsWith('/config/recurring') && method === 'GET') {
+      return this.json(route, { time: this.recurringTime })
+    }
+    if (path.endsWith('/config/recurring') && method === 'PUT') {
+      const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
+      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      this.recurringTime = `${m[1]}:${m[2]}`
+      return this.json(route, { time: this.recurringTime })
     }
 
     // Change own password (#100). Mirrors UserRoutes: WEAK_PASSWORD (<8 chars),

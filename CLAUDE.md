@@ -323,7 +323,10 @@ JWT_SECRET
 TELEGRAM_BOT_TOKEN  — Secret; fehlt er, ruht der Digest. (Digest-Uhrzeit nicht hier,
                       sondern in-app, siehe unten.)
 TELEGRAM_CHAT_ID    — Secret (s. o.)
-RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30", in TZ)
+RECURRING_TIME      — Default/Bootstrap für die tägliche Uhrzeit des Wiederholungs-Schedulers
+                      (default "00:30", in TZ). Zur Laufzeit in-app editierbar (Einstellungen →
+                      Benachrichtigungen, `app_settings.recurring_time`), siehe unten — env greift
+                      nur für die leere Tabelle.
 TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
                       ZoneId.systemDefault(): Digest-/Scheduler-Uhrzeit und CSV-Export-Zeitstempel
 DOMAIN              — öffentliche HTTPS-Domain des Deployments (z. B. homebase.example.com,
@@ -338,9 +341,13 @@ TRUSTED_PROXY_COUNT — Anzahl vertrauenswürdiger Reverse-Proxy-Hops vor dem Ba
 **In-app statt env (#100):** Was zur Laufzeit in den Einstellungen editierbar ist, lebt in
 der DB (`app_settings`), nicht in der .env. Das Backend definiert nur Code-/Conf-Defaults für
 die leere Tabelle. Konkret: **Haushaltsname** (Einstellungen → Haushalt, Default "Mäxchen")
-und **Digest-Uhrzeit** (Einstellungen → Benachrichtigungen, Default "20:00") haben **keine**
-env-Variable mehr. Faustregel für neue Optionen: editierbar ⇒ DB + UI/API; nur env bleiben
-Secrets (JWT/DB/Telegram-Token) und reine Infrastruktur (TZ, Ports, Upload-Pfad, Proxy-Count).
+und **Digest-Uhrzeit** (Einstellungen → Benachrichtigungen, `app_settings.digest_time`, Default
+"20:00") haben **keine** env-Variable mehr. **Wiederholungs-Planer-Uhrzeit** (Einstellungen →
+Benachrichtigungen, `app_settings.recurring_time`, Default "00:30") ist ebenso in-app editierbar;
+`RECURRING_TIME` bleibt nur Bootstrap-Default für die leere Tabelle. Beide Uhrzeiten liest der
+jeweilige Scheduler pro Zyklus neu (kein Neustart). Faustregel für neue Optionen: editierbar ⇒
+DB + UI/API; nur env bleiben Secrets (JWT/DB/Telegram-Token) und reine Infrastruktur (TZ, Ports,
+Upload-Pfad, Proxy-Count).
 
 ## Docker Services
 Produktion (docker-compose.yml) — 3 Services; HTTPS liefert DSM Reverse Proxy davor:

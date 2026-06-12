@@ -134,4 +134,59 @@ class ConfigRouteTest {
             Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
         )
     }
+
+    // --- recurring-todo safety-net time (#100) ---
+
+    private suspend fun ApplicationTestBuilder.recurring(token: String): JsonObject =
+        Json.parseToJsonElement(client.get("/api/v1/config/recurring") { bearerAuth(token) }.bodyAsText()).jsonObject
+
+    @Test
+    fun `GET recurring without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/config/recurring").status)
+    }
+
+    @Test
+    fun `GET recurring falls back to the configured default when unset`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // the test config sets no recurring.time override → configureRouting's 00:30 default applies
+        assertEquals("00:30", recurring(token)["time"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PUT recurring persists a normalized time and GET returns it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.put("/api/v1/config/recurring") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"time":"06:15:42"}""") // seconds are dropped to HH:mm
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals("06:15", Json.parseToJsonElement(res.bodyAsText()).jsonObject["time"]!!.jsonPrimitive.content)
+        assertEquals("06:15", recurring(token)["time"]!!.jsonPrimitive.content)
+
+        // a second PUT overwrites rather than inserting a duplicate
+        client.put("/api/v1/config/recurring") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"time":"01:00"}""")
+        }
+        assertEquals("01:00", recurring(token)["time"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PUT recurring rejects a malformed time with 400 INVALID_TIME`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/recurring") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"time":"24:00"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_TIME",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
 }
