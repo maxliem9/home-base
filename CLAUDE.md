@@ -44,6 +44,11 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
 - Synology DSM Reverse Proxy terminiert HTTPS (Port 443) → web (localhost:3000)
     - der web-Container (nginx) liefert das SPA und proxyt /api + WebSocket → backend:8080
     - kein eigener nginx-Container mehr; DSM ist die einzige TLS-Schicht
+    - nginx maskiert `?token=`-Query-Params im Access-Log (`token=***`) und loggt für
+      /api nur ab Severity crit ins Error-Log — die JWT-Bild-URLs (Android Coil) dürfen
+      nie im Klartext in Logfiles landen. Nicht entfernen (web/nginx-spa.conf). Das
+      DSM-Reverse-Proxy-Log liegt außerhalb des Repos und loggt URLs ggf. weiterhin —
+      bei Bedarf in DSM konfigurieren.
 - Let's Encrypt Zertifikat via Synology DSM (auto-renewal, kein Container-Neustart nötig)
 - Backend/Web-Images werden von GitHub Actions gebaut und nach GHCR gepusht
   (ghcr.io/maxliem9/homebase-{backend,web}); die NAS **zieht** sie nur, baut
@@ -166,8 +171,9 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
     (Konsistenz, #125).
   - Beim Modal→Seite/Slide-over-Umbau die zugehörige `web/e2e/<view>.spec.ts` **im selben PR**
     anpassen (`.hb-modal`-Locator → `.hb-sheet`/Seite) — nur der `e2e`-CI-Job fängt das.
-  - Offene Konvertierungs-Kandidaten leben als eigene Issues (z. B. #128 TargetsModal→Seite,
-    #129 Partner-Timer-Confirms→Modal).
+  - Offene Konvertierungs-Kandidaten leben als eigene Issues (z. B. #128 TargetsModal→Seite).
+    Für Confirms gibt es das Primitive `<ConfirmDialog>` (primitives.tsx, #125/#129) —
+    Cross-Person-Aktionen der Zeiterfassung (Partner-Timer, Partner-Einträge) laufen darüber.
 
 ## Android-Konventionen
 - Jetpack Compose, Kotlin Coroutines + Flow
@@ -206,13 +212,19 @@ description?, created_at, updated_at
 - Pro Nutzer höchstens ein laufender Timer (stopped_at IS NULL);
   ein neuer Start stoppt den laufenden automatisch. DB-Garantie über
   partiellen Unique-Index, Anwendungslogik stoppt aktiv.
-- Beide Nutzer sehen alle Einträge aller Projekte.
+- Beide Nutzer sehen alle Einträge aller Projekte — und verwalten sie gemeinsam:
+  Bearbeiten/Löschen/Splitten geht auch auf Partner-Einträgen, Timer und manuelle
+  Einträge (POST /entries mit optionalem `userId`, wie start/stop) lassen sich für
+  den Partner anlegen. Die API prüft kein Eigentum; **die UI bestätigt jede
+  Cross-Person-Aktion** vorher per `<ConfirmDialog>` (nie `window.confirm()`, #125/#129).
 - Endpunkte unter /api/v1/time/ (projects, entries, entries/start,
   entries/stop, running). WebSocket: /api/v1/ws/time (Channel "time").
 - CSV-Export: GET /api/v1/time/export.csv (Filter project_id/from/to wie bei
   entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
   `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
-  Dezimalstunden und hh:mm.
+  Dezimalstunden und hh:mm. Felder, die mit `=`/`+`/`-`/`@` beginnen, bekommen ein
+  führendes `'` (CSV-Formel-Injection-Schutz; das Apostroph ist in Excel sichtbar —
+  akzeptierter Tradeoff).
 - Eintrag splitten (#62): POST /api/v1/time/entries/{id}/split {splitAt,
   breakMinutes?} teilt einen **abgeschlossenen** Eintrag atomar an der Trennzeit —
   Teil 1 behält die id (Ende = splitAt), Teil 2 wird neu angelegt (Start =

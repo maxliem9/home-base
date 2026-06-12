@@ -37,8 +37,11 @@ import java.util.UUID
  * Configures a test Ktor application with an H2 in-memory database and seeded users.
  * Bypasses DatabaseFactory (which requires a running PostgreSQL instance) and Flyway
  * (which uses Postgres-specific SQL). Tables are created via Exposed SchemaUtils.
+ *
+ * [extraConfig] appends/overrides config entries for tests that exercise optional
+ * settings (e.g. "app.domain" for the CORS origin pinning).
  */
-fun ApplicationTestBuilder.configureTestApplication(): Path {
+fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<String, String>): Path {
     // Each test gets its own throwaway upload directory; a low size cap keeps the
     // "too large" test cheap (just over 1 MB rather than just over 10 MB).
     val uploadDir = Files.createTempDirectory("homebase-test-uploads")
@@ -50,6 +53,7 @@ fun ApplicationTestBuilder.configureTestApplication(): Path {
             "jwt.realm" to "HomeBase",
             "app.uploadDir" to uploadDir.toString(),
             "app.maxUploadMb" to "1",
+            *extraConfig,
         )
     }
     application {

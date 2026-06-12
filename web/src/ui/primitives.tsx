@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { Icon } from './Icon'
 import { userMeta } from './format'
+import { t } from '../i18n'
 import { TodoPriority } from '../types'
 
 // --- Page head -------------------------------------------------------------
@@ -231,6 +232,36 @@ export function EmptyState({ icon, title, hint }: { icon: string; title: string;
 
 // --- Modal -----------------------------------------------------------------
 
+// Module-level stack of open overlays so Escape only dismisses the *topmost* one.
+// Without this, a ConfirmDialog stacked over an open Sheet would close both on a
+// single Escape (each attaches its own window listener), discarding the form the
+// dialog is supposed to leave intact. Registration order == mount order == visual
+// stacking order, so the last-mounted overlay wins.
+let nextOverlayId = 1
+const overlayStack: number[] = []
+
+function useTopmostEscape(open: boolean, onClose: () => void) {
+  // Hold the latest onClose in a ref so the effect can depend on `open` alone —
+  // re-registering on every onClose identity change would reshuffle the stack
+  // order and let Escape hit the wrong layer.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    if (!open) return
+    const id = nextOverlayId++
+    overlayStack.push(id)
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && overlayStack[overlayStack.length - 1] === id) onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKey as EventListener)
+    return () => {
+      window.removeEventListener('keydown', onKey as EventListener)
+      const i = overlayStack.indexOf(id)
+      if (i >= 0) overlayStack.splice(i, 1)
+    }
+  }, [open])
+}
+
 export function Modal({
   open,
   onClose,
@@ -246,14 +277,7 @@ export function Modal({
   footer?: ReactNode
   width?: number
 }) {
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
-      if ((e as globalThis.KeyboardEvent).key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey as EventListener)
-    return () => window.removeEventListener('keydown', onKey as EventListener)
-  }, [open, onClose])
+  useTopmostEscape(open, onClose)
   if (!open) return null
   return (
     <div className="hb-modal-scrim" onClick={onClose}>
@@ -290,14 +314,7 @@ export function Sheet({
   footer?: ReactNode
   width?: number
 }) {
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
-      if ((e as globalThis.KeyboardEvent).key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey as EventListener)
-    return () => window.removeEventListener('keydown', onKey as EventListener)
-  }, [open, onClose])
+  useTopmostEscape(open, onClose)
   if (!open) return null
   return (
     <div className="hb-sheet-scrim" onClick={onClose}>
@@ -316,6 +333,40 @@ export function Sheet({
         {footer && <div className="hb-sheet__foot">{footer}</div>}
       </div>
     </div>
+  )
+}
+
+// --- Confirm dialog ----------------------------------------------------------
+
+// Custom confirm step for destructive or cross-person actions. Native
+// window.confirm() is banned (#125): it can't be styled, ignores the modal
+// conventions and is auto-dismissed in e2e runs. Renders above an open Sheet
+// (same scrim z-index, later in the DOM), so a form can stay open behind it.
+export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onClose }: {
+  title: ReactNode
+  message: ReactNode
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      width={400}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={() => { onClose(); onConfirm() }}>
+            {confirmLabel ?? t.common.confirm}
+          </Button>
+        </>
+      }
+    >
+      <p style={{ margin: 0 }}>{message}</p>
+    </Modal>
   )
 }
 

@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, project, timeEntry, workTarget, TOKEN } from './helpers/mockApi'
+import { MockApi, project, timeEntry, workTarget, TOKEN, TOKEN_MAX } from './helpers/mockApi'
 
-/** Logs in, installs the mock backend, and navigates to the time view. */
-async function openTime(page: Page, mock: MockApi) {
+/** Logs in, installs the mock backend, and navigates to the time view.
+ *  Pass TOKEN_MAX as `token` for specs that need partner semantics (me = max). */
+async function openTime(page: Page, mock: MockApi, token: string = TOKEN) {
   await mock.install(page)
-  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
   await page.getByRole('button', { name: 'Zeiterfassung' }).click()
   await expect(page.getByRole('heading', { name: 'Zeiterfassung' })).toBeVisible()
@@ -394,5 +395,108 @@ test.describe('Time tracking', () => {
     expect(new Date(from!).getTime()).toBeLessThan(new Date(to!).getTime())
     // and the ranged filename from the server header is applied (zone-independent shape)
     expect(download.suggestedFilename()).toMatch(/^zeiterfassung_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/)
+  })
+
+  // --- Partner-Einträge: Aktionen mit Confirm-Dialog (#129) -----------------
+
+  test('deleting a partner entry asks via the custom confirm dialog', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', userId: 'max', description: 'Eigener Eintrag', durationSeconds: 3600 }),
+        timeEntry({ id: 'e2', projectId: 'p1', userId: 'lea', description: 'Partner-Eintrag', durationSeconds: 1800 }),
+      ])
+    await openTime(page, mock, TOKEN_MAX)
+
+    // the partner's row now carries the full action set (no lock icon anymore)
+    const partnerRow = page.locator('.hb-list .hb-row', { hasText: 'Partner-Eintrag' })
+    await partnerRow.getByRole('button', { name: 'Löschen' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Eintrag von Lea löschen?')
+
+    // cancelling keeps the entry
+    await dialog.getByRole('button', { name: 'Abbrechen' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(partnerRow).toBeVisible()
+
+    // confirming deletes it
+    await partnerRow.getByRole('button', { name: 'Löschen' }).click()
+    await page.locator('.hb-modal').getByRole('button', { name: 'Bestätigen' }).click()
+    await expect(page.locator('.hb-list .hb-row', { hasText: 'Partner-Eintrag' })).toHaveCount(0)
+
+    // an own entry deletes directly, no confirm dialog involved
+    await page.locator('.hb-list .hb-row', { hasText: 'Eigener Eintrag' }).getByRole('button', { name: 'Löschen' }).click()
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(0)
+  })
+
+  test('editing a partner entry opens the editor only after confirming', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', userId: 'lea', description: 'Partner-Eintrag', durationSeconds: 1800 })])
+    await openTime(page, mock, TOKEN_MAX)
+
+    await page.locator('.hb-list .hb-row').getByRole('button', { name: 'Bearbeiten' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Eintrag von Lea bearbeiten?')
+    await dialog.getByRole('button', { name: 'Bestätigen' }).click()
+    // the edit sheet opens after the confirm
+    await expect(page.locator('.hb-sheet')).toContainText('Eintrag bearbeiten')
+  })
+
+  test('records an entry for the partner after an explicit confirm', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]), TOKEN_MAX)
+
+    await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
+    const sheet = page.locator('.hb-sheet')
+    // the person selector defaults to self; pick the partner
+    await sheet.getByLabel('Person').selectOption('lea')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+
+    // the sheet stays open underneath; the confirm dialog stacks above it
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Eintrag für Lea erfassen?')
+    const createPromise = page.waitForRequest(
+      (r) => new URL(r.url()).pathname.endsWith('/time/entries') && r.method() === 'POST',
+    )
+    await dialog.getByRole('button', { name: 'Bestätigen' }).click()
+    expect((await createPromise).postDataJSON().userId).toBe('lea')
+    await expect(sheet).toBeHidden()
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
+  })
+
+  test('Escape on the stacked confirm closes only the dialog, leaving the sheet', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]), TOKEN_MAX)
+
+    await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await sheet.getByLabel('Person').selectOption('lea')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Eintrag für Lea erfassen?')
+
+    // Escape must dismiss only the topmost overlay (the dialog); the form beneath
+    // stays open with its input intact — no entry is created.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByLabel('Person')).toHaveValue('lea')
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(0)
+  })
+
+  test('starting the partner timer confirms via the custom dialog', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]), TOKEN_MAX)
+
+    // the idle partner strip offers a start on lea's behalf (scoped to its card —
+    // the idle hero shows a project pick row of its own)
+    const partnerCard = page.locator('.hb-card', { has: page.getByRole('button', { name: 'Für Lea' }) })
+    await partnerCard.getByRole('button', { name: 'Für Lea' }).click()
+    await partnerCard.locator('.hb-pick', { hasText: 'Arbeit' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Timer für Lea starten?')
+    const startPromise = page.waitForRequest((r) => r.url().includes('/time/entries/start') && r.method() === 'POST')
+    await dialog.getByRole('button', { name: 'Bestätigen' }).click()
+    expect((await startPromise).postDataJSON().userId).toBe('lea')
+    await expect(dialog).toBeHidden()
   })
 })

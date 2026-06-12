@@ -4,7 +4,7 @@ import { t, errorText } from '../i18n'
 import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
-import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -68,6 +68,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   // when the forecast snapshot was taken — lets a running timer tick the displayed
   // soll/ist live instead of freezing it at fetch time (#59)
   const [forecastAtMs, setForecastAtMs] = useState(0)
+  // Pending cross-person action: both users may manage each other's entries and
+  // timers, but anything touching the partner's data confirms first — via a custom
+  // ConfirmDialog, never window.confirm() (#125/#129).
+  const [partnerConfirm, setPartnerConfirm] = useState<{ message: string; run: () => void; danger?: boolean } | null>(null)
 
   // Surface a write failure to the user. The backend cleanly rejects the
   // mutation (no data loss), but without this the action would just silently
@@ -171,17 +175,27 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     }
   })
 
+  const partnerName = (userId: string) => userMeta(userId)?.name ?? userId
+  const isPartnerEntry = (entry: TimeEntry) => !!me && entry.userId !== me
+
   // The three click-driven write paths use safeFetch so a rejected fetch
   // (offline/DNS/aborted — issue #93) shows the per-action fallback toast
   // instead of an unhandled rejection. On a transport failure no backend code
   // exists, so errorText(null, fallback) resolves to the German fallback.
   // `userId` starts the timer on behalf of the partner; omitted → self.
-  const startTimer = async (projectId: string, description = '', userId?: string) => {
-    // Acting on the partner's timer is a cross-person action — confirm first.
-    if (userId) {
-      const name = userMeta(userId)?.name ?? userId
-      if (!confirm(t.time.confirmStartForPartner.replace('{name}', name))) return
+  // Acting on the partner's timer is a cross-person action — confirm first (#129).
+  const startTimer = (projectId: string, description = '', userId?: string) => {
+    if (userId && userId !== me) {
+      setPartnerConfirm({
+        message: t.time.confirmStartForPartner.replace('{name}', partnerName(userId)),
+        run: () => void doStartTimer(projectId, description, userId),
+      })
+      return
     }
+    void doStartTimer(projectId, description, userId)
+  }
+
+  const doStartTimer = async (projectId: string, description = '', userId?: string) => {
     const result = await safeFetch(token, `${API_BASE}/time/entries/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -207,11 +221,18 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   }
 
   // `userId` stops the partner's timer; omitted → own timer (no body).
-  const stopTimer = async (userId?: string) => {
-    if (userId) {
-      const name = userMeta(userId)?.name ?? userId
-      if (!confirm(t.time.confirmStopPartner.replace('{name}', name))) return
+  const stopTimer = (userId?: string) => {
+    if (userId && userId !== me) {
+      setPartnerConfirm({
+        message: t.time.confirmStopPartner.replace('{name}', partnerName(userId)),
+        run: () => void doStopTimer(userId),
+      })
+      return
     }
+    void doStopTimer(userId)
+  }
+
+  const doStopTimer = async (userId?: string) => {
     const init: RequestInit = userId
       ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) }
       : { method: 'POST' }
@@ -256,6 +277,16 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     fetchForecast()
   }
 
+  // Edit/split/delete are offered on both users' entries; anything targeting the
+  // partner's entry runs through the confirm dialog first (#129).
+  const withPartnerConfirm = (entry: TimeEntry, message: string, run: () => void, danger?: boolean) => {
+    if (isPartnerEntry(entry)) setPartnerConfirm({ message: message.replace('{name}', partnerName(entry.userId)), run, danger })
+    else run()
+  }
+  const requestEdit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmEditPartner, () => setEditEntry(entry))
+  const requestSplit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmSplitPartner, () => setSplitEntry(entry))
+  const requestDelete = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmDeletePartner, () => void deleteEntry(entry.id), true)
+
   const saveProject = async (d: ProjectDraft) => {
     if (!d.name.trim()) return
     const body = JSON.stringify({ name: d.name.trim(), color: d.color })
@@ -272,7 +303,25 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
   // Returns null on success, or an error message the modal shows inline (so it
   // stays open for a retry) — e.g. 400 INVALID_RANGE or 409 PROJECT_ARCHIVED.
-  const createManual = async (body: object): Promise<string | null> => {
+  // An entry recorded *for the partner* confirms first. Confirming *commits*:
+  // the sheet closes immediately (so the in-flight POST can't be double-submitted
+  // by a second Speichern click) and a late failure surfaces as a toast instead
+  // of the sheet's inline error. Cancelling leaves the sheet open to edit/retry.
+  const createManual = async (body: ManualEntryBody): Promise<string | null> => {
+    if (body.userId && me && body.userId !== me) {
+      setPartnerConfirm({
+        message: t.time.confirmCreateForPartner.replace('{name}', partnerName(body.userId)),
+        run: () => {
+          setShowManual(false)
+          void doCreateManual(body).then((err) => { if (err) flashError(err) })
+        },
+      })
+      return null
+    }
+    return doCreateManual(body)
+  }
+
+  const doCreateManual = async (body: ManualEntryBody): Promise<string | null> => {
     const res = await authFetch(token, `${API_BASE}/time/entries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -411,6 +460,16 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         />
       )}
 
+      {partnerConfirm && (
+        <ConfirmDialog
+          title={t.time.partnerActionTitle}
+          message={partnerConfirm.message}
+          danger={partnerConfirm.danger}
+          onConfirm={partnerConfirm.run}
+          onClose={() => setPartnerConfirm(null)}
+        />
+      )}
+
       {toast && (
         <div className="hb-toast hb-toast--error" role="alert">
           <Icon name="x" size={18} stroke={2.4} />
@@ -429,10 +488,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
           project={detailLive}
           entries={entries}
           projectsById={projectsById}
-          me={me}
-          onDelete={deleteEntry}
-          onEdit={setEditEntry}
-          onSplit={setSplitEntry}
+          onDelete={requestDelete}
+          onEdit={requestEdit}
+          onSplit={requestSplit}
           onBack={() => setDetailProject(null)}
         />
         {sharedModals}
@@ -600,7 +658,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
               {recent.length === 0 ? (
                 <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
               ) : (
-                <DayGroupedList entries={recent} projectsById={projectsById} me={me} onDelete={deleteEntry} onEdit={setEditEntry} onSplit={setSplitEntry} showProject />
+                <DayGroupedList entries={recent} projectsById={projectsById} onDelete={requestDelete} onEdit={requestEdit} onSplit={requestSplit} showProject />
               )}
             </Card>
           </div>
@@ -614,7 +672,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       )}
 
       {showManual && (
-        <ManualEntryModal projects={activeProjects} onCreate={createManual} onClose={() => setShowManual(false)} />
+        <ManualEntryModal projects={activeProjects} users={users} me={me} onCreate={createManual} onClose={() => setShowManual(false)} />
       )}
 
       {sharedModals}
@@ -826,16 +884,17 @@ function groupByDay(entries: TimeEntry[]) {
   return groups
 }
 
-function EntryRow({ entry, project, me, onDelete, onEdit, onSplit, showProject }: {
+// Actions are offered on every entry — also the partner's (the household manages
+// entries together); cross-person clicks are confirmed upstream (requestEdit/
+// requestSplit/requestDelete in TimeView, #129).
+function EntryRow({ entry, project, onDelete, onEdit, onSplit, showProject }: {
   entry: TimeEntry
   project?: Project
-  me: string | null
-  onDelete: (id: string) => void
+  onDelete: (entry: TimeEntry) => void
   onEdit: (entry: TimeEntry) => void
   onSplit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
-  const own = !me || entry.userId === me
   const noDesc = <span className="hb-muted">{t.time.noDescription}</span>
   return (
     <div className="hb-row">
@@ -851,15 +910,9 @@ function EntryRow({ entry, project, me, onDelete, onEdit, onSplit, showProject }
       <div className="hb-row__right">
         <Avatar user={entry.userId} size={24} />
         <span className="hb-mono" style={{ fontWeight: 600, minWidth: 64, textAlign: 'right' }}>{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
-        {own ? (
-          <>
-            <IconButton icon="edit" label={t.common.edit} onClick={() => onEdit(entry)} />
-            <IconButton icon="scissors" label={t.time.split} onClick={() => onSplit(entry)} />
-            <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry.id)} />
-          </>
-        ) : (
-          <span className="hb-iconbtn" title={t.time.ownEntriesOnly} style={{ cursor: 'default' }}><Icon name="lock" size={16} stroke={2} /></span>
-        )}
+        <IconButton icon="edit" label={t.common.edit} onClick={() => onEdit(entry)} />
+        <IconButton icon="scissors" label={t.time.split} onClick={() => onSplit(entry)} />
+        <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry)} />
       </div>
     </div>
   )
@@ -867,11 +920,10 @@ function EntryRow({ entry, project, me, onDelete, onEdit, onSplit, showProject }
 
 // Reusable day-grouped entry list. `showProject` toggles whether the project
 // name (recent list) or the description (project detail) is the row title.
-function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, onSplit, showProject }: {
+function DayGroupedList({ entries, projectsById, onDelete, onEdit, onSplit, showProject }: {
   entries: TimeEntry[]
   projectsById: Record<string, Project>
-  me: string | null
-  onDelete: (id: string) => void
+  onDelete: (entry: TimeEntry) => void
   onEdit: (entry: TimeEntry) => void
   onSplit: (entry: TimeEntry) => void
   showProject: boolean
@@ -887,7 +939,7 @@ function DayGroupedList({ entries, projectsById, me, onDelete, onEdit, onSplit, 
             <span className="hb-daysep__sum hb-mono">{fmtDurationShort(g.seconds)}</span>
           </div>
           {g.entries.map((e) => (
-            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} me={me} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={showProject} />
+            <EntryRow key={e.id} entry={e} project={projectsById[e.projectId]} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={showProject} />
           ))}
         </Fragment>
       ))}
@@ -904,12 +956,11 @@ interface WeekBucket {
   byUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, onSplit, onBack }: {
+function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSplit, onBack }: {
   project: Project
   entries: TimeEntry[]
   projectsById: Record<string, Project>
-  me: string | null
-  onDelete: (id: string) => void
+  onDelete: (entry: TimeEntry) => void
   onEdit: (entry: TimeEntry) => void
   onSplit: (entry: TimeEntry) => void
   onBack: () => void
@@ -1013,7 +1064,7 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, o
             </div>
 
             <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
-            <DayGroupedList entries={projEntries} projectsById={projectsById} me={me} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={false} />
+            <DayGroupedList entries={projEntries} projectsById={projectsById} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={false} />
           </>
         )}
       </Card>
@@ -1021,9 +1072,20 @@ function ProjectDetail({ project, entries, projectsById, me, onDelete, onEdit, o
   )
 }
 
-function ManualEntryModal({ projects, onCreate, onClose }: {
+// What the manual-entry sheet submits; userId only when recording for the partner.
+interface ManualEntryBody {
+  projectId: string
+  startedAt: string
+  stoppedAt: string
+  description?: string
+  userId?: string
+}
+
+function ManualEntryModal({ projects, users, me, onCreate, onClose }: {
   projects: Project[]
-  onCreate: (body: object) => Promise<string | null>
+  users: string[]
+  me: string | null
+  onCreate: (body: ManualEntryBody) => Promise<string | null>
   onClose: () => void
 }) {
   const today = dayKey(new Date())
@@ -1032,6 +1094,11 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
   const [start, setStart] = useState('09:00')
   const [end, setEnd] = useState('10:00')
   const [description, setDescription] = useState('')
+  // Who the entry is for — self by default, any household member selectable (a
+  // partner target is confirmed by the caller before it posts, #129). Without a
+  // decoded own username the selector stays hidden and entries are recorded as self.
+  const [forUser, setForUser] = useState(me ?? '')
+  const partners = me ? users.filter((u) => u !== me) : []
   const [error, setError] = useState<string | null>(null)
   const submitRef = useRef(false)
 
@@ -1053,10 +1120,15 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
         startedAt: startedAt.toISOString(),
         stoppedAt: stoppedAt.toISOString(),
         description: description.trim() || undefined,
+        userId: me && forUser && forUser !== me ? forUser : undefined,
       })
       if (err) {
         submitRef.current = false
         setError(err)
+      } else {
+        // a partner-targeted create defers behind the confirm dialog — allow a
+        // re-submit in case it is cancelled and the sheet is still open
+        submitRef.current = false
       }
     } catch {
       submitRef.current = false
@@ -1081,6 +1153,14 @@ function ManualEntryModal({ projects, onCreate, onClose }: {
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </Field>
+      {me && partners.length > 0 && (
+        <Field label={t.time.personLabel}>
+          <Select value={forUser} onChange={setForUser}>
+            <option value={me}>{userMeta(me)?.name ?? me}</option>
+            {partners.map((u) => <option key={u} value={u}>{userMeta(u)?.name ?? u}</option>)}
+          </Select>
+        </Field>
+      )}
       <Field label={t.time.date}>
         <TextInput type="date" value={date} onChange={setDate} />
       </Field>

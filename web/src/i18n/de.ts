@@ -5,6 +5,7 @@ export const de = {
   common: {
     loading: 'Lädt…',
     cancel: 'Abbrechen',
+    confirm: 'Bestätigen',
     add: 'Hinzufügen',
     save: 'Speichern',
     delete: 'Löschen',
@@ -332,11 +333,18 @@ export const de = {
     noProjectsConfigHint: 'Lege ein erstes Projekt an, um die Zeit zu erfassen', // shown on the main view's empty state (#86)
     firstProject: 'Erstes Projekt anlegen', // bootstrap action on the main view when there are no projects yet (#86)
     noEntries: 'Noch keine Einträge',
-    ownEntriesOnly: 'Nur eigene Einträge',
     partnerIdle: 'Kein Timer aktiv',
     startForPartner: 'Für {name}', // start a timer on the partner's behalf
-    confirmStartForPartner: 'Timer für {name} starten?', // confirm acting on the partner's timer
+    // Cross-person actions always confirm first — via custom ConfirmDialog, not
+    // window.confirm() (#125/#129). Both users may manage each other's entries.
+    partnerActionTitle: 'Aktion bestätigen',
+    confirmStartForPartner: 'Timer für {name} starten?',
     confirmStopPartner: 'Timer von {name} stoppen?',
+    confirmEditPartner: 'Eintrag von {name} bearbeiten?',
+    confirmSplitPartner: 'Eintrag von {name} splitten?',
+    confirmDeletePartner: 'Eintrag von {name} löschen?',
+    confirmCreateForPartner: 'Eintrag für {name} erfassen?',
+    personLabel: 'Person', // manual-entry sheet: who the entry is recorded for
     emptyTitle: 'Noch keine Zeiteinträge',
     emptyHint: 'Starte einen Timer oder erfasse einen Eintrag',
     today: 'Heute',
