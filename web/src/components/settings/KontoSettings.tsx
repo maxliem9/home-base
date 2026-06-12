@@ -168,7 +168,7 @@ function AvatarColorCard({ me }: { me: string }) {
       </div>
       <div style={{ marginTop: 14 }}>
         <div className="hb-field__label" style={{ marginBottom: 8 }}>{t.settings.avatarLabel}</div>
-        <div className="hb-swatches" style={{ alignItems: 'center' }}>
+        <div className="hb-avatar-swatches" style={{ alignItems: 'center' }}>
           {/* Automatisch (derived) — rendered as the live derived avatar so it's obvious
               which colour "automatic" yields; ring shows when no override is set. */}
           <button
@@ -185,7 +185,7 @@ function AvatarColorCard({ me }: { me: string }) {
             <button
               key={h}
               type="button"
-              className={`hb-swatch${current === h ? ' is-active' : ''}`}
+              className={`hb-avatar-swatch${current === h ? ' is-active' : ''}`}
               style={{ background: `oklch(0.62 0.09 ${h})` }}
               onClick={() => pick(h)}
               aria-pressed={current === h}
