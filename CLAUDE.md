@@ -29,7 +29,7 @@ dann blähe nicht den Scope der aktuellen Aufgabe auf und lass den Fund nicht fa
 sondern leg ein GitHub Issue an:
 1. Erst auf Duplikate prüfen: `gh issue list --search "<stichwort>"`.
 2. Issue anlegen: `gh issue create --title "<knapp>" --body "<Kontext / Aufgabe / Notizen>"`
-   (Herkunft im Body festhalten, z. B. „aus Review von PR #30").
+   (Herkunft im Body festhalten, z. B. „aus Review von PR #<n>").
 3. Labeln: genau **ein** Kategorie-Label (`security` · `bug` · `tech-debt` · `test-gap` ·
    `feature` · `docs` · `chore`) und **ein** Prioritäts-Label
    (`priority:high` · `priority:medium` · `priority:low`).
@@ -84,7 +84,7 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
   jedes optionale Feld kann fehlen; Listenfelder, die immer als Array erwartet werden,
   müssen client-seitig sowohl ein fehlendes Feld als auch ein leeres Array vertragen
   (Web: beim Einlesen normalisieren bzw. `?? []`; Android: Moshi-DTOs deklarieren
-  Listen als `= emptyList()`, fehlende Keys werden so zu leeren Listen). Siehe Issue #46.
+  Listen als `= emptyList()`, fehlende Keys werden so zu leeren Listen). Siehe Issue #96.
 
 ## Todo-Domänenmodell
 Status-Flow: INBOX → PLANNED → DONE
@@ -96,7 +96,7 @@ Felder: id, title, description?, status, assignee?,
 due_date?, priority (LOW|MEDIUM|HIGH)?, list_id?,
 recurrence?, created_by, created_at, done_at?
 
-### Wiederkehrende Todos (Issue #44)
+### Wiederkehrende Todos
 Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine RRULE):
 - `recurrence` (DTO `{freq, interval}`): freq DAILY|WEEKLY|MONTHLY, interval = alle N Einheiten
   (default 1). DB-Spalten `recurrence` + `recurrence_interval`; auf dem Update-DTO löscht
@@ -127,7 +127,6 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   liefert ein Rezept als Markdown (text/markdown) oder PDF (serverseitig via OpenPDF);
   deutscher Inhalt analog CSV-Export, Content-Disposition-Dateiname rezept_<slug>.<ext>.
   Web: Download-Button in der Detailansicht; Android: System-Share-Sheet (FileProvider).
-  Siehe Issue #136.
 - WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
 
 ## Web-Konventionen
@@ -137,7 +136,7 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   (heute fällig / Inbox / morgen fällig / heute erledigt), „Heute dran", laufender
   Timer, Einkaufs-Peek und Digest-Vorschau; aggregiert die bestehenden Reads
   (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
-  + Android `HeuteScreen`. Siehe Issue #131.
+  + Android `HeuteScreen`.
 - Aufgaben-View (`components/TodosView.tsx`): Inbox-Tab als erster Tab vor den
   Listen-Tabs. **Inbox-Semantik (#71): „alles Unverplante"** — der Tab zeigt alle
   Todos mit Status INBOX (auch wenn sie schon in einer Liste liegen; Quick-Add in
@@ -213,7 +212,7 @@ description?, created_at, updated_at
 - CSV-Export: GET /api/v1/time/export.csv (Filter project_id/from/to wie bei
   entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
   `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
-  Dezimalstunden und hh:mm. Siehe Issue #42.
+  Dezimalstunden und hh:mm.
 - Eintrag splitten (#62): POST /api/v1/time/entries/{id}/split {splitAt,
   breakMinutes?} teilt einen **abgeschlossenen** Eintrag atomar an der Trennzeit —
   Teil 1 behält die id (Ende = splitAt), Teil 2 wird neu angelegt (Start =
@@ -249,7 +248,7 @@ description?, created_at, updated_at
   ihres Starts (Serverzone, wie CSV-Export).
 - Gesetzliche Feiertage berechnet das Backend selbst: `holidays/GermanHolidays.kt`
   ist der Kotlin-Port von `web/src/components/abwesenheit/holidays.ts` — **beide
-  synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year wie #144,
+  synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year,
   Fallback BE); eigene/halbe Feiertage (#51) kommen aus der DB.
 - Web: Ende-Prognose am Timer-Hero/Partner-Strip/Dashboard-Peek, „Wochensoll"-Karte
   (Soll/Ist, Heute-Ziel, Gutschriften, Projekt-Saldi) + Konfigurations-Modal in
@@ -283,8 +282,8 @@ berechnet.
   die in diesen Routen mitgeschickte userId ist daher die Zielperson, nicht der
   Aufrufer. Auch die persönliche Konfiguration (`PUT /settings/{userId}/{year}`:
   Kontingent/Übertrag/Bundesland/Kind-krank-Cap) ist gemeinsam editierbar; die
-  frühere Eigentümer-Beschränkung (#63) wurde für den 2-Personen-Haushalt bewusst
-  aufgehoben. Siehe Issue #127.
+  frühere Eigentümer-Beschränkung wurde für den 2-Personen-Haushalt bewusst
+  aufgehoben.
 
 ## Notizen-Domänenmodell
 Markdown-Notizen mit Tags, Volltextsuche und Sichtbarkeit (PRIVATE|SHARED).
