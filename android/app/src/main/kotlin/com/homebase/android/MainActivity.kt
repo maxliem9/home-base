@@ -128,13 +128,14 @@ class MainActivity : ComponentActivity() {
         var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
         // Mutable so the settings Haushalt subpage can update the live sidebar brand (#101).
-        var household by rememberSaveable(token) { mutableStateOf("Max & Lea") }
+        // Empty string until GET /config resolves — avoids flashing a hardcoded household name.
+        var household by rememberSaveable(token) { mutableStateOf("") }
         LaunchedEffect(token) {
             container.configRepository.getHouseholdName().onSuccess { household = it }
         }
 
-        // Household members for the assignee chips; falls back to the known seed users.
-        val householdUsers by produceState(initialValue = listOf("max", "lea")) {
+        // Household members for the assignee chips; empty until GET /users resolves.
+        val householdUsers by produceState(initialValue = emptyList<String>()) {
             container.configRepository.getUsers().onSuccess { if (it.isNotEmpty()) value = it }
         }
 
