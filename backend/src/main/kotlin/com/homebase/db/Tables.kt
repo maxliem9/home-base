@@ -17,6 +17,23 @@ object AppSettingsTable : Table("app_settings") {
     const val DIGEST_TIME = "digest_time"
 }
 
+// Generic PER-USER key/value preferences (#100). Personal (each user reads/writes
+// only their own rows), in contrast to the household-shared AppSettingsTable.
+// Reusable for future prefs without a migration each. userId is the username
+// (FK users.username; the FK + ON DELETE CASCADE live in V22, like every other
+// user_id column in this file), composite PK (user_id, key) mirrors AbsSettings.
+// First key: 'theme'.
+object UserPrefsTable : Table("user_prefs") {
+    val userId = varchar("user_id", 50)
+    val key = varchar("key", 64)
+    val value = text("value")
+    override val primaryKey = PrimaryKey(userId, key)
+
+    // First consumer: the UI theme. Kept here so the writer (route) and any future
+    // reader can't drift on the key name.
+    const val THEME = "theme"
+}
+
 object UsersTable : Table("users") {
     val id = uuid("id")
     val username = varchar("username", 50)

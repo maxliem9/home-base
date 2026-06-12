@@ -81,6 +81,9 @@ export class MockApi {
   private password = 'geheim'
   private digestTime = '20:00'
   private telegramEnabled = false
+  // Per-user key/value prefs (#100). The app loads these on mount (theme) and
+  // upserts via PUT /user-prefs/{key}.
+  private userPrefs: Record<string, string> = {}
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -436,6 +439,19 @@ export class MockApi {
       if (b.currentPassword !== this.password) return this.json(route, { code: 'INVALID_PASSWORD', message: 'wrong' }, 400)
       this.password = b.newPassword
       return route.fulfill({ status: 204, body: '' })
+    }
+
+    // Per-user prefs (#100). Mirrors UserPrefsRoutes: GET returns the caller's
+    // key→value map; PUT /user-prefs/{key} upserts one value and echoes the map.
+    const prefMatch = path.match(/\/user-prefs\/([^/]+)$/)
+    if (prefMatch && method === 'PUT') {
+      const key = decodeURIComponent(prefMatch[1])
+      const value = JSON.parse(req.postData() ?? '{}').value ?? ''
+      this.userPrefs[key] = value
+      return this.json(route, this.userPrefs)
+    }
+    if (path.endsWith('/user-prefs') && method === 'GET') {
+      return this.json(route, this.userPrefs)
     }
 
     // ---- Todo lists (checked before the generic /todos/{id} matcher) ----

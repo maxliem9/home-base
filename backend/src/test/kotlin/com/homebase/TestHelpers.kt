@@ -19,6 +19,7 @@ import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
+import com.homebase.db.UserPrefsTable
 import com.homebase.db.UsersTable
 import com.homebase.plugins.*
 import com.homebase.security.Passwords
@@ -63,7 +64,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
         )
         transaction {
             SchemaUtils.create(
-                AppSettingsTable,
+                AppSettingsTable, UserPrefsTable,
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
                 NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,

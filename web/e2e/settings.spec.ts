@@ -83,6 +83,43 @@ test.describe('Settings — Konto (#100)', () => {
     await expect(body.getByText('Die neuen Passwörter stimmen nicht überein.')).toBeVisible()
     expect(putFired).toBe(false)
   })
+
+  test('theme selector persists the choice and applies data-theme on <html> (#100)', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    const html = page.locator('html')
+
+    // the Darstellung card is on the Konto page; default starts at the index.html light
+    await expect(body.getByRole('heading', { name: 'Darstellung' })).toBeVisible()
+    await expect(html).toHaveAttribute('data-theme', 'light')
+
+    // picking "Dunkel" PUTs the pref and flips the document immediately
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/user-prefs/theme') && r.method() === 'PUT')
+    await body.getByRole('tab', { name: 'Dunkel', exact: true }).click()
+    expect((await reqP).postDataJSON()).toEqual({ value: 'dark' })
+    await expect(html).toHaveAttribute('data-theme', 'dark')
+
+    // switching back to "Hell" persists + applies again
+    const reqP2 = page.waitForRequest((r) => r.url().endsWith('/user-prefs/theme') && r.method() === 'PUT')
+    await body.getByRole('tab', { name: 'Hell', exact: true }).click()
+    expect((await reqP2).postDataJSON()).toEqual({ value: 'light' })
+    await expect(html).toHaveAttribute('data-theme', 'light')
+  })
+
+  test('a stored dark theme is applied on load (#100)', async ({ page }) => {
+    // the mock serves theme=dark from /user-prefs, so the app should resolve to dark
+    const mock = new MockApi()
+    await mock.install(page)
+    await page.route('**/api/v1/user-prefs', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ theme: 'dark' }) })
+      }
+      return route.fallback()
+    })
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  })
 })
 
 test.describe('Settings — Benachrichtigungen (#100)', () => {

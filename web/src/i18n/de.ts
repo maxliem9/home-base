@@ -431,9 +431,17 @@ export const de = {
     householdNameRequired: 'Bitte einen Namen angeben.',
     householdSaved: 'Gespeichert',
     householdSaveFailed: 'Name konnte nicht gespeichert werden.',
-    // Konto-Unterseite (#100): eigenes Passwort ändern.
+    // Konto-Unterseite (#100): Darstellung (Theme) + eigenes Passwort ändern.
     account: 'Konto',
     accountSignedInAs: 'Angemeldet als',
+    // Darstellung / Theme (#100): pro Person gespeichert (user_prefs), gilt app-weit.
+    themeTitle: 'Darstellung',
+    themeHint: 'Hell, dunkel oder dem System folgen. Nur für dich, sofort wirksam.',
+    themeLabel: 'Erscheinungsbild',
+    themeLight: 'Hell',
+    themeDark: 'Dunkel',
+    themeSystem: 'System',
+    themeSaveFailed: 'Einstellung konnte nicht gespeichert werden.',
     passwordTitle: 'Passwort ändern',
     passwordHint: 'Zum Ändern zuerst dein aktuelles Passwort eingeben.',
     passwordCurrent: 'Aktuelles Passwort',

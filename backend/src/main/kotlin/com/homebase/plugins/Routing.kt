@@ -11,6 +11,7 @@ import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
+import com.homebase.routes.userPrefsRoutes
 import com.homebase.routes.userRoutes
 import com.homebase.security.LoginThrottler
 import io.ktor.server.application.*
@@ -48,6 +49,7 @@ fun Application.configureRouting() {
             authenticate("auth-jwt") {
                 configRoutes(householdName, digestDefaultTime, telegramEnabled)
                 userRoutes()
+                userPrefsRoutes()
                 todoRoutes()
                 shoppingRoutes()
                 noteRoutes(noteImageConfig)

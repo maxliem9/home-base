@@ -4,6 +4,7 @@
 // time tracker itself) stay in their own views. Subpages: Haushalt · Konto ·
 // Benachrichtigungen (#100) · Zeiterfassung · Abwesenheit (#99). Built to grow.
 import { t } from '../../i18n'
+import type { Theme } from '../../ui/theme'
 import { Icon } from '../../ui/Icon'
 import { Button, PageHead } from '../../ui/primitives'
 import { HouseholdSettings } from './HouseholdSettings'
@@ -22,13 +23,19 @@ const SUBNAV: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'absence', label: t.settings.absence, icon: 'calendar' },
 ]
 
-export function SettingsView({ token, active, onChangeTab, onClose, onLogout, onHouseholdRenamed }: {
+export function SettingsView({
+  token, active, onChangeTab, onClose, onLogout, onHouseholdRenamed,
+  theme, themeLoaded, onChangeTheme,
+}: {
   token: string
   active: SettingsTab
   onChangeTab: (tab: SettingsTab) => void
   onClose: () => void
   onLogout: () => void
   onHouseholdRenamed: (name: string) => void
+  theme: Theme
+  themeLoaded: boolean
+  onChangeTheme: (next: Theme) => Promise<boolean>
 }) {
   const current = SUBNAV.find((s) => s.id === active) ?? SUBNAV[0]
   return (
@@ -53,7 +60,15 @@ export function SettingsView({ token, active, onChangeTab, onClose, onLogout, on
         </nav>
         <div className="hb-settings-body">
           {active === 'household' && <HouseholdSettings token={token} onLogout={onLogout} onRenamed={onHouseholdRenamed} />}
-          {active === 'account' && <KontoSettings token={token} onLogout={onLogout} />}
+          {active === 'account' && (
+            <KontoSettings
+              token={token}
+              onLogout={onLogout}
+              theme={theme}
+              themeLoaded={themeLoaded}
+              onChangeTheme={onChangeTheme}
+            />
+          )}
           {active === 'notifications' && <NotificationsSettings token={token} onLogout={onLogout} />}
           {active === 'time' && <TimeSettings token={token} onLogout={onLogout} />}
           {active === 'absence' && <AbwesenheitSettings token={token} onLogout={onLogout} />}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { API_BASE, authFetch, safeFetch, login } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
+import { useTheme } from './hooks/useTheme'
 import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
 import { Avatar, Button, Card, Field, Modal, TextInput } from './ui/primitives'
@@ -121,6 +122,10 @@ export default function App() {
 
 function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setTab: (t: Tab) => void; onLogout: () => void }) {
   const badges = useNavBadges(token)
+  // Per-user theme (#100): load + apply on mount, follow the OS live while 'system'.
+  // Lifted here (always mounted when logged in) so it applies app-wide; the selector
+  // in Konto-Einstellungen drives the same state.
+  const themeCtl = useTheme(token)
   const me = usernameFromToken(token)
   const count: Partial<Record<Tab, number>> = { todos: badges.inbox, shopping: badges.shopping }
   const [household, setHousehold] = useState(t.shell.brandSub)
@@ -215,6 +220,9 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             onClose={() => setSettings(null)}
             onLogout={onLogout}
             onHouseholdRenamed={setHousehold}
+            theme={themeCtl.theme}
+            themeLoaded={themeCtl.loaded}
+            onChangeTheme={themeCtl.setTheme}
           />
         ) : (
           <>
