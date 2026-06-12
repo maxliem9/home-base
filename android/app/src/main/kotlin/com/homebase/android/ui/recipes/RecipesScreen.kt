@@ -352,7 +352,7 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
     val coverImage = recipe.image
     HbCard(modifier = Modifier.fillMaxWidth().clickable { onClick() }, pad = false) {
         Column(Modifier.fillMaxWidth()) {
-            // Cover image band — the main (first) image, or a striped "Foto folgt" placeholder
+            // Cover image band — the recipe's cover image, or a striped "Foto folgt" placeholder
             Box(
                 Modifier
                     .fillMaxWidth()

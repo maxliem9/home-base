@@ -301,8 +301,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     }
   }
 
-  // Upsert a recipe returned by an image mutation (upload / delete / set-main) so the list and
-  // the open detail refresh immediately, independent of the WS echo.
+  // Upsert a recipe returned by a cover-image mutation (upload / delete) so the list and the
+  // open detail refresh immediately, independent of the WS echo.
   const applyRecipe = (saved: Recipe) => {
     const next = normalizeRecipe(saved)
     setRecipes((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [next, ...prev]))
