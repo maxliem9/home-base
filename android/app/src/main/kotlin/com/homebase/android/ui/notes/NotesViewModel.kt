@@ -123,8 +123,10 @@ class NotesViewModel(
      * image loads only. (The web client moved its WebSocket auth to the Sec-WebSocket-Protocol
      * header; `?token=` is now the image-only fallback.)
      */
-    fun imageUrl(image: NoteImageDto): String =
-        BuildConfig.BASE_URL.trimEnd('/') + "/notes/${image.noteId}/images/${image.id}?token=$token"
+    fun imageUrl(noteId: String, imageId: String): String =
+        BuildConfig.BASE_URL.trimEnd('/') + "/notes/$noteId/images/$imageId?token=$token"
+
+    fun imageUrl(image: NoteImageDto): String = imageUrl(image.noteId, image.id)
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 

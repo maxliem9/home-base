@@ -306,6 +306,42 @@ fun HbTextField(
     )
 }
 
+/** [TextFieldValue] overload — same look as above, but exposes the caret/selection so
+ *  callers can insert text at the cursor (e.g. the notes editor's image insert). */
+@Composable
+fun HbTextField(
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    onValueChange: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    mono: Boolean = false,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val style = (if (mono) HbType.mono.copy(fontSize = 13.5.sp) else HbType.body).copy(color = Hb.ink)
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(HbRadiusSm)
+            .background(Hb.surface, HbRadiusSm)
+            .border(if (focused) 1.5.dp else 1.dp, if (focused) Hb.accent else Hb.line, HbRadiusSm)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        textStyle = style,
+        singleLine = singleLine,
+        minLines = minLines,
+        cursorBrush = SolidColor(Hb.accent),
+        interactionSource = interaction,
+        decorationBox = { inner ->
+            if (value.text.isEmpty()) Text(placeholder, style = style.copy(color = Hb.ink3))
+            inner()
+        },
+    )
+}
+
 @Composable
 fun HbField(label: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
