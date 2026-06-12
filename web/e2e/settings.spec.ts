@@ -84,6 +84,21 @@ test.describe('Settings — Konto (#100)', () => {
     expect(putFired).toBe(false)
   })
 
+  test('rejects a new password equal to the current one client-side, without a request', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    let putFired = false
+    page.on('request', (r) => { if (r.url().endsWith('/users/me/password')) putFired = true })
+    // an 8+ char value identical to the current one — long enough to clear the length
+    // guard so the same-as-old guard is the one that fires.
+    await body.getByLabel('Aktuelles Passwort').fill('geheim42')
+    await body.getByLabel('Neues Passwort', { exact: true }).fill('geheim42')
+    await body.getByLabel('Neues Passwort wiederholen').fill('geheim42')
+    await body.getByRole('button', { name: 'Passwort ändern' }).click()
+    await expect(body.getByText('Neues Passwort muss sich vom alten unterscheiden.')).toBeVisible()
+    expect(putFired).toBe(false)
+  })
+
   test('theme selector persists the choice and applies data-theme on <html> (#100)', async ({ page }) => {
     await openKonto(page, new MockApi())
     const body = page.locator('.hb-settings-body')

@@ -42,6 +42,7 @@ export function KontoSettings({ token, onLogout, theme, themeLoaded, onChangeThe
     setError(null)
     setDone(false)
     if (next.length < MIN_PASSWORD_LENGTH) return setError(t.settings.passwordTooShort)
+    if (next === current) return setError(t.settings.passwordSameAsOld)
     if (next !== confirm) return setError(t.settings.passwordMismatch)
     setSaving(true)
     const result = await safeFetch(token, `${API_BASE}/users/me/password`, {

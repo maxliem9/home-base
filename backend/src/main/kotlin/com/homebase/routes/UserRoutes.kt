@@ -49,6 +49,15 @@ fun Route.userRoutes() {
                 ErrorResponse("WEAK_PASSWORD", "newPassword must be at least $MIN_PASSWORD_LENGTH characters"),
             )
         }
+        // Reject a no-op change up front: it's a plain string compare of the two request
+        // fields (independent of the stored hash), so no DB read or bcrypt work is needed,
+        // and the caller already supplies both values — this leaks nothing.
+        if (req.newPassword == req.currentPassword) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("PASSWORD_UNCHANGED", "newPassword must differ from the current password"),
+            )
+        }
         val username = call.username()
         val storedHash = transaction {
             UsersTable.selectAll().where { UsersTable.username eq username }
