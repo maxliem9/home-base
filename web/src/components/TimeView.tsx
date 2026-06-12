@@ -71,7 +71,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   // Pending cross-person action: both users may manage each other's entries and
   // timers, but anything touching the partner's data confirms first — via a custom
   // ConfirmDialog, never window.confirm() (#125/#129).
-  const [partnerConfirm, setPartnerConfirm] = useState<{ message: string; run: () => void } | null>(null)
+  const [partnerConfirm, setPartnerConfirm] = useState<{ message: string; run: () => void; danger?: boolean } | null>(null)
 
   // Surface a write failure to the user. The backend cleanly rejects the
   // mutation (no data loss), but without this the action would just silently
@@ -279,13 +279,13 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
   // Edit/split/delete are offered on both users' entries; anything targeting the
   // partner's entry runs through the confirm dialog first (#129).
-  const withPartnerConfirm = (entry: TimeEntry, message: string, run: () => void) => {
-    if (isPartnerEntry(entry)) setPartnerConfirm({ message: message.replace('{name}', partnerName(entry.userId)), run })
+  const withPartnerConfirm = (entry: TimeEntry, message: string, run: () => void, danger?: boolean) => {
+    if (isPartnerEntry(entry)) setPartnerConfirm({ message: message.replace('{name}', partnerName(entry.userId)), run, danger })
     else run()
   }
   const requestEdit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmEditPartner, () => setEditEntry(entry))
   const requestSplit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmSplitPartner, () => setSplitEntry(entry))
-  const requestDelete = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmDeletePartner, () => void deleteEntry(entry.id))
+  const requestDelete = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmDeletePartner, () => void deleteEntry(entry.id), true)
 
   const saveProject = async (d: ProjectDraft) => {
     if (!d.name.trim()) return
@@ -303,14 +303,18 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
   // Returns null on success, or an error message the modal shows inline (so it
   // stays open for a retry) — e.g. 400 INVALID_RANGE or 409 PROJECT_ARCHIVED.
-  // An entry recorded *for the partner* confirms first; the sheet stays open
-  // underneath, and a late failure of the deferred call surfaces as a toast
-  // (the sheet's inline error can no longer await it).
+  // An entry recorded *for the partner* confirms first. Confirming *commits*:
+  // the sheet closes immediately (so the in-flight POST can't be double-submitted
+  // by a second Speichern click) and a late failure surfaces as a toast instead
+  // of the sheet's inline error. Cancelling leaves the sheet open to edit/retry.
   const createManual = async (body: ManualEntryBody): Promise<string | null> => {
     if (body.userId && me && body.userId !== me) {
       setPartnerConfirm({
         message: t.time.confirmCreateForPartner.replace('{name}', partnerName(body.userId)),
-        run: () => void doCreateManual(body).then((err) => { if (err) flashError(err) }),
+        run: () => {
+          setShowManual(false)
+          void doCreateManual(body).then((err) => { if (err) flashError(err) })
+        },
       })
       return null
     }
@@ -460,6 +464,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         <ConfirmDialog
           title={t.time.partnerActionTitle}
           message={partnerConfirm.message}
+          danger={partnerConfirm.danger}
           onConfirm={partnerConfirm.run}
           onClose={() => setPartnerConfirm(null)}
         />

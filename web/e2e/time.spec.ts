@@ -465,6 +465,25 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
   })
 
+  test('Escape on the stacked confirm closes only the dialog, leaving the sheet', async ({ page }) => {
+    await openTime(page, new MockApi().seedProjects([ARBEIT]), TOKEN_MAX)
+
+    await page.getByRole('button', { name: 'Eintrag erfassen' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await sheet.getByLabel('Person').selectOption('lea')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    const dialog = page.locator('.hb-modal')
+    await expect(dialog).toContainText('Eintrag für Lea erfassen?')
+
+    // Escape must dismiss only the topmost overlay (the dialog); the form beneath
+    // stays open with its input intact — no entry is created.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(sheet).toBeVisible()
+    await expect(sheet.getByLabel('Person')).toHaveValue('lea')
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(0)
+  })
+
   test('starting the partner timer confirms via the custom dialog', async ({ page }) => {
     await openTime(page, new MockApi().seedProjects([ARBEIT]), TOKEN_MAX)
 

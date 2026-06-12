@@ -14,6 +14,14 @@ fun Application.configureCORS() {
     // Non-browser clients (Android/curl) send no Origin header and are unaffected.
     val domain = environment.config.propertyOrNull("app.domain")?.getString()
         ?.trim()?.removePrefix("https://")?.removePrefix("http://")?.trim('/')
+    // Log the effective policy at startup so a missing/typo'd DOMAIN is diagnosable:
+    // anyHost() in prod (DOMAIN dropped) or a 403 on the SPA's own writes (DOMAIN
+    // wrong) otherwise look identical from the outside without this line.
+    if (domain.isNullOrEmpty()) {
+        log.info("CORS: no DOMAIN configured — allowing any origin (expected only in local dev/tests).")
+    } else {
+        log.info("CORS: pinned to https://{}", domain)
+    }
     install(CORS) {
         allowMethod(HttpMethod.Options)
         allowMethod(HttpMethod.Get)
