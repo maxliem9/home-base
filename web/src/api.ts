@@ -79,7 +79,12 @@ export async function errorCode(res: Response): Promise<string | null> {
 }
 
 // Path to a note image. The JWT is NOT in the URL — callers load it through authFetch
-// (Authorization header) into a blob, e.g. the <AuthedImage> component in NotesView.
+// (Authorization header) into a blob, e.g. the <AuthedImage> component.
 export function noteImageUrl(noteId: string, imageId: string) {
   return `${API_BASE}/notes/${noteId}/images/${imageId}`
+}
+
+// Path to a recipe image — same authed-blob loading as noteImageUrl (via <AuthedImage>).
+export function recipeImageUrl(recipeId: string, imageId: string) {
+  return `${API_BASE}/recipes/${recipeId}/images/${imageId}`
 }

@@ -1,6 +1,10 @@
 package com.homebase.android.ui.recipes
 
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,8 +37,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -42,11 +48,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.data.model.IngredientInput
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.RecipeImageDto
 import com.homebase.android.data.model.RecipeStepDto
 import com.homebase.android.data.model.RecipeStepInput
 import com.homebase.android.data.model.ShoppingLineInput
@@ -55,6 +65,7 @@ import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
 import com.homebase.android.ui.components.HbCheck
@@ -222,6 +233,7 @@ fun RecipesScreen(
             onOpen = { selectedId = it.id },
             onOpenDrawer = onOpenDrawer,
             onSave = { request -> viewModel.saveRecipe(null, request) { saved -> selectedId = saved.id } },
+            imageUrl = viewModel::imageUrl,
         )
     }
 }
@@ -236,6 +248,7 @@ private fun RecipeListPage(
     onOpen: (RecipeDto) -> Unit,
     onOpenDrawer: () -> Unit,
     onSave: (CreateRecipeRequest) -> Unit,
+    imageUrl: (RecipeImageDto) -> String,
 ) {
     var selectedCat by remember { mutableStateOf("Alle") }
     var showNewSheet by remember { mutableStateOf(false) }
@@ -290,7 +303,7 @@ private fun RecipeListPage(
                     },
                 )
             } else {
-                RecipeGrid(recipes = recipes, onOpen = onOpen)
+                RecipeGrid(recipes = recipes, onOpen = onOpen, imageUrl = imageUrl)
             }
         }
 
@@ -308,7 +321,11 @@ private fun RecipeListPage(
 }
 
 @Composable
-private fun ColumnScope.RecipeGrid(recipes: List<RecipeDto>, onOpen: (RecipeDto) -> Unit) {
+private fun ColumnScope.RecipeGrid(
+    recipes: List<RecipeDto>,
+    onOpen: (RecipeDto) -> Unit,
+    imageUrl: (RecipeImageDto) -> String,
+) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -319,7 +336,7 @@ private fun ColumnScope.RecipeGrid(recipes: List<RecipeDto>, onOpen: (RecipeDto)
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 row.forEach { recipe ->
                     Box(Modifier.weight(1f)) {
-                        RecipeCard(recipe = recipe, onClick = { onOpen(recipe) })
+                        RecipeCard(recipe = recipe, onClick = { onOpen(recipe) }, imageUrl = imageUrl)
                     }
                 }
                 // keep a single trailing card half-width
@@ -330,11 +347,12 @@ private fun ColumnScope.RecipeGrid(recipes: List<RecipeDto>, onOpen: (RecipeDto)
 }
 
 @Composable
-private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit) {
+private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (RecipeImageDto) -> String) {
     val hue = Format.recipeHue(recipe.id)
+    val coverImage = recipe.image
     HbCard(modifier = Modifier.fillMaxWidth().clickable { onClick() }, pad = false) {
         Column(Modifier.fillMaxWidth()) {
-            // Placeholder image band
+            // Cover image band — the recipe's cover image, or a striped "Foto folgt" placeholder
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -342,20 +360,29 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit) {
                     .background(stripeBrush(hue, 31f)),
                 contentAlignment = Alignment.Center,
             ) {
+                if (coverImage != null) {
+                    AsyncImage(
+                        model = imageUrl(coverImage),
+                        contentDescription = recipe.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        HbIcon(HbIcons.chef, size = 26.dp, tint = Hb.recipeBandInk(hue))
+                        Text(
+                            "FOTO FOLGT",
+                            style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
+                            color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
+                        )
+                    }
+                }
                 Box(
                     Modifier.align(Alignment.TopStart).padding(9.dp),
                 ) { HbBadge(Format.recipeCategoryLabel(recipe.category), tone = HbTone.Neutral) }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    HbIcon(HbIcons.chef, size = 26.dp, tint = Hb.recipeBandInk(hue))
-                    Text(
-                        "FOTO FOLGT",
-                        style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
-                        color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
-                    )
-                }
             }
             // Body
             Column(
@@ -422,6 +449,18 @@ private fun RecipeDetailPage(
     var showEdit by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var toastMsg by remember { mutableStateOf<String?>(null) }
+    var lightbox by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val resolver = context.contentResolver
+            val type = resolver.getType(uri) ?: "image/jpeg"
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            } ?: "image"
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) viewModel.uploadImage(recipe.id, bytes, name, type)
+        }
+    }
     LaunchedEffect(toastMsg) {
         if (toastMsg != null) {
             kotlinx.coroutines.delay(2600)
@@ -482,27 +521,38 @@ private fun RecipeDetailPage(
             toastMsg?.let { msg -> HbToast(message = msg) }
         },
     ) {
-        // Full-bleed hero band
+        // Full-bleed hero band — the cover image (tap to enlarge) or a striped placeholder
+        val heroImage = recipe.image
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(188.dp)
-                .background(stripeBrush(hue, 37f)),
+                .background(stripeBrush(hue, 37f))
+                .then(if (heroImage != null) Modifier.clickable { lightbox = viewModel.imageUrl(heroImage) } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
+            if (heroImage != null) {
+                AsyncImage(
+                    model = viewModel.imageUrl(heroImage),
+                    contentDescription = recipe.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    HbIcon(HbIcons.chef, size = 34.dp, tint = Hb.recipeBandInk(hue))
+                    Text(
+                        "FOTO FOLGT",
+                        style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
+                        color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
+                    )
+                }
+            }
             Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
                 HbBadge(Format.recipeCategoryLabel(recipe.category), tone = HbTone.Neutral)
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                HbIcon(HbIcons.chef, size = 34.dp, tint = Hb.recipeBandInk(hue))
-                Text(
-                    "FOTO FOLGT",
-                    style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
-                    color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
-                )
             }
         }
 
@@ -551,6 +601,14 @@ private fun RecipeDetailPage(
                 FactTile("${totalTime(recipe)}", "Gesamt", Modifier.weight(1f))
             }
             Spacer(Modifier.size(18.dp))
+
+            // Cover image controls: add / replace / remove (the image is the hero band above).
+            RecipeImageControls(
+                hasImage = recipe.image != null,
+                onAddOrReplace = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onRemove = { recipe.image?.let { viewModel.removeImage(recipe.id, it.id) } },
+            )
+            Spacer(Modifier.size(22.dp))
 
             // Ingredients (optionally grouped into named sections — issue #123)
             if (recipe.ingredients.isNotEmpty()) {
@@ -629,6 +687,8 @@ private fun RecipeDetailPage(
                 },
             )
         }
+
+        lightbox?.let { url -> RecipeImageLightbox(url = url, onDismiss = { lightbox = null }) }
     }
 }
 
@@ -705,6 +765,73 @@ private fun StepRow(number: Int, description: String) {
             color = Hb.ink,
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cover image controls (add / replace / remove). The image itself shows as the hero band.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RecipeImageControls(
+    hasImage: Boolean,
+    onAddOrReplace: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            "Bild",
+            style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+            color = Hb.ink2,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasImage) {
+                HbButton(
+                    "Entfernen",
+                    onClick = onRemove,
+                    variant = HbButtonVariant.Ghost,
+                    size = HbButtonSize.Sm,
+                    icon = HbIcons.trash,
+                )
+            }
+            HbButton(
+                if (hasImage) "Bild ändern" else "Bild hinzufügen",
+                onClick = onAddOrReplace,
+                variant = HbButtonVariant.Secondary,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.plus,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecipeImageLightbox(url: String, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.85f))
+                .clickable { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            )
+        }
     }
 }
 
@@ -900,6 +1027,12 @@ private fun RecipeFormSheet(
     var sectionsShown by remember { mutableStateOf(sections.size > 1 || sections.any { it.name.isNotBlank() }) }
     var stepsText by remember { mutableStateOf(existing?.let { stepsToText(it.steps) } ?: "") }
 
+    // Free-text bulk editor for ingredients (paste a list, one per line; "# Name" opens a section).
+    // The structured `sections` stay the source of truth — text edits are parsed back into them
+    // live, so save + toggling to the list view need no reconciliation (mirrors web).
+    var pasteMode by remember { mutableStateOf(false) }
+    var ingredientsText by remember { mutableStateOf("") }
+
     fun mutateSection(si: Int, f: (SectionDraft) -> SectionDraft) {
         sections = sections.mapIndexed { i, s -> if (i == si) f(s) else s }
     }
@@ -980,79 +1113,109 @@ private fun RecipeFormSheet(
         }
 
         HbField("Zutaten") {
-            val multiSection = sections.size > 1
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                sections.forEachIndexed { si, section ->
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Section name only shows once sections are in play (sticky, see sectionsShown).
-                        if (sectionsShown) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Box(Modifier.weight(1f)) {
-                                    HbTextField(
-                                        value = section.name,
-                                        onValueChange = { v -> mutateSection(si) { it.copy(name = v) } },
-                                        placeholder = "Abschnitt, z. B. Boden",
-                                    )
-                                }
-                                // can't remove the last section
-                                if (multiSection) {
-                                    HbIconButton(
-                                        HbIcons.x,
-                                        { sections = sections.filterIndexed { i, _ -> i != si } },
-                                        iconSize = 18.dp,
-                                    )
-                                }
-                            }
-                        }
-                        section.ingredients.forEachIndexed { ii, ing ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Box(Modifier.weight(1f)) {
-                                    HbTextField(
-                                        value = ing.name,
-                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(name = v) } },
-                                        placeholder = "Zutat",
-                                    )
-                                }
-                                Box(Modifier.width(56.dp)) {
-                                    HbTextField(
-                                        value = ing.amount,
-                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(amount = v) } },
-                                        placeholder = "Menge",
-                                        mono = true,
-                                    )
-                                }
-                                Box(Modifier.width(60.dp)) {
-                                    HbTextField(
-                                        value = ing.unit,
-                                        onValueChange = { v -> mutateIngredient(si, ii) { it.copy(unit = v) } },
-                                        placeholder = "Einh.",
-                                    )
-                                }
-                                HbIconButton(
-                                    HbIcons.x,
-                                    {
-                                        mutateSection(si) {
-                                            it.copy(ingredients = it.ingredients.filterIndexed { i, _ -> i != ii })
-                                        }
-                                    },
-                                    iconSize = 18.dp,
-                                )
-                            }
-                        }
-                        AddRowLink("+ Zutat") {
-                            mutateSection(si) { it.copy(ingredients = it.ingredients + IngredientDraft()) }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // toggle: structured rows ⇄ free-text bulk entry (paste a whole list at once)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    AddRowLink(if (pasteMode) "Als Liste" else "Als Text") {
+                        if (pasteMode) {
+                            sectionsShown = sectionsShown || sections.size > 1 || sections.any { it.name.isNotBlank() }
+                            pasteMode = false
+                        } else {
+                            ingredientsText = ingredientsTextFromSections(sections)
+                            pasteMode = true
                         }
                     }
                 }
-                AddRowLink("+ Abschnitt") {
-                    sectionsShown = true
-                    sections = sections + SectionDraft()
+                if (pasteMode) {
+                    HbTextField(
+                        value = ingredientsText,
+                        onValueChange = { v -> ingredientsText = v; sections = sectionsFromText(v) },
+                        placeholder = "Eine Zutat pro Zeile, z. B. 200 g Mehl\n# Name beginnt einen Abschnitt",
+                        singleLine = false,
+                        minLines = 6,
+                        mono = true,
+                    )
+                    Text(
+                        "Eine Zutat pro Zeile (z. B. „200 g Mehl“). „# Name“ beginnt einen Abschnitt.",
+                        style = HbType.small.copy(fontSize = 12.sp),
+                        color = Hb.ink3,
+                    )
+                } else {
+                    val multiSection = sections.size > 1
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        sections.forEachIndexed { si, section ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Section name only shows once sections are in play (sticky, see sectionsShown).
+                                if (sectionsShown) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Box(Modifier.weight(1f)) {
+                                            HbTextField(
+                                                value = section.name,
+                                                onValueChange = { v -> mutateSection(si) { it.copy(name = v) } },
+                                                placeholder = "Abschnitt, z. B. Boden",
+                                            )
+                                        }
+                                        // can't remove the last section
+                                        if (multiSection) {
+                                            HbIconButton(
+                                                HbIcons.x,
+                                                { sections = sections.filterIndexed { i, _ -> i != si } },
+                                                iconSize = 18.dp,
+                                            )
+                                        }
+                                    }
+                                }
+                                section.ingredients.forEachIndexed { ii, ing ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Box(Modifier.weight(1f)) {
+                                            HbTextField(
+                                                value = ing.name,
+                                                onValueChange = { v -> mutateIngredient(si, ii) { it.copy(name = v) } },
+                                                placeholder = "Zutat",
+                                            )
+                                        }
+                                        Box(Modifier.width(56.dp)) {
+                                            HbTextField(
+                                                value = ing.amount,
+                                                onValueChange = { v -> mutateIngredient(si, ii) { it.copy(amount = v) } },
+                                                placeholder = "Menge",
+                                                mono = true,
+                                            )
+                                        }
+                                        Box(Modifier.width(60.dp)) {
+                                            HbTextField(
+                                                value = ing.unit,
+                                                onValueChange = { v -> mutateIngredient(si, ii) { it.copy(unit = v) } },
+                                                placeholder = "Einh.",
+                                            )
+                                        }
+                                        HbIconButton(
+                                            HbIcons.x,
+                                            {
+                                                mutateSection(si) {
+                                                    it.copy(ingredients = it.ingredients.filterIndexed { i, _ -> i != ii })
+                                                }
+                                            },
+                                            iconSize = 18.dp,
+                                        )
+                                    }
+                                }
+                                AddRowLink("+ Zutat") {
+                                    mutateSection(si) { it.copy(ingredients = it.ingredients + IngredientDraft()) }
+                                }
+                            }
+                        }
+                        AddRowLink("+ Abschnitt") {
+                            sectionsShown = true
+                            sections = sections + SectionDraft()
+                        }
+                    }
                 }
             }
         }
@@ -1072,6 +1235,68 @@ private fun RecipeFormSheet(
 // ---------------------------------------------------------------------------
 // Parsing helpers
 // ---------------------------------------------------------------------------
+
+// --- Free-text ("paste") ingredient editor — counterpart to the structured rows -------------
+// One ingredient per line ("200 g Mehl"); a "# Name" line opens a named section. Parsing is
+// best-effort and only treats the first token after a leading amount as a unit when it's a
+// known unit, so "3 Eier" keeps "Eier" as the name (not the unit). Mirrors the web parser.
+
+private val KNOWN_UNITS = setOf(
+    "g", "kg", "mg", "ml", "cl", "dl", "l", "el", "tl", "msp", "prise", "prisen", "stück", "stk", "st",
+    "dose", "dosen", "pkg", "packung", "päckchen", "bund", "zehe", "zehen", "scheibe", "scheiben",
+    "tasse", "tassen", "becher", "glas", "cm", "mm", "kugel", "kugeln", "blatt", "blätter",
+)
+
+// leading amount: a single number (1, 1.5, 1,5), then the rest. Ranges/fractions (1-2, 1/2) are
+// intentionally NOT split off (amount is a single Double) — such a line keeps its full text as the
+// name, identical to the web parser, instead of storing a wrong number.
+private val AMOUNT_PREFIX = Regex("""^([0-9]+(?:[.,][0-9]+)?)\s+(.*)$""")
+
+private fun parseIngredientLine(line: String): IngredientDraft {
+    val m = AMOUNT_PREFIX.matchEntire(line) ?: return IngredientDraft(name = line.trim())
+    val amount = m.groupValues[1]
+    val rest = m.groupValues[2].trim()
+    val parts = rest.split(Regex("\\s+"))
+    val unitKey = parts.firstOrNull()?.trimEnd('.')?.lowercase()
+    return if (parts.size > 1 && unitKey != null && unitKey in KNOWN_UNITS) {
+        IngredientDraft(name = parts.drop(1).joinToString(" "), amount = amount, unit = parts[0])
+    } else {
+        IngredientDraft(name = rest, amount = amount)
+    }
+}
+
+/** Parse the free-text block into section drafts; "# Name" lines open a named section. */
+internal fun sectionsFromText(text: String): List<SectionDraft> {
+    val names = mutableListOf<String>()
+    val itemLists = mutableListOf<MutableList<IngredientDraft>>()
+    for (raw in text.lines()) {
+        val line = raw.trim()
+        if (line.isEmpty()) continue
+        if (line.startsWith("#")) {
+            names.add(line.trimStart('#').trim())
+            itemLists.add(mutableListOf())
+        } else {
+            if (itemLists.isEmpty()) { names.add(""); itemLists.add(mutableListOf()) }
+            itemLists.last().add(parseIngredientLine(line))
+        }
+    }
+    if (itemLists.isEmpty()) return listOf(SectionDraft())
+    return names.indices.map { SectionDraft(names[it], itemLists[it].toList()) }
+}
+
+/** Structured sections → the editable text block (named sections become "# name" headers). */
+internal fun ingredientsTextFromSections(sections: List<SectionDraft>): String {
+    val out = mutableListOf<String>()
+    for (sec in sections) {
+        if (sec.name.isNotBlank()) out.add("# ${sec.name.trim()}")
+        for (ing in sec.ingredients) {
+            val line = listOf(ing.amount.trim(), ing.unit.trim(), ing.name.trim())
+                .filter { it.isNotEmpty() }.joinToString(" ")
+            if (line.isNotEmpty()) out.add(line)
+        }
+    }
+    return out.joinToString("\n")
+}
 
 /** Parse a free-text textarea into [RecipeStepInput]s — one step per non-blank line. */
 private fun parseSteps(text: String): List<RecipeStepInput> =

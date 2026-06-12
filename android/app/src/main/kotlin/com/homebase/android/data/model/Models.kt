@@ -442,6 +442,17 @@ data class RecipeStepDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class RecipeImageDto(
+    val id: String,
+    val recipeId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class RecipeDto(
     val id: String,
     val title: String,
@@ -452,6 +463,8 @@ data class RecipeDto(
     val category: String,
     val ingredients: List<IngredientDto> = emptyList(),
     val steps: List<RecipeStepDto> = emptyList(),
+    // optional single cover image; backend omits the key when the recipe has none
+    val image: RecipeImageDto? = null,
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String,

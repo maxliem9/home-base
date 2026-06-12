@@ -6,7 +6,7 @@ import type { Page, Route } from '@playwright/test'
 // files can keep importing these names from this helper.
 import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
-  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -14,7 +14,7 @@ import type {
 
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
-  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -113,6 +113,7 @@ export class MockApi {
   private nextRecipeId = 100
   private nextNoteId = 100
   private nextNoteImageId = 100
+  private nextRecipeImageId = 100
   // optional HTTP status forced on the next note-image upload, to exercise the
   // editor's 413/415 error paths (#146). One-shot: consumed by the next upload.
   private nextImageUploadStatus: number | null = null
@@ -322,6 +323,9 @@ export class MockApi {
         stepNumber: n + 1,
         description: s.description as string,
       })),
+      // the cover image is managed via the dedicated endpoints, never the create/update body —
+      // preserve any already attached on update.
+      image: prev?.image,
       createdBy: prev?.createdBy ?? 'alice',
       createdAt: prev?.createdAt ?? ts,
       updatedAt: ts,
@@ -804,6 +808,50 @@ export class MockApi {
         headers: { 'content-disposition': `attachment; filename="rezept_${slug}.md"` },
         body: md,
       })
+    }
+
+    // Recipe cover image (mirror POST /recipes/{id}/images = set/replace, GET serve, DELETE).
+    // Recipes are shared, so there's no visibility gate. A recipe has at most one image, so the
+    // upload replaces any existing one. nextImageUploadStatus drives the 413/415 paths.
+    const recipeImagesPost = path.match(/\/recipes\/([^/]+)\/images$/)
+    if (recipeImagesPost && method === 'POST') {
+      const recipeId = recipeImagesPost[1]
+      const idx = this.recipes.findIndex((r) => r.id === recipeId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      if (this.nextImageUploadStatus !== null) {
+        const status = this.nextImageUploadStatus
+        this.nextImageUploadStatus = null
+        return this.json(route, { code: status === 413 ? 'PAYLOAD_TOO_LARGE' : 'UNSUPPORTED_MEDIA_TYPE', message: 'rejected' }, status)
+      }
+      const original = /filename="([^"]+)"/.exec(req.postData() ?? '')?.[1] ?? 'upload.png'
+      const img: RecipeImage = {
+        id: `recipeimg-${this.nextRecipeImageId++}`,
+        recipeId,
+        originalName: original,
+        contentType: 'image/png',
+        sizeBytes: TINY_PNG.length,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.recipes[idx] = { ...this.recipes[idx], image: img, updatedAt: new Date().toISOString() }
+      return this.json(route, this.recipes[idx], 201)
+    }
+
+    const recipeImageMatch = path.match(/\/recipes\/([^/]+)\/images\/([^/]+)$/)
+    if (recipeImageMatch && method === 'GET') {
+      // serve a real blob so <AuthedImage>'s authFetch → blob path is exercised
+      const [, recipeId, imageId] = recipeImageMatch
+      const img = this.recipes.find((r) => r.id === recipeId)?.image
+      if (!img || img.id !== imageId) return this.json(route, { message: 'not found' }, 404)
+      return route.fulfill({ status: 200, contentType: img.contentType || 'image/png', body: TINY_PNG })
+    }
+    if (recipeImageMatch && method === 'DELETE') {
+      const [, recipeId, imageId] = recipeImageMatch
+      const idx = this.recipes.findIndex((r) => r.id === recipeId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      if (this.recipes[idx].image?.id !== imageId) return this.json(route, { message: 'not found' }, 404)
+      this.recipes[idx] = { ...this.recipes[idx], image: undefined, updatedAt: new Date().toISOString() }
+      return this.json(route, this.recipes[idx])
     }
 
     const recipeIdMatch = path.match(/\/recipes\/([^/]+)$/)
@@ -1359,6 +1407,17 @@ export function ingredient(partial: Partial<Ingredient> & { id: string; name: st
 export function recipeStep(partial: Partial<RecipeStep> & { id: string; description: string }): RecipeStep {
   return {
     stepNumber: 1,
+    ...partial,
+  }
+}
+
+export function recipeImage(partial: Partial<RecipeImage> & { id: string; recipeId: string }): RecipeImage {
+  return {
+    originalName: 'foto.png',
+    contentType: 'image/png',
+    sizeBytes: 95,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
     ...partial,
   }
 }

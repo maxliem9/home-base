@@ -204,6 +204,14 @@ interface HomeBaseApi {
     @DELETE("recipes/{id}")
     suspend fun deleteRecipe(@Path("id") id: String)
 
+    // set (replace) / delete the single cover image; both return the updated recipe
+    @Multipart
+    @POST("recipes/{id}/images")
+    suspend fun uploadRecipeImage(@Path("id") id: String, @Part file: MultipartBody.Part): RecipeDto
+
+    @DELETE("recipes/{id}/images/{imageId}")
+    suspend fun deleteRecipeImage(@Path("id") id: String, @Path("imageId") imageId: String): RecipeDto
+
     // Markdown (format=md) or PDF (format=pdf) export of a single recipe; raw bytes.
     @GET("recipes/{id}/export")
     suspend fun exportRecipe(

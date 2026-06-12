@@ -265,3 +265,18 @@ object RecipeStepsTable : Table("recipe_steps") {
     val description = text("description")
     override val primaryKey = PrimaryKey(id)
 }
+
+// One optional cover image per recipe — recipe_id is UNIQUE, so a new upload replaces the row.
+object RecipeImagesTable : Table("recipe_images") {
+    val id = uuid("id")
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE).uniqueIndex()
+    // name of the file on disk (e.g. "<uuid>.jpg"); the original bytes are stored
+    // outside the DB under the configured upload directory.
+    val filename = text("filename")
+    val originalName = text("original_name")
+    val contentType = varchar("content_type", 100)
+    val sizeBytes = long("size_bytes")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}

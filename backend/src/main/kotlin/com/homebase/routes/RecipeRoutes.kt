@@ -1,12 +1,14 @@
 package com.homebase.routes
 
 import com.homebase.db.IngredientsTable
+import com.homebase.db.RecipeImagesTable
 import com.homebase.db.RecipeStepsTable
 import com.homebase.db.RecipesTable
 import com.homebase.model.*
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.http.content.LocalFileContent
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -18,6 +20,7 @@ import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.math.BigDecimal
+import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
 
@@ -25,7 +28,7 @@ private const val RECIPES_WS_CHANNEL = "recipes"
 // LUNCH was dropped (collapsed into DINNER) — see migration V17. Clients only offer these five.
 private val VALID_CATEGORIES = setOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
 
-fun Route.recipeRoutes() {
+fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
 
     route("/recipes") {
         // List recipes, optionally filtered by ?category=. Newest first.
@@ -191,21 +194,151 @@ fun Route.recipeRoutes() {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val deleted = transaction {
+            val outcome = transaction {
                 val existing = RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()
                     ?: return@transaction null
                 val dto = existing.toRecipeDto()
+                // Capture the image filenames before the cascade removes their rows so we can
+                // clean up the files on disk afterwards.
+                val files = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq id }
+                    .map { it[RecipeImagesTable.filename] }
                 IngredientsTable.deleteWhere { IngredientsTable.recipeId eq id }
                 RecipeStepsTable.deleteWhere { RecipeStepsTable.recipeId eq id }
                 RecipesTable.deleteWhere { RecipesTable.id eq id }
-                dto
+                dto to files
             }
-            if (deleted == null) {
+            if (outcome == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@delete
             }
+            val (deleted, files) = outcome
+            files.forEach { deleteImageFile(imageConfig, it) }
             WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_DELETED", deleted)))
             call.respond(HttpStatusCode.NoContent)
+        }
+
+        // --- Cover image --------------------------------------------------
+        // A recipe has at most one cover image (recipe_images.recipe_id is UNIQUE). Recipes are
+        // shared between both users, so there is no per-image owner check; any authenticated user
+        // may set, view and remove it. Streaming / validation / disk plumbing is shared with the
+        // note images (see ImageUploads.kt).
+
+        // Set (or replace) a recipe's cover image. Returns the updated recipe.
+        post("/{id}/images") {
+            val username = call.username()
+            val recipeId = call.uuidParam() ?: return@post
+
+            val exists = transaction {
+                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull() != null
+            }
+            if (!exists) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
+                return@post
+            }
+
+            val upload = when (val received = call.receiveImageUpload(imageConfig)) {
+                is ImageUploadResult.Rejected -> {
+                    call.respondImageRejection(received.reason, imageConfig)
+                    return@post
+                }
+                ImageUploadResult.None -> {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("NO_IMAGE", "no image file in request"))
+                    return@post
+                }
+                is ImageUploadResult.Accepted -> received.upload
+            }
+
+            val imageId = UUID.randomUUID()
+            val storedName = "$imageId.${ALLOWED_IMAGE_TYPES.getValue(upload.contentType)}"
+            // The bytes are already streamed to a temp file; promote it to its final name.
+            finalizeImageFile(imageConfig, upload.tempFile, storedName)
+
+            val outcome = transaction {
+                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
+                    ?: return@transaction null
+                // single cover image: drop the previous one (its file is removed after commit)
+                val oldFiles = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq recipeId }
+                    .map { it[RecipeImagesTable.filename] }
+                RecipeImagesTable.deleteWhere { RecipeImagesTable.recipeId eq recipeId }
+                RecipeImagesTable.insert {
+                    it[RecipeImagesTable.id] = imageId
+                    it[RecipeImagesTable.recipeId] = recipeId
+                    it[filename] = storedName
+                    it[RecipeImagesTable.originalName] = upload.originalName
+                    it[RecipeImagesTable.contentType] = upload.contentType
+                    it[sizeBytes] = upload.size
+                    it[createdBy] = username
+                    it[createdAt] = Instant.now()
+                }
+                RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
+                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto() to oldFiles
+            }
+            if (outcome == null) {
+                // recipe vanished between the existence check and the insert — undo the new file
+                deleteImageFile(imageConfig, storedName)
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
+                return@post
+            }
+            val (recipe, oldFiles) = outcome
+            oldFiles.forEach { deleteImageFile(imageConfig, it) }
+
+            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            call.respond(HttpStatusCode.Created, recipe)
+        }
+
+        // Serve the raw image bytes. Any authenticated user may read them (recipes are shared).
+        get("/{id}/images/{imageId}") {
+            val recipeId = call.uuidParam() ?: return@get
+            val imageId = call.uuidParam("imageId") ?: return@get
+
+            val row = transaction {
+                RecipeImagesTable.selectAll()
+                    .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
+                    .singleOrNull()
+            }
+            if (row == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image not found"))
+                return@get
+            }
+            val file = imageConfig.uploadDir.resolve(row[RecipeImagesTable.filename])
+            if (!Files.exists(file)) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image file missing"))
+                return@get
+            }
+            // Stored names are immutable (UUID-based), so the bytes never change.
+            call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=31536000, immutable")
+            // Don't let the browser MIME-sniff a crafted file: the declared content-type is trusted
+            // as-is and never validated to be a real image.
+            call.response.headers.append("X-Content-Type-Options", "nosniff")
+            call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[RecipeImagesTable.contentType])))
+        }
+
+        // Remove a recipe's cover image. Returns the updated recipe.
+        delete("/{id}/images/{imageId}") {
+            val recipeId = call.uuidParam() ?: return@delete
+            val imageId = call.uuidParam("imageId") ?: return@delete
+
+            val outcome = transaction {
+                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
+                    ?: return@transaction null
+                val image = RecipeImagesTable.selectAll()
+                    .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
+                    .singleOrNull() ?: return@transaction null
+                val filename = image[RecipeImagesTable.filename]
+                RecipeImagesTable.deleteWhere {
+                    (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId)
+                }
+                RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
+                filename to RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto()
+            }
+            if (outcome == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image not found"))
+                return@delete
+            }
+            val (filename, recipe) = outcome
+            deleteImageFile(imageConfig, filename)
+            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            call.respond(recipe)
         }
     }
 
@@ -312,6 +445,20 @@ private fun ResultRow.toRecipeDto(): RecipeDto {
                 description = it[RecipeStepsTable.description]
             )
         }
+    val image = RecipeImagesTable.selectAll()
+        .where { RecipeImagesTable.recipeId eq recipeId }
+        .firstOrNull()
+        ?.let {
+            RecipeImageDto(
+                id = it[RecipeImagesTable.id].toString(),
+                recipeId = it[RecipeImagesTable.recipeId].toString(),
+                originalName = it[RecipeImagesTable.originalName],
+                contentType = it[RecipeImagesTable.contentType],
+                sizeBytes = it[RecipeImagesTable.sizeBytes],
+                createdBy = it[RecipeImagesTable.createdBy],
+                createdAt = it[RecipeImagesTable.createdAt].toString()
+            )
+        }
     return RecipeDto(
         id = recipeId.toString(),
         title = this[RecipesTable.title],
@@ -322,6 +469,7 @@ private fun ResultRow.toRecipeDto(): RecipeDto {
         category = this[RecipesTable.category],
         ingredients = ingredients,
         steps = steps,
+        image = image,
         createdBy = this[RecipesTable.createdBy],
         createdAt = this[RecipesTable.createdAt].toString(),
         updatedAt = this[RecipesTable.updatedAt].toString()

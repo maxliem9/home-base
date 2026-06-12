@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, recipe, ingredient, recipeStep, shoppingList, TOKEN } from './helpers/mockApi'
+import { MockApi, recipe, ingredient, recipeStep, recipeImage, shoppingList, TOKEN } from './helpers/mockApi'
 
 /** Logs in, installs the mock backend, and navigates to the recipes view. */
 async function openRecipes(page: Page, mock: MockApi) {
@@ -230,6 +230,60 @@ test.describe('Recipes', () => {
     await expect(page.getByRole('heading', { name: 'Leitungswasser' })).toBeVisible()
     await expect(page.locator('.hb-ing')).toHaveCount(0)
     await expect(page.locator('.hb-step')).toHaveCount(0)
+  })
+
+  test('bulk-adds ingredients via the free-text paste mode', async ({ page }) => {
+    await openRecipes(page, new MockApi())
+
+    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    const form = page.locator('.hb-recipe-form')
+    await form.getByPlaceholder('Titel…').fill('Suppe')
+
+    // switch the ingredient editor to free text and paste a whole list at once
+    await form.getByRole('button', { name: 'Als Text' }).click()
+    await form.locator('textarea.hb-mono-area').fill('200 g Mehl\n3 Eier\n# Topping\n100 g Zucker')
+    await form.getByRole('button', { name: 'Speichern' }).click()
+
+    // the lines parsed into amount/unit/name rows; "# Topping" became a named section,
+    // and "3 Eier" kept "Eier" as the name (not the unit)
+    await expect(page.getByRole('heading', { name: 'Suppe' })).toBeVisible()
+    await expect(page.locator('.hb-ing', { hasText: 'Mehl' })).toContainText('200 g')
+    await expect(page.locator('.hb-ing', { hasText: 'Eier' })).toBeVisible()
+    await expect(page.locator('.hb-ingsubhead', { hasText: 'Topping' })).toBeVisible()
+    await expect(page.locator('.hb-ing', { hasText: 'Zucker' })).toContainText('100 g')
+  })
+
+  test('renders the recipe cover image on the card and the detail hero', async ({ page }) => {
+    const withImage = recipe({
+      id: 'r4',
+      title: 'Pizza',
+      image: recipeImage({ id: 'ri9', recipeId: 'r4', originalName: 'pizza.png' }),
+    })
+    await openRecipes(page, new MockApi().seedRecipes([withImage]))
+
+    // the list card shows the cover, loaded via the shared <AuthedImage> (authFetch → blob)
+    await expect(page.locator('.hb-recipecard__photo')).toHaveAttribute('src', /^blob:/)
+
+    // the detail page shows the same image as the hero
+    await page.locator('.hb-recipecard', { hasText: 'Pizza' }).click()
+    await expect(page.locator('.hb-recipe-hero img')).toHaveAttribute('src', /^blob:/)
+  })
+
+  test('removes the cover image from the detail page', async ({ page }) => {
+    const withImage = recipe({
+      id: 'r3',
+      title: 'Toast',
+      image: recipeImage({ id: 'ri3', recipeId: 'r3', originalName: 'toast.png' }),
+    })
+    await openRecipes(page, new MockApi().seedRecipes([withImage]))
+    await page.locator('.hb-recipecard', { hasText: 'Toast' }).click()
+
+    // the cover renders as the hero …
+    await expect(page.locator('.hb-recipe-hero img')).toHaveAttribute('src', /^blob:/)
+
+    // … and "Bild entfernen" clears it (DELETE → updated recipe with no image)
+    await page.getByRole('button', { name: 'Bild entfernen' }).click()
+    await expect(page.locator('.hb-recipe-hero')).toHaveCount(0)
   })
 
   test('adds serving-scaled recipe ingredients to a shopping list', async ({ page }) => {

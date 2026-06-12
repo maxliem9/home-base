@@ -144,6 +144,16 @@ export interface RecipeStep {
   description: string
 }
 
+export interface RecipeImage {
+  id: string
+  recipeId: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  createdBy: string
+  createdAt: string
+}
+
 export interface Recipe {
   id: string
   title: string
@@ -154,6 +164,8 @@ export interface Recipe {
   category: RecipeCategory
   ingredients: Ingredient[]
   steps: RecipeStep[]
+  // optional single cover image; omitted by the backend when the recipe has none
+  image?: RecipeImage
   createdBy: string
   createdAt: string
   updatedAt: string
