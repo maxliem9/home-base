@@ -285,6 +285,9 @@ export const de = {
     insertImage: 'In Text einfügen',
     insertImageLabel: 'Bild in den Text einfügen',
     uploading: 'Wird hochgeladen…',
+    imageUploadingInline: 'Bild wird hochgeladen…',
+    // shown when trying to paste/drop an image into a not-yet-saved draft
+    imageSaveFirst: 'Notiz zuerst speichern, dann Bilder einfügen.',
     imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
     imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
     imageUploadFailed: 'Upload fehlgeschlagen.',

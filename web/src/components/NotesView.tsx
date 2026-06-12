@@ -1,4 +1,13 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ImgHTMLAttributes } from 'react'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  type ImgHTMLAttributes,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+} from 'react'
 import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
@@ -63,6 +72,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
+  // live mirror of the open draft's id — read after an awaited upload to detect that the
+  // user switched/closed the editor in the meantime (the captured `draft` would be stale).
+  const draftIdRef = useRef<string | undefined>(undefined)
+  draftIdRef.current = draft?.id
   const { flashError, errorToast } = useErrorToast()
 
   const fetchNotes = useCallback(async (q: string) => {
@@ -199,36 +212,94 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // Only existing (saved) notes have images; a brand-new draft has none yet.
   const editImages = draft?.id ? (notes.find((n) => n.id === draft.id)?.images ?? []) : []
 
-  // images are managed from the read view; clear any stale upload error on selection change
-  useEffect(() => { setImageError(null) }, [selectedId])
+  // clear any stale image upload error when the read selection changes or the editor
+  // opens/closes/switches notes — paste/drop errors must not leak across views (#146)
+  useEffect(() => { setImageError(null) }, [selectedId, draft?.id, draft === null])
 
   // clear a stale save error whenever the editor opens on a different note (or closes)
   useEffect(() => { setSaveError(null) }, [draft?.id, draft === null])
 
-  const handleUploadImage = async (file: File) => {
-    if (!selected) return
+  // Upload one image file to a saved note and refresh that note in state. Returns the
+  // newly-attached NoteImage on success (so the editor can insert a ref to it at the
+  // caret), or null on any failure — in which case the inline imageError is already set.
+  // Shared by the read-view gallery upload and the editor paste/drop upload. Error
+  // mapping mirrors the backend contract: 413 too large, 415 unsupported type (#146).
+  const uploadImageToNote = async (noteId: string, file: File): Promise<NoteImage | null> => {
     setImageError(null)
     setUploadingImage(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await authFetch(token, `${API_BASE}/notes/${selected.id}/images`, { method: 'POST', body: fd })
-      if (res.status === 401) return onLogout()
+      const res = await authFetch(token, `${API_BASE}/notes/${noteId}/images`, { method: 'POST', body: fd })
+      if (res.status === 401) { onLogout(); return null }
       if (res.ok) {
         const updated: Note = await res.json()
         setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
-      } else if (res.status === 413) {
-        setImageError(t.notes.imageTooLarge)
-      } else if (res.status === 415) {
-        setImageError(t.notes.imageBadType)
-      } else {
-        setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
+        // the upload returns the whole note; the newest attachment is the last image
+        return updated.images[updated.images.length - 1] ?? null
       }
+      if (res.status === 413) setImageError(t.notes.imageTooLarge)
+      else if (res.status === 415) setImageError(t.notes.imageBadType)
+      else setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
+      return null
     } catch {
       setImageError(t.notes.imageUploadFailed)
+      return null
     } finally {
       setUploadingImage(false)
     }
+  }
+
+  const handleUploadImage = async (file: File) => {
+    if (!selected) return
+    await uploadImageToNote(selected.id, file)
+  }
+
+  // Paste/drop an image directly into the editor: upload it to the (saved) note, then
+  // insert an inline `![name](image:<id>)` ref at the caret — the "GitHub feel" (#146).
+  // Guarded by draft.id: a brand-new, unsaved draft has no note to attach to, so we
+  // hint to save first rather than dropping the file silently.
+  const uploadAndInsert = async (file: File) => {
+    if (!draft) return
+    if (!draft.id) { setImageError(t.notes.imageSaveFirst); return }
+    // remember which note this upload belongs to; the await below lets the user switch
+    // (or close) the editor meanwhile. The image is still saved to the right note
+    // server-side — we just must not paste its ref into a now-different note's content.
+    const targetNoteId = draft.id
+    const img = await uploadImageToNote(targetNoteId, file)
+    if (img && draftIdRef.current === targetNoteId) insertAtCaret(img)
+  }
+
+  // first image among dropped/pasted items, JPEG/PNG/WebP/GIF only (backend-allowed set)
+  const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  const firstImageFile = (files: readonly File[]): File | null =>
+    files.find((f) => ALLOWED_IMAGE_TYPES.includes(f.type)) ?? null
+
+  const handleEditorPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    // pull image files out of the clipboard items; ignore plain-text pastes entirely
+    const files = Array.from(e.clipboardData.items)
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f != null)
+    const img = firstImageFile(files)
+    if (!img) return // let the browser handle non-image pastes (text etc.)
+    e.preventDefault()
+    void uploadAndInsert(img)
+  }
+
+  const handleEditorDrop = (e: ReactDragEvent<HTMLTextAreaElement>) => {
+    const img = firstImageFile(Array.from(e.dataTransfer.files))
+    if (!img) return // non-image drop → leave default behaviour
+    e.preventDefault()
+    void uploadAndInsert(img)
+  }
+
+  const handleEditorDragOver = (e: ReactDragEvent<HTMLTextAreaElement>) => {
+    // only intercept when an actual file is being dragged in, so text drag/drop within
+    // the textarea keeps working; signal a copy cursor for the drop.
+    if (!Array.from(e.dataTransfer.items).some((it) => it.kind === 'file')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
   }
 
   const handleDeleteImage = async (imageId: string) => {
@@ -250,23 +321,34 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     }
   }
 
-  // Insert an inline reference to an already-uploaded attachment at the editor caret
-  // (issue follow-up tracks paste/drag-to-upload). The snippet `![name](image:id)`
-  // replaces the current selection / lands at the cursor; renderMarkdown resolves it
-  // to the authed image on the read side. Caret is restored after React re-renders the
-  // controlled textarea. Only offered while editing an existing note (images need an id).
+  // Insert an inline reference to an already-uploaded attachment at the editor caret.
+  // The snippet `![name](image:id)` replaces the current selection / lands at the cursor;
+  // renderMarkdown resolves it to the authed image on the read side. Caret is restored
+  // after React re-renders the controlled textarea.
+  //
+  // Both the thumbnail-click and the async paste/drop upload (#146) funnel here. The
+  // paste/drop path `await`s the upload first, so the user may have typed (or edited
+  // other fields) in the meantime — therefore read the CURRENT content + selection from
+  // the live DOM (el.value/selectionStart), not this render's captured `draft`, and merge
+  // with a functional setState. Mixing a stale `text` with the live caret index used to
+  // drop in-flight edits and misplace the snippet.
   const insertAtCaret = (img: NoteImage) => {
-    if (!draft) return
-    const snippet = `![${img.originalName}](image:${img.id})`
     const el = contentRef.current
-    const text = draft.content
+    // Sanitize the alt text: `]`, `(`, `)` and newlines would break the inline-image
+    // syntax `![alt](image:id)` — a `]` in a common download name like "report].png"
+    // closes the alt early and the whole snippet renders as literal text. Replace them
+    // with a space so such names still render as an image (not XSS-relevant; the
+    // markdown renderer builds React elements, so the alt is always plain text).
+    const alt = img.originalName.replace(/[\]()\r\n]/g, ' ').trim()
+    const snippet = `![${alt}](image:${img.id})`
+    const text = el ? el.value : (draft?.content ?? '')
     // insert at the caret / replace the selection; with no textarea fall back to the end.
     // (Edge: a textarea the user never focused reports caret 0, so a blind insert lands at
     // the start — acceptable; the normal flow is click-in-text-then-insert.)
     const start = el ? el.selectionStart : text.length
     const end = el ? el.selectionEnd : text.length
     const next = text.slice(0, start) + snippet + text.slice(end)
-    setDraft({ ...draft, content: next })
+    setDraft((prev) => (prev ? { ...prev, content: next } : prev))
     const caret = start + snippet.length
     requestAnimationFrame(() => {
       const e2 = contentRef.current
@@ -377,7 +459,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   value={draft.content}
                   placeholder={t.notes.contentPlaceholder}
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+                  // paste/drag an image straight into the editor → upload + inline ref (#146)
+                  onPaste={handleEditorPaste}
+                  onDrop={handleEditorDrop}
+                  onDragOver={handleEditorDragOver}
                 />
+                {/* subtle inline feedback for the paste/drop upload flow */}
+                {uploadingImage && (
+                  <p className="hb-note-editor__uploading">
+                    <Icon name="image" size={14} stroke={2} /> {t.notes.imageUploadingInline}
+                  </p>
+                )}
+                {imageError && <p className="hb-note-images__error">{imageError}</p>}
               </Field>
               {editImages.length > 0 && (
                 <Field label={t.notes.insertImageLabel}>

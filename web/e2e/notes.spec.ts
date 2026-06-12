@@ -131,4 +131,199 @@ test.describe('Notes', () => {
     await lightbox.click({ position: { x: 5, y: 5 } })
     await expect(lightbox).toHaveCount(0)
   })
+
+  // ---- Editor image upload: paste / drag&drop straight into the textarea (#146) ----
+  // Fires a real `paste`/`drop` event carrying an image File at the caret, then asserts
+  // the upload happened (POST /notes/{id}/images) and an inline `![name](image:<id>)`
+  // ref was inserted. Both go through the same uploadImageToNote → insertAtCaret flow.
+
+  // Dispatch a clipboard/drag event carrying a synthetic PNG File onto the editor
+  // textarea, at the given caret offset. Returns nothing; the app reacts to the event.
+  const fireEditorImageEvent = (page: Page, kind: 'paste' | 'drop', filename: string, caret = 0) =>
+    page.evaluate(
+      ({ kind, filename, caret }) => {
+        const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+        ta.focus()
+        ta.setSelectionRange(caret, caret)
+        const dt = new DataTransfer()
+        dt.items.add(new File([new Uint8Array([1, 2, 3])], filename, { type: 'image/png' }))
+        const ev =
+          kind === 'paste'
+            ? new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+            : new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+        ta.dispatchEvent(ev)
+      },
+      { kind, filename, caret },
+    )
+
+  // Dispatch a paste/drop carrying a NON-image payload (plain text, or a non-image file
+  // for drops) onto the editor textarea, and report whether the handler called
+  // preventDefault. `dispatchEvent` returns false iff the event was cancelled — so a
+  // truthy result proves the browser's default (text paste / native drop) still runs.
+  const fireEditorNonImageEvent = (page: Page, kind: 'paste' | 'drop', payload: string): Promise<boolean> =>
+    page.evaluate(
+      ({ kind, payload }) => {
+        const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+        ta.focus()
+        const dt = new DataTransfer()
+        if (kind === 'paste') dt.setData('text/plain', payload)
+        else dt.items.add(new File([payload], 'notes.txt', { type: 'text/plain' }))
+        const ev =
+          kind === 'paste'
+            ? new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+            : new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
+        return ta.dispatchEvent(ev) // false ⇒ preventDefault was called
+      },
+      { kind, payload },
+    )
+
+  const openEditorFor = async (page: Page, titleRe: RegExp) => {
+    await page.getByRole('button', { name: titleRe }).click()
+    await page.getByRole('button', { name: 'Bearbeiten' }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+  }
+
+  test('pastes an image into the editor → uploads and inserts a markdown ref', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'pasted.png', 0)
+    await upload
+
+    // the upload response (note + new image) drives an inline ref at the caret
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^!\[pasted\.png\]\(image:noteimg-\d+\)Router: \*\*abc123\*\*$/)
+  })
+
+  test('drops an image onto the editor → uploads and inserts a markdown ref', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    // drop at the end of the existing content
+    await fireEditorImageEvent(page, 'drop', 'dropped.png', 'Router: **abc123**'.length)
+    await upload
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^Router: \*\*abc123\*\*!\[dropped\.png\]\(image:noteimg-\d+\)$/)
+  })
+
+  test('surfaces a 415 upload error in the editor (German text, no insert)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    await fireEditorImageEvent(page, 'paste', 'weird.tiff', 0)
+
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Nur JPEG, PNG, WebP oder GIF erlaubt.')
+    // nothing was inserted — content is unchanged
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+  })
+
+  test('keeps edits typed WHILE the upload is in flight (no stale-draft clobber)', async ({ page }) => {
+    const mock = new MockApi().seedNotes([WLAN]).holdNextImageUpload()
+    await openNotes(page, mock)
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    // paste an image at the very start; the upload is held open by the mock
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'inflight.png', 0)
+    await upload // request is now pending in the mock
+
+    // the user keeps typing at the end of the content while the upload hasn't returned
+    await ta.focus()
+    await page.evaluate(() => {
+      const el = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+      el.setSelectionRange(el.value.length, el.value.length)
+    })
+    await ta.pressSequentially(' EDIT')
+    await expect(ta).toHaveValue('Router: **abc123** EDIT')
+
+    // now let the upload resolve → the insert must NOT wipe the typed " EDIT", and the
+    // snippet lands at the LIVE caret (end), not at the stale paste position.
+    await mock.releaseImageUpload()
+    await expect(ta).toHaveValue(/^Router: \*\*abc123\*\* EDIT!\[inflight\.png\]\(image:noteimg-\d+\)$/)
+  })
+
+  test('a brand-new unsaved draft hints to save first instead of uploading', async ({ page }) => {
+    await openNotes(page, new MockApi())
+    await page.getByRole('button', { name: 'Neue Notiz' }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+
+    let uploaded = false
+    page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
+    await fireEditorImageEvent(page, 'paste', 'early.png', 0)
+
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Notiz zuerst speichern, dann Bilder einfügen.')
+    expect(uploaded).toBe(false)
+  })
+
+  // Plain-text paste / non-image drop must pass straight through: no upload request and
+  // crucially NO preventDefault — otherwise typing/pasting text or dragging text into the
+  // textarea would break. Guards the "preventDefault only when we actually take an image".
+  test('plain-text paste passes through (no upload, not preventDefault\'d)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    let uploaded = false
+    page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
+
+    const prevented = await fireEditorNonImageEvent(page, 'paste', 'einfach Text')
+    expect(prevented).toBe(true) // dispatchEvent === true ⇒ default not cancelled
+    expect(uploaded).toBe(false)
+    // and a non-image FILE drop is ignored just the same (left to the browser)
+    const droppedPrevented = await fireEditorNonImageEvent(page, 'drop', 'irgendein Text')
+    expect(droppedPrevented).toBe(true)
+    expect(uploaded).toBe(false)
+  })
+
+  // The thumbnail-click insert and the paste/drop insert share insertAtCaret, which
+  // sanitizes the alt text. A name with `]`/`(`/`)` (e.g. "Screenshot (1)].png", a very
+  // common download name) would otherwise break the inline-image ref — those chars must
+  // be replaced with spaces so it still renders as an image.
+  test('sanitizes ] ( ) in the image name when inserting an inline ref', async ({ page }) => {
+    const note1 = note({
+      id: 'n1',
+      title: 'Fotos',
+      content: '',
+      images: [noteImage({ id: 'img1', noteId: 'n1', originalName: 'Screenshot (1)].png' })],
+    })
+    await openNotes(page, new MockApi().seedNotes([note1]))
+    await openEditorFor(page, /Fotos/)
+
+    // click the "insert at cursor" thumbnail in the editor strip
+    await page.locator('.hb-note-insert-thumb').first().click()
+    // ()] each stripped to a space → the ref stays well-formed; id is untouched
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('![Screenshot  1  .png](image:img1)')
+  })
+
+  // Cross-note guard: if the user switches to editing another note WHILE an upload is in
+  // flight, the resolved ref must NOT land in the now-open note (the image itself is still
+  // saved to the original note server-side). Only the wrong text insertion is skipped.
+  test('does not insert the ref into a different note opened during the upload', async ({ page }) => {
+    const A = note({ id: 'n1', title: 'Notiz A', content: 'AAA' })
+    const B = note({ id: 'n2', title: 'Notiz B', content: 'BBB' })
+    const mock = new MockApi().seedNotes([A, B]).holdNextImageUpload()
+    await openNotes(page, mock)
+    await openEditorFor(page, /Notiz A/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'switch.png', 0)
+    await upload // pending in the mock
+
+    // switch to editing note B while A's upload is still open
+    await openEditorFor(page, /Notiz B/)
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
+
+    // release A's upload → the guard skips the insert; B stays untouched
+    await mock.releaseImageUpload()
+    // give the resolved promise a tick; B's content must remain exactly "BBB"
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
+
+    // and A really did receive the image (ref insert skipped, upload succeeded)
+    await page.getByRole('button', { name: 'Abbrechen' }).click()
+    await page.getByRole('button', { name: /Notiz A/ }).click()
+    await expect(page.locator('.hb-note-thumb img')).toHaveCount(1)
+  })
 })
