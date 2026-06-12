@@ -102,7 +102,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showNewProject by remember { mutableStateOf(false) }
-    var showTargets by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
     var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     var splitEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
@@ -111,15 +110,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
 
     val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
     val entriesByProject = remember(state.entries) { state.entries.groupBy { it.projectId } }
-
-    // Projects offered in the targets sheet (#55): the active ones plus archived
-    // projects that still carry a target (hours or default) — otherwise an archived
-    // project's Wochensoll would become invisible and uneditable.
-    val targetProjects = remember(state.projects, state.targets) {
-        state.projects.filter { p ->
-            !p.archived || state.targets.any { it.projectId == p.id && (it.weeklyHours > 0 || it.isDefault) }
-        }
-    }
 
     // Active projects first, then archived (shown only when the archive toggle is on).
     var showArchived by remember { mutableStateOf(false) }
@@ -138,8 +128,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     eyebrow = "Zeiterfassung",
                     title = "Zeit",
                     onLeft = onOpenDrawer,
-                    // Wochensoll konfigurieren (#55) — entry point even before any target exists.
-                    actions = { HbIconButton(HbIcons.settings, { showTargets = true }) },
                 )
             },
             fab = { HbFab(onClick = { showNewProject = true }, label = "Projekt") },
@@ -193,7 +181,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     projectsById = projectsById,
                     openEntries = openEntries,
                     forecastAt = state.forecastAt,
-                    onConfigure = { showTargets = true },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
             }
@@ -298,19 +285,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     viewModel.addProject(name, hex)
                     showNewProject = false
                 },
-            )
-        }
-
-        if (showTargets) {
-            TargetsSheet(
-                users = state.users,
-                projects = targetProjects,
-                targets = state.targets,
-                onSave = { changes ->
-                    viewModel.saveTargets(changes)
-                    showTargets = false
-                },
-                onDismiss = { showTargets = false },
             )
         }
 
@@ -606,7 +580,6 @@ private fun WeekTargetsCard(
     projectsById: Map<String, ProjectDto>,
     openEntries: List<TimeEntryDto>,
     forecastAt: Instant?,
-    onConfigure: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // While any timer runs, tick the snapshot figures live (#64): re-evaluate "now"
@@ -627,10 +600,7 @@ private fun WeekTargetsCard(
             .border(1.dp, Hb.lineSoft, HbRadius)
             .padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 18.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Wochensoll", style = HbType.cardTitle, color = Hb.ink, modifier = Modifier.weight(1f))
-            HbIconButton(HbIcons.settings, onConfigure, tint = Hb.ink3, iconSize = 19.dp)
-        }
+        Text("Wochensoll", style = HbType.cardTitle, color = Hb.ink)
         Column(
             Modifier.padding(end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -753,7 +723,9 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
  * changed cells; the household may edit either person (like the absence planner, #127).
  */
 @Composable
-private fun TargetsSheet(
+// internal: also opened from the central settings → Zeiterfassung subpage (#101), which is now
+// the only entry point — the tracker no longer hosts the Wochensoll editor.
+internal fun TargetsSheet(
     users: List<String>,
     projects: List<ProjectDto>,
     targets: List<WorkTargetDto>,

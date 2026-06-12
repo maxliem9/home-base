@@ -228,6 +228,7 @@ class MainActivity : ComponentActivity() {
                 SettingsScreen(
                     configRepository = container.configRepository,
                     authRepository = container.authRepository,
+                    timeViewModel = timeVm,
                     currentUser = currentUser,
                     householdName = household,
                     onHouseholdRenamed = { household = it },
