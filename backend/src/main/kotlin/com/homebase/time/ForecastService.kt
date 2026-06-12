@@ -219,7 +219,7 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
     }
 
     /** The user's Bundesland for [year]: exact row, else the nearest earlier year,
-     *  else the nearest later one — same inheritance idea as the absence settings (#144). */
+     *  else the nearest later one — same inheritance idea as the absence settings. */
     private fun stateFor(settings: List<ResultRow>, year: Int): String {
         val row = settings.filter { it[AbsSettingsTable.year] <= year }.maxByOrNull { it[AbsSettingsTable.year] }
             ?: settings.minByOrNull { it[AbsSettingsTable.year] }

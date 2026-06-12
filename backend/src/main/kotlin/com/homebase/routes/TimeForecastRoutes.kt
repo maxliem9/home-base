@@ -46,7 +46,7 @@ private const val MAX_WEEKLY_HOURS = 168.0
 /**
  * Wochensoll targets + work forecast (#31), nested under /time.
  *
- * Like the absence planner (#127), targets are household-shared: either user may
+ * Like the absence planner, targets are household-shared: either user may
  * configure either person's weekly hours and default project — the userId in the
  * path is the *target* person, not the caller.
  */

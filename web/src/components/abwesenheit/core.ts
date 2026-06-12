@@ -91,7 +91,7 @@ function defaultSettings(userId: string, year: number): AbsSettings {
 }
 
 /**
- * Effective settings for a user in a given year (#144). Settings are stored per year;
+ * Effective settings for a user in a given year. Settings are stored per year;
  * for a year without its own row we inherit the *stable* fields (Bundesland, allowance,
  * kind-krank cap) from the nearest year — preferring the closest earlier year, else the
  * closest later one — while resetting the per-year carryover ("Resturlaub") to 0. This

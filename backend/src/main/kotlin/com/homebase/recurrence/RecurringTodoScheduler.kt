@@ -13,8 +13,8 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * Coroutine-based scheduler that runs the recurring-todo safety-net once per day at [runTime]
- * (issue #44), mirroring the Telegram digest scheduler. Each open, overdue recurring todo whose
+ * Coroutine-based scheduler that runs the recurring-todo safety-net once per day at [runTime],
+ * mirroring the Telegram digest scheduler. Each open, overdue recurring todo whose
  * due date is roll-forward-eligible is advanced and broadcast as a TODO_UPDATED so connected
  * clients refresh it.
  */

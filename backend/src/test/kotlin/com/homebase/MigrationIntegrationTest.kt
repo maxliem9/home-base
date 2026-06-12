@@ -229,7 +229,7 @@ class MigrationIntegrationTest {
     }
 
     /**
-     * Guards the V14 recurrence CHECK constraints (issue #44). The H2 unit suite builds its schema
+     * Guards the V14 recurrence CHECK constraints. The H2 unit suite builds its schema
      * from Exposed via SchemaUtils, which carries none of these CHECKs, so only the real Postgres
      * schema can prove them. A valid recurring todo must insert; a recurring todo without a due_date
      * anchor must be rejected by `todos_recurrence_due_chk`.

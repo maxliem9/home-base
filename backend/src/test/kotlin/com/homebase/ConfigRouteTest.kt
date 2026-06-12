@@ -29,7 +29,7 @@ class ConfigRouteTest {
     }
 
     @Test
-    fun `GET config falls back to the env default when unset`() = testApplication {
+    fun `GET config falls back to the configured default when unset`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         // configureTestApplication sets no app.householdName, so configureRouting's default applies.
@@ -97,11 +97,11 @@ class ConfigRouteTest {
     }
 
     @Test
-    fun `GET digest falls back to the env default and reports Telegram disabled in tests`() = testApplication {
+    fun `GET digest falls back to the configured default and reports Telegram disabled in tests`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val body = digest(token)
-        // the test config sets no DIGEST_TIME and no Telegram creds
+        // the test config sets no digest time override and no Telegram creds
         assertEquals("20:00", body["time"]!!.jsonPrimitive.content)
         assertEquals(false, body["enabled"]!!.jsonPrimitive.boolean)
     }

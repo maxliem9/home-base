@@ -23,7 +23,7 @@ private const val MIN_PASSWORD_LENGTH = 8
 /**
  * The household members. HomeBase has 2 fixed users seeded from SEED_USERS; their
  * usernames are configurable, so clients can't hard-code "the other user". This list
- * lets a client resolve the partner — e.g. to start/stop their timer (#142) or render
+ * lets a client resolve the partner — e.g. to start/stop their timer or render
  * an avatar — without scraping it out of unrelated payloads.
  */
 fun Route.userRoutes() {

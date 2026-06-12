@@ -36,7 +36,7 @@ npx playwright install chromium
   notes, projects and time entries via the fluent `seed*` helpers.
 - `auth.spec.ts` — login form, validation, error handling, logout.
 - `dashboard.spec.ts` — stat tiles (pinned clock), quick-add, "Heute dran"
-  check-off, shopping peek, running-timer peek incl. expected end (#31/#142),
+  check-off, shopping peek, running-timer peek incl. expected end (#31),
   digest preview vs. inbox tile (#76).
 - `todos.spec.ts` — inbox rendering, add/plan/complete/delete flows, tab nav.
 - `shopping.spec.ts` — list rendering, add/check items, tabs, list CRUD.

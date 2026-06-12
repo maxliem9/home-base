@@ -43,7 +43,7 @@ object TodosTable : Table("todos") {
     val dueDate = date("due_date").nullable()
     val priority = varchar("priority", 10).nullable()
     val listId = uuid("list_id").nullable()
-    // Recurrence (issue #44): frequency DAILY|WEEKLY|MONTHLY + every-N interval; both NULL = one-off.
+    // Recurrence: frequency DAILY|WEEKLY|MONTHLY + every-N interval; both NULL = one-off.
     val recurrence = varchar("recurrence", 10).nullable()
     val recurrenceInterval = integer("recurrence_interval").nullable()
     val createdBy = varchar("created_by", 50)
@@ -163,7 +163,7 @@ object CustomHolidaysTable : Table("custom_holidays") {
 
 object AbsSettingsTable : Table("abs_settings") {
     val userId = varchar("user_id", 50)
-    // One row per (user, year): allowance/carryover/expiry are inherently annual (#144).
+    // One row per (user, year): allowance/carryover/expiry are inherently annual.
     val year = integer("year")
     val state = varchar("state", 2)
     val allowance = double("allowance")

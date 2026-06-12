@@ -2,7 +2,7 @@ export type TodoStatus = 'INBOX' | 'PLANNED' | 'DONE'
 export type TodoPriority = 'LOW' | 'MEDIUM' | 'HIGH'
 export type RecurrenceFreq = 'DAILY' | 'WEEKLY' | 'MONTHLY'
 
-// Recurrence rule on a todo (issue #44). `interval` may be omitted by the backend when it is 1.
+// Recurrence rule on a todo. `interval` may be omitted by the backend when it is 1.
 export interface Recurrence {
   freq: RecurrenceFreq
   interval?: number
@@ -199,7 +199,7 @@ export interface CustomHoliday {
 
 export interface AbsSettings {
   userId: string
-  year: number // settings are stored per calendar year (#144)
+  year: number // settings are stored per calendar year
   state: string // German Bundesland code
   allowance: number
   carryover: number
@@ -217,7 +217,7 @@ export interface AbsenceState {
 }
 
 // A household member (2 fixed users). From GET /api/v1/users — used to resolve
-// "the other user" for shared timers (#142).
+// "the other user" for shared timers.
 export interface User {
   username: string
 }

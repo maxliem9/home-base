@@ -7,7 +7,7 @@ import com.homebase.android.data.model.UpdateDigestRequest
 
 class ConfigRepository(private val api: HomeBaseApi) {
 
-    /** Household display name (HOUSEHOLD_NAME, default "Mäxchen"). Falls back gracefully. */
+    /** Household display name (set in-app, default "Mäxchen"). Falls back gracefully. */
     suspend fun getHouseholdName(): Result<String> =
         apiCatching { api.getConfig().householdName }
 

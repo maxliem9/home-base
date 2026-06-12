@@ -90,7 +90,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
   const projectsById = useMemo(() => Object.fromEntries(projects.map((p) => [p.id, p])), [projects])
   const running = useMemo(() => entries.find((e) => !e.stoppedAt && (!me || e.userId === me)) ?? null, [entries, me])
-  // Live timers of the *other* household member(s) — shown in the partner strip (#142).
+  // Live timers of the *other* household member(s) — shown in the partner strip.
   // Guard on `me` so a momentarily-unknown user doesn't mislabel own timer as a partner's.
   const othersRunning = useMemo(() => (me ? entries.filter((e) => !e.stoppedAt && e.userId !== me) : []), [entries, me])
   // Other household members, so we can offer "start a timer for them" even while idle.
@@ -175,7 +175,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   // (offline/DNS/aborted — issue #93) shows the per-action fallback toast
   // instead of an unhandled rejection. On a transport failure no backend code
   // exists, so errorText(null, fallback) resolves to the German fallback.
-  // `userId` starts the timer on behalf of the partner (#142); omitted → self.
+  // `userId` starts the timer on behalf of the partner; omitted → self.
   const startTimer = async (projectId: string, description = '', userId?: string) => {
     // Acting on the partner's timer is a cross-person action — confirm first.
     if (userId) {
@@ -206,7 +206,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     fetchForecast()
   }
 
-  // `userId` stops the partner's timer (#142); omitted → own timer (no body).
+  // `userId` stops the partner's timer; omitted → own timer (no body).
   const stopTimer = async (userId?: string) => {
     if (userId) {
       const name = userMeta(userId)?.name ?? userId
@@ -504,7 +504,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         </Card>
       )}
 
-      {/* Partner strip — the other household member's timer (#142): see & stop their
+      {/* Partner strip — the other household member's timer: see & stop their
           running timer, or start one on their behalf. */}
       {others.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
@@ -743,7 +743,7 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   )
 }
 
-// The other household member's timer (#142): when they're running, show project +
+// The other household member's timer: when they're running, show project +
 // live clock + Stop; when idle, offer a project picker to start one on their behalf.
 function PartnerTimer({ user, running, projectsById, nowMs, projects, eta, onStop, onStart }: {
   user: string

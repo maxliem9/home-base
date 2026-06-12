@@ -71,7 +71,7 @@ class AbsenceCustomHolidayTest {
     @Test
     fun `a custom holiday recurs every year, matched by month and day`() {
         // The MM-DD keying (not a full date) is the whole point: the same fixed-date holiday
-        // must resolve in any year. Settings inherit from 2026 to 2027 (nearest-year, #144).
+        // must resolve in any year. Settings inherit from 2026 to 2027 (nearest-year).
         val s = state(CustomHolidayDto("h1", 12, 24, half = true, label = "Heiligabend"))
         val day = personDay(buildContext(s, 2027, listOf(user)), user, "2027-12-24")
         assertEquals("Heiligabend", day.holiday)

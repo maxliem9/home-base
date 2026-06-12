@@ -16,7 +16,7 @@ import java.time.LocalDate
 data class RolledTodo(val todo: TodoDto, val shared: Boolean)
 
 /**
- * The persistence side of the recurring-todo safety-net (issue #44). Completion-driven generation
+ * The persistence side of the recurring-todo safety-net. Completion-driven generation
  * lives in the todo route; this service only handles the "zur Fälligkeit" backstop: a recurring
  * todo the user never finished, whose due date is now in the past, is rolled forward to the current
  * period so it stays on schedule. It never creates a second row, so the open instance never piles up.

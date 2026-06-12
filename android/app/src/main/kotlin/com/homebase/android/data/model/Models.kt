@@ -31,7 +31,7 @@ data class DigestConfigResponse(val time: String, val enabled: Boolean)
 data class UpdateDigestRequest(val time: String)
 
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
-// shared timers (#142), since the usernames are configurable, not hard-codeable.
+// shared timers, since the usernames are configurable, not hard-codeable.
 @JsonClass(generateAdapter = true)
 data class UserDto(val username: String)
 
@@ -47,7 +47,7 @@ data class SubtaskDto(
     val sortOrder: Int,
 )
 
-/** Recurrence rule on a todo (issue #44). freq DAILY|WEEKLY|MONTHLY; on an update "NONE" clears it. */
+/** Recurrence rule on a todo. freq DAILY|WEEKLY|MONTHLY; on an update "NONE" clears it. */
 @JsonClass(generateAdapter = true)
 data class RecurrenceDto(
     val freq: String,
@@ -307,13 +307,13 @@ data class TimeEntryDto(
 data class StartTimerRequest(
     val projectId: String,
     val description: String? = null,
-    // Optional target user (#142): start the timer on behalf of the partner. Null → self.
+    // Optional target user: start the timer on behalf of the partner. Null → self.
     val userId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class StopTimerRequest(
-    // Optional target user (#142): stop the partner's timer. Null → own timer.
+    // Optional target user: stop the partner's timer. Null → own timer.
     val userId: String? = null,
 )
 
@@ -542,7 +542,7 @@ data class CustomHolidayDto(
 @JsonClass(generateAdapter = true)
 data class AbsSettingsDto(
     val userId: String,
-    val year: Int, // settings are stored per calendar year (#144)
+    val year: Int, // settings are stored per calendar year
     val state: String,
     val allowance: Double,
     val carryover: Double,

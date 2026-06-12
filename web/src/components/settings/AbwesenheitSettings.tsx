@@ -9,7 +9,7 @@ import { buildContext } from '../abwesenheit/core'
 import { AbwSettings } from '../abwesenheit/AbwSettings'
 import { useAbsenceData } from '../abwesenheit/useAbsenceData'
 
-// Same window the backend accepts for settings (#144), so the year stepper can never
+// Same window the backend accepts for settings, so the year stepper can never
 // produce a year the settings PUT would reject.
 const YEAR_MIN = 2000
 const YEAR_MAX = 2200

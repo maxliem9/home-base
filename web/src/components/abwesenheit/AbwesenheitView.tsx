@@ -32,7 +32,7 @@ const ddmm = (ds?: string | null): string => {
 }
 const currentTheme = (): Theme => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light')
 
-// Keep the visible year inside the same window the backend accepts for settings (#144),
+// Keep the visible year inside the same window the backend accepts for settings,
 // so paging the year nav can never produce a year the settings PUT would reject.
 const YEAR_MIN = 2000
 const YEAR_MAX = 2200

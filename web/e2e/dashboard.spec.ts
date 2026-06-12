@@ -170,7 +170,7 @@ test.describe('Dashboard (Heute)', () => {
     await expect(page.locator('.hb-row', { hasText: 'Brot' })).toBeVisible()
   })
 
-  // The timer peek reads GET /time/running/all (#142) and decorates the line
+  // The timer peek reads GET /time/running/all and decorates the line
   // with the forecast's expected end once a Wochensoll exists (#31). On
   // weekends the daily target is 0, so the suffix collapses into "Soll erreicht".
   test('running timer peek shows the live clock plus the expected end, and stops it', async ({ page }) => {
@@ -196,7 +196,7 @@ test.describe('Dashboard (Heute)', () => {
     // running for ~30 minutes
     await expect(widget.locator('.hb-runwidget__clock')).toHaveText(/^00:3\d:\d{2}$/)
 
-    // stopping another person's timer asks for confirmation first (#142)
+    // stopping another person's timer asks for confirmation first
     page.once('dialog', (dialog) => dialog.accept())
     const stopPromise = page.waitForRequest((r) => r.url().includes('/time/entries/stop') && r.method() === 'POST')
     await widget.getByRole('button', { name: 'Stoppen' }).click()

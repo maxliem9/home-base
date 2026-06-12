@@ -14,13 +14,11 @@ zudem verlinken sich Issues und PRs nativ (`Closes #<n>`).
 
 ## Zuordnung alte ID → Issue
 
-Die alten Markdown-Items bleiben in der Git-Historie erhalten.
+Die alten Markdown-Items bleiben in der Git-Historie erhalten (`git log -- backlog/`).
 
-```
-0001→#41  0003→#42  0004→#43  0005→#44  0007→#45  0008→#46
-0009→#47  0010→#48  0011→#49  0012→#50  0013→#51  0014→#52
-0015→#53  0016→#54  0017→#55  0018→#56  0019→#57  0020→#58
-0021→#59  0022→#60  0023→#61  0024→#62  0025→#63  0026→#64
-```
-
-`0002` und `0006` waren bereits `done` und wurden nicht migriert.
+> **Hinweis:** Die frühere ID→Issue-Tabelle (0001→#41 … 0026→#64) zeigte auf
+> Issue-Nummern aus dem **ursprünglichen Repo vor der Neuanlage**. Nach der
+> Repo-Neuanlage wurde alles neu durchnummeriert — diese alten Nummern verweisen
+> heute auf unzusammenhängende Vorgänge und sind daher nicht mehr gültig. Die
+> Zuordnung wird nicht weiter gepflegt; der Inhalt der alten Items steht in der
+> Git-Historie. Siehe Issue #137.

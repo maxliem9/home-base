@@ -392,11 +392,11 @@ private fun Route.holidayRoutes(notify: suspend () -> Unit) {
 private fun Route.settingsRoutes(notify: suspend () -> Unit) {
     // Upsert per-person, per-year settings; the row is created on first edit, inheriting
     // the stable fields (Bundesland, allowance, kind-krank cap) from the nearest year so a
-    // fresh year doesn't reset to hard defaults (#144).
+    // fresh year doesn't reset to hard defaults.
     //
     // The household calendar is intentionally shared: like the calendar days/rules, either
     // user may edit either person's settings. This deliberately reverses the owner-only
-    // restriction from #63 for the two-person trusted household (see #127).
+    // restriction for the two-person trusted household.
     suspend fun handleUpsert(call: ApplicationCall, userId: String, year: Int) {
         val req = call.receive<UpdateAbsSettingsRequest>()
         if (req.state != null && req.state !in STATE_CODES) {
@@ -429,7 +429,7 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
  * Upsert one user's settings for a single year. On insert the stable fields (Bundesland,
  * allowance, kind-krank cap) are inherited from the nearest existing year so a fresh year
  * keeps the person's setup; the carryover ("Resturlaub") is deliberately NOT inherited —
- * leftover leave belongs to its own year (#144). Returns null if the user is unknown.
+ * leftover leave belongs to its own year. Returns null if the user is unknown.
  */
 private fun upsertAbsSettings(userId: String, year: Int, req: UpdateAbsSettingsRequest, expires: LocalDate?): AbsSettingsDto? {
     if (!userExists(userId)) return null

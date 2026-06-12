@@ -54,7 +54,7 @@ Todo-Felder:
 - Bilder als Anhang (Upload, Galerie, Vollbild) ✅
 
 ### 4. Täglicher Digest (Telegram) ✅
-- Jeden Abend zur konfigurierbaren Uhrzeit (`DIGEST_TIME`)
+- Jeden Abend zur in-app konfigurierbaren Uhrzeit (Einstellungen → Benachrichtigungen)
 - Inhalt:
     - Heute erledigte Todos
     - Neue Items in Inbox

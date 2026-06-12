@@ -29,7 +29,7 @@ dann blähe nicht den Scope der aktuellen Aufgabe auf und lass den Fund nicht fa
 sondern leg ein GitHub Issue an:
 1. Erst auf Duplikate prüfen: `gh issue list --search "<stichwort>"`.
 2. Issue anlegen: `gh issue create --title "<knapp>" --body "<Kontext / Aufgabe / Notizen>"`
-   (Herkunft im Body festhalten, z. B. „aus Review von PR #30").
+   (Herkunft im Body festhalten, z. B. „aus Review von PR #<n>").
 3. Labeln: genau **ein** Kategorie-Label (`security` · `bug` · `tech-debt` · `test-gap` ·
    `feature` · `docs` · `chore`) und **ein** Prioritäts-Label
    (`priority:high` · `priority:medium` · `priority:low`).
@@ -84,7 +84,7 @@ ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen d
   jedes optionale Feld kann fehlen; Listenfelder, die immer als Array erwartet werden,
   müssen client-seitig sowohl ein fehlendes Feld als auch ein leeres Array vertragen
   (Web: beim Einlesen normalisieren bzw. `?? []`; Android: Moshi-DTOs deklarieren
-  Listen als `= emptyList()`, fehlende Keys werden so zu leeren Listen). Siehe Issue #46.
+  Listen als `= emptyList()`, fehlende Keys werden so zu leeren Listen). Siehe Issue #96.
 
 ## Todo-Domänenmodell
 Status-Flow: INBOX → PLANNED → DONE
@@ -96,7 +96,7 @@ Felder: id, title, description?, status, assignee?,
 due_date?, priority (LOW|MEDIUM|HIGH)?, list_id?,
 recurrence?, created_by, created_at, done_at?
 
-### Wiederkehrende Todos (Issue #44)
+### Wiederkehrende Todos
 Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine RRULE):
 - `recurrence` (DTO `{freq, interval}`): freq DAILY|WEEKLY|MONTHLY, interval = alle N Einheiten
   (default 1). DB-Spalten `recurrence` + `recurrence_interval`; auf dem Update-DTO löscht
@@ -127,7 +127,6 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   liefert ein Rezept als Markdown (text/markdown) oder PDF (serverseitig via OpenPDF);
   deutscher Inhalt analog CSV-Export, Content-Disposition-Dateiname rezept_<slug>.<ext>.
   Web: Download-Button in der Detailansicht; Android: System-Share-Sheet (FileProvider).
-  Siehe Issue #136.
 - WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
 
 ## Web-Konventionen
@@ -137,7 +136,7 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   (heute fällig / Inbox / morgen fällig / heute erledigt), „Heute dran", laufender
   Timer, Einkaufs-Peek und Digest-Vorschau; aggregiert die bestehenden Reads
   (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
-  + Android `HeuteScreen`. Siehe Issue #131.
+  + Android `HeuteScreen`.
 - Aufgaben-View (`components/TodosView.tsx`): Inbox-Tab als erster Tab vor den
   Listen-Tabs. **Inbox-Semantik (#71): „alles Unverplante"** — der Tab zeigt alle
   Todos mit Status INBOX (auch wenn sie schon in einer Liste liegen; Quick-Add in
@@ -193,7 +192,10 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 
 ## Telegram Digest
 - Kotlin-Coroutine-basierter Scheduler im Backend
-- Sendet täglich zur konfigurierten Uhrzeit (DIGEST_TIME)
+- Sendet täglich zur konfigurierten Uhrzeit. Die Uhrzeit ist in-app editierbar
+  (Einstellungen → Benachrichtigungen, persistiert in `app_settings.digest_time`;
+  Default "20:00"); der Scheduler liest sie pro Zyklus neu, kein Neustart nötig.
+  TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID bleiben env (Secrets) — fehlen sie, ruht der Digest.
 - Inhalt: heute erledigte Todos, neue Inbox-Items, morgen fällige Todos
 
 ## Zeiterfassung-Domänenmodell
@@ -210,7 +212,7 @@ description?, created_at, updated_at
 - CSV-Export: GET /api/v1/time/export.csv (Filter project_id/from/to wie bei
   entries; nur abgeschlossene Einträge). Liefert `text/csv` mit UTF-8-BOM,
   `;`-Trennung und lokalen Zeitstempeln (Excel-DE-freundlich); Dauer als
-  Dezimalstunden und hh:mm. Siehe Issue #42.
+  Dezimalstunden und hh:mm.
 - Eintrag splitten (#62): POST /api/v1/time/entries/{id}/split {splitAt,
   breakMinutes?} teilt einen **abgeschlossenen** Eintrag atomar an der Trennzeit —
   Teil 1 behält die id (Ende = splitAt), Teil 2 wird neu angelegt (Start =
@@ -246,7 +248,7 @@ description?, created_at, updated_at
   ihres Starts (Serverzone, wie CSV-Export).
 - Gesetzliche Feiertage berechnet das Backend selbst: `holidays/GermanHolidays.kt`
   ist der Kotlin-Port von `web/src/components/abwesenheit/holidays.ts` — **beide
-  synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year wie #144,
+  synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year,
   Fallback BE); eigene/halbe Feiertage (#51) kommen aus der DB.
 - Web: Ende-Prognose am Timer-Hero/Partner-Strip/Dashboard-Peek, „Wochensoll"-Karte
   (Soll/Ist, Heute-Ziel, Gutschriften, Projekt-Saldi) + Konfigurations-Modal in
@@ -280,8 +282,8 @@ berechnet.
   die in diesen Routen mitgeschickte userId ist daher die Zielperson, nicht der
   Aufrufer. Auch die persönliche Konfiguration (`PUT /settings/{userId}/{year}`:
   Kontingent/Übertrag/Bundesland/Kind-krank-Cap) ist gemeinsam editierbar; die
-  frühere Eigentümer-Beschränkung (#63) wurde für den 2-Personen-Haushalt bewusst
-  aufgehoben. Siehe Issue #127.
+  frühere Eigentümer-Beschränkung wurde für den 2-Personen-Haushalt bewusst
+  aufgehoben.
 
 ## Notizen-Domänenmodell
 Markdown-Notizen mit Tags, Volltextsuche und Sichtbarkeit (PRIVATE|SHARED).
@@ -306,13 +308,12 @@ DB_URL              — jdbc:postgresql://db:5432/homebase
 DB_USER
 DB_PASSWORD
 JWT_SECRET
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-DIGEST_TIME         — z.B. "20:00" (interpretiert in TZ)
+TELEGRAM_BOT_TOKEN  — Secret; fehlt er, ruht der Digest. (Digest-Uhrzeit nicht hier,
+                      sondern in-app, siehe unten.)
+TELEGRAM_CHAT_ID    — Secret (s. o.)
 RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30", in TZ)
 TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
                       ZoneId.systemDefault(): Digest-/Scheduler-Uhrzeit und CSV-Export-Zeitstempel
-HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 DOMAIN              — öffentliche HTTPS-Domain des Deployments (z. B. homebase.example.com,
                       ohne Schema/Slash). scripts/deploy.sh prüft damit nach dem Deploy den
                       Health-Endpunkt https://<DOMAIN>/api/v1/health; leer ⇒ Check entfällt.
@@ -321,6 +322,13 @@ MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 TRUSTED_PROXY_COUNT — Anzahl vertrauenswürdiger Reverse-Proxy-Hops vor dem Backend (default 2:
                       DSM + nginx); bestimmt die echte Client-IP aus X-Forwarded-For fürs
                       Login-Throttling. 0 = Backend direkt erreichbar (kein Proxy). Siehe Issue #8.
+
+**In-app statt env (#100):** Was zur Laufzeit in den Einstellungen editierbar ist, lebt in
+der DB (`app_settings`), nicht in der .env. Das Backend definiert nur Code-/Conf-Defaults für
+die leere Tabelle. Konkret: **Haushaltsname** (Einstellungen → Haushalt, Default "Mäxchen")
+und **Digest-Uhrzeit** (Einstellungen → Benachrichtigungen, Default "20:00") haben **keine**
+env-Variable mehr. Faustregel für neue Optionen: editierbar ⇒ DB + UI/API; nur env bleiben
+Secrets (JWT/DB/Telegram-Token) und reine Infrastruktur (TZ, Ports, Upload-Pfad, Proxy-Count).
 
 ## Docker Services
 Produktion (docker-compose.yml) — 3 Services; HTTPS liefert DSM Reverse Proxy davor:

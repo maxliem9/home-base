@@ -82,7 +82,7 @@ fun HeuteScreen(
 
     val today = LocalDate.now()
     var value by remember { mutableStateOf("") }
-    // Cross-person action awaiting confirmation (stopping the partner's timer, #142).
+    // Cross-person action awaiting confirmation (stopping the partner's timer).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
     // --- Derived counts / lists ---
@@ -244,7 +244,7 @@ fun HeuteScreen(
                                     )
                                 }
                             }
-                            // partner's running timer(s) — see & stop (#142)
+                            // partner's running timer(s) — see & stop
                             othersRunning.forEach { entry ->
                                 val project = timeState.projects.firstOrNull { it.id == entry.projectId }
                                 Column {

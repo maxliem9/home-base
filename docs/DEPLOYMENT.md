@@ -117,14 +117,14 @@ JWT_SECRET=<64-hex-char-random-string>
 # Re-seeded on every backend start, so you can change a password here later.
 SEED_USERS=max:<password1>,partner:<password2>
 
-# Container timezone — interprets DIGEST_TIME / RECURRING_TIME and the CSV-export
-# timestamps. Defaults to Europe/Berlin; change it if your household is elsewhere.
+# Container timezone — interprets the (in-app) digest time / RECURRING_TIME and the
+# CSV-export timestamps. Defaults to Europe/Berlin; change it if your household is elsewhere.
 TZ=Europe/Berlin
 
-# Telegram daily digest (optional — leave blank to disable)
+# Telegram daily digest (optional — leave blank to disable). Bot credentials only;
+# the send time is set in-app (Einstellungen → Benachrichtigungen), not here.
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
-DIGEST_TIME=20:00
 ```
 
 - `DB_URL` keeps the hostname `db` — that's the compose service name, don't change it.
@@ -132,10 +132,14 @@ DIGEST_TIME=20:00
 - **Telegram (optional):** create a bot via [@BotFather](https://t.me/BotFather)
   to get `TELEGRAM_BOT_TOKEN`; get your `TELEGRAM_CHAT_ID` by messaging the bot
   and reading `https://api.telegram.org/bot<token>/getUpdates`. The digest fires
-  daily at `DIGEST_TIME` (24h, in `TZ`) and is skipped on empty days.
+  daily at the time set in-app (Einstellungen → Benachrichtigungen, default `20:00`,
+  in `TZ`) and is skipped on empty days.
+- **In-app settings (no env var):** the household name (sidebar) and the digest time
+  are edited in *Einstellungen → Haushalt / Benachrichtigungen* and stored in the
+  database (defaults `Mäxchen` / `20:00`). See issue #100.
 - **Other optional vars** (all carry working defaults in `.env.example`, so you can
-  leave them out): `IMAGE_TAG` (GHCR tag, default `latest`), `HOUSEHOLD_NAME`
-  (sidebar label), `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images, see below), and
+  leave them out): `IMAGE_TAG` (GHCR tag, default `latest`),
+  `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images, see below), and
   `RECURRING_TIME` (daily time the recurring-todo safety-net runs, default `00:30`).
 
 > **Timezone:** the digest's firing time and "today/tomorrow" boundaries — and the
