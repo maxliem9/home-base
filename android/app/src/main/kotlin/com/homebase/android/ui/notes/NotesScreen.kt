@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -802,7 +803,13 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
                             model = url,
                             contentDescription = block.alt.ifBlank { null },
                             contentScale = ContentScale.FillWidth,
-                            modifier = Modifier.fillMaxWidth().clip(HbRadius),
+                            // reserve space + a surface tile while loading / on failure, so the body
+                            // doesn't jump as images arrive and a failed load isn't an invisible gap
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp)
+                                .clip(HbRadius)
+                                .background(Hb.surface2),
                         )
                     } else if (block.alt.isNotBlank()) {
                         // unresolved / disallowed src → show the alt text, never a broken or unsafe image

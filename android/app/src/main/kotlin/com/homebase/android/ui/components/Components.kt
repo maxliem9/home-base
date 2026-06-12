@@ -307,7 +307,8 @@ fun HbTextField(
 }
 
 /** [TextFieldValue] overload — same look as above, but exposes the caret/selection so
- *  callers can insert text at the cursor (e.g. the notes editor's image insert). */
+ *  callers can insert text at the cursor (e.g. the notes editor's image insert). No
+ *  password / keyboard-options variant — it's for plain multi-line body text only. */
 @Composable
 fun HbTextField(
     value: androidx.compose.ui.text.input.TextFieldValue,
