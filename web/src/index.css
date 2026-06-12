@@ -486,6 +486,14 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-shop-add .hb-quickadd { flex: 1; min-width: 240px; }
 .hb-shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: var(--gap); align-items: start; }
 
+/* Offline-Sync: queued check-offs not yet acknowledged by the backend */
+.hb-syncbar { display: flex; align-items: center; gap: 9px; margin: -8px 0 18px; padding: 9px 13px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); font-size: 13.5px; color: var(--ink-2); }
+.hb-syncbar > svg { color: oklch(0.68 0.14 70); flex-shrink: 0; }
+.hb-syncbar .hb-link { margin-left: auto; white-space: nowrap; }
+.hb-syncbadge { display: inline-grid; place-items: center; color: oklch(0.68 0.14 70); animation: hb-spin 2.4s linear infinite; }
+@keyframes hb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hb-syncbadge { animation: none; } }
+
 /* ---------- Notizen ---------- */
 .hb-notes-layout { display: grid; grid-template-columns: 340px 1fr; gap: var(--gap); align-items: start; }
 .hb-notes-layout > div { min-width: 0; }

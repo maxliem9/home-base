@@ -97,4 +97,80 @@ test.describe('Shopping lists', () => {
     await expect(page.locator('.hb-tabs').getByRole('tab', { name: 'Drogerie' })).toHaveCount(0)
     await expect(page.getByText('Shampoo')).toHaveCount(0)
   })
+
+  test('puts the most recently checked item on top of the cart', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      // already in the cart, checked a while ago
+      shoppingItem({ id: 'i1', name: 'Alt', listId: 'sl1', checked: true, checkedAt: '2026-06-10T08:00:00Z' }),
+      shoppingItem({ id: 'i2', name: 'Neu', listId: 'sl1' }),
+    ])
+    await openShopping(page, mock)
+
+    // check "Neu" now → its checkedAt is newer than "Alt"s
+    await page.locator('.hb-row', { hasText: 'Neu' }).getByRole('checkbox').click()
+
+    const cart = page.locator('.hb-row--done')
+    await expect(cart).toHaveCount(2)
+    await expect(cart.first()).toContainText('Neu') // last checked sits on top
+    await expect(cart.last()).toContainText('Alt')
+  })
+
+  // Issue: ticking items in a store with no wifi must not silently lose them.
+  test('remembers a check made offline and syncs it when back online', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Milch', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    // simulate no wifi: every shopping-item write is dropped before it reaches the backend
+    await page.route('**/api/v1/shopping/**', (route) => {
+      if (route.request().method() === 'PUT') return route.abort('internetdisconnected')
+      return route.fallback()
+    })
+
+    await page.locator('.hb-row', { hasText: 'Milch' }).getByRole('checkbox').click()
+
+    // optimistic: it moves into the cart and is NOT reverted…
+    await expect(page.locator('.hb-row--done', { hasText: 'Milch' })).toBeVisible()
+    // …but it's clearly flagged as not-yet-synced (item badge + banner), never silently dropped
+    await expect(page.locator('.hb-syncbar')).toContainText('nachgeholt')
+    await expect(page.locator('.hb-row--done', { hasText: 'Milch' }).locator('.hb-syncbadge')).toBeVisible()
+    // and it's durably queued in localStorage, so it survives a reload / app close
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('homebase_shopping_pending')))
+      .toContain('i1')
+
+    // back online → "Jetzt versuchen" drains the queue
+    await page.unroute('**/api/v1/shopping/**')
+    const putPromise = page.waitForRequest((r) => r.url().includes('/shopping/i1') && r.method() === 'PUT')
+    await page.locator('.hb-syncbar').getByRole('button', { name: 'Jetzt versuchen' }).click()
+    await putPromise
+
+    // marker + banner clear, the item stays checked, and the queue is empty
+    await expect(page.locator('.hb-syncbar')).toHaveCount(0)
+    await expect(page.locator('.hb-syncbadge')).toHaveCount(0)
+    await expect(page.locator('.hb-row--done', { hasText: 'Milch' })).toBeVisible()
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('homebase_shopping_pending')))
+      .toBeNull()
+  })
+
+  test('auto-retries the offline queue without manual action', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Eier', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    // first PUT is dropped (offline); once we go back online the periodic/online retry lands it
+    await page.route('**/api/v1/shopping/**', (route) => {
+      if (route.request().method() === 'PUT') return route.abort('internetdisconnected')
+      return route.fallback()
+    })
+    await page.locator('.hb-row', { hasText: 'Eier' }).getByRole('checkbox').click()
+    await expect(page.locator('.hb-syncbar')).toBeVisible()
+
+    // restore connectivity and fire the OS "online" event — the queue drains on its own
+    await page.unroute('**/api/v1/shopping/**')
+    const putPromise = page.waitForRequest((r) => r.url().includes('/shopping/i1') && r.method() === 'PUT')
+    await page.evaluate(() => window.dispatchEvent(new Event('online')))
+    await putPromise
+
+    await expect(page.locator('.hb-syncbar')).toHaveCount(0)
+  })
 })

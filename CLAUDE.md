@@ -154,7 +154,18 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   `listId` verschiebt in die Liste). Default-Tab bleibt die erste Liste; ohne
   Listen ist die Inbox der Default (kein „Noch keine Liste"-Empty-State mehr).
   Siehe Issues #69/#71.
-- WebSocket-Hook für Echtzeit-Updates
+- WebSocket-Hook für Echtzeit-Updates. `useWebSocket(target, onMessage, onOpen?)` —
+  `onOpen` feuert bei jedem (Re-)Connect (server-erreichbar-Signal, besser als das
+  Browser-`online`-Event); genutzt für Offline-Retry (s. u.).
+- **Offline-Resilienz beim Abhaken (Einkauf):** Das Abhaken eines Einkaufs-Items
+  (`ShoppingView`, `toggleChecked`) schreibt optimistisch **und** legt die Änderung in
+  eine durable Queue (`localStorage` key `homebase_shopping_pending`, key=Item-UUID,
+  letzter Wunsch gewinnt). Ein Flush sendet die PUTs und wird von drei Signalen
+  getriggert: WS-`onOpen`, Browser-`online`-Event und einem 15-s-Intervall-Backstop
+  (flakiges Laden-WLAN feuert oft kein `online`). Bis zum Erfolg trägt das Item einen
+  „nicht synchronisiert"-Marker + Sammelbanner (nie still verlieren). Abgehakte sind nach
+  `checkedAt` desc sortiert (zuletzt abgehakt oben). Android hat dieselbe Lücke noch nicht
+  geschlossen — Folge-Issue. Deletes/Clear nutzen weiter den Toast-Pfad (kein Queue).
 - Kein Redux — useState/useContext reicht für MVP
 - **Modal vs. Seite/Panel — Leitlinie (Umbrella #29):** Dialoge sparsam einsetzen; pro Stelle die
   passende Form wählen (Primitiven `<Modal>` und `<Sheet>` in `ui/primitives.tsx`, gleiche

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
@@ -9,6 +9,34 @@ import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, P
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
+
+// Offline-resilient check-offs: tapping a checkbox in a store with flaky/no wifi
+// must not silently lose the change. Each toggle is mirrored into a small, durable
+// queue (keyed by item id, latest desired state wins) that survives a reload and is
+// retried on every connectivity signal until it lands. The item shows a "not synced"
+// marker until then. Keyed by item UUID, so it's user-agnostic across one browser.
+const PENDING_KEY = 'homebase_shopping_pending'
+const FLUSH_INTERVAL_MS = 15000
+
+interface PendingCheck { checked: boolean; at: number }
+
+function loadPending(): Record<string, PendingCheck> {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, PendingCheck>) : {}
+  } catch {
+    return {} // private-mode / corrupt value → start clean
+  }
+}
+
+function savePending(pending: Record<string, PendingCheck>) {
+  try {
+    if (Object.keys(pending).length === 0) localStorage.removeItem(PENDING_KEY)
+    else localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
+  } catch {
+    /* quota / private mode — the in-memory queue still works for this session */
+  }
+}
 
 interface ShoppingViewProps {
   token: string
@@ -24,6 +52,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [submitting, setSubmitting] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
   const [confirmDeleteList, setConfirmDeleteList] = useState(false)
+  // Durable queue of check-offs not yet acknowledged by the backend (offline-safe).
+  const [pending, setPending] = useState<Record<string, PendingCheck>>(loadPending)
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
+  const flushingRef = useRef(false)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchAll = useCallback(async () => {
@@ -52,6 +85,69 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  const dequeue = useCallback((id: string) => {
+    setPending((prev) => {
+      if (!(id in prev)) return prev
+      const { [id]: _drop, ...rest } = prev
+      return rest
+    })
+  }, [])
+
+  // Drain the pending-check queue. Sends each queued PUT; on a transport reject
+  // (still offline) it stops and keeps the rest for the next trigger. On success
+  // — or a definitive 4xx like 404 (item already gone), which retrying can't fix —
+  // the entry is dropped, unless it was re-toggled since (a newer `at` stays queued).
+  const flushPending = useCallback(async () => {
+    if (flushingRef.current) return
+    const entries = Object.entries(pendingRef.current)
+    if (entries.length === 0) return
+    flushingRef.current = true
+    try {
+      for (const [id, p] of entries) {
+        const result = await safeFetch(token, `${API_BASE}/shopping/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checked: p.checked }),
+        })
+        if (!result.ok) break // still offline → keep the queue, retry on the next signal
+        if (result.res.status === 401) return onLogout()
+        if (result.res.ok) {
+          const updated: ShoppingItem = await result.res.json()
+          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+        }
+        setPending((prev) => {
+          if (prev[id]?.at !== p.at) return prev // re-toggled meanwhile — keep the newer intent
+          const { [id]: _drop, ...rest } = prev
+          return rest
+        })
+      }
+    } finally {
+      flushingRef.current = false
+    }
+  }, [token, onLogout])
+
+  // Persist the queue on every change and attempt a flush right away (covers a new
+  // toggle and leftovers restored from a previous session on mount).
+  useEffect(() => {
+    savePending(pending)
+    if (Object.keys(pending).length > 0) void flushPending()
+  }, [pending, flushPending])
+
+  // Retry on connectivity signals beyond the immediate attempt: the OS `online`
+  // event and a periodic backstop (flaky store wifi often regains internet without
+  // ever firing `online`). The WS `onOpen` below adds a third, server-reachable signal.
+  useEffect(() => {
+    const onOnline = () => void flushPending()
+    window.addEventListener('online', onOnline)
+    const interval = window.setInterval(() => {
+      if (Object.keys(pendingRef.current).length > 0) void flushPending()
+    }, FLUSH_INTERVAL_MS)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      clearInterval(interval)
+    }
+  }, [flushPending])
+
   // keep an active tab selected as lists load / change
   useEffect(() => {
     if (lists.length === 0) {
@@ -74,6 +170,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           break
         case 'SHOPPING_DELETED':
           setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
+          dequeue(msg.payload.id) // a queued check for a now-deleted item can never land
           break
         case 'SHOPPING_LIST_CREATED':
           setLists((prev) => (prev.some((l) => l.id === msg.payload.id) ? prev : [...prev, msg.payload]))
@@ -82,14 +179,17 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           setLists((prev) => prev.map((l) => (l.id === msg.payload.id ? msg.payload : l)))
           break
         case 'SHOPPING_LIST_DELETED':
+          setItems((prev) => {
+            prev.filter((i) => i.listId === msg.payload.id).forEach((i) => dequeue(i.id))
+            return prev.filter((i) => i.listId !== msg.payload.id)
+          })
           setLists((prev) => prev.filter((l) => l.id !== msg.payload.id))
-          setItems((prev) => prev.filter((i) => i.listId !== msg.payload.id))
           break
       }
     } catch {
       // ignore malformed frames
     }
-  })
+  }, () => void flushPending()) // onOpen: a (re)connected socket means the server is reachable — drain the queue
 
   const handleAdd = async () => {
     if (!newName.trim() || !active) return
@@ -115,29 +215,22 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     }
   }
 
-  const toggleChecked = async (item: ShoppingItem) => {
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, checked: !i.checked } : i)))
-    const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checked: !item.checked }),
-    })
-    // On failure refetch to resync rather than restoring a captured snapshot,
-    // which could clobber a concurrent WS update.
-    if (!result.ok) {
-      await fetchAll()
-      return flashError(errorText(null, t.shopping.saveFailed))
-    }
-    const { res } = result
-    if (res.status === 401) return onLogout()
-    if (!res.ok) {
-      await fetchAll()
-      flashError(errorText(await errorCode(res), t.shopping.saveFailed))
-    }
+  // Toggle a check-off optimistically and queue it for delivery. The queue (not an
+  // inline fetch) does the network work, so a tap in a dead zone is remembered and
+  // retried instead of lost — the item just carries a "not synced yet" marker until
+  // it lands. checkedAt is set locally too, so the cart ordering is right immediately.
+  const toggleChecked = (item: ShoppingItem) => {
+    const next = !item.checked
+    const at = Date.now()
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, checked: next, checkedAt: next ? new Date(at).toISOString() : undefined } : i)),
+    )
+    setPending((prev) => ({ ...prev, [item.id]: { checked: next, at } }))
   }
 
   const handleDelete = async (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id))
+    dequeue(id) // drop any queued check for an item we're deleting
     const result = await safeFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
     if (!result.ok) {
       await fetchAll()
@@ -219,8 +312,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   const listItems = active ? itemsOf(active.id) : []
   const open = listItems.filter((i) => !i.checked)
-  const checked = listItems.filter((i) => i.checked)
+  // Most-recently-checked first: ISO checkedAt sorts lexicographically = chronologically;
+  // anything without a timestamp (legacy item) sinks to the bottom.
+  const checked = listItems
+    .filter((i) => i.checked)
+    .sort((a, b) => (b.checkedAt ?? '').localeCompare(a.checkedAt ?? ''))
   const totalOpen = items.filter((i) => !i.checked).length
+  const pendingCount = Object.keys(pending).length
 
   return (
     <div className="hb-page">
@@ -268,6 +366,16 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
             <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t.common.add}</Button>
           </div>
 
+          {pendingCount > 0 && (
+            <div className="hb-syncbar" role="status">
+              <Icon name="repeat" size={15} stroke={2} />
+              <span>
+                {(pendingCount === 1 ? t.shopping.offlineQueuedOne : t.shopping.offlineQueuedMany).replace('{n}', String(pendingCount))}
+              </span>
+              <button className="hb-link" onClick={() => void flushPending()}>{t.shopping.retryNow}</button>
+            </div>
+          )}
+
           {open.length === 0 && checked.length === 0 ? (
             <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.emptyTitle} hint={t.shopping.emptyHint} /></Card>
           ) : (
@@ -278,6 +386,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                     <Checkbox checked={false} onChange={() => toggleChecked(item)} />
                     <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                     <div className="hb-row__right">
+                      {pending[item.id] && (
+                        <span className="hb-syncbadge" title={t.shopping.notSynced} aria-label={t.shopping.notSynced}>
+                          <Icon name="repeat" size={13} stroke={2} />
+                        </span>
+                      )}
                       <Avatar user={item.createdBy} size={22} />
                       <div className="hb-row__actions">
                         <IconButton icon="trash" label={t.common.delete} danger onClick={() => handleDelete(item.id)} />
@@ -304,6 +417,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                     <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
                       <Checkbox checked onChange={() => toggleChecked(item)} />
                       <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                      {pending[item.id] && (
+                        <span className="hb-syncbadge" title={t.shopping.notSynced} aria-label={t.shopping.notSynced}>
+                          <Icon name="repeat" size={13} stroke={2} />
+                        </span>
+                      )}
                       <Avatar user={item.createdBy} size={22} />
                     </div>
                   ))}
