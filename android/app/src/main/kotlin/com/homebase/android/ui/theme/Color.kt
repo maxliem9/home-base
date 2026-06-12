@@ -113,7 +113,18 @@ object Hb {
         return (((h % 360) + 360) % 360).toDouble()
     }
 
+    /**
+     * Avatar hue honouring a stored per-user override (Teil von #100): a non-null `override`
+     * (the hue the member chose, from the household-visible roster, see LocalAvatarHues) wins;
+     * null means "automatic" and falls back to the derived [userHue]. Mirrors web's avatarColor.
+     */
+    fun userHue(userId: String?, override: Int?): Double =
+        override?.toDouble() ?: userHue(userId)
+
     fun userColor(userId: String?): Color = oklch(0.62, 0.09, userHue(userId))
+
+    /** [userColor] with a stored override winning over the derived hue (Teil von #100). */
+    fun userColor(userId: String?, override: Int?): Color = oklch(0.62, 0.09, userHue(userId, override))
 
     /**
      * Avatar initial for a username: its first character, upper-cased (#155).

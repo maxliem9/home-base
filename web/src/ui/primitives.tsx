@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { Icon } from './Icon'
 import { userMeta } from './format'
+import { useAvatarHues } from '../hooks/useAvatarHues'
 import { t } from '../i18n'
 import { TodoPriority } from '../types'
 
@@ -29,8 +30,13 @@ export function PageHead({ eyebrow, title, actions }: { eyebrow?: string; title:
 
 // --- Avatar ----------------------------------------------------------------
 
-export function Avatar({ user, size = 28 }: { user?: string | null; size?: number }) {
-  const u = userMeta(user)
+// `hueOverride` (when given) wins over the roster/derived hue — used by the colour
+// picker to preview a swatch before it is persisted. Otherwise the avatar reads the
+// household-visible per-user override from the roster context (Teil von #100) and falls
+// back to the username-hash hue (#160). null means "automatic" (use the derived hue).
+export function Avatar({ user, size = 28, hueOverride }: { user?: string | null; size?: number; hueOverride?: number | null }) {
+  const { hueOf } = useAvatarHues()
+  const u = userMeta(user, hueOverride !== undefined ? hueOverride : hueOf(user))
   if (!u) {
     return (
       <div className="hb-avatar hb-avatar--empty" style={{ width: size, height: size, fontSize: size * 0.42 }}>

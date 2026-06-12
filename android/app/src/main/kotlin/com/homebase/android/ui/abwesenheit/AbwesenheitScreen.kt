@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.model.UpdateAbsSettingsRequest
 import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbBottomSheet
@@ -108,7 +109,10 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
     var rangePrefill by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showSettings by remember { mutableStateOf(false) }
 
-    val ctx = remember(data, year, userIds) { buildContext(data, year, userIds) }
+    // Per-user avatar-hue overrides (Teil von #100): a chosen colour wins over the derived person
+    // hue, so the calendar matches the avatars. Keyed into remember so it recolours on load.
+    val avatarHues = LocalAvatarHues.current
+    val ctx = remember(data, year, userIds, avatarHues) { buildContext(data, year, userIds, avatarHues) }
     val today = AbwCal.ymd(LocalDate.now())
 
     Box(Modifier.fillMaxSize()) {
@@ -249,8 +253,12 @@ private fun PersonSummary(s: AbsSummary, hue: Double, uid: String) {
 
 @Composable
 private fun Legend(userIds: List<String>) {
-    val hueA = Hb.userHue(userIds.getOrNull(0))
-    val hueB = Hb.userHue(userIds.getOrNull(1) ?: userIds.getOrNull(0))
+    // Honour per-user avatar-hue overrides so the legend swatches match the avatars (Teil von #100).
+    val hues = LocalAvatarHues.current
+    val uidA = userIds.getOrNull(0)
+    val uidB = userIds.getOrNull(1) ?: userIds.getOrNull(0)
+    val hueA = Hb.userHue(uidA, hues[uidA])
+    val hueB = Hb.userHue(uidB, hues[uidB])
     FlowRow(
         Modifier.padding(horizontal = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),

@@ -85,6 +85,9 @@ export class MockApi {
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
   // upserts via PUT /user-prefs/{key}.
   private userPrefs: Record<string, string> = {}
+  // Per-user avatar hue overrides, exposed via GET /users (avatarHue) and set via
+  // PUT /users/me/avatar-color (Teil von #100). null/absent = automatic/derived.
+  private avatarHues: Record<string, number> = {}
   private todos: Todo[]
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
@@ -402,8 +405,24 @@ export class MockApi {
     }
 
     // Household members — drives the assignee chips (and the shared-timer partner).
+    // avatarHue rides this shared roster (Teil von #100): emitted only when set, so the
+    // app sees the omitted-when-null shape it gets from the encodeDefaults=false backend.
     if (path.endsWith('/users') && method === 'GET') {
-      return this.json(route, [{ username: 'max' }, { username: 'lea' }])
+      const withHue = (username: string) =>
+        this.avatarHues[username] != null ? { username, avatarHue: this.avatarHues[username] } : { username }
+      return this.json(route, [withHue('max'), withHue('lea')])
+    }
+
+    // Set own avatar hue (Teil von #100). Mirrors UserRoutes: INVALID_HUE outside 0..359,
+    // null clears, else 204. The mock identity is "max" (TOKEN_MAX), so it stores under max.
+    if (path.endsWith('/users/me/avatar-color') && method === 'PUT') {
+      const hue = JSON.parse(req.postData() ?? '{}').hue
+      if (hue != null && (typeof hue !== 'number' || hue < 0 || hue > 359)) {
+        return this.json(route, { code: 'INVALID_HUE', message: 'out of range' }, 400)
+      }
+      if (hue == null) delete this.avatarHues['max']
+      else this.avatarHues['max'] = hue
+      return route.fulfill({ status: 204, body: '' })
     }
 
     // App config — editable household name (#100). Mirrors ConfigRoutes: GET reads

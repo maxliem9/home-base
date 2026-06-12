@@ -57,4 +57,28 @@ class AvatarDerivationTest {
         assertEquals("?", displayName(null))
         assertEquals("?", displayName("  "))
     }
+
+    // #100: a stored avatar-hue override (from the household-visible roster) wins over the
+    // derived hash hue; a null override means "automatic" and falls back to the derived hue.
+    @Test
+    fun `a stored hue override wins over the derived hue`() {
+        assertEquals(200.0, Hb.userHue("max", 200), 0.0)
+        assertEquals(0.0, Hb.userHue("max", 0), 0.0) // 0 is a valid hue, not "no override"
+        assertEquals(359.0, Hb.userHue("max", 359), 0.0)
+    }
+
+    @Test
+    fun `a null override falls back to the derived hue`() {
+        assertEquals(Hb.userHue("max"), Hb.userHue("max", null), 0.0)
+        assertEquals(Hb.userHue("martina"), Hb.userHue("martina", null), 0.0)
+    }
+
+    @Test
+    fun `userColor with an override matches userColor of the override hue`() {
+        // The overridden colour equals colouring an (irrelevant) name whose derived hue we
+        // ignore — i.e. the override fully determines the colour.
+        assertEquals(Hb.userColor("max", 123), Hb.userColor("anyone", 123))
+        // and a null override colours by the derived hue
+        assertEquals(Hb.userColor("max"), Hb.userColor("max", null))
+    }
 }

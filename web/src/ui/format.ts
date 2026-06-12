@@ -135,7 +135,18 @@ function hashHue(s: string): number {
 
 const capitalize = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
-export function userMeta(username?: string | null): UserMeta | null {
+/**
+ * The avatar hue (0..359) for a user: a stored per-user override wins, otherwise the
+ * hue derived from the username hash (#160). Single source of truth so the picker, the
+ * Avatar component and any direct render site agree (Teil von #100). `hueOverride` comes
+ * from the household-visible roster (GET /users avatarHue); null/undefined = automatic.
+ */
+export function avatarColor(username: string, hueOverride?: number | null): number {
+  if (hueOverride != null) return hueOverride
+  return hashHue(username.toLowerCase())
+}
+
+export function userMeta(username?: string | null, hueOverride?: number | null): UserMeta | null {
   if (!username) return null
   // Guard against an all-whitespace / empty-after-trim username: fall back to "?"
   // rather than indexing undefined.
@@ -143,9 +154,14 @@ export function userMeta(username?: string | null): UserMeta | null {
   return {
     name: capitalize(username),
     initials: first ? first.toUpperCase() : '?',
-    hue: hashHue(username.toLowerCase()),
+    hue: avatarColor(username, hueOverride),
   }
 }
+
+// Swatch hues offered in the avatar-colour picker (Teil von #100): an even sweep across
+// the OKLCH hue wheel. Rendered as the actual avatar circle oklch(0.62,0.09,h); plus an
+// "automatic" option (null → derived) handled by the picker itself.
+export const AVATAR_HUE_SWATCHES: number[] = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
 
 // Fallback household usernames for offline dev only (npm run dev with no backend
 // to hit GET /users); real deployments resolve the seeded usernames from the API.

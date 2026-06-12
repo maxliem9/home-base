@@ -43,6 +43,10 @@ object UsersTable : Table("users") {
     val username = varchar("username", 50)
     val passwordHash = text("password_hash")
     val createdAt = timestamp("created_at")
+    // Per-user avatar hue override (0..359), nullable (Teil von #100). NULL = automatic:
+    // the client derives a stable hue from the username hash (#160). Household-visible on
+    // purpose — exposed via GET /users so the partner sees the chosen colour (V23).
+    val avatarHue = integer("avatar_hue").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

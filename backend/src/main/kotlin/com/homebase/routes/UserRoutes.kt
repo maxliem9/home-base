@@ -3,6 +3,7 @@ package com.homebase.routes
 import com.homebase.db.UsersTable
 import com.homebase.model.ChangePasswordRequest
 import com.homebase.model.ErrorResponse
+import com.homebase.model.SetAvatarColorRequest
 import com.homebase.model.UserDto
 import com.homebase.security.Passwords
 import io.ktor.http.*
@@ -20,6 +21,10 @@ import org.jetbrains.exposed.sql.update
 // are SHA-512 pre-hashed, see Passwords), so only a floor is enforced here.
 private const val MIN_PASSWORD_LENGTH = 8
 
+// Valid avatar hue range, matching the OKLCH hue wheel and the DB CHECK in V23 (Teil
+// von #100). Anything outside is rejected; null is allowed (clears to automatic/derived).
+private val AVATAR_HUE_RANGE = 0..359
+
 /**
  * The household members. HomeBase has 2 fixed users seeded from SEED_USERS; their
  * usernames are configurable, so clients can't hard-code "the other user". This list
@@ -31,9 +36,32 @@ fun Route.userRoutes() {
         val users = transaction {
             UsersTable.selectAll()
                 .orderBy(UsersTable.username, SortOrder.ASC)
-                .map { UserDto(it[UsersTable.username]) }
+                .map { UserDto(it[UsersTable.username], it[UsersTable.avatarHue]) }
         }
         call.respond(users)
+    }
+
+    // Set the authenticated user's own avatar hue (Teil von #100). hue null clears it back
+    // to automatic (client derives from the username hash, #160). The colour is exposed via
+    // the household-visible roster (GET /users), so the partner sees it on their next refetch
+    // — avatar colour is deliberately personal here (own-only via /users/me), unlike the
+    // shared calendars; household-shared editing could be a later extension.
+    put("/users/me/avatar-color") {
+        val req = call.receive<SetAvatarColorRequest>()
+        if (req.hue != null && req.hue !in AVATAR_HUE_RANGE) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_HUE", "hue must be between ${AVATAR_HUE_RANGE.first} and ${AVATAR_HUE_RANGE.last}"),
+            )
+        }
+        val username = call.username()
+        val updated = transaction {
+            UsersTable.update({ UsersTable.username eq username }) { it[avatarHue] = req.hue }
+        }
+        if (updated == 0) {
+            return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "user not found"))
+        }
+        call.respond(HttpStatusCode.NoContent)
     }
 
     // Change the authenticated user's own password (#100). Verifies the current password

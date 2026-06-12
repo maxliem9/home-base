@@ -5,6 +5,7 @@ import com.homebase.android.data.model.AppConfigResponse
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
+import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.repository.ConfigRepository
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -74,5 +75,30 @@ class ConfigRepositoryTest {
 
         assertTrue(result.isFailure)
         assertEquals("Ungültige Uhrzeit (Format HH:MM).", result.exceptionOrNull()?.message)
+    }
+
+    // Avatar-colour roster (Teil von #100): GET /users carries avatarHue; getAvatarHues
+    // maps only the members who set one to username → hue, leaving the rest "automatic".
+    @Test
+    fun `getAvatarHues maps only members with a chosen hue`() = runTest {
+        coEvery { api.getUsers() } returns listOf(
+            UserDto("max", avatarHue = 210),
+            UserDto("lea", avatarHue = null), // automatic → omitted from the map
+        )
+
+        val result = repository.getAvatarHues()
+
+        assertTrue(result.isSuccess)
+        assertEquals(mapOf("max" to 210), result.getOrNull())
+    }
+
+    @Test
+    fun `getAvatarHues is empty when nobody chose a colour`() = runTest {
+        coEvery { api.getUsers() } returns listOf(UserDto("max"), UserDto("lea"))
+
+        val result = repository.getAvatarHues()
+
+        assertTrue(result.isSuccess)
+        assertEquals(emptyMap<String, Int>(), result.getOrNull())
     }
 }

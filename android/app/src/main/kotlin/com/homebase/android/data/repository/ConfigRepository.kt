@@ -24,6 +24,17 @@ class ConfigRepository(private val api: HomeBaseApi) {
     suspend fun getUsers(): Result<List<String>> =
         apiCatching { api.getUsers().map { it.username } }
 
+    /**
+     * Per-user avatar-hue overrides (Teil von #100): username → chosen hue (0..359), from the
+     * household-visible roster (GET /users avatarHue). Only members who picked a colour appear;
+     * everyone else stays "automatic" (derived from the username hash). Display-only on Android —
+     * the picker lives with the Android settings mirror (#101). Falls back gracefully.
+     */
+    suspend fun getAvatarHues(): Result<Map<String, Int>> =
+        apiCatching {
+            api.getUsers().mapNotNull { u -> u.avatarHue?.let { u.username to it } }.toMap()
+        }
+
     /** Telegram-digest config — the send time + whether Telegram is configured. Falls back gracefully. */
     suspend fun getDigest(): Result<DigestConfigResponse> =
         apiCatching { api.getDigest() }

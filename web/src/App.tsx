@@ -3,6 +3,7 @@ import { API_BASE, authFetch, safeFetch, login } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useTheme } from './hooks/useTheme'
+import { AvatarHuesProvider } from './hooks/useAvatarHues'
 import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
 import { Avatar, Button, Card, Field, Modal, TextInput } from './ui/primitives'
@@ -142,6 +143,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   }, [token])
 
   return (
+    <AvatarHuesProvider token={token}>
     <div className="hb-app">
       <aside className="hb-sidebar">
         <div className="hb-brand">
@@ -279,6 +281,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         <p style={{ margin: 0 }}>{t.shell.logoutBody}</p>
       </Modal>
     </div>
+    </AvatarHuesProvider>
   )
 }
 

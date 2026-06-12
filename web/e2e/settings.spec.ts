@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, TOKEN } from './helpers/mockApi'
+import { MockApi, TOKEN, TOKEN_MAX } from './helpers/mockApi'
 
 /** Logs in and lands on the dashboard with the mock backend installed. */
 async function openApp(page: Page, mock: MockApi) {
@@ -119,6 +119,46 @@ test.describe('Settings — Konto (#100)', () => {
     await body.getByRole('tab', { name: 'Hell', exact: true }).click()
     expect((await reqP2).postDataJSON()).toEqual({ value: 'light' })
     await expect(html).toHaveAttribute('data-theme', 'light')
+  })
+
+  test('avatar-colour picker persists a swatch and recolours the avatar (#100)', async ({ page }) => {
+    // The picker only renders for a resolved `me`, so log in as "max" (TOKEN_MAX).
+    const mock = new MockApi()
+    await mock.install(page)
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN_MAX)
+    await page.goto('/')
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Konto' }).click()
+
+    const body = page.locator('.hb-settings-body')
+    await expect(body.getByRole('heading', { name: 'Avatar-Farbe' })).toBeVisible()
+    const card = body.locator('.hb-card', { hasText: 'Avatar-Farbe' })
+
+    // Defaults to "Automatisch" (no override stored) → the auto pill is active.
+    await expect(card.locator('.hb-avatar-auto')).toHaveClass(/is-active/)
+
+    // Pick the hue-210 swatch → PUT /users/me/avatar-color {hue:210}.
+    const swatch210 = card.getByRole('button', { name: 'Farbe 210' })
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/users/me/avatar-color') && r.method() === 'PUT')
+    await swatch210.click()
+    expect((await reqP).postDataJSON()).toEqual({ hue: 210 })
+
+    // The chosen swatch becomes active and the auto pill is no longer active (optimistic
+    // update through the shared AvatarHues context, no reload).
+    await expect(swatch210).toHaveClass(/is-active/)
+    await expect(card.locator('.hb-avatar-auto')).not.toHaveClass(/is-active/)
+
+    // The live preview avatar (header of the card) recolours to the hue-210 avatar.
+    await expect(card.locator('.hb-cardhead .hb-avatar')).toHaveAttribute(
+      'style',
+      /oklch\(0\.92 0\.045 210\)/,
+    )
+
+    // "Automatisch" clears it back → PUT {hue:null}, auto pill active again.
+    const clearP = page.waitForRequest((r) => r.url().endsWith('/users/me/avatar-color') && r.method() === 'PUT')
+    await card.locator('.hb-avatar-auto').click()
+    expect((await clearP).postDataJSON()).toEqual({ hue: null })
+    await expect(card.locator('.hb-avatar-auto')).toHaveClass(/is-active/)
   })
 
   test('a stored dark theme is applied on load (#100)', async ({ page }) => {

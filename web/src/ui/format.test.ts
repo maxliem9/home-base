@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  avatarColor,
   clockTime,
   dayGroupLabel,
   dueLabel,
@@ -183,6 +184,41 @@ describe('userMeta', () => {
 
   it('falls back to "?" for a blank username instead of crashing', () => {
     expect(userMeta('   ')).toMatchObject({ initials: '?' })
+  })
+
+  // #100: a stored override wins over the derived hue; null/undefined stays derived.
+  it('lets a stored hue override the derived avatar hue', () => {
+    const derived = userMeta('max')?.hue
+    expect(userMeta('max', 200)?.hue).toBe(200)
+    expect(userMeta('max', null)?.hue).toBe(derived)
+    expect(userMeta('max', undefined)?.hue).toBe(derived)
+  })
+})
+
+// avatarColor: the single source of truth for an avatar's hue — a stored override
+// (from the household-visible roster) wins, otherwise the username-hash hue (#100/#160).
+describe('avatarColor', () => {
+  it('returns the override hue when one is given', () => {
+    expect(avatarColor('max', 0)).toBe(0)
+    expect(avatarColor('max', 200)).toBe(200)
+    expect(avatarColor('max', 359)).toBe(359)
+  })
+
+  it('falls back to the derived hue for null/undefined (automatic)', () => {
+    const derived = avatarColor('max')
+    expect(derived).toBeGreaterThanOrEqual(0)
+    expect(derived).toBeLessThan(360)
+    expect(avatarColor('max', null)).toBe(derived)
+    expect(avatarColor('max', undefined)).toBe(derived)
+  })
+
+  it('honours an override of 0 rather than treating it as "no override"', () => {
+    // 0 is a valid hue (red) and must not be confused with the null sentinel.
+    expect(avatarColor('whatever', 0)).toBe(0)
+  })
+
+  it('derives the same hue as userMeta when no override is set', () => {
+    expect(avatarColor('martina')).toBe(userMeta('martina')?.hue)
   })
 })
 

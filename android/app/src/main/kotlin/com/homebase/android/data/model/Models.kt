@@ -32,8 +32,12 @@ data class UpdateDigestRequest(val time: String)
 
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
+// avatarHue (Teil von #100): the member's chosen avatar hue (0..359), or null/absent for
+// "automatic" (derive from the username hash, see Hb.userHue). Household-visible, so the
+// same colours show on Android as on web. The key is omitted when null (encodeDefaults=
+// false on the backend); the `= null` default makes a missing key parse to null.
 @JsonClass(generateAdapter = true)
-data class UserDto(val username: String)
+data class UserDto(val username: String, val avatarHue: Int? = null)
 
 // ---------------------------------------------------------------------------
 // Todos, todo lists & subtasks

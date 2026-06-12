@@ -22,6 +22,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -215,6 +216,15 @@ fun HbCheck(checked: Boolean, onCheckedChange: () -> Unit, modifier: Modifier = 
 // Avatar
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-user avatar-hue overrides (Teil von #100): username → chosen hue (0..359), loaded once
+ * from the household-visible roster (GET /users avatarHue) and provided app-wide in MainActivity.
+ * [HbAvatar] reads it so a colour a member picked on web shows up at EVERY Android avatar site
+ * without threading the hue through each call. Empty default = everyone "automatic" (derived).
+ * Display-only here; the Android picker is deferred to the settings mirror (#101).
+ */
+val LocalAvatarHues = compositionLocalOf { emptyMap<String, Int>() }
+
 @Composable
 fun HbAvatar(userId: String?, modifier: Modifier = Modifier, size: Dp = 26.dp) {
     if (userId == null) {
@@ -224,7 +234,9 @@ fun HbAvatar(userId: String?, modifier: Modifier = Modifier, size: Dp = 26.dp) {
         )
         return
     }
-    Box(modifier.size(size).clip(HbPill).background(Hb.userColor(userId)), contentAlignment = Alignment.Center) {
+    // A stored override (from the shared roster) wins over the derived username-hash hue.
+    val override = LocalAvatarHues.current[userId]
+    Box(modifier.size(size).clip(HbPill).background(Hb.userColor(userId, override)), contentAlignment = Alignment.Center) {
         Text(
             Hb.userInitial(userId),
             style = TextStyle(fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.Bold),
