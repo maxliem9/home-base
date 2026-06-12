@@ -144,6 +144,18 @@ export interface RecipeStep {
   description: string
 }
 
+export interface RecipeImage {
+  id: string
+  recipeId: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  /** images are ordered by sortOrder; the first (lowest) is the recipe's main/cover image */
+  sortOrder: number
+  createdBy: string
+  createdAt: string
+}
+
 export interface Recipe {
   id: string
   title: string
@@ -154,6 +166,8 @@ export interface Recipe {
   category: RecipeCategory
   ingredients: Ingredient[]
   steps: RecipeStep[]
+  // omitted by the backend when empty (encodeDefaults=false) → normalize to [] on read
+  images: RecipeImage[]
   createdBy: string
   createdAt: string
   updatedAt: string

@@ -517,6 +517,25 @@ export const de = {
     addStep: '+ Schritt',
     stepPlaceholder: 'Schritt beschreiben…',
     removeStep: 'Schritt entfernen',
+    // ingredient bulk/free-text editor (paste a whole list at once)
+    editAsText: 'Als Text',
+    editAsList: 'Als Liste',
+    ingredientsTextPlaceholder: 'Eine Zutat pro Zeile, z. B. „200 g Mehl"\n# Name beginnt einen Abschnitt (z. B. # Teig)',
+    ingredientsTextHint: 'Eine Zutat pro Zeile (z. B. „200 g Mehl"). Eine Zeile mit „# Name" beginnt einen Abschnitt.',
+    // recipe images (gallery + main/cover image)
+    images: 'Bilder',
+    addImage: 'Bild hinzufügen',
+    uploading: 'Wird hochgeladen…',
+    removeImage: 'Bild entfernen',
+    setMain: 'Als Titelbild',
+    mainImage: 'Titelbild',
+    mainShort: 'Titel',
+    openImage: 'Bild öffnen',
+    imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
+    imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
+    imageUploadFailed: 'Upload fehlgeschlagen.',
+    imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
+    imageUpdateFailed: 'Bild konnte nicht geändert werden.',
     addToList: 'Zutaten zur Liste',
     addedToList: 'Zutaten zur Einkaufsliste hinzugefügt', // "{n} Zutaten …"
     addedOne: 'Zutat zur Einkaufsliste hinzugefügt', // "1 Zutat …"

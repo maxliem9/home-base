@@ -2,8 +2,10 @@ package com.homebase.android.ui.recipes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.homebase.android.BuildConfig
 import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.RecipeImageDto
 import com.homebase.android.data.model.UpdateRecipeRequest
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.websocket.RecipeWebSocketClient
@@ -103,6 +105,38 @@ class RecipesViewModel(
     ) {
         viewModelScope.launch { onResult(repository.exportRecipe(id, format, servings)) }
     }
+
+    fun uploadImage(recipeId: String, bytes: ByteArray, filename: String, contentType: String) {
+        viewModelScope.launch {
+            repository.uploadImage(recipeId, bytes, filename, contentType)
+                .onSuccess { recipe -> upsert(recipe) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun setMainImage(recipeId: String, imageId: String) {
+        viewModelScope.launch {
+            repository.setMainImage(recipeId, imageId)
+                .onSuccess { recipe -> upsert(recipe) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun removeImage(recipeId: String, imageId: String) {
+        viewModelScope.launch {
+            repository.deleteImage(recipeId, imageId)
+                .onSuccess { recipe -> upsert(recipe) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Authenticated URL for a recipe image. Coil can set neither an Authorization header nor a
+     * WebSocket subprotocol, so the backend accepts the JWT via the `?token=` query param for
+     * these image loads only — same fallback as the note images.
+     */
+    fun imageUrl(image: RecipeImageDto): String =
+        BuildConfig.BASE_URL.trimEnd('/') + "/recipes/${image.recipeId}/images/${image.id}?token=$token"
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 

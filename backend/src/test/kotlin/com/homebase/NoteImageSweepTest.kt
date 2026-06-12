@@ -1,6 +1,6 @@
 package com.homebase
 
-import com.homebase.routes.NoteImageConfig
+import com.homebase.routes.ImageUploadConfig
 import com.homebase.routes.sweepStaleImageUploads
 import java.nio.file.Files
 import kotlin.test.Test
@@ -17,7 +17,7 @@ class NoteImageSweepTest {
         val stale2 = Files.createFile(dir.resolve("upload-456.tmp"))
         val stored = Files.createFile(dir.resolve("11111111-1111-1111-1111-111111111111.png"))
 
-        val swept = sweepStaleImageUploads(NoteImageConfig(dir, maxBytes = 1024))
+        val swept = sweepStaleImageUploads(ImageUploadConfig(dir, maxBytes = 1024))
 
         assertEquals(2, swept)
         assertFalse(Files.exists(stale1))
@@ -28,6 +28,6 @@ class NoteImageSweepTest {
     @Test
     fun `sweep on a missing dir is a no-op`() {
         val missing = Files.createTempDirectory("homebase-sweep-test").resolve("nope")
-        assertEquals(0, sweepStaleImageUploads(NoteImageConfig(missing, maxBytes = 1024)))
+        assertEquals(0, sweepStaleImageUploads(ImageUploadConfig(missing, maxBytes = 1024)))
     }
 }

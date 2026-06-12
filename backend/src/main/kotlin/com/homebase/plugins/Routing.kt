@@ -1,6 +1,6 @@
 package com.homebase.plugins
 
-import com.homebase.routes.NoteImageConfig
+import com.homebase.routes.ImageUploadConfig
 import com.homebase.routes.sweepStaleImageUploads
 import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
@@ -33,14 +33,15 @@ fun Application.configureRouting() {
         !environment.config.propertyOrNull("telegram.chatId")?.getString().isNullOrBlank()
     val uploadDir = environment.config.propertyOrNull("app.uploadDir")?.getString() ?: "uploads"
     val maxUploadMb = environment.config.propertyOrNull("app.maxUploadMb")?.getString()?.toLongOrNull() ?: 10L
-    val noteImageConfig = NoteImageConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
+    // Shared by the note and recipe image endpoints (same upload dir + size cap).
+    val imageConfig = ImageUploadConfig(Paths.get(uploadDir), maxUploadMb * 1024 * 1024)
     // How many trusted reverse-proxy hops sit in front of the backend; used to pick the real
     // client IP out of X-Forwarded-For for login throttling (prod: DSM + nginx = 2). See issue #8.
     val trustedProxyCount = environment.config.propertyOrNull("app.trustedProxyCount")?.getString()?.toIntOrNull() ?: 2
     val loginThrottler = LoginThrottler()
-    verifyUploadDirWritable(noteImageConfig.uploadDir)
-    sweepStaleImageUploads(noteImageConfig).takeIf { it > 0 }?.let {
-        log.info("Swept {} orphaned note-image upload temp file(s) from '{}'.", it, noteImageConfig.uploadDir.toAbsolutePath())
+    verifyUploadDirWritable(imageConfig.uploadDir)
+    sweepStaleImageUploads(imageConfig).takeIf { it > 0 }?.let {
+        log.info("Swept {} orphaned image upload temp file(s) from '{}'.", it, imageConfig.uploadDir.toAbsolutePath())
     }
     routing {
         route("/api/v1") {
@@ -52,9 +53,9 @@ fun Application.configureRouting() {
                 userPrefsRoutes()
                 todoRoutes()
                 shoppingRoutes()
-                noteRoutes(noteImageConfig)
+                noteRoutes(imageConfig)
                 timeRoutes()
-                recipeRoutes()
+                recipeRoutes(imageConfig)
                 absenceRoutes()
             }
         }
@@ -62,21 +63,21 @@ fun Application.configureRouting() {
 }
 
 // The backend runs as a non-root user (uid 10001, see backend/Dockerfile), so
-// note-image uploads need a writable UPLOAD_DIR. Surface a misconfigured/
+// image uploads (notes + recipes) need a writable UPLOAD_DIR. Surface a misconfigured/
 // root-owned volume loudly at startup instead of only on the first failed upload.
 // Non-fatal on purpose: the rest of the API (todos, recipes, …) must keep working.
 private fun Application.verifyUploadDirWritable(dir: Path) {
     val created = runCatching { Files.createDirectories(dir) }
     if (created.isFailure) {
         log.warn(
-            "UPLOAD_DIR '{}' could not be created: {} — note-image uploads will fail until it exists and is writable by the backend user (uid 10001).",
+            "UPLOAD_DIR '{}' could not be created: {} — image uploads will fail until it exists and is writable by the backend user (uid 10001).",
             dir.toAbsolutePath(), created.exceptionOrNull()?.message
         )
         return
     }
     if (!Files.isWritable(dir)) {
         log.warn(
-            "UPLOAD_DIR '{}' is not writable by the backend user (uid 10001) — note-image uploads will fail. For an existing root-owned volume run: chown -R 10001:10001 {}",
+            "UPLOAD_DIR '{}' is not writable by the backend user (uid 10001) — image uploads will fail. For an existing root-owned volume run: chown -R 10001:10001 {}",
             dir.toAbsolutePath(), dir.toAbsolutePath()
         )
     }

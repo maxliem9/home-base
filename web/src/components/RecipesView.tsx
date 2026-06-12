@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { API_BASE, authFetch, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
 import { t, errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
@@ -29,6 +30,7 @@ const normalizeRecipe = (r: Recipe): Recipe => ({
   ...r,
   ingredients: r.ingredients ?? [],
   steps: r.steps ?? [],
+  images: r.images ?? [],
 })
 
 // deterministic warm hue (≈20–80) per recipe for the photo placeholder band
@@ -69,6 +71,62 @@ const groupBySection = (items: Ingredient[]): { section: string | null; items: I
 
 const emptyIngredient = (): IngredientDraft => ({ name: '', amount: '', unit: '' })
 const emptySection = (): SectionDraft => ({ name: '', ingredients: [emptyIngredient()] })
+
+// --- Free-text ("paste") ingredient editor ---------------------------------
+// One ingredient per line ("200 g Mehl"); a line starting with "#" opens a named section.
+// This is the bulk-entry counterpart to the structured rows — it matches how recipes are
+// copied off the web and mirrors the one-per-line steps field. Parsing is best-effort: it
+// only treats the first token after a leading amount as a unit when it's a known unit, so
+// "3 Eier" keeps "Eier" as the name (not the unit).
+const KNOWN_UNITS = new Set([
+  'g', 'kg', 'mg', 'ml', 'cl', 'dl', 'l', 'el', 'tl', 'msp', 'prise', 'prisen', 'stück', 'stk', 'st',
+  'dose', 'dosen', 'pkg', 'packung', 'päckchen', 'bund', 'zehe', 'zehen', 'scheibe', 'scheiben',
+  'tasse', 'tassen', 'becher', 'glas', 'cm', 'mm', 'kugel', 'kugeln', 'blatt', 'blätter',
+])
+const isUnitToken = (tok: string) => KNOWN_UNITS.has(tok.toLowerCase().replace(/\.$/, ''))
+
+const parseIngredientLine = (line: string): IngredientDraft => {
+  // leading amount: a number (1, 1.5, 1,5) optionally a range/fraction (1-2, 1/2)
+  const m = line.match(/^([0-9]+(?:[.,][0-9]+)?(?:\s*[-–/]\s*[0-9]+(?:[.,][0-9]+)?)?)\s+(.*)$/)
+  if (!m) return { name: line.trim(), amount: '', unit: '' }
+  const amount = m[1].replace(/\s+/g, '')
+  const rest = m[2].trim()
+  const parts = rest.split(/\s+/)
+  if (parts.length > 1 && isUnitToken(parts[0])) {
+    return { name: parts.slice(1).join(' '), amount, unit: parts[0] }
+  }
+  return { name: rest, amount, unit: '' }
+}
+
+const parseIngredientsText = (text: string): SectionDraft[] => {
+  const sections: SectionDraft[] = []
+  let current: SectionDraft | null = null
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith('#')) {
+      current = { name: line.replace(/^#+/, '').trim(), ingredients: [] }
+      sections.push(current)
+    } else {
+      if (!current) { current = { name: '', ingredients: [] }; sections.push(current) }
+      current.ingredients.push(parseIngredientLine(line))
+    }
+  }
+  return sections.length ? sections : [emptySection()]
+}
+
+// Structured sections → the editable text block (named sections become "# name" headers).
+const serializeSections = (sections: SectionDraft[]): string => {
+  const out: string[] = []
+  for (const sec of sections) {
+    if (sec.name.trim()) out.push(`# ${sec.name.trim()}`)
+    for (const ing of sec.ingredients) {
+      const line = [ing.amount.trim(), ing.unit.trim(), ing.name.trim()].filter(Boolean).join(' ')
+      if (line) out.push(line)
+    }
+  }
+  return out.join('\n')
+}
 
 const emptyDraft = (): Draft => ({
   title: '', description: '', servings: '2', prepTimeMinutes: '', cookTimeMinutes: '',
@@ -242,6 +300,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     }
   }
 
+  // Upsert a recipe returned by an image mutation (upload / delete / set-main) so the list and
+  // the open detail refresh immediately, independent of the WS echo.
+  const applyRecipe = (saved: Recipe) => {
+    const next = normalizeRecipe(saved)
+    setRecipes((prev) => (prev.some((r) => r.id === next.id) ? prev.map((r) => (r.id === next.id ? next : r)) : [next, ...prev]))
+  }
+
   // hand the chosen (already serving-scaled) ingredients to the batch endpoint, which formats
   // each as a "200 g Mehl" label and merges quantities into matching items already on the list
   const addToShopping = async (listId: string, items: { name: string; amount?: number; unit?: string }[]) => {
@@ -299,6 +364,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           recipe={current}
           token={token}
           onLogout={onLogout}
+          onUpdated={applyRecipe}
           onBack={() => setSelected(null)}
           onEdit={() => setDraft(draftFromRecipe(current))}
           onDelete={() => handleDelete(current.id)}
@@ -351,8 +417,19 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           {visible.map((recipe) => (
             <Card key={recipe.id} className="hb-recipecard hb-card--hover" onClick={() => setSelected(recipe)}>
               <div className="hb-recipecard__img" style={{ ['--rh' as string]: recipeHue(recipe.id) }}>
-                <Icon name="chef" size={26} stroke={1.6} />
-                <span className="hb-recipecard__ph">{t.recipes.photoSoon}</span>
+                {recipe.images[0] ? (
+                  <AuthedImage
+                    url={recipeImageUrl(recipe.id, recipe.images[0].id)}
+                    token={token}
+                    alt={recipe.title}
+                    className="hb-recipecard__photo"
+                  />
+                ) : (
+                  <>
+                    <Icon name="chef" size={26} stroke={1.6} />
+                    <span className="hb-recipecard__ph">{t.recipes.photoSoon}</span>
+                  </>
+                )}
                 <Badge tone="clay">{categoryLabel(recipe.category)}</Badge>
               </div>
               <div className="hb-recipecard__body">
@@ -386,7 +463,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   )
 }
 
-function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, onLogout, onAddToShopping }: {
+function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, onLogout, onUpdated, onAddToShopping }: {
   recipe: Recipe
   token: string
   onBack: () => void
@@ -394,6 +471,7 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
   onDelete: () => void
   onExportError: () => void
   onLogout: () => void
+  onUpdated: (recipe: Recipe) => void
   onAddToShopping: (servings: number) => void
 }) {
   const [servings, setServings] = useState(recipe.servings)
@@ -469,6 +547,8 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
         <p className="hb-muted" style={{ margin: '0 0 18px', fontSize: 16, maxWidth: 640 }}>{recipe.description}</p>
       )}
 
+      <RecipeImages recipe={recipe} token={token} onLogout={onLogout} onUpdated={onUpdated} />
+
       <div className="hb-recipe-facts" style={{ maxWidth: 560, marginBottom: 26 }}>
         <div className="hb-servings-step hb-fact" style={{ flexDirection: 'row', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
@@ -524,6 +604,143 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Photo gallery + management for a recipe's detail page: a main (cover) hero on top and a
+// thumbnail strip below with add / remove / "set as main". The image at index 0 is the main
+// one (backend keeps them sorted by sortOrder); mutations return the updated recipe via onUpdated.
+function RecipeImages({ recipe, token, onLogout, onUpdated }: {
+  recipe: Recipe
+  token: string
+  onLogout: () => void
+  onUpdated: (recipe: Recipe) => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [lightboxId, setLightboxId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const images = recipe.images
+  const main = images[0]
+
+  const handleUpload = async (file: File) => {
+    setImageError(null)
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images`, { method: 'POST', body: fd })
+      if (res.status === 401) return onLogout()
+      if (res.ok) onUpdated(await res.json())
+      else if (res.status === 413) setImageError(t.recipes.imageTooLarge)
+      else if (res.status === 415) setImageError(t.recipes.imageBadType)
+      else setImageError(errorText(await errorCode(res), t.recipes.imageUploadFailed))
+    } catch {
+      setImageError(t.recipes.imageUploadFailed)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDelete = async (imageId: string) => {
+    setImageError(null)
+    try {
+      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${imageId}`, { method: 'DELETE' })
+      if (res.status === 401) return onLogout()
+      if (res.ok) onUpdated(await res.json())
+      else setImageError(errorText(await errorCode(res), t.recipes.imageDeleteFailed))
+    } catch {
+      setImageError(t.recipes.imageDeleteFailed)
+    }
+  }
+
+  const handleSetMain = async (imageId: string) => {
+    setImageError(null)
+    try {
+      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${imageId}/main`, { method: 'PUT' })
+      if (res.status === 401) return onLogout()
+      if (res.ok) onUpdated(await res.json())
+      else setImageError(errorText(await errorCode(res), t.recipes.imageUpdateFailed))
+    } catch {
+      setImageError(t.recipes.imageUpdateFailed)
+    }
+  }
+
+  return (
+    <div className="hb-recipe-photos">
+      {main && (
+        <button type="button" className="hb-recipe-hero" onClick={() => setLightboxId(main.id)} aria-label={t.recipes.openImage}>
+          <AuthedImage url={recipeImageUrl(recipe.id, main.id)} token={token} alt={recipe.title} />
+        </button>
+      )}
+
+      <div className="hb-recipe-photos__head">
+        <span className="hb-field__label">
+          {t.recipes.images}{images.length > 0 ? ` (${images.length})` : ''}
+        </span>
+        <Button variant="secondary" size="sm" icon="plus" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+          {uploading ? t.recipes.uploading : t.recipes.addImage}
+        </Button>
+      </div>
+      {imageError && <p className="hb-note-images__error">{imageError}</p>}
+
+      {images.length > 0 && (
+        <div className="hb-recipe-thumbs">
+          {images.map((img, i) => (
+            <div key={img.id} className={`hb-recipe-thumb${i === 0 ? ' is-main' : ''}`}>
+              <AuthedImage
+                url={recipeImageUrl(recipe.id, img.id)}
+                token={token}
+                alt={img.originalName}
+                onClick={() => setLightboxId(img.id)}
+              />
+              {i === 0 ? (
+                <span className="hb-recipe-thumb__mainbadge" title={t.recipes.mainImage}>
+                  <Icon name="sparkle" size={11} stroke={2.4} /> {t.recipes.mainShort}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="hb-recipe-thumb__main"
+                  title={t.recipes.setMain}
+                  aria-label={t.recipes.setMain}
+                  onClick={() => handleSetMain(img.id)}
+                >
+                  <Icon name="sparkle" size={14} stroke={2.2} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="hb-recipe-thumb__del"
+                title={t.recipes.removeImage}
+                aria-label={t.recipes.removeImage}
+                onClick={() => handleDelete(img.id)}
+              >
+                <Icon name="x" size={14} stroke={2.4} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) handleUpload(f)
+          e.target.value = '' // allow re-selecting the same file
+        }}
+      />
+
+      {lightboxId && (
+        <div className="hb-lightbox" onClick={() => setLightboxId(null)}>
+          <AuthedImage url={recipeImageUrl(recipe.id, lightboxId)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   )
 }
@@ -621,6 +838,22 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
     draft.sections.length > 1 || draft.sections.some((s) => s.name.trim() !== ''),
   )
 
+  // Free-text bulk editor for ingredients (paste a list, one per line; "# Name" opens a section).
+  // The structured rows stay the source of truth: while in text mode every change is parsed back
+  // into draft.sections live, so save + toggling back to the list need no extra reconciliation.
+  const [pasteMode, setPasteMode] = useState(false)
+  const [ingredientsText, setIngredientsText] = useState('')
+  const enterPasteMode = () => { setIngredientsText(serializeSections(draft.sections)); setPasteMode(true) }
+  const exitPasteMode = () => {
+    // a section the user typed in text mode must reveal its name field back in list mode
+    setSectionsShown((shown) => shown || draft.sections.length > 1 || draft.sections.some((s) => s.name.trim() !== ''))
+    setPasteMode(false)
+  }
+  const onIngredientsTextChange = (v: string) => {
+    setIngredientsText(v)
+    setDraft({ ...draft, sections: parseIngredientsText(v) })
+  }
+
   // Sections own their ingredient rows; mutations are addressed by (section, row) index.
   const setSection = (si: number, patch: Partial<SectionDraft>) =>
     setDraft({ ...draft, sections: draft.sections.map((s, i) => (i === si ? { ...s, ...patch } : s)) })
@@ -689,41 +922,59 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
         </div>
 
         <div>
-          <div className="hb-cardhead">
+          <div className="hb-cardhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <h3 style={{ fontSize: 15 }}>{t.recipes.ingredients}</h3>
+            <button type="button" className="hb-link" onClick={pasteMode ? exitPasteMode : enterPasteMode}>
+              {pasteMode ? t.recipes.editAsList : t.recipes.editAsText}
+            </button>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {draft.sections.map((section, si) => (
-              <div key={si} className={multiSection ? 'hb-ingsec' : undefined}>
-                {/* Section name only appears once sections are in play — a brand-new single
-                    section stays a plain flat list; once shown it sticks (see sectionsShown). */}
-                {sectionsShown && (
-                  <div className="hb-ingsec__head">
-                    <input
-                      className="hb-input hb-ingsec__name"
-                      placeholder={t.recipes.sectionName}
-                      value={section.name}
-                      onChange={(e) => setSection(si, { name: e.target.value })}
-                    />
-                    {multiSection && <IconButton icon="x" label={t.recipes.removeSection} onClick={() => removeSection(si)} />}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {section.ingredients.map((ing, ii) => (
-                    <div key={ii} className="hb-editrow">
-                      <input className="hb-input" placeholder={t.recipes.ingredientName} value={ing.name} onChange={(e) => setIngredient(si, ii, { name: e.target.value })} />
-                      <input className="hb-input hb-input--amt" placeholder={t.recipes.amount} value={ing.amount} onChange={(e) => setIngredient(si, ii, { amount: e.target.value })} />
-                      <input className="hb-input hb-input--unit" placeholder={t.recipes.unitAbbr} value={ing.unit} onChange={(e) => setIngredient(si, ii, { unit: e.target.value })} />
-                      <IconButton icon="x" label={t.recipes.removeIngredient} onClick={() => removeIngredient(si, ii)} />
+          {pasteMode ? (
+            <>
+              <textarea
+                className="hb-input hb-mono-area"
+                rows={8}
+                value={ingredientsText}
+                placeholder={t.recipes.ingredientsTextPlaceholder}
+                onChange={(e) => onIngredientsTextChange(e.target.value)}
+              />
+              <p className="hb-muted" style={{ fontSize: 13, marginTop: 6 }}>{t.recipes.ingredientsTextHint}</p>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {draft.sections.map((section, si) => (
+                  <div key={si} className={multiSection ? 'hb-ingsec' : undefined}>
+                    {/* Section name only appears once sections are in play — a brand-new single
+                        section stays a plain flat list; once shown it sticks (see sectionsShown). */}
+                    {sectionsShown && (
+                      <div className="hb-ingsec__head">
+                        <input
+                          className="hb-input hb-ingsec__name"
+                          placeholder={t.recipes.sectionName}
+                          value={section.name}
+                          onChange={(e) => setSection(si, { name: e.target.value })}
+                        />
+                        {multiSection && <IconButton icon="x" label={t.recipes.removeSection} onClick={() => removeSection(si)} />}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {section.ingredients.map((ing, ii) => (
+                        <div key={ii} className="hb-editrow">
+                          <input className="hb-input" placeholder={t.recipes.ingredientName} value={ing.name} onChange={(e) => setIngredient(si, ii, { name: e.target.value })} />
+                          <input className="hb-input hb-input--amt" placeholder={t.recipes.amount} value={ing.amount} onChange={(e) => setIngredient(si, ii, { amount: e.target.value })} />
+                          <input className="hb-input hb-input--unit" placeholder={t.recipes.unitAbbr} value={ing.unit} onChange={(e) => setIngredient(si, ii, { unit: e.target.value })} />
+                          <IconButton icon="x" label={t.recipes.removeIngredient} onClick={() => removeIngredient(si, ii)} />
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                {/* add-row below the list so it stays reachable as rows grow (issue #123 part 2) */}
-                <button className="hb-link hb-addrow" onClick={() => addIngredient(si)}>{t.recipes.addIngredient}</button>
+                    {/* add-row below the list so it stays reachable as rows grow (issue #123 part 2) */}
+                    <button className="hb-link hb-addrow" onClick={() => addIngredient(si)}>{t.recipes.addIngredient}</button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <button className="hb-link hb-addrow" onClick={addSection}>{t.recipes.addSection}</button>
+              <button className="hb-link hb-addrow" onClick={addSection}>{t.recipes.addSection}</button>
+            </>
+          )}
         </div>
 
         <div>

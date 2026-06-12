@@ -6,6 +6,9 @@ import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.UpdateRecipeRequest
 import com.homebase.android.data.websocket.RecipeWebSocketClient
 import kotlinx.coroutines.flow.Flow
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class RecipesRepository(
     private val api: HomeBaseApi,
@@ -27,6 +30,26 @@ class RecipesRepository(
 
     suspend fun deleteRecipe(id: String): Result<Unit> =
         apiCatching { api.deleteRecipe(id) }
+
+    suspend fun uploadImage(
+        recipeId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): Result<RecipeDto> = apiCatching {
+        val part = MultipartBody.Part.createFormData(
+            name = "file",
+            filename = filename,
+            body = bytes.toRequestBody(contentType.toMediaTypeOrNull()),
+        )
+        api.uploadRecipeImage(recipeId, part)
+    }
+
+    suspend fun setMainImage(recipeId: String, imageId: String): Result<RecipeDto> =
+        apiCatching { api.setRecipeMainImage(recipeId, imageId) }
+
+    suspend fun deleteImage(recipeId: String, imageId: String): Result<RecipeDto> =
+        apiCatching { api.deleteRecipeImage(recipeId, imageId) }
 
     /** Download a recipe export (format "md" or "pdf") as raw bytes. */
     suspend fun exportRecipe(id: String, format: String, servings: Int? = null): Result<ByteArray> =

@@ -6,7 +6,7 @@ import type { Page, Route } from '@playwright/test'
 // files can keep importing these names from this helper.
 import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
-  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -14,7 +14,7 @@ import type {
 
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
-  RecipeCategory, Ingredient, RecipeStep, Recipe,
+  RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -108,6 +108,7 @@ export class MockApi {
   private nextRecipeId = 100
   private nextNoteId = 100
   private nextNoteImageId = 100
+  private nextRecipeImageId = 100
   // optional HTTP status forced on the next note-image upload, to exercise the
   // editor's 413/415 error paths (#146). One-shot: consumed by the next upload.
   private nextImageUploadStatus: number | null = null
@@ -317,6 +318,9 @@ export class MockApi {
         stepNumber: n + 1,
         description: s.description as string,
       })),
+      // images are managed via the dedicated endpoints, never the create/update body —
+      // preserve any already attached on update.
+      images: prev?.images ?? [],
       createdBy: prev?.createdBy ?? 'alice',
       createdAt: prev?.createdAt ?? ts,
       updatedAt: ts,
@@ -757,6 +761,69 @@ export class MockApi {
         headers: { 'content-disposition': `attachment; filename="rezept_${slug}.md"` },
         body: md,
       })
+    }
+
+    // Recipe images (mirror POST /recipes/{id}/images multipart, PUT .../main, GET serve,
+    // DELETE). Recipes are shared, so there's no visibility gate; the upload appends a new
+    // RecipeImage and returns the updated recipe. nextImageUploadStatus drives the 413/415 paths.
+    const recipeImagesPost = path.match(/\/recipes\/([^/]+)\/images$/)
+    if (recipeImagesPost && method === 'POST') {
+      const recipeId = recipeImagesPost[1]
+      const idx = this.recipes.findIndex((r) => r.id === recipeId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      if (this.nextImageUploadStatus !== null) {
+        const status = this.nextImageUploadStatus
+        this.nextImageUploadStatus = null
+        return this.json(route, { code: status === 413 ? 'PAYLOAD_TOO_LARGE' : 'UNSUPPORTED_MEDIA_TYPE', message: 'rejected' }, status)
+      }
+      const original = /filename="([^"]+)"/.exec(req.postData() ?? '')?.[1] ?? 'upload.png'
+      const img: RecipeImage = {
+        id: `recipeimg-${this.nextRecipeImageId++}`,
+        recipeId,
+        originalName: original,
+        contentType: 'image/png',
+        sizeBytes: TINY_PNG.length,
+        sortOrder: this.recipes[idx].images.length,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.recipes[idx] = { ...this.recipes[idx], images: [...this.recipes[idx].images, img], updatedAt: new Date().toISOString() }
+      return this.json(route, this.recipes[idx], 201)
+    }
+
+    // Make an image the recipe's main/cover image (move it to sortOrder 0).
+    const recipeMainMatch = path.match(/\/recipes\/([^/]+)\/images\/([^/]+)\/main$/)
+    if (recipeMainMatch && method === 'PUT') {
+      const [, recipeId, imageId] = recipeMainMatch
+      const idx = this.recipes.findIndex((r) => r.id === recipeId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      const imgs = this.recipes[idx].images
+      if (!imgs.some((i) => i.id === imageId)) return this.json(route, { message: 'not found' }, 404)
+      const reordered = [
+        ...imgs.filter((i) => i.id === imageId),
+        ...imgs.filter((i) => i.id !== imageId),
+      ].map((img, n) => ({ ...img, sortOrder: n }))
+      this.recipes[idx] = { ...this.recipes[idx], images: reordered, updatedAt: new Date().toISOString() }
+      return this.json(route, this.recipes[idx])
+    }
+
+    const recipeImageMatch = path.match(/\/recipes\/([^/]+)\/images\/([^/]+)$/)
+    if (recipeImageMatch && method === 'GET') {
+      // serve a real blob so <AuthedImage>'s authFetch → blob path is exercised
+      const [, recipeId, imageId] = recipeImageMatch
+      const img = this.recipes.find((r) => r.id === recipeId)?.images.find((i) => i.id === imageId)
+      if (!img) return this.json(route, { message: 'not found' }, 404)
+      return route.fulfill({ status: 200, contentType: img.contentType || 'image/png', body: TINY_PNG })
+    }
+    if (recipeImageMatch && method === 'DELETE') {
+      const [, recipeId, imageId] = recipeImageMatch
+      const idx = this.recipes.findIndex((r) => r.id === recipeId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      const remaining = this.recipes[idx].images
+        .filter((i) => i.id !== imageId)
+        .map((img, n) => ({ ...img, sortOrder: n }))
+      this.recipes[idx] = { ...this.recipes[idx], images: remaining, updatedAt: new Date().toISOString() }
+      return this.json(route, this.recipes[idx])
     }
 
     const recipeIdMatch = path.match(/\/recipes\/([^/]+)$/)
@@ -1295,6 +1362,7 @@ export function recipe(partial: Partial<Recipe> & { id: string; title: string })
     category: 'DINNER',
     ingredients: [],
     steps: [],
+    images: [],
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     updatedAt: '2026-06-01T08:00:00Z',
@@ -1312,6 +1380,18 @@ export function ingredient(partial: Partial<Ingredient> & { id: string; name: st
 export function recipeStep(partial: Partial<RecipeStep> & { id: string; description: string }): RecipeStep {
   return {
     stepNumber: 1,
+    ...partial,
+  }
+}
+
+export function recipeImage(partial: Partial<RecipeImage> & { id: string; recipeId: string }): RecipeImage {
+  return {
+    originalName: 'foto.png',
+    contentType: 'image/png',
+    sizeBytes: 95,
+    sortOrder: 0,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
     ...partial,
   }
 }

@@ -438,6 +438,19 @@ data class RecipeStepDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class RecipeImageDto(
+    val id: String,
+    val recipeId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    // images are ordered by sortOrder; the first (lowest) is the recipe's main/cover image
+    val sortOrder: Int,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class RecipeDto(
     val id: String,
     val title: String,
@@ -448,6 +461,8 @@ data class RecipeDto(
     val category: String,
     val ingredients: List<IngredientDto> = emptyList(),
     val steps: List<RecipeStepDto> = emptyList(),
+    // backend omits the key when empty (encodeDefaults=false); the default makes it []
+    val images: List<RecipeImageDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String,
