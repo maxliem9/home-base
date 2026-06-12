@@ -342,10 +342,17 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-subadd input::placeholder { color: var(--ink-3); }
 
 /* ---------- Color swatches ---------- */
-.hb-swatches { display: flex; gap: 9px; flex-wrap: wrap; }
-.hb-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s; }
-.hb-swatch:hover { transform: scale(1.1); }
-.hb-swatch.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+/* Avatar-colour picker (Teil von #100): round 26px swatches — eigene Klasse, damit sie
+   nicht mit dem Projekt-Farb-Picker (.hb-swatch, weiter unten) kollidiert. */
+.hb-avatar-swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.hb-avatar-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s; }
+.hb-avatar-swatch:hover { transform: scale(1.1); }
+.hb-avatar-swatch.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+/* "Automatisch" option in the avatar-colour picker (Teil von #100): the derived avatar
+   plus a label, as a pill that highlights when no override is set. */
+.hb-avatar-auto { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 5px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.hb-avatar-auto:hover { border-color: var(--ink-3); }
+.hb-avatar-auto.is-active { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 
 /* ---------- Inputs ---------- */
 .hb-field { display: flex; flex-direction: column; gap: 7px; }

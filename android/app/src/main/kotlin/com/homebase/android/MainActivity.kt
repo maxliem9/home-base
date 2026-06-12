@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import com.homebase.android.ui.aufgaben.AufgabenScreen
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.components.HbDrawerContent
 import com.homebase.android.ui.components.HbRoute
+import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.heute.HeuteScreen
 import com.homebase.android.ui.login.LoginScreen
 import com.homebase.android.ui.notes.NotesScreen
@@ -139,6 +141,14 @@ class MainActivity : ComponentActivity() {
             container.configRepository.getUsers().onSuccess { if (it.isNotEmpty()) value = it }
         }
 
+        // Per-user avatar-hue overrides (Teil von #100), from the household-visible roster.
+        // Provided app-wide via LocalAvatarHues so every HbAvatar shows the colours members
+        // picked on web. Empty until GET /users resolves → everyone "automatic" (derived).
+        // Display-only on Android; the picker is deferred to the settings mirror (#101).
+        val avatarHues by produceState(initialValue = emptyMap<String, Int>(), token) {
+            container.configRepository.getAvatarHues().onSuccess { value = it }
+        }
+
         val todoState by todoVm.uiState.collectAsState()
         val shoppingState by shoppingVm.uiState.collectAsState()
         val timeState by timeVm.uiState.collectAsState()
@@ -153,6 +163,8 @@ class MainActivity : ComponentActivity() {
 
         BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
+        // Make the per-user avatar-hue overrides available to every HbAvatar below (Teil von #100).
+        CompositionLocalProvider(LocalAvatarHues provides avatarHues) {
         Box(Modifier.fillMaxSize().background(Hb.paper)) {
             when (route) {
                 HbRoute.HEUTE -> HeuteScreen(
@@ -236,6 +248,7 @@ class MainActivity : ComponentActivity() {
                     onClose = { settingsOpen = false },
                 )
             }
+        }
         }
     }
 

@@ -48,8 +48,20 @@ data class TokenResponse(val token: String)
 // The household members (2 fixed users, seeded from SEED_USERS). Clients use this to
 // resolve "the other user" — e.g. to start/stop a partner's timer — since the
 // usernames are configurable and not hard-codeable.
+//
+// avatarHue (Teil von #100): the user's chosen avatar hue (0..359), or null/absent for
+// "automatic" (client derives a stable hue from the username hash, #160). Household-
+// visible on purpose — the partner must see your colour — which is why it rides on this
+// shared roster rather than the own-read-only user_prefs. encodeDefaults=false (#46)
+// omits the field when null, so clients must tolerate its absence.
 @Serializable
-data class UserDto(val username: String)
+data class UserDto(val username: String, val avatarHue: Int? = null)
+
+// Set the authenticated user's own avatar hue (Teil von #100). hue in 0..359, or null to
+// clear back to automatic/derived. Personal (own-only via /users/me), unlike the
+// deliberately household-shared calendars.
+@Serializable
+data class SetAvatarColorRequest(val hue: Int? = null)
 
 @Serializable
 data class SubtaskDto(

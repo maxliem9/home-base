@@ -218,8 +218,11 @@ export interface AbsenceState {
 
 // A household member (2 fixed users). From GET /api/v1/users — used to resolve
 // "the other user" for shared timers.
+// avatarHue (Teil von #100): the member's chosen avatar hue (0..359); absent/null =
+// automatic (derive from the username hash). Household-visible so the partner sees it.
 export interface User {
   username: string
+  avatarHue?: number | null
 }
 
 export type NoteVisibility = 'PRIVATE' | 'SHARED'

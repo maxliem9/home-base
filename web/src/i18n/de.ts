@@ -443,6 +443,14 @@ export const de = {
     themeDark: 'Dunkel',
     themeSystem: 'System',
     themeSaveFailed: 'Einstellung konnte nicht gespeichert werden.',
+    // Avatar-Farbe (Teil von #100): pro Person gewählte Farbe, haushaltsweit sichtbar
+    // (der Partner sieht sie). Null/„Automatisch" = aus dem Benutzernamen abgeleitet.
+    avatarTitle: 'Avatar-Farbe',
+    avatarHint: 'Deine Farbe für Avatare – auch für deinen Partner sichtbar. Sofort wirksam.',
+    avatarLabel: 'Farbe',
+    avatarAuto: 'Automatisch',
+    avatarAutoHint: 'Aus deinem Namen abgeleitet',
+    avatarSaveFailed: 'Farbe konnte nicht gespeichert werden.',
     passwordTitle: 'Passwort ändern',
     passwordHint: 'Zum Ändern zuerst dein aktuelles Passwort eingeben.',
     passwordCurrent: 'Aktuelles Passwort',

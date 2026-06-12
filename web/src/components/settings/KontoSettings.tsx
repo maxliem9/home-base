@@ -5,7 +5,8 @@
 import { useState } from 'react'
 import { API_BASE, errorCode, safeFetch } from '../../api'
 import { t, errorText } from '../../i18n'
-import { usernameFromToken } from '../../ui/format'
+import { AVATAR_HUE_SWATCHES, usernameFromToken } from '../../ui/format'
+import { useAvatarHues } from '../../hooks/useAvatarHues'
 import type { Theme } from '../../ui/theme'
 import { Icon } from '../../ui/Icon'
 import { Avatar, Button, Card, Field, SegmentedControl, TextInput } from '../../ui/primitives'
@@ -93,6 +94,8 @@ export function KontoSettings({ token, onLogout, theme, themeLoaded, onChangeThe
         </div>
       </Card>
 
+      {me && <AvatarColorCard me={me} />}
+
       <Card className="hb-card--pad">
       <div className="hb-cardhead">
         <div>
@@ -132,5 +135,68 @@ export function KontoSettings({ token, onLogout, theme, themeLoaded, onChangeThe
       </div>
       </Card>
     </div>
+  )
+}
+
+// Avatar-colour picker (Teil von #100). A row of hue swatches — each the actual avatar
+// circle oklch(0.62,0.09,h) — plus an "Automatisch" option (null → derived from the
+// username hash, #160). Selecting persists via PUT /users/me/avatar-color and updates
+// optimistically through the shared AvatarHues context, so every avatar (here and across
+// the app) recolours instantly; the partner sees it on their next roster fetch.
+function AvatarColorCard({ me }: { me: string }) {
+  const { hueOf, setMyColor } = useAvatarHues()
+  const current = hueOf(me) // number = override, null/undefined = automatic
+  const [failed, setFailed] = useState(false)
+
+  const pick = async (hue: number | null) => {
+    setFailed(false)
+    const ok = await setMyColor(me, hue)
+    if (!ok) setFailed(true)
+  }
+
+  const isAuto = current == null
+
+  return (
+    <Card className="hb-card--pad">
+      <div className="hb-cardhead">
+        <div>
+          <h3>{t.settings.avatarTitle}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t.settings.avatarHint}</p>
+        </div>
+        {/* Live preview of the caller's own avatar in the chosen colour. */}
+        <Avatar user={me} size={34} />
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <div className="hb-field__label" style={{ marginBottom: 8 }}>{t.settings.avatarLabel}</div>
+        <div className="hb-avatar-swatches" style={{ alignItems: 'center' }}>
+          {/* Automatisch (derived) — rendered as the live derived avatar so it's obvious
+              which colour "automatic" yields; ring shows when no override is set. */}
+          <button
+            type="button"
+            className={`hb-avatar-auto${isAuto ? ' is-active' : ''}`}
+            onClick={() => pick(null)}
+            aria-pressed={isAuto}
+            title={t.settings.avatarAutoHint}
+          >
+            <Avatar user={me} size={26} hueOverride={null} />
+            <span>{t.settings.avatarAuto}</span>
+          </button>
+          {AVATAR_HUE_SWATCHES.map((h) => (
+            <button
+              key={h}
+              type="button"
+              className={`hb-avatar-swatch${current === h ? ' is-active' : ''}`}
+              style={{ background: `oklch(0.62 0.09 ${h})` }}
+              onClick={() => pick(h)}
+              aria-pressed={current === h}
+              aria-label={`${t.settings.avatarLabel} ${h}`}
+            />
+          ))}
+        </div>
+        {failed && (
+          <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '10px 0 0' }}>{t.settings.avatarSaveFailed}</p>
+        )}
+      </div>
+    </Card>
   )
 }

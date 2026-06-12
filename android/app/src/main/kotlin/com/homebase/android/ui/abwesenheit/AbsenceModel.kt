@@ -84,7 +84,9 @@ fun partTimeOff(rules: List<PartTimeRuleDto>, userId: String, date: java.time.Lo
     }
 }
 
-private fun hueOf(userId: String): Double = Hb.userHue(userId)
+// A stored avatar-hue override (from the household-visible roster, Teil von #100) wins over
+// the derived username-hash hue, so the calendar's person colours match the avatars everywhere.
+private fun hueOf(userId: String, override: Int?): Double = Hb.userHue(userId, override)
 
 private fun defaultSettings(userId: String, year: Int): AbsSettingsDto =
     AbsSettingsDto(userId, year, "BE", 30.0, 0.0, "$year-03-31", 15)
@@ -125,7 +127,15 @@ data class AbsCtx(
     val hue: Map<String, Double>,
 )
 
-fun buildContext(state: AbsenceStateDto, year: Int, users: List<String>): AbsCtx {
+// `avatarHues` (Teil von #100): username → chosen avatar hue (0..359) from the shared roster;
+// a present entry overrides the derived person colour. Defaults to empty (everyone automatic),
+// which also keeps the existing call sites and unit tests source-compatible.
+fun buildContext(
+    state: AbsenceStateDto,
+    year: Int,
+    users: List<String>,
+    avatarHues: Map<String, Int> = emptyMap(),
+): AbsCtx {
     val settings = HashMap<String, AbsSettingsDto>()
     val holidays = HashMap<String, Map<String, String>>()
     val absByUser = HashMap<String, MutableMap<String, AbsenceDto>>()
@@ -135,7 +145,7 @@ fun buildContext(state: AbsenceStateDto, year: Int, users: List<String>): AbsCtx
         settings[uid] = s
         holidays[uid] = AbwCal.holidays(year, s.state)
         absByUser[uid] = HashMap()
-        hue[uid] = hueOf(uid)
+        hue[uid] = hueOf(uid, avatarHues[uid])
     }
     state.absences.forEach { a ->
         if (a.date.take(4) != year.toString()) return@forEach
@@ -151,7 +161,9 @@ fun buildContext(state: AbsenceStateDto, year: Int, users: List<String>): AbsCtx
 /** Resolve a single person's day. */
 fun personDay(ctx: AbsCtx, userId: String, dateStr: String): DayState {
     val date = AbwCal.parse(dateStr)
-    val hue = ctx.hue[userId] ?: hueOf(userId)
+    // ctx.hue already has any avatar override baked in; the fallback is only for a user not in
+    // the prebuilt map, where no override is known → derived hue.
+    val hue = ctx.hue[userId] ?: hueOf(userId, null)
     val abs = ctx.absByUser[userId]?.get(dateStr)
     // Statutory holiday (per Bundesland, always full-day) wins; otherwise fall back to a
     // household-wide custom holiday matched by month+day (#51), which may be a half day.

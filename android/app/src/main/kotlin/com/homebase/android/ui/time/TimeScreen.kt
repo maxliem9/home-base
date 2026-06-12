@@ -60,6 +60,7 @@ import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
@@ -663,7 +664,8 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                         .fillMaxWidth(frac)
                         .fillMaxHeight()
                         .clip(HbPill)
-                        .background(Hb.userColor(u.userId)),
+                        // week-bar segment honours the per-user avatar-hue override (Teil von #100)
+                        .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
                 )
             }
         }
@@ -1657,7 +1659,8 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
                             .widthIn(min = 4.dp) // mirrors .hb-weekbar__seg min-width
                             .fillMaxHeight()
                             .clip(HbPill)
-                            .background(Hb.userColor(userId)),
+                            // week-bar segment honours the per-user avatar-hue override (Teil von #100)
+                            .background(Hb.userColor(userId, LocalAvatarHues.current[userId])),
                     )
                 }
             }
