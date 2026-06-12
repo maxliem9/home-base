@@ -75,4 +75,19 @@ class PasswordChangeRouteTest {
             Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
         )
     }
+
+    @Test
+    fun `new password equal to the current one returns 400 PASSWORD_UNCHANGED`() = testApplication {
+        configureTestApplication()
+        val token = tokenFor("alice", "password123")
+
+        val res = changePassword(token, "password123", "password123")
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "PASSWORD_UNCHANGED",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+        // the password still works — nothing was changed
+        assertEquals(HttpStatusCode.OK, login("alice", "password123").status)
+    }
 }

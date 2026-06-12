@@ -38,6 +38,7 @@ export const de = {
     INVALID_NAME: 'Name darf nicht leer sein (max. 60 Zeichen).',
     INVALID_PASSWORD: 'Aktuelles Passwort stimmt nicht.',
     WEAK_PASSWORD: 'Neues Passwort braucht mindestens 8 Zeichen.',
+    PASSWORD_UNCHANGED: 'Neues Passwort muss sich vom alten unterscheiden.',
     INVALID_TIME: 'Ungültige Uhrzeit (HH:mm).',
     // Todos / Lists
     INVALID_TODO: 'Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.',
@@ -452,6 +453,7 @@ export const de = {
     passwordChangeFailed: 'Passwort konnte nicht geändert werden.',
     passwordMismatch: 'Die neuen Passwörter stimmen nicht überein.',
     passwordTooShort: 'Mindestens 8 Zeichen.',
+    passwordSameAsOld: 'Neues Passwort muss sich vom alten unterscheiden.',
     // Benachrichtigungen-Unterseite (#100): Telegram-Digest-Zeit.
     notifications: 'Benachrichtigungen',
     digestTitle: 'Telegram-Digest',
