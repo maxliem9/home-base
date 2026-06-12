@@ -251,9 +251,14 @@ export const de = {
     namePlaceholder: 'Was fehlt? …', // rendered as `Was fehlt in „{name}"? …`
     inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
     clearChecked: 'Abgehakte entfernen',
+    // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
+    // nachgeholt; bis dahin trägt das Produkt den notSynced-Marker (Einkaufen ohne WLAN).
+    notSynced: 'Noch nicht synchronisiert',
+    offlineQueuedOne: '1 Änderung wird nachgeholt, sobald wieder online.',
+    offlineQueuedMany: '{n} Änderungen werden nachgeholt, sobald wieder online.',
+    retryNow: 'Jetzt versuchen',
     // write-error fallbacks (issue #96)
     addFailed: 'Produkt konnte nicht hinzugefügt werden.',
-    saveFailed: 'Änderung konnte nicht gespeichert werden.',
     deleteFailed: 'Produkt konnte nicht gelöscht werden.',
     clearFailed: 'Abgehakte konnten nicht entfernt werden.',
     listCreateFailed: 'Liste konnte nicht erstellt werden.',
