@@ -45,9 +45,6 @@ class RecipesRepository(
         api.uploadRecipeImage(recipeId, part)
     }
 
-    suspend fun setMainImage(recipeId: String, imageId: String): Result<RecipeDto> =
-        apiCatching { api.setRecipeMainImage(recipeId, imageId) }
-
     suspend fun deleteImage(recipeId: String, imageId: String): Result<RecipeDto> =
         apiCatching { api.deleteRecipeImage(recipeId, imageId) }
 

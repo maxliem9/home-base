@@ -458,8 +458,6 @@ data class RecipeImageDto(
     val originalName: String,
     val contentType: String,
     val sizeBytes: Long,
-    // images are ordered by sortOrder; the first (lowest) is the recipe's main/cover image
-    val sortOrder: Int,
     val createdBy: String,
     val createdAt: String
 )
@@ -475,7 +473,8 @@ data class RecipeDto(
     val category: String,
     val ingredients: List<IngredientDto> = emptyList(),
     val steps: List<RecipeStepDto> = emptyList(),
-    val images: List<RecipeImageDto> = emptyList(),
+    // optional single cover image (null/omitted when the recipe has none)
+    val image: RecipeImageDto? = null,
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String

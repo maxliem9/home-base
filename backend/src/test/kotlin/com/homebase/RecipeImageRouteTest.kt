@@ -9,6 +9,8 @@ import kotlinx.serialization.json.*
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RecipeImageRouteTest {
@@ -58,17 +60,16 @@ class RecipeImageRouteTest {
         )
     }
 
-    // `images` defaults to emptyList() and the JSON config omits default values, so an image-less
-    // recipe has no `images` key at all — tolerate that here and treat it as an empty gallery.
-    private fun imagesOf(bodyText: String): JsonArray =
-        Json.parseToJsonElement(bodyText).jsonObject["images"]?.jsonArray ?: JsonArray(emptyList())
+    // `image` is a nullable single field; the JSON config omits it when null (no cover image).
+    private fun imageOf(bodyText: String): JsonObject? =
+        Json.parseToJsonElement(bodyText).jsonObject["image"]?.jsonObject
 
-    private fun JsonElement.id() = jsonObject["id"]!!.jsonPrimitive.content
+    private fun JsonObject.id() = this["id"]!!.jsonPrimitive.content
 
     private val pngBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4)
 
     @Test
-    fun `upload returns the recipe with the embedded image`() = testApplication {
+    fun `upload returns the recipe with the embedded cover image`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val recipeId = createRecipe(token)
@@ -76,14 +77,11 @@ class RecipeImageRouteTest {
         val response = uploadImage(token, recipeId, pngBytes)
 
         assertEquals(HttpStatusCode.Created, response.status)
-        val images = imagesOf(response.bodyAsText())
-        assertEquals(1, images.size)
-        val image = images[0].jsonObject
+        val image = imageOf(response.bodyAsText())!!
         assertEquals(recipeId, image["recipeId"]?.jsonPrimitive?.content)
         assertEquals("image/png", image["contentType"]?.jsonPrimitive?.content)
         assertEquals(pngBytes.size, image["sizeBytes"]?.jsonPrimitive?.int)
         assertEquals("pic.png", image["originalName"]?.jsonPrimitive?.content)
-        assertEquals(0, image["sortOrder"]?.jsonPrimitive?.int)
     }
 
     @Test
@@ -91,7 +89,7 @@ class RecipeImageRouteTest {
         configureTestApplication()
         val token = loginAndGetToken()
         val recipeId = createRecipe(token)
-        val imageId = imagesOf(uploadImage(token, recipeId, pngBytes).bodyAsText())[0].id()
+        val imageId = imageOf(uploadImage(token, recipeId, pngBytes).bodyAsText())!!.id()
 
         val response = client.get("/api/v1/recipes/$recipeId/images/$imageId") { bearerAuth(token) }
 
@@ -102,7 +100,7 @@ class RecipeImageRouteTest {
     }
 
     @Test
-    fun `recipe list and detail embed uploaded images`() = testApplication {
+    fun `recipe list and detail embed the cover image`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val recipeId = createRecipe(token)
@@ -111,61 +109,58 @@ class RecipeImageRouteTest {
         val list = Json.parseToJsonElement(
             client.get("/api/v1/recipes") { bearerAuth(token) }.bodyAsText()
         ).jsonArray
-        assertEquals(1, imagesOf(list[0].toString()).size)
+        assertNotNullImage(list[0].toString())
 
-        val detail = client.get("/api/v1/recipes/$recipeId") { bearerAuth(token) }.bodyAsText()
-        assertEquals(1, imagesOf(detail).size)
+        assertNotNullImage(client.get("/api/v1/recipes/$recipeId") { bearerAuth(token) }.bodyAsText())
     }
 
+    private fun assertNotNullImage(bodyText: String) =
+        assertTrue(imageOf(bodyText) != null, "recipe should embed its cover image")
+
     @Test
-    fun `set as main moves an image to the front`() = testApplication {
+    fun `uploading again replaces the single cover image and drops the old bytes`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val recipeId = createRecipe(token)
-        val img1 = imagesOf(uploadImage(token, recipeId, pngBytes, filename = "a.png").bodyAsText()).last().id()
-        val secondBody = uploadImage(token, recipeId, pngBytes, filename = "b.png").bodyAsText()
-        val img2 = imagesOf(secondBody).last().id()
-        // first upload is initially the main image
-        assertEquals(img1, imagesOf(secondBody)[0].id())
+        val firstId = imageOf(uploadImage(token, recipeId, pngBytes, filename = "a.png").bodyAsText())!!.id()
 
-        val response = client.put("/api/v1/recipes/$recipeId/images/$img2/main") { bearerAuth(token) }
+        val second = imageOf(uploadImage(token, recipeId, pngBytes, filename = "b.png").bodyAsText())!!
+        assertNotEquals(firstId, second.id())
+        assertEquals("b.png", second["originalName"]?.jsonPrimitive?.content)
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        val images = imagesOf(response.bodyAsText())
-        assertEquals(img2, images[0].id())
-        assertEquals(0, images[0].jsonObject["sortOrder"]!!.jsonPrimitive.int)
-        assertEquals(img1, images[1].id())
-    }
-
-    @Test
-    fun `delete image removes it and renumbers the rest`() = testApplication {
-        configureTestApplication()
-        val token = loginAndGetToken()
-        val recipeId = createRecipe(token)
-        val img1 = imagesOf(uploadImage(token, recipeId, pngBytes, filename = "a.png").bodyAsText()).last().id()
-        val img2 = imagesOf(uploadImage(token, recipeId, pngBytes, filename = "b.png").bodyAsText()).last().id()
-
-        val response = client.delete("/api/v1/recipes/$recipeId/images/$img1") { bearerAuth(token) }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        val images = imagesOf(response.bodyAsText())
-        assertEquals(1, images.size)
-        assertEquals(img2, images[0].id())
-        // the surviving image becomes the main one (dense sort_order)
-        assertEquals(0, images[0].jsonObject["sortOrder"]!!.jsonPrimitive.int)
-        // and the bytes of the removed image are gone
+        // the recipe now carries exactly the new image …
+        val detailImage = imageOf(client.get("/api/v1/recipes/$recipeId") { bearerAuth(token) }.bodyAsText())!!
+        assertEquals(second.id(), detailImage.id())
+        // … and the replaced image's bytes are gone
         assertEquals(
             HttpStatusCode.NotFound,
-            client.get("/api/v1/recipes/$recipeId/images/$img1") { bearerAuth(token) }.status,
+            client.get("/api/v1/recipes/$recipeId/images/$firstId") { bearerAuth(token) }.status,
         )
     }
 
     @Test
-    fun `deleting the recipe also drops its images`() = testApplication {
+    fun `delete removes the cover image`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val recipeId = createRecipe(token)
-        val imageId = imagesOf(uploadImage(token, recipeId, pngBytes).bodyAsText())[0].id()
+        val imageId = imageOf(uploadImage(token, recipeId, pngBytes).bodyAsText())!!.id()
+
+        val response = client.delete("/api/v1/recipes/$recipeId/images/$imageId") { bearerAuth(token) }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertNull(imageOf(response.bodyAsText()), "recipe should have no cover image after delete")
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/recipes/$recipeId/images/$imageId") { bearerAuth(token) }.status,
+        )
+    }
+
+    @Test
+    fun `deleting the recipe also drops its cover image`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token)
+        val imageId = imageOf(uploadImage(token, recipeId, pngBytes).bodyAsText())!!.id()
 
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/recipes/$recipeId") { bearerAuth(token) }.status)
         assertEquals(
@@ -175,14 +170,14 @@ class RecipeImageRouteTest {
     }
 
     @Test
-    fun `both users can add and view recipe images (shared)`() = testApplication {
+    fun `both users can set and view the cover image (shared)`() = testApplication {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
         val bob = loginAndGetToken("bob", "password456")
         val recipeId = createRecipe(alice)
 
-        // bob (not the creator) may upload to a shared recipe …
-        val imageId = imagesOf(uploadImage(bob, recipeId, pngBytes).bodyAsText())[0].id()
+        // bob (not the creator) may set the cover on a shared recipe …
+        val imageId = imageOf(uploadImage(bob, recipeId, pngBytes).bodyAsText())!!.id()
         // … and alice may view it
         assertEquals(
             HttpStatusCode.OK,

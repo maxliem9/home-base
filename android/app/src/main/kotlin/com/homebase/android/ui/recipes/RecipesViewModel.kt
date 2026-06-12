@@ -114,14 +114,6 @@ class RecipesViewModel(
         }
     }
 
-    fun setMainImage(recipeId: String, imageId: String) {
-        viewModelScope.launch {
-            repository.setMainImage(recipeId, imageId)
-                .onSuccess { recipe -> upsert(recipe) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
-        }
-    }
-
     fun removeImage(recipeId: String, imageId: String) {
         viewModelScope.launch {
             repository.deleteImage(recipeId, imageId)

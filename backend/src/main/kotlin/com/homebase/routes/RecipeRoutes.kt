@@ -217,12 +217,13 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             call.respond(HttpStatusCode.NoContent)
         }
 
-        // --- Images -------------------------------------------------------
-        // Recipes are shared between both users, so there is no per-image owner check; any
-        // authenticated user may add, reorder, view and remove a recipe's images. The streaming /
-        // validation / disk plumbing is shared with the note images (see ImageUploads.kt).
+        // --- Cover image --------------------------------------------------
+        // A recipe has at most one cover image (recipe_images.recipe_id is UNIQUE). Recipes are
+        // shared between both users, so there is no per-image owner check; any authenticated user
+        // may set, view and remove it. Streaming / validation / disk plumbing is shared with the
+        // note images (see ImageUploads.kt).
 
-        // Upload an image to a recipe. Returns the updated recipe with its images embedded.
+        // Set (or replace) a recipe's cover image. Returns the updated recipe.
         post("/{id}/images") {
             val username = call.username()
             val recipeId = call.uuidParam() ?: return@post
@@ -252,12 +253,13 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             // The bytes are already streamed to a temp file; promote it to its final name.
             finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
-            val recipe = transaction {
+            val outcome = transaction {
                 RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
                     ?: return@transaction null
-                // append after the existing images (0-based index == current count)
-                val nextOrder = RecipeImagesTable.selectAll()
-                    .where { RecipeImagesTable.recipeId eq recipeId }.count().toInt()
+                // single cover image: drop the previous one (its file is removed after commit)
+                val oldFiles = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq recipeId }
+                    .map { it[RecipeImagesTable.filename] }
+                RecipeImagesTable.deleteWhere { RecipeImagesTable.recipeId eq recipeId }
                 RecipeImagesTable.insert {
                     it[RecipeImagesTable.id] = imageId
                     it[RecipeImagesTable.recipeId] = recipeId
@@ -265,19 +267,20 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                     it[RecipeImagesTable.originalName] = upload.originalName
                     it[RecipeImagesTable.contentType] = upload.contentType
                     it[sizeBytes] = upload.size
-                    it[sortOrder] = nextOrder
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
                 RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto()
+                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto() to oldFiles
             }
-            if (recipe == null) {
-                // recipe vanished between the existence check and the insert — undo the file
+            if (outcome == null) {
+                // recipe vanished between the existence check and the insert — undo the new file
                 deleteImageFile(imageConfig, storedName)
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@post
             }
+            val (recipe, oldFiles) = outcome
+            oldFiles.forEach { deleteImageFile(imageConfig, it) }
 
             WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
             call.respond(HttpStatusCode.Created, recipe)
@@ -310,35 +313,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[RecipeImagesTable.contentType])))
         }
 
-        // Make an image the recipe's main/cover image by moving it to the front (sort_order 0).
-        put("/{id}/images/{imageId}/main") {
-            val recipeId = call.uuidParam() ?: return@put
-            val imageId = call.uuidParam("imageId") ?: return@put
-
-            val recipe = transaction {
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
-                    ?: return@transaction null
-                val ids = RecipeImagesTable.selectAll()
-                    .where { RecipeImagesTable.recipeId eq recipeId }
-                    .orderBy(RecipeImagesTable.sortOrder to SortOrder.ASC, RecipeImagesTable.createdAt to SortOrder.ASC)
-                    .map { it[RecipeImagesTable.id] }
-                if (imageId !in ids) return@transaction null
-                // target first; the rest keep their relative order, renumbered to a dense 0..n-1
-                (listOf(imageId) + ids.filter { it != imageId }).forEachIndexed { index, imgId ->
-                    RecipeImagesTable.update({ RecipeImagesTable.id eq imgId }) { it[sortOrder] = index }
-                }
-                RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto()
-            }
-            if (recipe == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe or image not found"))
-                return@put
-            }
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
-            call.respond(recipe)
-        }
-
-        // Remove an image from a recipe. Returns the updated recipe.
+        // Remove a recipe's cover image. Returns the updated recipe.
         delete("/{id}/images/{imageId}") {
             val recipeId = call.uuidParam() ?: return@delete
             val imageId = call.uuidParam("imageId") ?: return@delete
@@ -353,15 +328,6 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 RecipeImagesTable.deleteWhere {
                     (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId)
                 }
-                // Close the sort_order gap so the remaining images stay a dense 0..n-1 and the
-                // lowest is always the (possibly new) main image.
-                RecipeImagesTable.selectAll()
-                    .where { RecipeImagesTable.recipeId eq recipeId }
-                    .orderBy(RecipeImagesTable.sortOrder to SortOrder.ASC, RecipeImagesTable.createdAt to SortOrder.ASC)
-                    .map { it[RecipeImagesTable.id] }
-                    .forEachIndexed { index, imgId ->
-                        RecipeImagesTable.update({ RecipeImagesTable.id eq imgId }) { it[sortOrder] = index }
-                    }
                 RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
                 filename to RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto()
             }
@@ -479,17 +445,16 @@ private fun ResultRow.toRecipeDto(): RecipeDto {
                 description = it[RecipeStepsTable.description]
             )
         }
-    val images = RecipeImagesTable.selectAll()
+    val image = RecipeImagesTable.selectAll()
         .where { RecipeImagesTable.recipeId eq recipeId }
-        .orderBy(RecipeImagesTable.sortOrder to SortOrder.ASC, RecipeImagesTable.createdAt to SortOrder.ASC)
-        .map {
+        .firstOrNull()
+        ?.let {
             RecipeImageDto(
                 id = it[RecipeImagesTable.id].toString(),
                 recipeId = it[RecipeImagesTable.recipeId].toString(),
                 originalName = it[RecipeImagesTable.originalName],
                 contentType = it[RecipeImagesTable.contentType],
                 sizeBytes = it[RecipeImagesTable.sizeBytes],
-                sortOrder = it[RecipeImagesTable.sortOrder],
                 createdBy = it[RecipeImagesTable.createdBy],
                 createdAt = it[RecipeImagesTable.createdAt].toString()
             )
@@ -504,7 +469,7 @@ private fun ResultRow.toRecipeDto(): RecipeDto {
         category = this[RecipesTable.category],
         ingredients = ingredients,
         steps = steps,
-        images = images,
+        image = image,
         createdBy = this[RecipesTable.createdBy],
         createdAt = this[RecipesTable.createdAt].toString(),
         updatedAt = this[RecipesTable.updatedAt].toString()

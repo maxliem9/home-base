@@ -30,7 +30,6 @@ const normalizeRecipe = (r: Recipe): Recipe => ({
   ...r,
   ingredients: r.ingredients ?? [],
   steps: r.steps ?? [],
-  images: r.images ?? [],
 })
 
 // deterministic warm hue (≈20–80) per recipe for the photo placeholder band
@@ -419,9 +418,9 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           {visible.map((recipe) => (
             <Card key={recipe.id} className="hb-recipecard hb-card--hover" onClick={() => setSelected(recipe)}>
               <div className="hb-recipecard__img" style={{ ['--rh' as string]: recipeHue(recipe.id) }}>
-                {recipe.images[0] ? (
+                {recipe.image ? (
                   <AuthedImage
-                    url={recipeImageUrl(recipe.id, recipe.images[0].id)}
+                    url={recipeImageUrl(recipe.id, recipe.image.id)}
                     token={token}
                     alt={recipe.title}
                     className="hb-recipecard__photo"
@@ -610,9 +609,9 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
   )
 }
 
-// Photo gallery + management for a recipe's detail page: a main (cover) hero on top and a
-// thumbnail strip below with add / remove / "set as main". The image at index 0 is the main
-// one (backend keeps them sorted by sortOrder); mutations return the updated recipe via onUpdated.
+// Single cover image for a recipe's detail page: a large preview (click to zoom) plus add /
+// replace / remove controls. A recipe has at most one image; uploading replaces the current one.
+// Mutations return the updated recipe via onUpdated.
 function RecipeImages({ recipe, token, onLogout, onUpdated }: {
   recipe: Recipe
   token: string
@@ -621,10 +620,9 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
 }) {
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
-  const [lightboxId, setLightboxId] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const images = recipe.images
-  const main = images[0]
+  const image = recipe.image
 
   const handleUpload = async (file: File) => {
     setImageError(null)
@@ -645,10 +643,11 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
     }
   }
 
-  const handleDelete = async (imageId: string) => {
+  const handleDelete = async () => {
+    if (!image) return
     setImageError(null)
     try {
-      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${imageId}`, { method: 'DELETE' })
+      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${image.id}`, { method: 'DELETE' })
       if (res.status === 401) return onLogout()
       if (res.ok) onUpdated(await res.json())
       else setImageError(errorText(await errorCode(res), t.recipes.imageDeleteFailed))
@@ -657,74 +656,26 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
     }
   }
 
-  const handleSetMain = async (imageId: string) => {
-    setImageError(null)
-    try {
-      const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${imageId}/main`, { method: 'PUT' })
-      if (res.status === 401) return onLogout()
-      if (res.ok) onUpdated(await res.json())
-      else setImageError(errorText(await errorCode(res), t.recipes.imageUpdateFailed))
-    } catch {
-      setImageError(t.recipes.imageUpdateFailed)
-    }
-  }
-
   return (
     <div className="hb-recipe-photos">
-      {main && (
-        <button type="button" className="hb-recipe-hero" onClick={() => setLightboxId(main.id)} aria-label={t.recipes.openImage}>
-          <AuthedImage url={recipeImageUrl(recipe.id, main.id)} token={token} alt={recipe.title} />
+      {image && (
+        <button type="button" className="hb-recipe-hero" onClick={() => setLightbox(true)} aria-label={t.recipes.openImage}>
+          <AuthedImage url={recipeImageUrl(recipe.id, image.id)} token={token} alt={recipe.title} />
         </button>
       )}
 
       <div className="hb-recipe-photos__head">
-        <span className="hb-field__label">
-          {t.recipes.images}{images.length > 0 ? ` (${images.length})` : ''}
-        </span>
-        <Button variant="secondary" size="sm" icon="plus" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-          {uploading ? t.recipes.uploading : t.recipes.addImage}
-        </Button>
+        <span className="hb-field__label">{t.recipes.image}</span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {image && (
+            <Button variant="ghost" size="sm" icon="trash" onClick={handleDelete}>{t.recipes.removeImage}</Button>
+          )}
+          <Button variant="secondary" size="sm" icon="plus" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? t.recipes.uploading : image ? t.recipes.changeImage : t.recipes.addImage}
+          </Button>
+        </div>
       </div>
       {imageError && <p className="hb-note-images__error">{imageError}</p>}
-
-      {images.length > 0 && (
-        <div className="hb-recipe-thumbs">
-          {images.map((img, i) => (
-            <div key={img.id} className={`hb-recipe-thumb${i === 0 ? ' is-main' : ''}`}>
-              <AuthedImage
-                url={recipeImageUrl(recipe.id, img.id)}
-                token={token}
-                alt={img.originalName}
-                onClick={() => setLightboxId(img.id)}
-              />
-              {i === 0 ? (
-                <span className="hb-recipe-thumb__mainbadge" title={t.recipes.mainImage}>
-                  <Icon name="sparkle" size={11} stroke={2.4} /> {t.recipes.mainShort}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="hb-recipe-thumb__main"
-                  title={t.recipes.setMain}
-                  aria-label={t.recipes.setMain}
-                  onClick={() => handleSetMain(img.id)}
-                >
-                  <Icon name="sparkle" size={14} stroke={2.2} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="hb-recipe-thumb__del"
-                title={t.recipes.removeImage}
-                aria-label={t.recipes.removeImage}
-                onClick={() => handleDelete(img.id)}
-              >
-                <Icon name="x" size={14} stroke={2.4} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       <input
         ref={fileInputRef}
@@ -738,9 +689,9 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
         }}
       />
 
-      {lightboxId && (
-        <div className="hb-lightbox" onClick={() => setLightboxId(null)}>
-          <AuthedImage url={recipeImageUrl(recipe.id, lightboxId)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
+      {lightbox && image && (
+        <div className="hb-lightbox" onClick={() => setLightbox(false)}>
+          <AuthedImage url={recipeImageUrl(recipe.id, image.id)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </div>

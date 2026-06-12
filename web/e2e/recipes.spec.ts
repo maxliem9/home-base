@@ -253,41 +253,37 @@ test.describe('Recipes', () => {
     await expect(page.locator('.hb-ing', { hasText: 'Zucker' })).toContainText('100 g')
   })
 
-  test('renders a recipe image as the card cover and the detail hero', async ({ page }) => {
+  test('renders the recipe cover image on the card and the detail hero', async ({ page }) => {
     const withImage = recipe({
       id: 'r4',
       title: 'Pizza',
-      images: [recipeImage({ id: 'ri9', recipeId: 'r4', originalName: 'pizza.png' })],
+      image: recipeImage({ id: 'ri9', recipeId: 'r4', originalName: 'pizza.png' }),
     })
     await openRecipes(page, new MockApi().seedRecipes([withImage]))
 
     // the list card shows the cover, loaded via the shared <AuthedImage> (authFetch → blob)
     await expect(page.locator('.hb-recipecard__photo')).toHaveAttribute('src', /^blob:/)
 
-    // the detail page shows the same image as a hero plus a managed thumbnail
+    // the detail page shows the same image as the hero
     await page.locator('.hb-recipecard', { hasText: 'Pizza' }).click()
     await expect(page.locator('.hb-recipe-hero img')).toHaveAttribute('src', /^blob:/)
-    await expect(page.locator('.hb-recipe-thumb img').first()).toHaveAttribute('src', /^blob:/)
   })
 
-  test('promotes another image to the main/cover image', async ({ page }) => {
-    const twoImg = recipe({
+  test('removes the cover image from the detail page', async ({ page }) => {
+    const withImage = recipe({
       id: 'r3',
-      title: 'Bunt',
-      images: [
-        recipeImage({ id: 'ri1', recipeId: 'r3', originalName: 'a.png', sortOrder: 0 }),
-        recipeImage({ id: 'ri2', recipeId: 'r3', originalName: 'b.png', sortOrder: 1 }),
-      ],
+      title: 'Toast',
+      image: recipeImage({ id: 'ri3', recipeId: 'r3', originalName: 'toast.png' }),
     })
-    await openRecipes(page, new MockApi().seedRecipes([twoImg]))
-    await page.locator('.hb-recipecard', { hasText: 'Bunt' }).click()
+    await openRecipes(page, new MockApi().seedRecipes([withImage]))
+    await page.locator('.hb-recipecard', { hasText: 'Toast' }).click()
 
-    // the first thumbnail is the cover (a.png)
-    await expect(page.locator('.hb-recipe-thumb').first().locator('img')).toHaveAttribute('alt', 'a.png')
+    // the cover renders as the hero …
+    await expect(page.locator('.hb-recipe-hero img')).toHaveAttribute('src', /^blob:/)
 
-    // promote b.png → it becomes the first (cover) image
-    await page.locator('.hb-recipe-thumb').nth(1).getByRole('button', { name: 'Als Titelbild' }).click()
-    await expect(page.locator('.hb-recipe-thumb').first().locator('img')).toHaveAttribute('alt', 'b.png')
+    // … and "Bild entfernen" clears it (DELETE → updated recipe with no image)
+    await page.getByRole('button', { name: 'Bild entfernen' }).click()
+    await expect(page.locator('.hb-recipe-hero')).toHaveCount(0)
   })
 
   test('adds serving-scaled recipe ingredients to a shopping list', async ({ page }) => {

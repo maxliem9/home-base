@@ -20,11 +20,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -351,7 +349,7 @@ private fun ColumnScope.RecipeGrid(
 @Composable
 private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (RecipeImageDto) -> String) {
     val hue = Format.recipeHue(recipe.id)
-    val mainImage = recipe.images.firstOrNull()
+    val coverImage = recipe.image
     HbCard(modifier = Modifier.fillMaxWidth().clickable { onClick() }, pad = false) {
         Column(Modifier.fillMaxWidth()) {
             // Cover image band — the main (first) image, or a striped "Foto folgt" placeholder
@@ -362,9 +360,9 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                     .background(stripeBrush(hue, 31f)),
                 contentAlignment = Alignment.Center,
             ) {
-                if (mainImage != null) {
+                if (coverImage != null) {
                     AsyncImage(
-                        model = imageUrl(mainImage),
+                        model = imageUrl(coverImage),
                         contentDescription = recipe.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -523,8 +521,8 @@ private fun RecipeDetailPage(
             toastMsg?.let { msg -> HbToast(message = msg) }
         },
     ) {
-        // Full-bleed hero band — the main image (tap to enlarge) or a striped placeholder
-        val heroImage = recipe.images.firstOrNull()
+        // Full-bleed hero band — the cover image (tap to enlarge) or a striped placeholder
+        val heroImage = recipe.image
         Box(
             Modifier
                 .fillMaxWidth()
@@ -604,14 +602,11 @@ private fun RecipeDetailPage(
             }
             Spacer(Modifier.size(18.dp))
 
-            // Photos: add / remove / set-as-main; the first image is the cover/hero above.
-            RecipeImagesSection(
-                images = recipe.images,
-                imageUrl = viewModel::imageUrl,
-                onAdd = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onRemove = { viewModel.removeImage(recipe.id, it) },
-                onSetMain = { viewModel.setMainImage(recipe.id, it) },
-                onOpen = { lightbox = it },
+            // Cover image controls: add / replace / remove (the image is the hero band above).
+            RecipeImageControls(
+                hasImage = recipe.image != null,
+                onAddOrReplace = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onRemove = { recipe.image?.let { viewModel.removeImage(recipe.id, it.id) } },
             )
             Spacer(Modifier.size(22.dp))
 
@@ -774,100 +769,45 @@ private fun StepRow(number: Int, description: String) {
 }
 
 // ---------------------------------------------------------------------------
-// Recipe photos — managed gallery (add / remove / set-as-main) + lightbox
+// Cover image controls (add / replace / remove). The image itself shows as the hero band.
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RecipeImagesSection(
-    images: List<RecipeImageDto>,
-    imageUrl: (RecipeImageDto) -> String,
-    onAdd: () -> Unit,
-    onRemove: (imageId: String) -> Unit,
-    onSetMain: (imageId: String) -> Unit,
-    onOpen: (url: String) -> Unit,
+private fun RecipeImageControls(
+    hasImage: Boolean,
+    onAddOrReplace: () -> Unit,
+    onRemove: () -> Unit,
 ) {
-    Column {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            "Bild",
+            style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+            color = Hb.ink2,
+        )
         Row(
-            Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                if (images.isEmpty()) "Bilder" else "Bilder (${images.size})",
-                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
-                color = Hb.ink2,
-            )
+            if (hasImage) {
+                HbButton(
+                    "Entfernen",
+                    onClick = onRemove,
+                    variant = HbButtonVariant.Ghost,
+                    size = HbButtonSize.Sm,
+                    icon = HbIcons.trash,
+                )
+            }
             HbButton(
-                "Bild hinzufügen",
-                onClick = onAdd,
+                if (hasImage) "Bild ändern" else "Bild hinzufügen",
+                onClick = onAddOrReplace,
                 variant = HbButtonVariant.Secondary,
                 size = HbButtonSize.Sm,
                 icon = HbIcons.plus,
             )
-        }
-        if (images.isNotEmpty()) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                images.forEachIndexed { i, img ->
-                    val isMain = i == 0
-                    Box(
-                        Modifier
-                            .size(104.dp)
-                            .clip(HbRadius)
-                            .background(Hb.surface2)
-                            .border(if (isMain) 2.dp else 1.dp, if (isMain) Hb.accent else Hb.lineSoft, HbRadius)
-                            .clickable { onOpen(imageUrl(img)) },
-                    ) {
-                        AsyncImage(
-                            model = imageUrl(img),
-                            contentDescription = img.originalName,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        // remove (top-end)
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(4.dp)
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.5f))
-                                .clickable { onRemove(img.id) },
-                            contentAlignment = Alignment.Center,
-                        ) { HbIcon(HbIcons.x, size = 14.dp, tint = Color.White) }
-                        // main marker: a "Titel" pill on the cover, a tappable star on the others
-                        if (isMain) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(4.dp)
-                                    .clip(HbPill)
-                                    .background(Hb.accent, HbPill)
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    "Titel",
-                                    style = HbType.small.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                                    color = Color.White,
-                                )
-                            }
-                        } else {
-                            Box(
-                                Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(4.dp)
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.5f))
-                                    .clickable { onSetMain(img.id) },
-                                contentAlignment = Alignment.Center,
-                            ) { HbIcon(HbIcons.sparkle, size = 14.dp, tint = Color.White) }
-                        }
-                    }
-                }
-            }
         }
     }
 }

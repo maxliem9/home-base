@@ -198,13 +198,10 @@ interface HomeBaseApi {
     @DELETE("recipes/{id}")
     suspend fun deleteRecipe(@Path("id") id: String)
 
-    // upload / set-main / delete return the updated recipe with its images embedded
+    // set (replace) / delete the single cover image; both return the updated recipe
     @Multipart
     @POST("recipes/{id}/images")
     suspend fun uploadRecipeImage(@Path("id") id: String, @Part file: MultipartBody.Part): RecipeDto
-
-    @PUT("recipes/{id}/images/{imageId}/main")
-    suspend fun setRecipeMainImage(@Path("id") id: String, @Path("imageId") imageId: String): RecipeDto
 
     @DELETE("recipes/{id}/images/{imageId}")
     suspend fun deleteRecipeImage(@Path("id") id: String, @Path("imageId") imageId: String): RecipeDto

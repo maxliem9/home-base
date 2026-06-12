@@ -150,8 +150,6 @@ export interface RecipeImage {
   originalName: string
   contentType: string
   sizeBytes: number
-  /** images are ordered by sortOrder; the first (lowest) is the recipe's main/cover image */
-  sortOrder: number
   createdBy: string
   createdAt: string
 }
@@ -166,8 +164,8 @@ export interface Recipe {
   category: RecipeCategory
   ingredients: Ingredient[]
   steps: RecipeStep[]
-  // omitted by the backend when empty (encodeDefaults=false) → normalize to [] on read
-  images: RecipeImage[]
+  // optional single cover image; omitted by the backend when the recipe has none
+  image?: RecipeImage
   createdBy: string
   createdAt: string
   updatedAt: string
