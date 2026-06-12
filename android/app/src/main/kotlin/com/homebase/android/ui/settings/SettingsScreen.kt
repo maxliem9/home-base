@@ -126,7 +126,7 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
             SettingsNavRow(
                 icon = HbIcons.bell,
                 title = "Benachrichtigungen",
-                subtitle = "Telegram-Digest-Uhrzeit",
+                subtitle = "Digest-Uhrzeiten (morgens & abends)",
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
             )
             SettingsNavRow(

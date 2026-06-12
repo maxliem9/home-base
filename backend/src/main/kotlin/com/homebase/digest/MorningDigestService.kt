@@ -41,7 +41,8 @@ class MorningDigestService : DigestSource {
 
         val overdue = TodosTable.selectAll().where {
             (TodosTable.status neq "DONE") and (TodosTable.dueDate less today)
-        }.orderBy(TodosTable.dueDate, SortOrder.ASC).map { it[TodosTable.title] }
+        }.orderBy(TodosTable.dueDate to SortOrder.ASC, TodosTable.title to SortOrder.ASC)
+            .map { it[TodosTable.title] }
 
         // The standing triage pile: unplanned AND undated. A still-INBOX todo that has a due
         // date already shows under dueToday/overdue, so excluding dated ones keeps it from
