@@ -72,6 +72,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
+  // live mirror of the open draft's id — read after an awaited upload to detect that the
+  // user switched/closed the editor in the meantime (the captured `draft` would be stale).
+  const draftIdRef = useRef<string | undefined>(undefined)
+  draftIdRef.current = draft?.id
   const { flashError, errorToast } = useErrorToast()
 
   const fetchNotes = useCallback(async (q: string) => {
@@ -258,8 +262,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const uploadAndInsert = async (file: File) => {
     if (!draft) return
     if (!draft.id) { setImageError(t.notes.imageSaveFirst); return }
-    const img = await uploadImageToNote(draft.id, file)
-    if (img) insertAtCaret(img)
+    // remember which note this upload belongs to; the await below lets the user switch
+    // (or close) the editor meanwhile. The image is still saved to the right note
+    // server-side — we just must not paste its ref into a now-different note's content.
+    const targetNoteId = draft.id
+    const img = await uploadImageToNote(targetNoteId, file)
+    if (img && draftIdRef.current === targetNoteId) insertAtCaret(img)
   }
 
   // first image among dropped/pasted items, JPEG/PNG/WebP/GIF only (backend-allowed set)
@@ -326,7 +334,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // drop in-flight edits and misplace the snippet.
   const insertAtCaret = (img: NoteImage) => {
     const el = contentRef.current
-    const snippet = `![${img.originalName}](image:${img.id})`
+    // Sanitize the alt text: `]`, `(`, `)` and newlines would break the inline-image
+    // syntax `![alt](image:id)` — a `]` in a common download name like "report].png"
+    // closes the alt early and the whole snippet renders as literal text. Replace them
+    // with a space so such names still render as an image (not XSS-relevant; the
+    // markdown renderer builds React elements, so the alt is always plain text).
+    const alt = img.originalName.replace(/[\]()\r\n]/g, ' ').trim()
+    const snippet = `![${alt}](image:${img.id})`
     const text = el ? el.value : (draft?.content ?? '')
     // insert at the caret / replace the selection; with no textarea fall back to the end.
     // (Edge: a textarea the user never focused reports caret 0, so a blind insert lands at
