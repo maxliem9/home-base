@@ -6,7 +6,7 @@ import io.ktor.server.application.*
 import java.time.LocalTime
 
 /**
- * Starts the daily safety-net that rolls open, overdue recurring todos forward (issue #44).
+ * Starts the daily safety-net that rolls open, overdue recurring todos forward.
  * Always on — unlike the digest it needs no external credentials. The run time is configurable via
  * RECURRING_TIME (default 00:30, just after midnight so a freshly-due day is handled first thing).
  */

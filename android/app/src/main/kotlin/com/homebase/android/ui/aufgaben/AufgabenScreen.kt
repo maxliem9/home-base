@@ -625,7 +625,7 @@ private fun EditSheet(
     var assignee by remember { mutableStateOf(todo?.assignee) }
     var dueText by remember { mutableStateOf(todo?.dueDate ?: "") }
     var priority by remember { mutableStateOf(todo?.priority) }
-    // recurrence (issue #44): null freq = no repetition; needs a due date as its anchor
+    // recurrence: null freq = no repetition; needs a due date as its anchor
     var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
     var intervalText by remember { mutableStateOf((todo?.recurrence?.interval ?: 1).toString()) }
     val recurrenceNeedsDue = recurrenceFreq != null && dueText.isBlank()

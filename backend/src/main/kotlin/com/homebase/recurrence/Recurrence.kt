@@ -3,7 +3,7 @@ package com.homebase.recurrence
 import java.time.LocalDate
 
 /**
- * The recurrence rules for todos (issue #44). Deliberately a tiny preset set — full RRULE would be
+ * The recurrence rules for todos. Deliberately a tiny preset set — full RRULE would be
  * overkill for a household hub. All date math is "fixed schedule": the next instance is anchored to
  * the previous due date, not to the completion date, so "every Monday" / "the 1st" stays stable.
  */

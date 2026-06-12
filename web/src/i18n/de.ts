@@ -164,7 +164,7 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
-    // Recurrence (issue #44)
+    // Recurrence
     recurrence: 'Wiederholung',
     recurrenceNone: 'Keine',
     recurrenceNeedsDue: 'Für eine Wiederholung ein Fälligkeitsdatum angeben.',
@@ -334,7 +334,7 @@ export const de = {
     noEntries: 'Noch keine Einträge',
     ownEntriesOnly: 'Nur eigene Einträge',
     partnerIdle: 'Kein Timer aktiv',
-    startForPartner: 'Für {name}', // start a timer on the partner's behalf (#142)
+    startForPartner: 'Für {name}', // start a timer on the partner's behalf
     confirmStartForPartner: 'Timer für {name} starten?', // confirm acting on the partner's timer
     confirmStopPartner: 'Timer von {name} stoppen?',
     emptyTitle: 'Noch keine Zeiteinträge',

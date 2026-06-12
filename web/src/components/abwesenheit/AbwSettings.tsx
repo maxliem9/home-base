@@ -2,7 +2,7 @@
 // / Übertrag / Kind-krank-Cap / Teilzeit, plus household-wide Kita-Schließtage and
 // eigene Feiertage. Pure content — the surrounding chrome (title, close) is provided by
 // whoever renders it. Moved out of AbwesenheitView into the central Einstellungen hub;
-// the household-shared edit model is intentional (#127), so either user may change it.
+// the household-shared edit model is intentional, so either user may change it.
 import { useState } from 'react'
 import { t } from '../../i18n'
 import type { AbsenceState } from '../../types'

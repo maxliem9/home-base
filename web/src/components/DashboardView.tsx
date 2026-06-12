@@ -52,7 +52,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   const meName = userMeta(me)?.name ?? me ?? 'HomeBase'
   const [todos, setTodos] = useState<Todo[]>([])
   const [shopping, setShopping] = useState<ShoppingItem[]>([])
-  // All currently running timers across the household (own + partner's), see #142.
+  // All currently running timers across the household (own + partner's).
   const [running, setRunning] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [forecast, setForecast] = useState<TimeForecast | null>(null)
@@ -191,7 +191,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     }
   }
 
-  // Stop a specific running timer — own (no body) or the partner's (target userId, #142).
+  // Stop a specific running timer — own (no body) or the partner's (target userId).
   const stopTimer = async (entry: TimeEntry) => {
     // Stopping the partner's timer is a cross-person action — confirm first.
     if (entry.userId !== me) {

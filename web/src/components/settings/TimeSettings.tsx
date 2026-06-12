@@ -118,7 +118,7 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
     return null
   }
 
-  // CSV-Export (#42): server-rendered CSV with the JWT in the header (token out of
+  // CSV-Export: server-rendered CSV with the JWT in the header (token out of
   // the URL), downloaded from the returned blob. Moved here from the tracker (#99).
   const exportCsv = async ({ from, to, projectId }: { from?: string; to?: string; projectId?: string }) => {
     const params = new URLSearchParams()
@@ -293,7 +293,7 @@ function TargetsSummary({ users, projects, targets }: { users: string[]; project
 // Wochensoll configuration (#31): weekly hours per person × project plus the
 // person's default project (absence/holiday credits are booked there). Saving
 // PUTs only the changed cells; the household may edit either person (like the
-// absence planner, #127). Inline-error convention as in the other modals.
+// absence planner). Inline-error convention as in the other modals.
 // Moved here from TimeView with #99 — configuration now lives in the settings hub.
 function TargetsModal({ users, projects, targets, onSave, onClose }: {
   users: string[]
@@ -430,7 +430,7 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
   )
 }
 
-// CSV export with optional date-range and project filters (#42). All fields are
+// CSV export with optional date-range and project filters. All fields are
 // optional; an empty form exports every completed entry. Includes archived
 // projects so their history can still be exported. Moved here from TimeView (#99).
 function ExportModal({ projects, onExport, onClose }: {

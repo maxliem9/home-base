@@ -29,7 +29,7 @@ data class TimeUiState(
     val projects: List<ProjectDto> = emptyList(),
     val entries: List<TimeEntryDto> = emptyList(),
     val running: TimeEntryDto? = null,
-    // Live timers of the other household member(s) — partner strip (#142).
+    // Live timers of the other household member(s) — partner strip.
     val othersRunning: List<TimeEntryDto> = emptyList(),
     // Household members' usernames — lets us offer "start a timer for the partner".
     val users: List<String> = emptyList(),
@@ -96,7 +96,7 @@ class TimeViewModel(
         }
     }
 
-    /** `userId` starts the timer on behalf of the partner (#142); null → self. */
+    /** `userId` starts the timer on behalf of the partner; null → self. */
     fun startTimer(projectId: String, description: String?, userId: String? = null) {
         viewModelScope.launch {
             repository.startTimer(projectId, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
@@ -105,7 +105,7 @@ class TimeViewModel(
         }
     }
 
-    /** `userId` stops the partner's timer (#142); null → own timer. */
+    /** `userId` stops the partner's timer; null → own timer. */
     fun stopTimer(userId: String? = null) {
         viewModelScope.launch {
             repository.stopTimer(userId)

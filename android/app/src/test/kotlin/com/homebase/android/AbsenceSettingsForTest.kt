@@ -9,7 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Unit tests for the year-aware absence settings resolution (#144). Mirrors the web
+ * Unit tests for the year-aware absence settings resolution. Mirrors the web
  * `core.test.ts`: settings are stored per (user, year); a year without its own row inherits
  * the stable fields from the nearest year while resetting the per-year carryover.
  */

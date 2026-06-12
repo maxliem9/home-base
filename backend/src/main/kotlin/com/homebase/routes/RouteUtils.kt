@@ -40,7 +40,7 @@ fun ApplicationCall.username(): String =
 /**
  * Whether a username exists in the household (the `users` table). Must be called
  * inside a `transaction { }`. Shared by routes that act on another user — the
- * calendar (#127) and shared timers (#142).
+ * calendar and shared timers.
  */
 fun userExists(username: String): Boolean =
     !UsersTable.selectAll().where { UsersTable.username eq username }.empty()

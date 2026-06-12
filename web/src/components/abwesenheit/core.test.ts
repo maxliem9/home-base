@@ -13,7 +13,7 @@ const s = (year: number, over: Partial<AbsSettings> = {}): AbsSettings => ({
   ...over,
 })
 
-describe('settingsFor (per-year settings, #144)', () => {
+describe('settingsFor (per-year settings)', () => {
   it('returns the exact row when the year has its own settings', () => {
     const all = [s(2025, { carryover: 5 }), s(2026, { carryover: 2 })]
     expect(settingsFor(all, 'alice', 2026).carryover).toBe(2)
@@ -53,7 +53,7 @@ describe('settingsFor (per-year settings, #144)', () => {
   })
 })
 
-describe('summarize uses the displayed year\'s settings (#144)', () => {
+describe('summarize uses the displayed year\'s settings', () => {
   // Same snapshot, no absences taken — the remaining leave must differ per year
   // purely because each year carries its own Resturlaub. This is exactly what the
   // summary card on the calendar shows.

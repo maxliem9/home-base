@@ -178,7 +178,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
       <main className="hb-main">
         {/* Mobile top bar — only visible ≤860px (CSS), where the sidebar is hidden.
-            Surfaces the brand + logout, since the sidebar foot chip is gone. (#138) */}
+            Surfaces the brand + logout, since the sidebar foot chip is gone. */}
         <header className="hb-topbar">
           <div className="hb-brand">
             <div className="hb-brand__mark"><Icon name="home" size={19} stroke={2.2} /></div>
@@ -230,7 +230,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       </main>
 
       {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
-          navigation. Same tab state, badges and running-timer dot as the sidebar. (#138) */}
+          navigation. Same tab state, badges and running-timer dot as the sidebar. */}
       <nav className="hb-tabbar" aria-label="Hauptnavigation">
         {NAV.map((n) => (
           <button

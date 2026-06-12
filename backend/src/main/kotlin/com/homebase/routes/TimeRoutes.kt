@@ -42,7 +42,7 @@ fun Route.timeRoutes() {
 
         // All currently running timers across the shared household (0..2). Lets the
         // dashboard and the time view show the partner's live timer without pulling the
-        // whole entries list just to find it. See #142.
+        // whole entries list just to find it.
         get("/running/all") {
             val entries = transaction {
                 TimeEntriesTable.selectAll()
@@ -193,7 +193,7 @@ private fun Route.entryRoutes() {
             val req = call.receive<StartTimerRequest>()
             val projectId = runCatching { UUID.fromString(req.projectId) }.getOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
-            // Shared household (#142): start on behalf of the partner when a userId is given.
+            // Shared household: start on behalf of the partner when a userId is given.
             val targetUser = req.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
             if (targetUser != caller && !transaction { userExists(targetUser) }) {
                 return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
@@ -257,7 +257,7 @@ private fun Route.entryRoutes() {
 
         post("/stop") {
             val caller = call.username()
-            // Optional body {userId}: stop the partner's timer (#142). No/empty body → self.
+            // Optional body {userId}: stop the partner's timer. No/empty body → self.
             val body = runCatching { call.receive<StopTimerRequest>() }.getOrNull()
             val targetUser = body?.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
             if (targetUser != caller && !transaction { userExists(targetUser) }) {
@@ -476,7 +476,7 @@ private fun Route.entryRoutes() {
 /**
  * Server-side CSV export of completed time entries for external processing
  * (Excel/LibreOffice). Reuses the same `project_id` / `from` / `to` filters as the
- * entry list. See issue #42 for the format decisions:
+ * entry list. The format decisions:
  *  - delimiter `;` and a UTF-8 BOM so German Excel opens it correctly (comma is the
  *    decimal separator there);
  *  - timestamps rendered in the server's local zone (same convention as the digest);

@@ -131,7 +131,7 @@ fun HbButton(
 /** A pending confirmation request — `null` means no dialog is shown. */
 data class HbConfirm(val message: String, val onConfirm: () -> Unit)
 
-/** Yes/No confirmation dialog used for cross-person actions (e.g. the partner's timer, #142). */
+/** Yes/No confirmation dialog used for cross-person actions (e.g. the partner's timer). */
 @Composable
 fun HbConfirmDialog(
     message: String,

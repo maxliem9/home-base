@@ -473,7 +473,7 @@ fun Route.todoRoutes() {
 
 /**
  * A todo plus the visibility of its list before and after a mutation. [spawned] carries the next
- * recurrence instance created when a recurring todo is completed (issue #44), to broadcast separately.
+ * recurrence instance created when a recurring todo is completed, to broadcast separately.
  */
 private class TodoMutation(
     val todo: TodoDto,

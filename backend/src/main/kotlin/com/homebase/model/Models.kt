@@ -32,7 +32,7 @@ data class LoginRequest(val username: String, val password: String)
 data class TokenResponse(val token: String)
 
 // The household members (2 fixed users, seeded from SEED_USERS). Clients use this to
-// resolve "the other user" — e.g. to start/stop a partner's timer (#142) — since the
+// resolve "the other user" — e.g. to start/stop a partner's timer — since the
 // usernames are configurable and not hard-codeable.
 @Serializable
 data class UserDto(val username: String)
@@ -46,7 +46,7 @@ data class SubtaskDto(
 )
 
 /**
- * A lightweight recurrence rule on a todo (issue #44). [freq] is DAILY|WEEKLY|MONTHLY, [interval]
+ * A lightweight recurrence rule on a todo. [freq] is DAILY|WEEKLY|MONTHLY, [interval]
  * means "every N units" (default 1, omitted from the payload). On an UpdateTodoRequest a freq of
  * "NONE" clears the recurrence; on a response/create it is always one of the three frequencies.
  */
@@ -298,14 +298,14 @@ data class TimeEntryDto(
 data class StartTimerRequest(
     val projectId: String,
     val description: String? = null,
-    // Optional target user (shared household, see #142): start the timer on behalf of
+    // Optional target user (shared household): start the timer on behalf of
     // another household member. Null/absent → the calling user, as before.
     val userId: String? = null
 )
 
 @Serializable
 data class StopTimerRequest(
-    // Optional target user (shared household, see #142): stop another member's running
+    // Optional target user (shared household): stop another member's running
     // timer. Null/absent (incl. an empty body) → the calling user, as before.
     val userId: String? = null
 )

@@ -76,7 +76,7 @@ class TimeViewModelTest {
         every { repository.incomingEvents } returns wsEvents
         coEvery { repository.getProjects() } returns Result.success(emptyList())
         coEvery { repository.getEntries() } returns Result.success(emptyList())
-        // #142 added a users fetch to load(); stub it so the relaxed mock doesn't
+        // load() also fetches users; stub it so the relaxed mock doesn't
         // return a bad default that breaks every test at construction time.
         coEvery { repository.getUsers() } returns Result.success(emptyList<UserDto>())
         // #55 added forecast + targets fetches to load() — same reasoning.

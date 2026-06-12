@@ -376,7 +376,7 @@ class AbsenceRouteTest {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
 
-        // The calendar is intentionally shared (#127, reverses #63): alice may edit bob's
+        // The calendar is intentionally shared: alice may edit bob's
         // personal allowance/state, and it is persisted on bob's row.
         val res = client.put("/api/v1/absence/settings/bob/2025") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
@@ -396,7 +396,7 @@ class AbsenceRouteTest {
         configureTestApplication()
         val alice = loginAndGetToken("alice", "password123")
 
-        // The userExists guard still applies now that the owner-only 403 is gone (#127).
+        // The userExists guard still applies now that the owner-only 403 is gone.
         val res = client.put("/api/v1/absence/settings/ghost/2025") {
             bearerAuth(alice); contentType(ContentType.Application.Json)
             setBody("""{"state":"BY"}""")

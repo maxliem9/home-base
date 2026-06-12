@@ -820,7 +820,7 @@ class TodoRouteTest {
         assertEquals(HttpStatusCode.NotFound, res.status)
     }
 
-    // ---- Recurring todos (issue #44) ----
+    // ---- Recurring todos ----
 
     @Test
     fun `POST todo with recurrence stores the rule`() = testApplication {

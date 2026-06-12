@@ -28,7 +28,7 @@ class TimeRepository(
 
     suspend fun getProjects(): Result<List<ProjectDto>> = apiCatching { api.getProjects() }
 
-    /** Household members — used to resolve "the other user" for shared timers (#142). */
+    /** Household members — used to resolve "the other user" for shared timers. */
     suspend fun getUsers(): Result<List<UserDto>> = apiCatching { api.getUsers() }
 
     suspend fun createProject(name: String, color: String): Result<ProjectDto> =
@@ -39,11 +39,11 @@ class TimeRepository(
 
     suspend fun getEntries(): Result<List<TimeEntryDto>> = apiCatching { api.getTimeEntries() }
 
-    /** `userId` starts the timer on behalf of the partner (#142); null → self. */
+    /** `userId` starts the timer on behalf of the partner; null → self. */
     suspend fun startTimer(projectId: String, description: String?, userId: String? = null): Result<TimeEntryDto> =
         apiCatching { api.startTimer(StartTimerRequest(projectId, description, userId)) }
 
-    /** `userId` stops the partner's timer (#142); null → own timer. */
+    /** `userId` stops the partner's timer; null → own timer. */
     suspend fun stopTimer(userId: String? = null): Result<TimeEntryDto> =
         apiCatching { api.stopTimer(StopTimerRequest(userId)) }
 

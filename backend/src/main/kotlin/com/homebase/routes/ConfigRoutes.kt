@@ -25,7 +25,7 @@ private val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
  * App-level config, shared by both users (#100; not owner-restricted, like the shared
- * calendar #127). Values live in the generic `app_settings` key/value table and fall back
+ * calendar). Values live in the generic `app_settings` key/value table and fall back
  * to the configured (conf) defaults when unset, so a fresh DB behaves exactly as before.
  * All endpoints sit under auth-jwt (see configureRouting).
  *

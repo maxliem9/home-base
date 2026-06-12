@@ -106,7 +106,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
     var detailProjectId by remember { mutableStateOf<String?>(null) }
     var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     var splitEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
-    // Cross-person action awaiting confirmation (partner's timer, #142).
+    // Cross-person action awaiting confirmation (partner's timer).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
     val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
@@ -161,7 +161,7 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 }
             }
 
-            // --- Partner strip: the other member's timer — see & stop, or start for them (#142) ---
+            // --- Partner strip: the other member's timer — see & stop, or start for them ---
             val others = remember(state.users, currentUser) { state.users.filter { it != currentUser } }
             if (others.isNotEmpty()) {
                 Spacer(Modifier.size(10.dp))
@@ -490,7 +490,7 @@ private fun IdleHero() {
 }
 
 // ---------------------------------------------------------------------------
-// Partner strip — the other household member's timer (#142)
+// Partner strip — the other household member's timer
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -750,7 +750,7 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
 /**
  * Wochensoll configuration (#55): weekly hours per person × project plus the person's
  * default project (absence/holiday credits are booked there). Saving emits only the
- * changed cells; the household may edit either person (like the absence planner, #127).
+ * changed cells; the household may edit either person (like the absence planner).
  */
 @Composable
 private fun TargetsSheet(
