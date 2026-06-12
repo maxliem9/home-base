@@ -82,9 +82,8 @@ object Hb {
     val prioMedium = oklch(0.72, 0.13, 70.0)
     val prioLow = oklch(0.64, 0.08, 195.0)
 
-    // user hues
-    val userMax = oklch(0.62, 0.09, 150.0)
-    val userLea = oklch(0.62, 0.09, 250.0)
+    // user avatar hue when the username is missing/blank (neutral grey-green).
+    private const val USER_HUE_FALLBACK = 150.0
 
     // overlays
     val scrim = oklch(0.2, 0.02, 70.0, alpha = 0.42f)
@@ -97,9 +96,34 @@ object Hb {
         Color(0xFFC2A14D), Color(0xFFA86AB0), Color(0xFF9A9A9A),
     )
 
-    /** Hue for a user id, used for avatars and week-bar segments. */
-    fun userHue(userId: String?): Double = if (userId?.lowercase() == "lea") 250.0 else 150.0
+    /**
+     * Deterministic avatar hue (0..360) for a username, used for avatars and
+     * week-bar segments. Derived from a hash of the *full* lower-cased username so
+     * HomeBase works for any household — no hard-coded roster (#155) — and so two
+     * members who share a first letter (and therefore the same avatar initial) still
+     * get distinct colours (Max & Martina → both "M", different hue; #89).
+     * Blank/unknown → a neutral fallback hue. Mirrors hashHue in web/src/ui/format.ts;
+     * keep both deterministic (exact cross-platform hue parity not required).
+     */
+    fun userHue(userId: String?): Double {
+        val name = userId?.trim()?.lowercase()
+        if (name.isNullOrEmpty()) return USER_HUE_FALLBACK
+        var h = 0
+        for (ch in name) h = h * 31 + ch.code // 32-bit Int overflow is intended (matches web)
+        return (((h % 360) + 360) % 360).toDouble()
+    }
+
     fun userColor(userId: String?): Color = oklch(0.62, 0.09, userHue(userId))
+
+    /**
+     * Avatar initial for a username: its first character, upper-cased (#155).
+     * Blank/unknown → "?". Single source of truth for every avatar render site so
+     * per-screen hard-coding can't creep back. The single-letter initial can collide
+     * for same-first-letter members (Max & Martina → "M"); userHue keeps them
+     * visually distinct (#89). Conceptually identical to web's userMeta().initials.
+     */
+    fun userInitial(userId: String?): String =
+        userId?.trim()?.firstOrNull()?.uppercase() ?: "?"
 
     // recipe placeholder band (deterministic warm hue per recipe)
     fun recipeBandLight(hue: Double) = oklch(0.95, 0.03, hue)

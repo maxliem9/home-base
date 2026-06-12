@@ -457,9 +457,14 @@ fun HbDrawerContent(
     }
 }
 
-/** "Max" / "Lea" — capitalised display name for a username. */
+/**
+ * Capitalised display name derived from a username (#155) — no hard-coded roster,
+ * so HomeBase works for any household. Blank/unknown falls back to a neutral
+ * placeholder rather than the seeded "Max". Conceptually identical to web's
+ * userMeta().name (which keeps the raw username as its own fallback).
+ */
 fun displayName(username: String?): String =
-    username?.replaceFirstChar { it.uppercase() }?.takeIf { it.isNotBlank() } ?: "Max"
+    username?.trim()?.replaceFirstChar { it.uppercase() }?.takeIf { it.isNotBlank() } ?: "?"
 
 private fun Modifier.bottomBorderRight(color: Color): Modifier = drawBehind {
     drawLine(color, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)

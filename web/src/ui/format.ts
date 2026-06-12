@@ -117,22 +117,32 @@ interface UserMeta {
 // No hard-coded roster: a member's display name, avatar initial and colour are
 // all derived from the username, so HomeBase works for any household — not just
 // the seeded one (#88). Name = capitalised username, initial = its first letter,
-// colour = a stable hash of the lower-cased username.
-// Caveat: two members whose names share a first letter share an initial (Max &
-// Martina → "M"); disambiguating that needs the whole roster — deferred, see #89.
+// colour = a stable hash of the *full* lower-cased username.
+// The full-username hash is what disambiguates two members who share a first
+// letter (#89): Max & Martina both render the initial "M", but their hues are
+// derived from the whole name and therefore differ. We deliberately keep the
+// single-letter initial (deriving longer initials would need the whole roster);
+// the distinct colour already resolves the visual ambiguity. Keep this hash
+// algorithm in sync with Android's Hb.userHue (theme/Color.kt) for cross-platform
+// parity — exact parity isn't required, but both must stay deterministic.
 function hashHue(s: string): number {
   let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
-  return h
+  // 32-bit FNV-ish accumulation, reduced to a hue only at the end so the whole
+  // string contributes (a per-step `% 360` would collapse distribution).
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
+  return ((h % 360) + 360) % 360
 }
 
 const capitalize = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 export function userMeta(username?: string | null): UserMeta | null {
   if (!username) return null
+  // Guard against an all-whitespace / empty-after-trim username: fall back to "?"
+  // rather than indexing undefined.
+  const first = username.trim()[0]
   return {
     name: capitalize(username),
-    initials: username[0].toUpperCase(),
+    initials: first ? first.toUpperCase() : '?',
     hue: hashHue(username.toLowerCase()),
   }
 }

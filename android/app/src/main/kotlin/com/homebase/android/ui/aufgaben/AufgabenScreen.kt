@@ -621,7 +621,7 @@ private fun EditSheet(
     val isEdit = todo != null
     var title by remember { mutableStateOf(todo?.title ?: "") }
     var description by remember { mutableStateOf(todo?.description ?: "") }
-    // assignee: null = "Niemand"/unset; "max" / "lea" otherwise
+    // assignee: null = "Niemand"/unset; otherwise a household username
     var assignee by remember { mutableStateOf(todo?.assignee) }
     var dueText by remember { mutableStateOf(todo?.dueDate ?: "") }
     var priority by remember { mutableStateOf(todo?.priority) }
