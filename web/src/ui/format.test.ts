@@ -170,6 +170,20 @@ describe('userMeta', () => {
     expect(a?.hue).toBeGreaterThanOrEqual(0)
     expect(a?.hue).toBeLessThan(360)
   })
+
+  // #89: two members sharing a first letter render the same initial but must be
+  // visually distinguishable via colour.
+  it('gives same-first-letter usernames the same initial but different hues', () => {
+    const max = userMeta('max')
+    const martina = userMeta('martina')
+    expect(max?.initials).toBe('M')
+    expect(martina?.initials).toBe('M')
+    expect(max?.hue).not.toBe(martina?.hue)
+  })
+
+  it('falls back to "?" for a blank username instead of crashing', () => {
+    expect(userMeta('   ')).toMatchObject({ initials: '?' })
+  })
 })
 
 describe('usernameFromToken', () => {

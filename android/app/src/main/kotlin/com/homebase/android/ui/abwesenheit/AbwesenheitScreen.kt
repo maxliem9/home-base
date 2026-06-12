@@ -93,8 +93,6 @@ import java.time.ZoneOffset
 
 private val WD_LONG = listOf("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
 
-private fun initialOf(uid: String): String = if (uid.lowercase() == "lea") "L" else "M"
-
 @Composable
 fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -410,7 +408,7 @@ private fun MonthChip(uid: String, st: DayState) {
         st.type != null && st.half != null -> if (st.half == "vm") "AM" else "PM"
         // ½ prefix marks a half-day custom holiday (#51); statutory ones are full days.
         st.type == null && st.holiday != null && st.holidayHalf -> "½"
-        else -> initialOf(uid)
+        else -> Hb.userInitial(uid)
     }
     Box(
         Modifier.heightIn(min = 16.dp).widthIn(min = 16.dp).clip(RoundedCornerShape(5.dp))

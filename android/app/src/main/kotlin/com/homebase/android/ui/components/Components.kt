@@ -224,10 +224,9 @@ fun HbAvatar(userId: String?, modifier: Modifier = Modifier, size: Dp = 26.dp) {
         )
         return
     }
-    val initial = if (userId.lowercase() == "lea") "L" else "M"
     Box(modifier.size(size).clip(HbPill).background(Hb.userColor(userId)), contentAlignment = Alignment.Center) {
         Text(
-            initial,
+            Hb.userInitial(userId),
             style = TextStyle(fontSize = (size.value * 0.42f).sp, fontWeight = FontWeight.Bold),
             color = Color.White,
         )
