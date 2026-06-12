@@ -227,6 +227,8 @@ class MainActivity : ComponentActivity() {
             if (settingsOpen) {
                 SettingsScreen(
                     configRepository = container.configRepository,
+                    authRepository = container.authRepository,
+                    currentUser = currentUser,
                     householdName = household,
                     onHouseholdRenamed = { household = it },
                     onClose = { settingsOpen = false },

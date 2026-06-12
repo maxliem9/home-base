@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.homebase.android.data.api.HomeBaseApi
+import com.homebase.android.data.model.ChangePasswordRequest
 import com.homebase.android.data.model.LoginRequest
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -86,6 +87,18 @@ class AuthRepository(
             response.token
         }
     }
+
+    /**
+     * Change the signed-in user's password (PUT /users/me/password, #101). The JWT is stateless and
+     * stays valid, so no re-login. The UI pre-checks length ≥ 8 and the confirm match, so the only
+     * 400 reaching here is a wrong current password. Maps failures to German text.
+     */
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            apiCatching(mapHttpError = {
+                if (it.code() == 400) "Aktuelles Passwort ist falsch." else "Passwort konnte nicht geändert werden."
+            }) { api.changePassword(ChangePasswordRequest(currentPassword, newPassword)) }
+        }
 
     suspend fun logout() = withContext(Dispatchers.IO) {
         prefs.edit().remove(KEY_TOKEN).commit()
