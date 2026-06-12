@@ -26,7 +26,10 @@ data class DigestContent(
  * "day" boundaries fall — timestamps are stored as instants, so done/created filtering
  * uses the [start, nextDay) instant range for the local day.
  */
-class DigestService(private val zone: ZoneId = ZoneId.systemDefault()) {
+class DigestService(private val zone: ZoneId = ZoneId.systemDefault()) : DigestSource {
+
+    override fun buildMessage(today: LocalDate): String? =
+        buildDigest(today).takeUnless { it.isEmpty }?.let { render(it) }
 
     fun buildDigest(today: LocalDate): DigestContent {
         val startOfToday = today.atStartOfDay(zone).toInstant()

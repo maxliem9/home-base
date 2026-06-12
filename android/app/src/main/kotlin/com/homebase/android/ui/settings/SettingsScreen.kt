@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.ui.components.HbAppBar
@@ -317,6 +318,44 @@ private fun KontoPage(authRepository: AuthRepository, currentUser: String?, onBa
 
 @Composable
 private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> Unit) {
+    HbScreenScaffold(
+        appBar = {
+            HbAppBar(eyebrow = "Einstellungen", title = "Benachrichtigungen", leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Spacer(Modifier.size(10.dp))
+            // Morning briefing first (chronological), then the evening recap. Both are Telegram
+            // digests with the same {time, enabled} contract — only the endpoint + copy differ.
+            DigestTimeCard(
+                title = "Morgen-Digest",
+                hint = "Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.",
+                placeholder = "07:00",
+                load = configRepository::getMorningDigest,
+                save = configRepository::updateMorningDigestTime,
+            )
+            DigestTimeCard(
+                title = "Abend-Digest",
+                hint = "Abendliche Zusammenfassung: heute erledigt, neue Inbox, morgen fällig.",
+                placeholder = "20:00",
+                load = configRepository::getDigest,
+                save = configRepository::updateDigestTime,
+            )
+        }
+    }
+}
+
+// One Telegram-digest time card (morning briefing or evening recap) — identical control,
+// validation and persistence; only the heading/hint/endpoint differ. `enabled` reports whether
+// Telegram is configured server-side; when not, an inactive note shows but the time stays editable.
+@Composable
+private fun DigestTimeCard(
+    title: String,
+    hint: String,
+    placeholder: String,
+    load: suspend () -> Result<DigestConfigResponse>,
+    save: suspend (String) -> Result<String>,
+) {
     val scope = rememberCoroutineScope()
     var time by remember { mutableStateOf("") }
     var enabled by remember { mutableStateOf(true) }
@@ -326,19 +365,19 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        configRepository.getDigest().onSuccess { time = it.time; enabled = it.enabled }
+        load().onSuccess { time = it.time; enabled = it.enabled }
         loaded = true
     }
     LaunchedEffect(saved) { if (saved) { delay(2500); saved = false } }
 
     val valid = time.matches(Regex("""\d{2}:\d{2}"""))
-    val save = {
+    val doSave = {
         if (loaded && valid && !saving) {
             saving = true
             error = null
             saved = false
             scope.launch {
-                configRepository.updateDigestTime(time)
+                save(time)
                     .onSuccess { persisted -> time = persisted; saved = true }
                     .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
                 saving = false
@@ -347,54 +386,45 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
         Unit
     }
 
-    HbScreenScaffold(
-        appBar = {
-            HbAppBar(eyebrow = "Einstellungen", title = "Benachrichtigungen", leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
-        },
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
-            Spacer(Modifier.size(10.dp))
-            HbCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            "Täglicher Telegram-Digest",
-                            style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-                            color = Hb.ink,
-                        )
-                        Text(
-                            "Uhrzeit, zu der die tägliche Zusammenfassung gesendet wird.",
-                            style = HbType.small.copy(fontSize = 12.5.sp),
-                            color = Hb.ink3,
-                        )
-                    }
-                    if (loaded && !enabled) {
-                        Text(
-                            "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.",
-                            style = HbType.small.copy(fontSize = 12.5.sp),
-                            color = Hb.ink3,
-                        )
-                    }
-                    HbField("Uhrzeit (HH:MM)") {
-                        HbTextField(
-                            value = time,
-                            onValueChange = { time = it.take(5); error = null; saved = false },
-                            placeholder = "20:00",
-                            mono = true,
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        HbButton("Speichern", onClick = save, enabled = loaded && valid && !saving)
-                        if (saved) SavedHint()
-                    }
-                    Text(
-                        "Änderungen greifen ab dem nächsten geplanten Lauf.",
-                        style = HbType.small.copy(fontSize = 12.sp),
-                        color = Hb.ink3,
-                    )
-                    if (error != null) ErrorText(error!!)
-                }
+    HbCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    title,
+                    style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink,
+                )
+                Text(
+                    hint,
+                    style = HbType.small.copy(fontSize = 12.5.sp),
+                    color = Hb.ink3,
+                )
             }
+            if (loaded && !enabled) {
+                Text(
+                    "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.",
+                    style = HbType.small.copy(fontSize = 12.5.sp),
+                    color = Hb.ink3,
+                )
+            }
+            HbField("Uhrzeit (HH:MM)") {
+                HbTextField(
+                    value = time,
+                    onValueChange = { time = it.take(5); error = null; saved = false },
+                    placeholder = placeholder,
+                    mono = true,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HbButton("Speichern", onClick = doSave, enabled = loaded && valid && !saving)
+                if (saved) SavedHint()
+            }
+            Text(
+                "Änderungen greifen ab dem nächsten geplanten Lauf.",
+                style = HbType.small.copy(fontSize = 12.sp),
+                color = Hb.ink3,
+            )
+            if (error != null) ErrorText(error!!)
         }
     }
 }

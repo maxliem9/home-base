@@ -80,6 +80,7 @@ export class MockApi {
   private householdName = 'Mäxchen'
   private password = 'geheim'
   private digestTime = '20:00'
+  private morningDigestTime = '07:00'
   private telegramEnabled = false
   private recurringTime = '00:30'
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
@@ -430,6 +431,18 @@ export class MockApi {
       if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
       this.digestTime = `${m[1]}:${m[2]}`
       return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
+    }
+
+    // Morning-briefing time. Same {time, enabled} contract as /config/digest.
+    if (path.endsWith('/config/morning-digest') && method === 'GET') {
+      return this.json(route, { time: this.morningDigestTime, enabled: this.telegramEnabled })
+    }
+    if (path.endsWith('/config/morning-digest') && method === 'PUT') {
+      const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
+      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      this.morningDigestTime = `${m[1]}:${m[2]}`
+      return this.json(route, { time: this.morningDigestTime, enabled: this.telegramEnabled })
     }
 
     // Recurring-todo safety-net time (#100). Mirrors /config/recurring: GET returns {time},

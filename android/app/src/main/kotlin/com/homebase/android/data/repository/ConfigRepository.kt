@@ -36,4 +36,17 @@ class ConfigRepository(private val api: HomeBaseApi) {
         apiCatching(mapHttpError = {
             if (it.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Uhrzeit konnte nicht gespeichert werden."
         }) { api.updateDigest(UpdateDigestRequest(time)).time }
+
+    /** Morning-briefing config — the send time + whether Telegram is configured. Falls back gracefully. */
+    suspend fun getMorningDigest(): Result<DigestConfigResponse> =
+        apiCatching { api.getMorningDigest() }
+
+    /**
+     * Set the morning-briefing time (PUT /config/morning-digest). Returns the persisted HH:mm. A 400
+     * means an invalid time (the UI pre-validates HH:mm), mapped to German text.
+     */
+    suspend fun updateMorningDigestTime(time: String): Result<String> =
+        apiCatching(mapHttpError = {
+            if (it.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Uhrzeit konnte nicht gespeichert werden."
+        }) { api.updateMorningDigest(UpdateDigestRequest(time)).time }
 }

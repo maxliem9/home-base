@@ -22,6 +22,12 @@ interface HomeBaseApi {
     @PUT("config/digest")
     suspend fun updateDigest(@Body request: UpdateDigestRequest): DigestConfigResponse
 
+    @GET("config/morning-digest")
+    suspend fun getMorningDigest(): DigestConfigResponse
+
+    @PUT("config/morning-digest")
+    suspend fun updateMorningDigest(@Body request: UpdateDigestRequest): DigestConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 

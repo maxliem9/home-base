@@ -142,16 +142,30 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
     await openApp(page, mock)
     await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
     await page.locator('.hb-settings-nav').getByRole('button', { name: 'Benachrichtigungen' }).click()
-    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Telegram-Digest' })).toBeVisible()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Morgen-Digest' })).toBeVisible()
   }
 
-  test('shows the digest time (+ inactive note) and saves a change', async ({ page }) => {
+  test('shows the morning-digest time (+ inactive note) and saves a change', async ({ page }) => {
     await openDigest(page, new MockApi())
-    // scope to the digest card — the page now also has a recurring-todo card with its own time
-    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Telegram-Digest' })
+    // scope to the morning card — the page also has the evening + recurring cards
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Morgen-Digest' })
 
     // the mock reports Telegram disabled → the inactive note shows, but the time is editable
     await expect(card.getByText(/Telegram ist nicht konfiguriert/)).toBeVisible()
+    await expect(card.getByLabel('Uhrzeit', { exact: true })).toHaveValue('07:00')
+
+    await card.getByLabel('Uhrzeit', { exact: true }).fill('06:15')
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/config/morning-digest') && r.method() === 'PUT')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toEqual({ time: '06:15' })
+    await expect(card.getByText('Gespeichert')).toBeVisible()
+  })
+
+  test('shows the evening digest time and saves a change', async ({ page }) => {
+    await openDigest(page, new MockApi())
+    // scope to the evening card — the page also has the morning + recurring cards
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Abend-Digest' })
+
     await expect(card.getByLabel('Uhrzeit', { exact: true })).toHaveValue('20:00')
 
     await card.getByLabel('Uhrzeit', { exact: true }).fill('07:30')
