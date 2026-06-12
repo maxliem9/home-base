@@ -193,7 +193,10 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 
 ## Telegram Digest
 - Kotlin-Coroutine-basierter Scheduler im Backend
-- Sendet täglich zur konfigurierten Uhrzeit (DIGEST_TIME)
+- Sendet täglich zur konfigurierten Uhrzeit. Die Uhrzeit ist in-app editierbar
+  (Einstellungen → Benachrichtigungen, persistiert in `app_settings.digest_time`;
+  Default "20:00"); der Scheduler liest sie pro Zyklus neu, kein Neustart nötig.
+  TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID bleiben env (Secrets) — fehlen sie, ruht der Digest.
 - Inhalt: heute erledigte Todos, neue Inbox-Items, morgen fällige Todos
 
 ## Zeiterfassung-Domänenmodell
@@ -306,13 +309,12 @@ DB_URL              — jdbc:postgresql://db:5432/homebase
 DB_USER
 DB_PASSWORD
 JWT_SECRET
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-DIGEST_TIME         — z.B. "20:00" (interpretiert in TZ)
+TELEGRAM_BOT_TOKEN  — Secret; fehlt er, ruht der Digest. (Digest-Uhrzeit nicht hier,
+                      sondern in-app, siehe unten.)
+TELEGRAM_CHAT_ID    — Secret (s. o.)
 RECURRING_TIME      — tägliche Uhrzeit des Wiederholungs-Schedulers (default "00:30", in TZ)
 TZ                  — Zeitzone des Backend-Containers (default Europe/Berlin); steuert
                       ZoneId.systemDefault(): Digest-/Scheduler-Uhrzeit und CSV-Export-Zeitstempel
-HOUSEHOLD_NAME      — Anzeigename in der Sidebar (default: "Mäxchen"), via GET /api/v1/config
 DOMAIN              — öffentliche HTTPS-Domain des Deployments (z. B. homebase.example.com,
                       ohne Schema/Slash). scripts/deploy.sh prüft damit nach dem Deploy den
                       Health-Endpunkt https://<DOMAIN>/api/v1/health; leer ⇒ Check entfällt.
@@ -321,6 +323,13 @@ MAX_UPLOAD_MB       — max. Größe pro Bild in MB (default 10)
 TRUSTED_PROXY_COUNT — Anzahl vertrauenswürdiger Reverse-Proxy-Hops vor dem Backend (default 2:
                       DSM + nginx); bestimmt die echte Client-IP aus X-Forwarded-For fürs
                       Login-Throttling. 0 = Backend direkt erreichbar (kein Proxy). Siehe Issue #8.
+
+**In-app statt env (#100):** Was zur Laufzeit in den Einstellungen editierbar ist, lebt in
+der DB (`app_settings`), nicht in der .env. Das Backend definiert nur Code-/Conf-Defaults für
+die leere Tabelle. Konkret: **Haushaltsname** (Einstellungen → Haushalt, Default "Mäxchen")
+und **Digest-Uhrzeit** (Einstellungen → Benachrichtigungen, Default "20:00") haben **keine**
+env-Variable mehr. Faustregel für neue Optionen: editierbar ⇒ DB + UI/API; nur env bleiben
+Secrets (JWT/DB/Telegram-Token) und reine Infrastruktur (TZ, Ports, Upload-Pfad, Proxy-Count).
 
 ## Docker Services
 Produktion (docker-compose.yml) — 3 Services; HTTPS liefert DSM Reverse Proxy davor:

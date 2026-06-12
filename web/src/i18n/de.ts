@@ -142,7 +142,7 @@ export const de = {
     moreItems: 'weitere', // rendered as "+ {n} weitere"
     // digest preview card
     digestTitle: 'Abend-Digest',
-    digestBadge: 'Vorschau', // DIGEST_TIME isn't exposed via /config, so no hard-coded time
+    digestBadge: 'Vorschau', // static badge; the peek doesn't fetch the configured time (/config/digest)
     digestSub: 'Vorschau der Telegram-Nachricht, die ihr beide bekommt.',
     digestDone: 'Heute erledigt',
     digestInbox: 'Neu in der Inbox',

@@ -25,8 +25,6 @@ read -rsp "Login password for 'max'     (blank = random): " P1; echo
 read -rsp "Login password for 'partner' (blank = random): " P2; echo
 [[ -z "$P2" ]] && P2="$(gen 9)" && echo "  ↳ generated: partner / $P2"
 
-read -rp "Household name in the sidebar [Mäxchen]: " HH; HH="${HH:-Mäxchen}"
-
 read -rp "Public HTTPS domain for the health check (e.g. homebase.example.com, blank = skip): " DOMAIN
 DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN%/}"
 
@@ -47,8 +45,8 @@ JWT_SECRET=$JWT_SECRET
 # The two fixed login users (re-seeded on every backend start)
 SEED_USERS=max:$P1,partner:$P2
 
-# Sidebar label
-HOUSEHOLD_NAME=$HH
+# Household name (sidebar) and digest time are set in-app (Einstellungen →
+# Haushalt / Benachrichtigungen) and stored in the DB — no env var needed.
 
 # Public HTTPS domain (no scheme / trailing slash) — used by scripts/deploy.sh to
 # verify the deploy via https://<DOMAIN>/api/v1/health.
@@ -65,10 +63,9 @@ TRUSTED_PROXY_COUNT=2
 # Container timezone — controls digest/scheduler firing time and CSV-export timestamps.
 TZ=Europe/Berlin
 
-# Telegram daily digest (optional — leave blank to disable)
+# Telegram daily digest (optional — leave blank to disable). Send time is set in-app.
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
-DIGEST_TIME=20:00
 
 # Recurring todos: daily time the safety-net scheduler rolls overdue todos forward (optional)
 RECURRING_TIME=00:30

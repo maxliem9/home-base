@@ -15,8 +15,8 @@ import java.time.LocalTime
  * Without them the feature stays dormant (e.g. local dev), so the app runs without Telegram.
  *
  * The send time is read fresh each scheduling cycle from `app_settings.digest_time` (the
- * value editable in settings, #100), falling back to the DIGEST_TIME env default — so an
- * in-app change applies from the next scheduled run without a restart.
+ * value editable in settings, #100), falling back to the configured default (telegram.digestTime,
+ * "20:00") — so an in-app change applies from the next scheduled run without a restart.
  */
 fun Application.configureDigest() {
     val config = environment.config
@@ -28,7 +28,7 @@ fun Application.configureDigest() {
         return
     }
 
-    val envDefault = parseDigestTime(config.propertyOrNull("telegram.digestTime")?.getString())
+    val configuredDefault = parseDigestTime(config.propertyOrNull("telegram.digestTime")?.getString())
         ?: LocalTime.of(20, 0)
 
     val digestTimeProvider: () -> LocalTime = {
@@ -36,7 +36,7 @@ fun Application.configureDigest() {
             AppSettingsTable.selectAll().where { AppSettingsTable.key eq AppSettingsTable.DIGEST_TIME }
                 .singleOrNull()?.get(AppSettingsTable.value)
         }
-        parseDigestTime(stored) ?: envDefault
+        parseDigestTime(stored) ?: configuredDefault
     }
 
     DigestScheduler(
