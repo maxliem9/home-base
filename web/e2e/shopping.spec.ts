@@ -173,4 +173,36 @@ test.describe('Shopping lists', () => {
 
     await expect(page.locator('.hb-syncbar')).toHaveCount(0)
   })
+
+  // A transient 5xx (backend restart / proxy hiccup, wifi fine) must be retried,
+  // not silently dropped — same lost-check-off failure mode as being offline.
+  test('keeps a check queued through a transient 5xx and syncs on recovery', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Mehl', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    let fail = true
+    await page.route('**/api/v1/shopping/**', (route) => {
+      if (route.request().method() === 'PUT' && fail) {
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"UNAVAILABLE"}' })
+      }
+      return route.fallback()
+    })
+
+    await page.locator('.hb-row', { hasText: 'Mehl' }).getByRole('checkbox').click()
+
+    // the 503 must NOT drop the entry — it stays checked, flagged, and queued
+    await expect(page.locator('.hb-row--done', { hasText: 'Mehl' })).toBeVisible()
+    await expect(page.locator('.hb-syncbar')).toBeVisible()
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('homebase_shopping_pending')))
+      .toContain('i1')
+
+    // backend recovers → retry lands it and clears the queue
+    fail = false
+    const putPromise = page.waitForRequest((r) => r.url().includes('/shopping/i1') && r.method() === 'PUT')
+    await page.locator('.hb-syncbar').getByRole('button', { name: 'Jetzt versuchen' }).click()
+    await putPromise
+
+    await expect(page.locator('.hb-syncbar')).toHaveCount(0)
+  })
 })

@@ -93,10 +93,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     })
   }, [])
 
-  // Drain the pending-check queue. Sends each queued PUT; on a transport reject
-  // (still offline) it stops and keeps the rest for the next trigger. On success
-  // — or a definitive 4xx like 404 (item already gone), which retrying can't fix —
-  // the entry is dropped, unless it was re-toggled since (a newer `at` stays queued).
+  // Drain the pending-check queue. Each queued PUT is kept-and-retried on a
+  // transport reject (offline) OR a 5xx (transient backend/proxy hiccup) — both are
+  // the "silently lost check-off" this feature exists to prevent. Only a success or
+  // a terminal 4xx (e.g. 404, item already gone — retrying can't fix it) drops the
+  // entry, and even then not if it was re-toggled meanwhile (a newer `at` survives).
   const flushPending = useCallback(async () => {
     if (flushingRef.current) return
     const entries = Object.entries(pendingRef.current)
@@ -109,11 +110,16 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ checked: p.checked }),
         })
-        if (!result.ok) break // still offline → keep the queue, retry on the next signal
+        if (!result.ok) break // transport reject (offline) → keep the queue, retry later
         if (result.res.status === 401) return onLogout()
+        if (result.res.status >= 500) break // transient server error → keep, retry later
         if (result.res.ok) {
           const updated: ShoppingItem = await result.res.json()
-          setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+          // Don't let this (now possibly stale) response overwrite a newer toggle the
+          // user made while it was in flight — the optimistic state already reflects it.
+          if (pendingRef.current[id]?.at === p.at) {
+            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+          }
         }
         setPending((prev) => {
           if (prev[id]?.at !== p.at) return prev // re-toggled meanwhile — keep the newer intent
@@ -166,7 +172,15 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           setItems((prev) => (prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
           break
         case 'SHOPPING_UPDATED':
-          setItems((prev) => prev.map((i) => (i.id === msg.payload.id ? msg.payload : i)))
+          // A not-yet-synced local check intent wins over a server echo for that item
+          // (the echo may carry an older state, e.g. our own in-flight PUT after we
+          // re-toggled). Other fields (name/list) still take the server value.
+          setItems((prev) =>
+            prev.map((i) => {
+              if (i.id !== msg.payload.id) return i
+              return pendingRef.current[i.id] ? { ...msg.payload, checked: i.checked, checkedAt: i.checkedAt } : msg.payload
+            }),
+          )
           break
         case 'SHOPPING_DELETED':
           setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
@@ -178,13 +192,15 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         case 'SHOPPING_LIST_UPDATED':
           setLists((prev) => prev.map((l) => (l.id === msg.payload.id ? msg.payload : l)))
           break
-        case 'SHOPPING_LIST_DELETED':
-          setItems((prev) => {
-            prev.filter((i) => i.listId === msg.payload.id).forEach((i) => dequeue(i.id))
-            return prev.filter((i) => i.listId !== msg.payload.id)
-          })
-          setLists((prev) => prev.filter((l) => l.id !== msg.payload.id))
+        case 'SHOPPING_LIST_DELETED': {
+          // dequeue outside the setItems updater (no setState-in-updater); the closure's
+          // `items` is current enough and dequeue is idempotent.
+          const goneList = msg.payload.id
+          items.filter((i) => i.listId === goneList).forEach((i) => dequeue(i.id))
+          setItems((prev) => prev.filter((i) => i.listId !== goneList))
+          setLists((prev) => prev.filter((l) => l.id !== goneList))
           break
+        }
       }
     } catch {
       // ignore malformed frames
@@ -318,7 +334,10 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     .filter((i) => i.checked)
     .sort((a, b) => (b.checkedAt ?? '').localeCompare(a.checkedAt ?? ''))
   const totalOpen = items.filter((i) => !i.checked).length
-  const pendingCount = Object.keys(pending).length
+  // Scope the banner to the active list so its count always matches the ↻ badges
+  // visible on screen (queued items on other lists still retry silently in the
+  // background and surface their banner when that list is open).
+  const pendingCount = listItems.filter((i) => pending[i.id]).length
 
   return (
     <div className="hb-page">

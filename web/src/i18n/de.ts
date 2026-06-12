@@ -259,7 +259,6 @@ export const de = {
     retryNow: 'Jetzt versuchen',
     // write-error fallbacks (issue #96)
     addFailed: 'Produkt konnte nicht hinzugefügt werden.',
-    saveFailed: 'Änderung konnte nicht gespeichert werden.',
     deleteFailed: 'Produkt konnte nicht gelöscht werden.',
     clearFailed: 'Abgehakte konnten nicht entfernt werden.',
     listCreateFailed: 'Liste konnte nicht erstellt werden.',
