@@ -3,9 +3,11 @@ package com.homebase.android.ui.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.ui.components.HbAppBar
@@ -40,6 +43,8 @@ import com.homebase.android.ui.components.HbTextField
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.time.TargetsSheet
+import com.homebase.android.ui.time.TimeViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -51,12 +56,13 @@ import kotlinx.coroutines.launch
  * Verlagerung und (sobald die Web-Hälfte landet) Abwesenheit folgen. The list is built to grow.
  */
 
-private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS }
+private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, ZEITERFASSUNG }
 
 @Composable
 fun SettingsScreen(
     configRepository: ConfigRepository,
     authRepository: AuthRepository,
+    timeViewModel: TimeViewModel,
     currentUser: String?,
     householdName: String,
     onHouseholdRenamed: (String) -> Unit,
@@ -80,6 +86,10 @@ fun SettingsScreen(
         )
         SettingsSub.NOTIFICATIONS -> NotificationsPage(
             configRepository = configRepository,
+            onBack = { sub = null },
+        )
+        SettingsSub.ZEITERFASSUNG -> ZeiterfassungPage(
+            timeViewModel = timeViewModel,
             onBack = { sub = null },
         )
     }
@@ -117,6 +127,12 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
                 title = "Benachrichtigungen",
                 subtitle = "Telegram-Digest-Uhrzeit",
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
+            )
+            SettingsNavRow(
+                icon = HbIcons.clock,
+                title = "Zeiterfassung",
+                subtitle = "Wochensoll",
+                onClick = { onPick(SettingsSub.ZEITERFASSUNG) },
             )
         }
     }
@@ -396,4 +412,79 @@ private fun SavedHint(label: String = "Gespeichert") {
 @Composable
 private fun ErrorText(message: String) {
     Text(message, style = HbType.small.copy(fontSize = 13.sp), color = Hb.danger)
+}
+
+@Composable
+private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) {
+    val state by timeViewModel.uiState.collectAsStateWithLifecycle()
+    var showTargets by remember { mutableStateOf(false) }
+
+    // Active projects + archived ones that still carry a target, so an archived project's
+    // Wochensoll stays editable — the same rule the tracker used before the move (#55).
+    val targetProjects = state.projects.filter { p ->
+        !p.archived || state.targets.any { it.projectId == p.id && (it.weeklyHours > 0 || it.isDefault) }
+    }
+    val configuredUsers = state.users.count { u ->
+        state.targets.any { it.userId == u && (it.weeklyHours > 0 || it.isDefault) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        HbScreenScaffold(
+            appBar = {
+                HbAppBar(
+                    eyebrow = "Einstellungen",
+                    title = "Zeiterfassung",
+                    leftIcon = HbIcons.chevronLeft,
+                    onLeft = onBack,
+                    bordered = true,
+                )
+            },
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+                Spacer(Modifier.size(10.dp))
+                HbCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                "Wochensoll",
+                                style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink,
+                            )
+                            Text(
+                                "Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.",
+                                style = HbType.small.copy(fontSize = 12.5.sp),
+                                color = Hb.ink3,
+                            )
+                        }
+                        Text(
+                            when {
+                                state.projects.isEmpty() -> "Lege zuerst in der Zeiterfassung ein Projekt an."
+                                configuredUsers == 0 -> "Noch kein Wochensoll konfiguriert."
+                                else -> "Für $configuredUsers von ${state.users.size} Personen konfiguriert."
+                            },
+                            style = HbType.small.copy(fontSize = 12.5.sp),
+                            color = Hb.ink3,
+                        )
+                        HbButton(
+                            "Wochensoll bearbeiten",
+                            onClick = { showTargets = true },
+                            icon = HbIcons.edit,
+                            enabled = state.projects.isNotEmpty(),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Reuses the tracker's editor (now internal); central settings is its only entry point.
+        if (showTargets) {
+            TargetsSheet(
+                users = state.users,
+                projects = targetProjects,
+                targets = state.targets,
+                onSave = { changes -> timeViewModel.saveTargets(changes); showTargets = false },
+                onDismiss = { showTargets = false },
+            )
+        }
+    }
 }
