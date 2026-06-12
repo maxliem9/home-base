@@ -29,6 +29,10 @@ fun Application.configureRouting() {
     // /config/digest (#100). The stored value (app_settings) overrides this default.
     val digestDefaultTime = (parseDigestTime(environment.config.propertyOrNull("telegram.digestTime")?.getString())
         ?: LocalTime.of(20, 0)).format(DateTimeFormatter.ofPattern("HH:mm"))
+    // Morning-briefing time default + read/write via /config/morning-digest. Stored value
+    // (app_settings) overrides this, exactly like the evening digest time.
+    val morningDigestDefaultTime = (parseDigestTime(environment.config.propertyOrNull("telegram.morningDigestTime")?.getString())
+        ?: LocalTime.of(7, 0)).format(DateTimeFormatter.ofPattern("HH:mm"))
     val telegramEnabled = !environment.config.propertyOrNull("telegram.botToken")?.getString().isNullOrBlank() &&
         !environment.config.propertyOrNull("telegram.chatId")?.getString().isNullOrBlank()
     // Recurring-todo safety-net run-time default + read/write via /config/recurring (#100).
@@ -51,7 +55,7 @@ fun Application.configureRouting() {
             healthRoutes()
             authRoutes(loginThrottler, trustedProxyCount)
             authenticate("auth-jwt") {
-                configRoutes(householdName, digestDefaultTime, telegramEnabled, recurringDefaultTime)
+                configRoutes(householdName, digestDefaultTime, telegramEnabled, recurringDefaultTime, morningDigestDefaultTime)
                 userRoutes()
                 userPrefsRoutes()
                 todoRoutes()

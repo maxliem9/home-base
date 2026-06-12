@@ -135,6 +135,59 @@ class ConfigRouteTest {
         )
     }
 
+    // --- morning-briefing time ---
+
+    private suspend fun ApplicationTestBuilder.morningDigest(token: String): JsonObject =
+        Json.parseToJsonElement(client.get("/api/v1/config/morning-digest") { bearerAuth(token) }.bodyAsText()).jsonObject
+
+    @Test
+    fun `GET morning-digest without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/config/morning-digest").status)
+    }
+
+    @Test
+    fun `GET morning-digest falls back to the configured default and reports Telegram disabled in tests`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val body = morningDigest(token)
+        // the test config sets no morning-digest override and no Telegram creds
+        assertEquals("07:00", body["time"]!!.jsonPrimitive.content)
+        assertEquals(false, body["enabled"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `PUT morning-digest persists a normalized time and GET returns it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.put("/api/v1/config/morning-digest") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"time":"06:45:10"}""") // seconds are dropped to HH:mm
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals("06:45", Json.parseToJsonElement(res.bodyAsText()).jsonObject["time"]!!.jsonPrimitive.content)
+        assertEquals("06:45", morningDigest(token)["time"]!!.jsonPrimitive.content)
+
+        // the morning time is independent of the evening digest time
+        assertEquals("20:00", digest(token)["time"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PUT morning-digest rejects a malformed time with 400 INVALID_TIME`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/morning-digest") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"time":"24:61"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_TIME",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
     // --- recurring-todo safety-net time (#100) ---
 
     private suspend fun ApplicationTestBuilder.recurring(token: String): JsonObject =

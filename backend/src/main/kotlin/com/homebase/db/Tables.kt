@@ -16,6 +16,11 @@ object AppSettingsTable : Table("app_settings") {
     // can never drift apart (#100).
     const val DIGEST_TIME = "digest_time"
 
+    // Daily send time of the morning briefing (due today / overdue / inbox / absences /
+    // kita), editable in-app like the evening digest time; the scheduler re-reads it each
+    // cycle so a change needs no restart.
+    const val MORNING_DIGEST_TIME = "morning_digest_time"
+
     // Daily run time of the recurring-todo safety-net scheduler, editable in-app like the
     // digest time (#100); the scheduler re-reads it each cycle so a change needs no restart.
     const val RECURRING_TIME = "recurring_time"

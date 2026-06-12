@@ -32,10 +32,12 @@ private val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
  * All endpoints sit under auth-jwt (see configureRouting).
  *
  * - household name — the sidebar brand ([defaultHouseholdName] fallback).
- * - digest time — when the Telegram digest is sent ([digestDefaultTime] fallback). The
+ * - digest time — when the evening Telegram recap is sent ([digestDefaultTime] fallback). The
  *   scheduler re-reads this each cycle, so a change applies from the next run.
  *   [telegramEnabled] reports whether Telegram is configured at all; the time is editable
  *   regardless, ready for when it is.
+ * - morning-digest time — when the morning briefing is sent ([morningDigestDefaultTime]
+ *   fallback). Same shape/contract as the digest time (re-read each cycle, same `enabled`).
  * - recurring time — when the recurring-todo safety-net runs ([recurringDefaultTime]
  *   fallback). Same shape as the digest time (re-read each cycle), but always-on, so no
  *   enabled flag.
@@ -45,6 +47,7 @@ fun Route.configRoutes(
     digestDefaultTime: String,
     telegramEnabled: Boolean,
     recurringDefaultTime: String,
+    morningDigestDefaultTime: String,
 ) {
     get("/config") {
         call.respond(AppConfigResponse(householdName = readSetting(HOUSEHOLD_NAME_KEY) ?: defaultHouseholdName))
@@ -79,6 +82,28 @@ fun Route.configRoutes(
             )
         val normalized = parsed.format(HH_MM)
         upsertSetting(AppSettingsTable.DIGEST_TIME, normalized)
+        call.respond(DigestConfigResponse(time = normalized, enabled = telegramEnabled))
+    }
+
+    // Morning briefing — same {time, enabled} contract as /config/digest (reuses its DTOs),
+    // just a different stored key and default; `enabled` is the same Telegram-configured flag.
+    get("/config/morning-digest") {
+        call.respond(
+            DigestConfigResponse(
+                time = readSetting(AppSettingsTable.MORNING_DIGEST_TIME) ?: morningDigestDefaultTime,
+                enabled = telegramEnabled,
+            ),
+        )
+    }
+
+    put("/config/morning-digest") {
+        val parsed = runCatching { LocalTime.parse(call.receive<UpdateDigestRequest>().time.trim()) }.getOrNull()
+            ?: return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_TIME", "time must be a valid HH:mm"),
+            )
+        val normalized = parsed.format(HH_MM)
+        upsertSetting(AppSettingsTable.MORNING_DIGEST_TIME, normalized)
         call.respond(DigestConfigResponse(time = normalized, enabled = telegramEnabled))
     }
 

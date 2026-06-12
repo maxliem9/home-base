@@ -1,8 +1,11 @@
-// Einstellungen → Benachrichtigungen (#100, Phase 2). Sets two household-wide scheduler
-// times, both stored in app_settings and re-read by their scheduler each cycle (a change
+// Einstellungen → Benachrichtigungen (#100, Phase 2). Sets the household-wide scheduler
+// times, all stored in app_settings and re-read by their scheduler each cycle (a change
 // applies from the next scheduled run, no restart):
-//  - Telegram digest time — only actually sends when Telegram is configured server-side
-//    (`enabled`); the time stays editable regardless.
+//  - Morning briefing time — the "Guten Morgen" overview (due today, overdue, inbox,
+//    absences, kita closures).
+//  - Evening digest time — the daily recap (done today, new inbox, due tomorrow).
+//    Both Telegram digests only actually send when Telegram is configured server-side
+//    (`enabled`); the times stay editable regardless.
 //  - Recurring-todo safety-net time — always-on, so no enabled flag.
 // Self-contained.
 import { useEffect, useState } from 'react'
@@ -14,15 +17,43 @@ import { Button, Card, Field, TextInput } from '../../ui/primitives'
 export function NotificationsSettings({ token, onLogout }: { token: string; onLogout: () => void }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <DigestCard token={token} onLogout={onLogout} />
+      {/* Morning first (chronological), then the evening recap, then the recurring safety-net. */}
+      <DigestTimeCard
+        token={token}
+        onLogout={onLogout}
+        endpoint="/config/morning-digest"
+        title={t.settings.morningDigestTitle}
+        hint={t.settings.morningDigestHint}
+      />
+      <DigestTimeCard
+        token={token}
+        onLogout={onLogout}
+        endpoint="/config/digest"
+        title={t.settings.digestTitle}
+        hint={t.settings.digestHint}
+      />
       <RecurringCard token={token} onLogout={onLogout} />
     </div>
   )
 }
 
-// Telegram digest time. `enabled` reports whether Telegram is configured at all; when not,
-// an inactive note shows but the time stays editable (ready for when it is).
-function DigestCard({ token, onLogout }: { token: string; onLogout: () => void }) {
+// One Telegram-digest time card, shared by the morning briefing and the evening recap — they
+// differ only in endpoint + heading/hint (identical {time, enabled} contract and flow).
+// `enabled` reports whether Telegram is configured at all; when not, an inactive note shows but
+// the time stays editable (ready for when it is).
+function DigestTimeCard({
+  token,
+  onLogout,
+  endpoint,
+  title,
+  hint,
+}: {
+  token: string
+  onLogout: () => void
+  endpoint: string
+  title: string
+  hint: string
+}) {
   const [time, setTime] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -32,7 +63,7 @@ function DigestCard({ token, onLogout }: { token: string; onLogout: () => void }
 
   useEffect(() => {
     let alive = true
-    safeFetch(token, `${API_BASE}/config/digest`).then(async (result) => {
+    safeFetch(token, `${API_BASE}${endpoint}`).then(async (result) => {
       if (!alive) return
       if (result.ok && result.res.status === 401) return onLogout()
       if (result.ok && result.res.ok) {
@@ -45,14 +76,14 @@ function DigestCard({ token, onLogout }: { token: string; onLogout: () => void }
       setLoaded(true)
     })
     return () => { alive = false }
-  }, [token, onLogout])
+  }, [token, onLogout, endpoint])
 
   const save = async () => {
     if (!time) return
     setSaving(true)
     setError(null)
     setSaved(false)
-    const result = await safeFetch(token, `${API_BASE}/config/digest`, {
+    const result = await safeFetch(token, `${API_BASE}${endpoint}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ time }),
@@ -71,8 +102,8 @@ function DigestCard({ token, onLogout }: { token: string; onLogout: () => void }
     <Card className="hb-card--pad">
       <div className="hb-cardhead">
         <div>
-          <h3>{t.settings.digestTitle}</h3>
-          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t.settings.digestHint}</p>
+          <h3>{title}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{hint}</p>
         </div>
       </div>
       {loaded && !enabled && (
@@ -96,7 +127,7 @@ function DigestCard({ token, onLogout }: { token: string; onLogout: () => void }
 }
 
 // Recurring-todo safety-net run time. Always-on scheduler, so no enabled flag — otherwise the
-// same control/validation/persistence as the digest time (mirrors DigestCard).
+// same control/validation/persistence as the digest time.
 function RecurringCard({ token, onLogout }: { token: string; onLogout: () => void }) {
   const [time, setTime] = useState('')
   const [loaded, setLoaded] = useState(false)

@@ -12,18 +12,32 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
+ * A daily Telegram message the [DigestScheduler] can deliver. Implementations build the
+ * rendered text for a given day, or return null when there's nothing worth sending (so the
+ * scheduler skips it and the chat isn't spammed on quiet days). Both the evening recap
+ * ([DigestService]) and the morning briefing ([MorningDigestService]) are sources, so they
+ * share one scheduler instead of duplicating the next-run timing logic.
+ */
+interface DigestSource {
+    /** Rendered message for [today], or null if there's nothing to send. */
+    fun buildMessage(today: LocalDate): String?
+}
+
+/**
  * Coroutine-based scheduler that fires [runDigest] once per day at [digestTime].
- * Empty digests are skipped so the chat isn't spammed on quiet days.
+ * Empty messages are skipped so the chat isn't spammed on quiet days.
  */
 class DigestScheduler(
     // A provider, not a fixed value, so an edited digest time (#100) is picked up: the loop
     // re-reads it each iteration via [millisUntilNextRun], so a change applies from the next
     // scheduled run (the currently-pending run still fires at the previously-computed time).
     private val digestTime: () -> LocalTime,
-    private val service: DigestService,
+    private val source: DigestSource,
     private val client: TelegramClient,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    // Human-readable name for logs, so the evening and morning runs are distinguishable.
+    private val label: String = "Digest",
 ) {
     private val logger = LoggerFactory.getLogger(DigestScheduler::class.java)
 
@@ -32,7 +46,7 @@ class DigestScheduler(
             while (isActive) {
                 delay(millisUntilNextRun())
                 runCatching { runDigest() }
-                    .onFailure { logger.error("Digest run failed", it) }
+                    .onFailure { logger.error("{} run failed", label, it) }
             }
         }
     }
@@ -45,12 +59,12 @@ class DigestScheduler(
     }
 
     suspend fun runDigest(today: LocalDate = LocalDate.now(zone)) {
-        val content = service.buildDigest(today)
-        if (content.isEmpty) {
-            logger.info("Digest for {} is empty — skipping send", today)
+        val message = source.buildMessage(today)
+        if (message == null) {
+            logger.info("{} for {} is empty — skipping send", label, today)
             return
         }
-        client.sendMessage(service.render(content))
-        logger.info("Digest for {} sent", today)
+        client.sendMessage(message)
+        logger.info("{} for {} sent", label, today)
     }
 }

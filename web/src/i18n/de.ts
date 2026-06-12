@@ -462,9 +462,13 @@ export const de = {
     passwordMismatch: 'Die neuen Passwörter stimmen nicht überein.',
     passwordTooShort: 'Mindestens 8 Zeichen.',
     passwordSameAsOld: 'Neues Passwort muss sich vom alten unterscheiden.',
-    // Benachrichtigungen-Unterseite (#100): Telegram-Digest-Zeit.
+    // Benachrichtigungen-Unterseite (#100): Telegram-Digest-Zeiten (morgens + abends).
     notifications: 'Benachrichtigungen',
-    digestTitle: 'Telegram-Digest',
+    // Morgen-Briefing („Guten Morgen"): heute fällig, überfällig, Inbox, Abwesenheiten, Kita.
+    morningDigestTitle: 'Morgen-Digest',
+    morningDigestHint: 'Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.',
+    // Abend-Recap. Label/Speichern-/Hinweis-Texte teilen sich beide Digest-Karten.
+    digestTitle: 'Abend-Digest',
     digestHint: 'Tägliche Zusammenfassung (heute erledigt, neue Inbox, morgen fällig).',
     digestTimeLabel: 'Uhrzeit',
     digestSaved: 'Gespeichert',
