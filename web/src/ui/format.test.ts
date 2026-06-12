@@ -14,8 +14,9 @@ import {
 
 // All relative-time helpers read "now". Pin it to a known instant so every
 // branch is deterministic. 2026-06-15 is a Monday (matters for the week/day
-// grouping helpers). Tests run with TZ=UTC (see package.json) so that the
-// helpers' local-time arithmetic is reproducible across machines.
+// grouping helpers). The helpers use local-time getters, so the run must be
+// TZ=UTC for the UTC inputs below to be reproducible — pinned globally in
+// vitest.setup.ts (no longer reliant on the npm script's env, see issue #148).
 const NOW = '2026-06-15T12:00:00Z'
 
 beforeEach(() => {

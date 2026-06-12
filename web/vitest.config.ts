@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
+    // pin TZ=UTC for every run (incl. bare `npx vitest`), so the date/clock helpers
+    // are deterministic regardless of the machine's local zone — see issue #148.
+    setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.test.ts'],
     exclude: ['node_modules', 'e2e'],
   },
