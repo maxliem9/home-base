@@ -47,13 +47,15 @@ class TimeRepository(
     suspend fun stopTimer(userId: String? = null): Result<TimeEntryDto> =
         apiCatching { api.stopTimer(StopTimerRequest(userId)) }
 
+    /** `userId` records the entry for the partner (shared household); null → self. */
     suspend fun createEntry(
         projectId: String,
         startedAt: String,
         stoppedAt: String,
         description: String?,
+        userId: String? = null,
     ): Result<TimeEntryDto> =
-        apiCatching { api.createTimeEntry(CreateTimeEntryRequest(projectId, startedAt, stoppedAt, description)) }
+        apiCatching { api.createTimeEntry(CreateTimeEntryRequest(projectId, startedAt, stoppedAt, description, userId)) }
 
     // Surface the backend's ErrorResponse.code as German text instead of a
     // raw "HTTP 409" so the edit sheet's failure toast is understandable.

@@ -103,11 +103,34 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showNewProject by remember { mutableStateOf(false) }
+    var showRecordEntry by remember { mutableStateOf(false) }
     var detailProjectId by remember { mutableStateOf<String?>(null) }
     var editEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
     var splitEntry by remember { mutableStateOf<TimeEntryDto?>(null) }
-    // Cross-person action awaiting confirmation (partner's timer).
+    // Cross-person action awaiting confirmation (partner's timer or entry, #140).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
+
+    // Edit/split/delete are offered on BOTH members' entries — the household manages
+    // them together; a click on the partner's entry confirms first via the dialog
+    // (#129/#140, web parity). `{name}` is the entry owner. Acting on own entries is
+    // immediate. A null currentUser (username not yet known) can't tell own from
+    // partner, so it confirms defensively rather than acting silently.
+    fun isPartnerEntry(entry: TimeEntryDto) = currentUser == null || entry.userId != currentUser
+    fun requestEdit(entry: TimeEntryDto) {
+        if (isPartnerEntry(entry)) {
+            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} bearbeiten?") { editEntry = entry }
+        } else editEntry = entry
+    }
+    fun requestSplit(entry: TimeEntryDto) {
+        if (isPartnerEntry(entry)) {
+            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} splitten?") { splitEntry = entry }
+        } else splitEntry = entry
+    }
+    fun requestDelete(entry: TimeEntryDto) {
+        if (isPartnerEntry(entry)) {
+            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} löschen?") { viewModel.deleteEntry(entry.id) }
+        } else viewModel.deleteEntry(entry.id)
+    }
 
     val projectsById = remember(state.projects) { state.projects.associateBy { it.id } }
     val entriesByProject = remember(state.entries) { state.entries.groupBy { it.projectId } }
@@ -129,6 +152,10 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                     eyebrow = "Zeiterfassung",
                     title = "Zeit",
                     onLeft = onOpenDrawer,
+                    actions = {
+                        // "Eintrag erfassen" — manual entry, also for the partner (web parity #140).
+                        HbIconButton(HbIcons.calendar, { showRecordEntry = true }, tint = Hb.ink2)
+                    },
                 )
             },
             fab = { HbFab(onClick = { showNewProject = true }, label = "Projekt") },
@@ -268,11 +295,10 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 EntriesByDay(
                     entries = recent,
                     projectsById = projectsById,
-                    currentUser = currentUser,
                     showProjectName = true,
-                    onDelete = { viewModel.deleteEntry(it) },
-                    onEdit = { editEntry = it },
-                    onSplit = { splitEntry = it },
+                    onDelete = { requestDelete(it) },
+                    onEdit = { requestEdit(it) },
+                    onSplit = { requestSplit(it) },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
             }
@@ -289,15 +315,37 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
             )
         }
 
+        if (showRecordEntry) {
+            RecordEntrySheet(
+                projects = state.activeProjects,
+                users = state.users,
+                currentUser = currentUser,
+                onDismiss = { showRecordEntry = false },
+                onCreate = { projectId, startedAt, stoppedAt, description, forUser ->
+                    // Only send userId when it differs from the caller; a partner target
+                    // confirms first (web parity #129/#140) and commits on confirm.
+                    val partner = forUser?.takeIf { currentUser != null && it != currentUser }
+                    if (partner != null) {
+                        pendingConfirm = HbConfirm("Eintrag für ${displayName(partner)} erfassen?") {
+                            viewModel.addManualEntry(projectId, startedAt, stoppedAt, description, partner)
+                            showRecordEntry = false
+                        }
+                    } else {
+                        viewModel.addManualEntry(projectId, startedAt, stoppedAt, description, null)
+                        showRecordEntry = false
+                    }
+                },
+            )
+        }
+
         if (detailProject != null) {
             ProjectDetailSheet(
                 project = detailProject,
                 entries = entriesByProject[detailProject.id].orEmpty(),
                 isRunning = state.running?.projectId == detailProject.id,
-                currentUser = currentUser,
-                onDelete = { viewModel.deleteEntry(it) },
-                onEdit = { editEntry = it },
-                onSplit = { splitEntry = it },
+                onDelete = { requestDelete(it) },
+                onEdit = { requestEdit(it) },
+                onSplit = { requestSplit(it) },
                 onDismiss = { detailProjectId = null },
             )
         }
@@ -992,9 +1040,8 @@ private fun ProjectCard(
 private fun EntriesByDay(
     entries: List<TimeEntryDto>,
     projectsById: Map<String, ProjectDto>,
-    currentUser: String?,
     showProjectName: Boolean,
-    onDelete: (String) -> Unit,
+    onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
     onSplit: (TimeEntryDto) -> Unit,
     modifier: Modifier = Modifier,
@@ -1032,9 +1079,8 @@ private fun EntriesByDay(
                 EntryRow(
                     entry = entry,
                     project = projectsById[entry.projectId],
-                    currentUser = currentUser,
                     showProjectName = showProjectName,
-                    onDelete = { onDelete(entry.id) },
+                    onDelete = { onDelete(entry) },
                     onEdit = { onEdit(entry) },
                     onSplit = { onSplit(entry) },
                 )
@@ -1047,13 +1093,11 @@ private fun EntriesByDay(
 private fun EntryRow(
     entry: TimeEntryDto,
     project: ProjectDto?,
-    currentUser: String?,
     showProjectName: Boolean,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onSplit: () -> Unit,
 ) {
-    val own = currentUser != null && entry.userId == currentUser
     val duration = Format.entrySeconds(entry.startedAt, entry.stoppedAt)
     val range = "${Format.clockOfDay(entry.startedAt)}–${Format.clockOfDay(entry.stoppedAt)}"
     val title = if (showProjectName) (project?.name ?: "Projekt") else (entry.description ?: project?.name ?: "Eintrag")
@@ -1103,18 +1147,15 @@ private fun EntryRow(
                 style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink2,
             )
-            if (own) {
-                HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
-                // splitting needs a fixed end — only completed own entries (#66)
-                if (entry.stoppedAt != null) {
-                    HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp)
-                }
-                HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
-            } else {
-                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                    HbIcon(HbIcons.lock, size = 17.dp, tint = Hb.ink3)
-                }
+            // Edit/split/delete are offered on EVERY entry — also the partner's (the
+            // household manages them together); cross-person clicks are confirmed
+            // upstream via the dialog in TimeScreen (#129/#140, web parity).
+            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
+            // splitting needs a fixed end — only completed entries (#66)
+            if (entry.stoppedAt != null) {
+                HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp)
             }
+            HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
         }
         Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
     }
@@ -1176,6 +1217,117 @@ private fun NewProjectSheet(onDismiss: () -> Unit, onCreate: (String, String) ->
                     )
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Record-entry sheet (#140) — manual past entry: project + person + date +
+// from/to + description. Person defaults to me; only household members with a
+// partner are selectable, and the caller confirms a partner target before it
+// posts. UI reference: ManualEntryModal in TimeView.tsx.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RecordEntrySheet(
+    projects: List<ProjectDto>,
+    users: List<String>,
+    currentUser: String?,
+    onCreate: (projectId: String, startedAt: String, stoppedAt: String, description: String?, forUser: String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val zone = ZoneId.systemDefault()
+    var projectId by remember { mutableStateOf(projects.firstOrNull()?.id ?: "") }
+    var date by remember { mutableStateOf(LocalDate.now()) }
+    var startTime by remember { mutableStateOf(LocalTime.of(9, 0)) }
+    var stopTime by remember { mutableStateOf(LocalTime.of(10, 0)) }
+    var description by remember { mutableStateOf("") }
+    // Who the entry is for — self by default; partners (other members) are selectable.
+    // Without a known own username the selector stays hidden and we record as self.
+    var forUser by remember { mutableStateOf(currentUser ?: "") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val partners = remember(users, currentUser) {
+        if (currentUser == null) emptyList() else users.filter { it != currentUser }
+    }
+    val selectedProjectName = projects.firstOrNull { it.id == projectId }?.name ?: "Projekt"
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Eintrag erfassen",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Speichern",
+                onClick = {
+                    if (projectId.isEmpty()) {
+                        error = "Bitte ein Projekt wählen"
+                        return@HbButton
+                    }
+                    val startInstant = date.atTime(startTime).atZone(zone).toInstant()
+                    val stopInstant = date.atTime(stopTime).atZone(zone).toInstant()
+                    if (!stopInstant.isAfter(startInstant)) {
+                        error = "Ende muss nach dem Start liegen"
+                        return@HbButton
+                    }
+                    // Clear a stale validation error on the validated path (web parity):
+                    // a partner target keeps this sheet open under the confirm dialog, so
+                    // a previously-shown, since-fixed error would otherwise linger.
+                    error = null
+                    onCreate(
+                        projectId,
+                        startInstant.toString(),
+                        stopInstant.toString(),
+                        description.trim().takeIf { it.isNotEmpty() },
+                        forUser.takeIf { it.isNotEmpty() },
+                    )
+                },
+                variant = HbButtonVariant.Primary,
+                // No selectable project ⇒ the action is a no-op; disable it honestly (web parity).
+                enabled = projectId.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        if (projects.isEmpty()) {
+            Text("Lege zuerst ein Projekt an.", style = HbType.meta, color = Hb.ink3)
+        } else {
+            HbField("Projekt") {
+                SelectField(
+                    value = selectedProjectName,
+                    options = projects.map { it.name to it.id },
+                    onSelect = { projectId = it },
+                )
+            }
+            if (partners.isNotEmpty() && currentUser != null) {
+                HbField("Person") {
+                    SelectField(
+                        value = displayName(forUser.takeIf { it.isNotEmpty() } ?: currentUser),
+                        options = (listOf(currentUser) + partners).map { displayName(it) to it },
+                        onSelect = { forUser = it },
+                    )
+                }
+            }
+            HbField("Datum") {
+                DateField(date) { date = it }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { HbField("Von") { TimeField(startTime) { startTime = it } } }
+                Box(Modifier.weight(1f)) { HbField("Bis") { TimeField(stopTime) { stopTime = it } } }
+            }
+            HbField("Beschreibung (optional)") {
+                HbTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    placeholder = "Beschreibung (optional)",
+                )
+            }
+            error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
         }
     }
 }
@@ -1483,8 +1635,7 @@ private fun ProjectDetailSheet(
     project: ProjectDto,
     entries: List<TimeEntryDto>,
     isRunning: Boolean,
-    currentUser: String?,
-    onDelete: (String) -> Unit,
+    onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
     onSplit: (TimeEntryDto) -> Unit,
     onDismiss: () -> Unit,
@@ -1593,7 +1744,6 @@ private fun ProjectDetailSheet(
             EntriesByDay(
                 entries = finished.sortedByDescending { it.startedAt },
                 projectsById = mapOf(project.id to project),
-                currentUser = currentUser,
                 showProjectName = false,
                 onDelete = onDelete,
                 onEdit = onEdit,
