@@ -53,7 +53,6 @@ import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
-import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
 import com.homebase.android.ui.components.HbConfirmDialog
@@ -75,7 +74,6 @@ import com.homebase.android.ui.util.FileShare
 import com.homebase.android.ui.util.Format
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.delay
