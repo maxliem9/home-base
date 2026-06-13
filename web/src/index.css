@@ -686,6 +686,9 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-editrow .hb-input--unit { flex: none; width: 72px; }
 .hb-formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+/* Right-aligned action row for an in-page form footer (e.g. the Wochensoll page, #128). */
+.hb-formactions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+
 /* ---------- recipe editor page (issue #123) ---------- */
 .hb-recipe-form { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
 .hb-recipe-form__foot { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line-soft); justify-content: flex-end; }

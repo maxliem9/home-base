@@ -208,4 +208,49 @@ test.describe('Dashboard (Heute)', () => {
     expect((await stopPromise).postDataJSON()).toEqual({ userId: 'alice' })
     await expect(page.getByText('Kein Timer läuft')).toBeVisible()
   })
+
+  // The own-timer branch of the peek (#78): with me = "max" (TOKEN_MAX) and a
+  // timer owned by max, the line shows no partner avatar and renders the
+  // description, and stopping it goes straight through — no confirm dialog and
+  // an empty POST body (the backend stops the caller's own timer).
+  test('own running timer in the peek shows no avatar and stops without confirm', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([project({ id: 'p1', name: 'Arbeit', color: '#4F7A52' })])
+      .seedEntries([
+        timeEntry({
+          id: 'e1',
+          projectId: 'p1',
+          userId: 'max',
+          description: 'Konzept',
+          startedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+          stoppedAt: undefined,
+          durationSeconds: undefined,
+        }),
+      ])
+    await openDashboard(page, mock, undefined, TOKEN_MAX)
+
+    const widget = page.locator('.hb-runwidget')
+    await expect(widget).toContainText('Arbeit')
+    await expect(widget).toContainText('Konzept')
+    // own timer ⇒ no partner avatar, no "{name} ·" prefix
+    await expect(widget.locator('.hb-avatar')).toHaveCount(0)
+    await expect(widget).not.toContainText('Max ·')
+
+    // stopping one's own timer happens directly — no ConfirmDialog, empty POST body
+    const stopPromise = page.waitForRequest((r) => r.url().includes('/time/entries/stop') && r.method() === 'POST')
+    await widget.getByRole('button', { name: 'Stoppen' }).click()
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    const stop = await stopPromise
+    expect(stop.postData()).toBeFalsy() // own stop sends no body (vs. { userId } for a partner)
+    await expect(page.getByText('Kein Timer läuft')).toBeVisible()
+  })
+
+  // The personalized greeting (#78): the page title is "{greeting}, {meName}." —
+  // meName comes from the JWT username, so with TOKEN_MAX it reads "Max". The
+  // greeting word is time-of-day dependent (and the e2e suite runs in the
+  // machine TZ, unlike the TZ=UTC unit tests), so assert the name part only.
+  test('greets the logged-in user by name', async ({ page }) => {
+    await openDashboard(page, new MockApi(), undefined, TOKEN_MAX)
+    await expect(page.locator('.hb-pagehead h1')).toHaveText(/(Guten Morgen|Hallo|Guten Abend|Gute Nacht), Max\.$/)
+  })
 })
