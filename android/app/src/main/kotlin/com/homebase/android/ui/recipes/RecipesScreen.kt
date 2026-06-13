@@ -480,7 +480,7 @@ private fun RecipeDetailPage(
         val (ext, mime) = if (format == "pdf") "pdf" to "application/pdf" else "md" to "text/markdown"
         viewModel.exportRecipe(recipe.id, format, servings.takeIf { it != baseServings }) { result ->
             result
-                .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes) }
+                .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes, chooserTitle = "Rezept teilen") }
                 .onFailure { toastMsg = "Rezept konnte nicht exportiert werden." }
         }
     }

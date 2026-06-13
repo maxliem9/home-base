@@ -264,6 +264,115 @@ class TimeViewModelTest {
         assertTrue(vm.uiState.value.activeProjects.isEmpty())
     }
 
+    // --- Projekt-Verwaltung (#175): rename/recolour + CSV export ---
+
+    @Test
+    fun `updateProject replaces the renamed-recoloured project in place`() = runTest {
+        coEvery { repository.getProjects() } returns Result.success(listOf(project(id = "p1", name = "Alt")))
+        coEvery { repository.updateProject("p1", "Neu", "#3F7C8C") } returns
+            Result.success(project(id = "p1", name = "Neu").copy(color = "#3F7C8C"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateProject("p1", "Neu", "#3F7C8C")
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.projects.size)
+        assertEquals("Neu", vm.uiState.value.projects[0].name)
+        assertEquals("#3F7C8C", vm.uiState.value.projects[0].color)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `updateProject trims the name before sending`() = runTest {
+        coEvery { repository.getProjects() } returns Result.success(listOf(project(id = "p1")))
+        coEvery { repository.updateProject("p1", "Garten", "#5B9E7A") } returns
+            Result.success(project(id = "p1", name = "Garten"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateProject("p1", "  Garten  ", "#5B9E7A")
+        advanceUntilIdle()
+
+        coVerify { repository.updateProject("p1", "Garten", "#5B9E7A") }
+    }
+
+    @Test
+    fun `updateProject with blank name does nothing`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateProject("p1", "   ", "#5B9E7A")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateProject(any(), any(), any()) }
+    }
+
+    @Test
+    fun `updateProject surfaces the failure message`() = runTest {
+        coEvery { repository.getProjects() } returns Result.success(listOf(project(id = "p1")))
+        coEvery { repository.updateProject(any(), any(), any()) } returns
+            Result.failure(IllegalStateException("Projekt konnte nicht gespeichert werden."))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateProject("p1", "Neu", "#3F7C8C")
+        advanceUntilIdle()
+
+        assertEquals("Projekt konnte nicht gespeichert werden.", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `exportCsv hands the repository result to the callback`() = runTest {
+        val bytes = "Projekt;Nutzer\r\n".toByteArray()
+        coEvery { repository.exportCsv("2026-06-01T00:00:00Z", "2026-06-30T23:59:59Z", "p1") } returns
+            Result.success(bytes)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var received: Result<ByteArray>? = null
+        vm.exportCsv("2026-06-01T00:00:00Z", "2026-06-30T23:59:59Z", "p1") { received = it }
+        advanceUntilIdle()
+
+        assertTrue(received!!.isSuccess)
+        assertArrayEquals(bytes, received!!.getOrNull())
+        coVerify { repository.exportCsv("2026-06-01T00:00:00Z", "2026-06-30T23:59:59Z", "p1") }
+    }
+
+    @Test
+    fun `exportCsv forwards null filters for an unfiltered export`() = runTest {
+        coEvery { repository.exportCsv(null, null, null) } returns Result.success(ByteArray(0))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var received: Result<ByteArray>? = null
+        vm.exportCsv(null, null, null) { received = it }
+        advanceUntilIdle()
+
+        assertTrue(received!!.isSuccess)
+        coVerify { repository.exportCsv(null, null, null) }
+    }
+
+    @Test
+    fun `exportCsv propagates a failure to the callback`() = runTest {
+        coEvery { repository.exportCsv(any(), any(), any()) } returns
+            Result.failure(RuntimeException("Keine Verbindung"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var received: Result<ByteArray>? = null
+        vm.exportCsv(null, null, null) { received = it }
+        advanceUntilIdle()
+
+        assertTrue(received!!.isFailure)
+    }
+
     @Test
     fun `WS EntryCreated adds entry`() = runTest {
         val vm = createVm()

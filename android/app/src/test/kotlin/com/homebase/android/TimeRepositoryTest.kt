@@ -1,12 +1,14 @@
 package com.homebase.android
 
 import com.homebase.android.data.api.HomeBaseApi
+import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.net.UnknownHostException
@@ -97,6 +99,67 @@ class TimeRepositoryTest {
         coEvery { api.startTimer(any()) } throws UnknownHostException("Unable to resolve host")
 
         val result = repository.startTimer("p1", null)
+
+        assertTrue(result.isFailure)
+        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+    }
+
+    // --- Projekt-Verwaltung (#175) ---
+
+    @Test
+    fun `updateProject returns api result on success`() = runTest {
+        val updated = ProjectDto(
+            id = "p1", name = "Neu", color = "#3F7C8C", archived = false,
+            createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+        )
+        coEvery { api.updateProject(eq("p1"), any()) } returns updated
+
+        val result = repository.updateProject("p1", "Neu", "#3F7C8C")
+
+        assertTrue(result.isSuccess)
+        assertEquals(updated, result.getOrNull())
+    }
+
+    @Test
+    fun `updateProject maps HttpException to German text`() = runTest {
+        coEvery { api.updateProject(eq("p1"), any()) } throws httpException(400)
+
+        val result = repository.updateProject("p1", "", "#3F7C8C")
+
+        // org.json is the android.jar stub in unit tests, so the body's code can't be parsed
+        // and germanProjectError falls back to its else branch — still German, never raw "HTTP 400".
+        assertTrue(result.isFailure)
+        assertEquals("Projekt konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `updateProject maps transport errors to the German offline text`() = runTest {
+        coEvery { api.updateProject(eq("p1"), any()) } throws UnknownHostException("Unable to resolve host")
+
+        val result = repository.updateProject("p1", "Neu", "#3F7C8C")
+
+        assertTrue(result.isFailure)
+        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `exportCsv returns the response bytes`() = runTest {
+        val csv = "﻿Projekt;Nutzer\r\n"
+        coEvery { api.exportTimeCsv(any(), any(), any()) } returns
+            csv.toByteArray().toResponseBody("text/csv".toMediaType())
+
+        val result = repository.exportCsv("2026-06-01T00:00:00Z", null, "p1")
+
+        assertTrue(result.isSuccess)
+        assertArrayEquals(csv.toByteArray(), result.getOrNull())
+        coVerify { api.exportTimeCsv("2026-06-01T00:00:00Z", null, "p1") }
+    }
+
+    @Test
+    fun `exportCsv maps transport errors to the German offline text`() = runTest {
+        coEvery { api.exportTimeCsv(any(), any(), any()) } throws UnknownHostException("Unable to resolve host")
+
+        val result = repository.exportCsv(null, null, null)
 
         assertTrue(result.isFailure)
         assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)

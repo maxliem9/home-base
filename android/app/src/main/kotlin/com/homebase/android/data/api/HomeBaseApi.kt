@@ -187,6 +187,15 @@ interface HomeBaseApi {
         @Body request: UpsertWorkTargetRequest,
     ): WorkTargetDto
 
+    // CSV export of completed entries (text/csv, raw bytes); optional date-range + project filter.
+    // `from`/`to` are ISO-8601 instants, `project_id` a UUID — same filters as the entry list.
+    @GET("time/export.csv")
+    suspend fun exportTimeCsv(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("project_id") projectId: String? = null,
+    ): ResponseBody
+
     // --- Recipes ---
 
     @GET("recipes")

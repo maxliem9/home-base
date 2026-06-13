@@ -1,6 +1,8 @@
 package com.homebase.android.ui.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +13,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,12 +33,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.DigestConfigResponse
+import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
@@ -36,6 +51,7 @@ import com.homebase.android.ui.abwesenheit.AbwSettingsPanel
 import com.homebase.android.ui.abwesenheit.buildContext
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
@@ -47,13 +63,19 @@ import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbRadiusSm
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.time.TargetsSheet
 import com.homebase.android.ui.time.TimeViewModel
+import com.homebase.android.ui.util.FileShare
+import com.homebase.android.ui.util.Format
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -511,10 +533,24 @@ private fun ErrorText(message: String) {
     Text(message, style = HbType.small.copy(fontSize = 13.sp), color = Hb.danger)
 }
 
+/**
+ * Einstellungen → Zeiterfassung (#175). The Android pendant of the web's `TimeSettings`:
+ * project management (rename/recolour/archive + "Archivierte anzeigen"), the Wochensoll
+ * editor, and a CSV export with an optional date-range/project filter. Mirrors the web's
+ * card grouping and labels. Project create stays on the tracker screen (start-a-timer flow);
+ * this page owns the management actions that have no other entry point on Android.
+ */
 @Composable
 private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
     val state by timeViewModel.uiState.collectAsStateWithLifecycle()
     var showTargets by remember { mutableStateOf(false) }
+    var editProject by remember { mutableStateOf<ProjectDto?>(null) }
+    var showArchived by remember { mutableStateOf(false) }
+    var showExport by remember { mutableStateOf(false) }
+    var toast by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(toast) { if (toast != null) { delay(3500); toast = null } }
 
     // Active projects + archived ones that still carry a target, so an archived project's
     // Wochensoll stays editable — the same rule the tracker used before the move (#55).
@@ -524,6 +560,10 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
     val configuredUsers = state.users.count { u ->
         state.targets.any { it.userId == u && (it.weeklyHours > 0 || it.isDefault) }
     }
+
+    val activeProjects = state.projects.filter { !it.archived }
+    val hasArchived = state.projects.any { it.archived }
+    val shownProjects = if (showArchived) state.projects else activeProjects
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
@@ -537,8 +577,59 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                 )
             },
         ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Spacer(Modifier.size(10.dp))
+
+                // --- Projekt-Verwaltung (mirrors web t.settings.projectsTitle/projectsHint) ---
+                HbCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                "Projekte",
+                                style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink,
+                            )
+                            Text(
+                                "Projekte umbenennen, einfärben oder archivieren. Neue Projekte legst du in der Zeiterfassung an.",
+                                style = HbType.small.copy(fontSize = 12.5.sp),
+                                color = Hb.ink3,
+                            )
+                        }
+                        if (state.projects.isEmpty()) {
+                            Text(
+                                if (state.isLoading) "Lädt …" else "Noch keine Projekte.",
+                                style = HbType.small.copy(fontSize = 12.5.sp),
+                                color = Hb.ink3,
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                shownProjects.forEach { p ->
+                                    ProjectRow(
+                                        project = p,
+                                        onEdit = { editProject = p },
+                                        onToggleArchive = { timeViewModel.setArchived(p.id, !p.archived) },
+                                    )
+                                }
+                            }
+                            if (hasArchived) {
+                                Text(
+                                    if (showArchived) "Archivierte ausblenden" else "Archivierte anzeigen",
+                                    style = HbType.small.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                                    color = Hb.accentInk,
+                                    modifier = Modifier
+                                        .clip(HbRadiusSm)
+                                        .clickable { showArchived = !showArchived }
+                                        .padding(vertical = 4.dp, horizontal = 2.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // --- Wochensoll ---
                 HbCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -570,6 +661,30 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                         )
                     }
                 }
+
+                // --- CSV-Export (mirrors web t.time.exportCsv / t.settings.exportOpen) ---
+                HbCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                "CSV-Export",
+                                style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink,
+                            )
+                            Text(
+                                "Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.",
+                                style = HbType.small.copy(fontSize = 12.5.sp),
+                                color = Hb.ink3,
+                            )
+                        }
+                        HbButton(
+                            "CSV exportieren",
+                            onClick = { showExport = true },
+                            icon = HbIcons.send,
+                            variant = HbButtonVariant.Secondary,
+                        )
+                    }
+                }
             }
         }
 
@@ -583,8 +698,268 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                 onDismiss = { showTargets = false },
             )
         }
+
+        editProject?.let { p ->
+            ProjectEditSheet(
+                project = p,
+                onSave = { name, hex ->
+                    timeViewModel.updateProject(p.id, name, hex)
+                    editProject = null
+                },
+                onDismiss = { editProject = null },
+            )
+        }
+
+        if (showExport) {
+            ExportSheet(
+                projects = state.projects,
+                onExport = { from, to, projectId ->
+                    showExport = false
+                    timeViewModel.exportCsv(from, to, projectId) { result ->
+                        result
+                            .onSuccess { bytes ->
+                                FileShare.share(
+                                    context,
+                                    "zeiterfassung_export.csv",
+                                    "text/csv",
+                                    bytes,
+                                    chooserTitle = "CSV exportieren",
+                                )
+                            }
+                            .onFailure { e -> toast = e.message ?: "Export fehlgeschlagen." }
+                    }
+                },
+                onDismiss = { showExport = false },
+            )
+        }
+
+        // Project mutations surface their failure via the shared ViewModel error channel;
+        // export failures (separate callback path) use this local toast.
+        (toast ?: state.error)?.let { msg ->
+            HbToast(
+                message = msg,
+                icon = HbIcons.x,
+                actionLabel = "OK",
+                onAction = { toast = null; timeViewModel.clearError() },
+            )
+        }
     }
 }
+
+/** One project row in the management list: colour dot, name (archived suffix), edit + archive toggle. */
+@Composable
+private fun ProjectRow(project: ProjectDto, onEdit: () -> Unit, onToggleArchive: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Box(Modifier.size(11.dp).clip(RoundedCornerShape(4.dp)).background(Format.parseColor(project.color)))
+        Text(
+            if (project.archived) "${project.name} · Archiviert" else project.name,
+            style = HbType.rowTitle.copy(fontSize = 14.5.sp),
+            color = if (project.archived) Hb.ink3 else Hb.ink,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 18.dp, tint = Hb.ink2)
+        HbIconButton(
+            HbIcons.archive,
+            onToggleArchive,
+            iconSize = 18.dp,
+            tint = if (project.archived) Hb.accentInk else Hb.ink2,
+        )
+    }
+}
+
+/**
+ * Rename / recolour an existing project (#175) — the create flow stays on the tracker.
+ * Mirrors the tracker's NewProjectSheet (name field + swatch picker); the current colour
+ * is matched against the palette so a custom (seed) colour still shows a sensible default.
+ */
+@Composable
+private fun ProjectEditSheet(project: ProjectDto, onSave: (String, String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(project.name) }
+    var selected by remember {
+        mutableStateOf(
+            Hb.projectSwatches.firstOrNull { hexOf(it).equals(project.color, ignoreCase = true) }
+                ?: Hb.projectSwatches.first(),
+        )
+    }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Projekt bearbeiten",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Speichern",
+                onClick = { if (name.isNotBlank()) onSave(name.trim(), hexOf(selected)) },
+                variant = HbButtonVariant.Primary,
+                enabled = name.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        HbField("Name") {
+            HbTextField(value = name, onValueChange = { name = it }, placeholder = "z. B. Renovierung")
+        }
+        HbField("Farbe") {
+            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Hb.projectSwatches.forEach { color ->
+                    val isActive = color == selected
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(color, RoundedCornerShape(11.dp))
+                            .then(
+                                if (isActive) {
+                                    Modifier
+                                        .border(2.dp, Hb.surface, RoundedCornerShape(11.dp))
+                                        .border(4.dp, Hb.ink2, RoundedCornerShape(13.dp))
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clickable { selected = color },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * CSV export filter (#175): optional from/to dates + project, mirroring the web ExportModal.
+ * Dates are turned into the day's local start/end and sent as ISO-8601 instants (the same
+ * conversion the web does); an empty form exports every completed entry. Archived projects
+ * stay selectable so their history can still be exported.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExportSheet(
+    projects: List<ProjectDto>,
+    onExport: (from: String?, to: String?, projectId: String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val zone = remember { ZoneId.systemDefault() }
+    var from by remember { mutableStateOf<LocalDate?>(null) }
+    var to by remember { mutableStateOf<LocalDate?>(null) }
+    var projectId by remember { mutableStateOf("") }
+
+    val projectName = projects.firstOrNull { it.id == projectId }?.name ?: "Alle Projekte"
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = "Als CSV exportieren",
+        footer = {
+            HbButton(
+                "Abbrechen",
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                "Exportieren",
+                onClick = {
+                    onExport(
+                        from?.atStartOfDay(zone)?.toInstant()?.toString(),
+                        to?.plusDays(1)?.atStartOfDay(zone)?.minusNanos(1_000_000)?.toInstant()?.toString(),
+                        projectId.takeIf { it.isNotEmpty() },
+                    )
+                },
+                variant = HbButtonVariant.Primary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        Text(
+            "Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.",
+            style = HbType.small.copy(fontSize = 12.5.sp),
+            color = Hb.ink3,
+        )
+        HbField("Von") { DateFilterField(from) { from = it } }
+        HbField("Bis") { DateFilterField(to) { to = it } }
+        HbField("Projekt") {
+            SettingsSelectField(
+                value = projectName,
+                options = listOf("Alle Projekte" to "") + projects.map { it.name to it.id },
+                onSelect = { projectId = it },
+            )
+        }
+    }
+}
+
+/** Optional date field for the export filter: shows dd.MM.yyyy or a placeholder; clearable. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateFilterField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
+            .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            value?.let { "%02d.%02d.%04d".format(it.dayOfMonth, it.monthValue, it.year) } ?: "Beliebig",
+            style = HbType.body.copy(fontSize = 14.sp),
+            color = if (value != null) Hb.ink else Hb.ink3,
+            modifier = Modifier.weight(1f),
+        )
+        if (value != null) HbIconButton(HbIcons.x, { onChange(null) }, iconSize = 16.dp, tint = Hb.ink3)
+    }
+    if (open) {
+        val initialMillis = (value ?: LocalDate.now()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { ms ->
+                        onChange(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
+                    }
+                    open = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Dropdown select (label/value pairs) for the settings sheets — same look as the tracker's. */
+@Composable
+private fun SettingsSelectField(value: String, options: List<Pair<String, String>>, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
+                .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(value, style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            HbIcon(HbIcons.chevronDown, size = 16.dp, tint = Hb.ink3)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (label, v) ->
+                DropdownMenuItem(text = { Text(label, style = HbType.body, color = Hb.ink) }, onClick = { onSelect(v); open = false })
+            }
+        }
+    }
+}
+
+/** Hex string of a Compose colour (`#RRGGBB`), matching the tracker's `hexOf` and the API contract. */
+private fun hexOf(color: Color): String = "#%06X".format(0xFFFFFF and color.toArgb())
 
 // The Abwesenheit window the settings PUT accepts — so the year stepper can never produce a
 // year the backend would reject (mirrors web AbwesenheitSettings' YEAR_MIN/MAX, #99).
