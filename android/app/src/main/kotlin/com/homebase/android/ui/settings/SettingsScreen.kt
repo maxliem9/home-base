@@ -164,7 +164,7 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
             SettingsNavRow(
                 icon = HbIcons.bell,
                 title = "Benachrichtigungen",
-                subtitle = "Digest-Uhrzeiten (morgens & abends)",
+                subtitle = "Digests (morgens & abends): an/aus, Uhrzeit, Inhalte",
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
             )
             SettingsNavRow(
