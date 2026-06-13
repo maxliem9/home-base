@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,17 +69,10 @@ class MainActivity : ComponentActivity() {
             HomeBaseTheme {
                 val authState by container.authRepository.state.collectAsStateWithLifecycle()
 
-                // Session teardown on logout (#180): the six domain ViewModels are Activity-scoped and
-                // keyed by the JWT, so leaving MainScaffold does NOT clear them — their OkHttp
-                // WebSockets would linger as zombies (reconnect loops) until the Activity dies or a
-                // re-login replaced them under a new token key. Clearing the Activity ViewModelStore the
-                // moment we leave the logged-in state runs each ViewModel's onCleared() → disconnect(),
-                // closing every socket at once. This is Android's analog of the web closing its sockets
-                // on unmount, and it also covers re-login: the next session always builds fresh
-                // ViewModels (new token key) with no socket outliving the identity change.
-                LaunchedEffect(authState !is AuthState.LoggedIn) {
-                    if (authState !is AuthState.LoggedIn) viewModelStore.clear()
-                }
+                LogoutTeardownEffect(
+                    loggedIn = authState is AuthState.LoggedIn,
+                    viewModelStore = viewModelStore,
+                )
 
                 when (val s = authState) {
                     AuthState.Loading -> Box(Modifier.fillMaxSize().background(Hb.paper))
@@ -329,4 +323,25 @@ class MainActivity : ComponentActivity() {
         )
         JSONObject(decoded).optString("username").takeIf { it.isNotEmpty() }
     }.getOrNull()
+}
+
+/**
+ * Session teardown on logout (#180): the six domain ViewModels are Activity-scoped and keyed by the
+ * JWT, so leaving MainScaffold does NOT clear them — their OkHttp WebSockets would linger as zombies
+ * (reconnect loops) until the Activity dies or a re-login replaced them under a new token key.
+ * Clearing the Activity [ViewModelStore] the moment we leave the logged-in state runs each
+ * ViewModel's `onCleared()` → `disconnect()`, closing every socket at once. This is Android's analog
+ * of the web closing its sockets on unmount, and it also covers re-login: the next session always
+ * builds fresh ViewModels (new token key) with no socket outliving the identity change.
+ *
+ * Keyed on [loggedIn] so the effect re-runs only on a genuine logged-in↔logged-out flip. The guard
+ * `if (!loggedIn)` is what keeps a cold start that is *already* `LoggedIn` from clobbering its own
+ * freshly built session — the effect runs once on first composition but must no-op while logged in.
+ * Extracted from MainActivity so it can be driven over a real composition in tests (#192).
+ */
+@Composable
+internal fun LogoutTeardownEffect(loggedIn: Boolean, viewModelStore: ViewModelStore) {
+    LaunchedEffect(loggedIn) {
+        if (!loggedIn) viewModelStore.clear()
+    }
 }
