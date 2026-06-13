@@ -11,7 +11,7 @@ import { t, errorText } from '../../i18n'
 import { Project, User, WorkTarget } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
-import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, Select, TextInput } from '../../ui/primitives'
+import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../../ui/primitives'
 import { userMeta } from '../../ui/format'
 import { COLOR_CHOICES, ProjectDraft, ProjectModal } from '../TimeView'
 
@@ -24,7 +24,10 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
   const [users, setUsers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
-  const [showTargets, setShowTargets] = useState(false)
+  // The Wochensoll editor is its own full page (a per-person×project table that grows
+  // with the project count), not a modal — like the project detail (#32) and the
+  // Abwesenheits-Einstellungen (#128/#29). 'overview' = the settings cards.
+  const [view, setView] = useState<'overview' | 'targets'>('overview')
   const [showArchived, setShowArchived] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -114,7 +117,7 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
       if (!result.res.ok) return errorText(await errorCode(result.res), t.time.targetsFailed)
     }
     await fetchTargets()
-    setShowTargets(false)
+    setView('overview')
     return null
   }
 
@@ -156,6 +159,19 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
     () => projects.filter((p) => !p.archived || targets.some((x) => x.projectId === p.id && (x.weeklyHours > 0 || x.isDefault))),
     [projects, targets],
   )
+
+  // Wochensoll editor as its own full page (back nav + PageHead), not a modal (#128).
+  if (view === 'targets') {
+    return (
+      <TargetsPage
+        users={users}
+        projects={targetProjects}
+        targets={targets}
+        onSave={saveTargets}
+        onBack={() => setView('overview')}
+      />
+    )
+  }
 
   return (
     <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
@@ -214,7 +230,7 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
             size="sm"
             variant="secondary"
             icon="settings"
-            onClick={() => setShowTargets(true)}
+            onClick={() => setView('targets')}
             disabled={loading || projects.length === 0}
           >
             {t.settings.wochensollEdit}
@@ -236,9 +252,6 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
 
       {projectDraft && (
         <ProjectModal draft={projectDraft} onChange={setProjectDraft} onSave={saveProject} onClose={() => setProjectDraft(null)} />
-      )}
-      {showTargets && (
-        <TargetsModal users={users} projects={targetProjects} targets={targets} onSave={saveTargets} onClose={() => setShowTargets(false)} />
       )}
       {showExport && (
         <ExportModal projects={projects} onExport={exportCsv} onClose={() => setShowExport(false)} />
@@ -293,14 +306,16 @@ function TargetsSummary({ users, projects, targets }: { users: string[]; project
 // Wochensoll configuration (#31): weekly hours per person × project plus the
 // person's default project (absence/holiday credits are booked there). Saving
 // PUTs only the changed cells; the household may edit either person (like the
-// absence planner). Inline-error convention as in the other modals.
+// absence planner). Inline-error convention as in the other editors.
 // Moved here from TimeView with #99 — configuration now lives in the settings hub.
-function TargetsModal({ users, projects, targets, onSave, onClose }: {
+// Its own full page rather than a modal (#128/#29): the per-person×project table
+// grows with the project count and scrolls badly when boxed into a dialog.
+function TargetsPage({ users, projects, targets, onSave, onBack }: {
   users: string[]
   projects: Project[]
   targets: WorkTarget[]
   onSave: (puts: { userId: string; projectId: string; body: object }[]) => Promise<string | null>
-  onClose: () => void
+  onBack: () => void
 }) {
   const targetFor = (u: string, p: string) => targets.find((x) => x.userId === u && x.projectId === p)
   const defaultFor = (u: string) => targets.find((x) => x.userId === u && x.isDefault)?.projectId ?? ''
@@ -356,7 +371,7 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
         return
       }
     }
-    if (puts.length === 0) return onClose()
+    if (puts.length === 0) return onBack()
     submitRef.current = true
     setError(null)
     try {
@@ -372,61 +387,61 @@ function TargetsModal({ users, projects, targets, onSave, onClose }: {
   }
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t.time.targetsModalTitle}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button onClick={submit}>{t.common.save}</Button>
-        </>
-      }
-    >
-      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.targetsModalHint}</p>
-      {projects.length === 0 ? (
-        <p className="hb-muted">{t.time.noProjectsHint}</p>
-      ) : (
-        users.map((u) => (
-          <div key={u} style={{ marginBottom: 18 }}>
-            <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
-            </div>
-            <div className="hb-targetgrid">
-              <span className="hb-muted hb-targetgrid__h">{t.time.project}</span>
-              <span className="hb-muted hb-targetgrid__h">{t.time.hoursPerWeek}</span>
-              <span className="hb-muted hb-targetgrid__h">{t.time.defaultColumn}</span>
-              {projects.map((p) => (
-                <Fragment key={p.id}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                    <span className="hb-pdot" style={{ background: p.color }} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name}{p.archived && <span className="hb-muted"> ({t.time.archivedSection})</span>}
+    <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
+      <div className="hb-detailnav">
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t.time.backToOverview}</Button>
+      </div>
+      <PageHead eyebrow={t.settings.time} title={t.time.targetsModalTitle} />
+      <Card className="hb-card--pad">
+        <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.targetsModalHint}</p>
+        {projects.length === 0 ? (
+          <p className="hb-muted">{t.time.noProjectsHint}</p>
+        ) : (
+          users.map((u) => (
+            <div key={u} style={{ marginBottom: 18 }}>
+              <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
+              </div>
+              <div className="hb-targetgrid">
+                <span className="hb-muted hb-targetgrid__h">{t.time.project}</span>
+                <span className="hb-muted hb-targetgrid__h">{t.time.hoursPerWeek}</span>
+                <span className="hb-muted hb-targetgrid__h">{t.time.defaultColumn}</span>
+                {projects.map((p) => (
+                  <Fragment key={p.id}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                      <span className="hb-pdot" style={{ background: p.color }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.name}{p.archived && <span className="hb-muted"> ({t.time.archivedSection})</span>}
+                      </span>
                     </span>
-                  </span>
-                  <input
-                    className="hb-input"
-                    inputMode="decimal"
-                    value={draft[u].hours[p.id] ?? ''}
-                    onChange={(e) => setHours(u, p.id, e.target.value)}
-                    placeholder="0"
-                    aria-label={`${t.time.hoursPerWeek} ${p.name} ${userMeta(u)?.name ?? u}`}
-                  />
-                  <input
-                    type="radio"
-                    name={`hb-default-${u}`}
-                    checked={draft[u].def === p.id}
-                    onChange={() => setDef(u, p.id)}
-                    aria-label={`${t.time.defaultColumn} ${p.name} ${userMeta(u)?.name ?? u}`}
-                  />
-                </Fragment>
-              ))}
+                    <input
+                      className="hb-input"
+                      inputMode="decimal"
+                      value={draft[u].hours[p.id] ?? ''}
+                      onChange={(e) => setHours(u, p.id, e.target.value)}
+                      placeholder="0"
+                      aria-label={`${t.time.hoursPerWeek} ${p.name} ${userMeta(u)?.name ?? u}`}
+                    />
+                    <input
+                      type="radio"
+                      name={`hb-default-${u}`}
+                      checked={draft[u].def === p.id}
+                      onChange={() => setDef(u, p.id)}
+                      aria-label={`${t.time.defaultColumn} ${p.name} ${userMeta(u)?.name ?? u}`}
+                    />
+                  </Fragment>
+                ))}
+              </div>
             </div>
-          </div>
-        ))
-      )}
-      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
-    </Modal>
+          ))
+        )}
+        {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '0 0 14px' }}>{error}</p>}
+        <div className="hb-formactions">
+          <Button variant="ghost" onClick={onBack}>{t.common.cancel}</Button>
+          <Button onClick={submit}>{t.common.save}</Button>
+        </div>
+      </Card>
+    </div>
   )
 }
 

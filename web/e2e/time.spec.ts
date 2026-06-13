@@ -193,32 +193,36 @@ test.describe('Time tracking', () => {
     // no targets yet → the summary says so
     await expect(body.getByText('Noch kein Wochensoll festgelegt.')).toBeVisible()
     await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
-    const modal = page.locator('.hb-modal')
-    await expect(modal.getByText('Wochensoll konfigurieren')).toBeVisible()
+    // the editor is now its own full page, not a modal (#128) — no modal layer,
+    // the editor title becomes the page heading
+    await expect(body.locator('.hb-modal')).toHaveCount(0)
+    await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
 
     // 40 hours on Arbeit for Max — entering the first hours auto-selects the
     // project as the (required) default (#59)
-    await modal.getByLabel('Std/Woche Arbeit Max').fill('40')
-    await expect(modal.getByLabel('Standard Arbeit Max')).toBeChecked()
+    await body.getByLabel('Std/Woche Arbeit Max').fill('40')
+    await expect(body.getByLabel('Standard Arbeit Max')).toBeChecked()
     const requestPromise = page.waitForRequest((r) => r.url().includes('/time/targets/max/p1') && r.method() === 'PUT')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
+    await body.getByRole('button', { name: 'Speichern' }).click()
     const request = await requestPromise
     expect(request.postDataJSON()).toEqual({ weeklyHours: 40, isDefault: true })
 
-    // the modal closes and the summary now lists the configured target
-    await expect(modal).toBeHidden()
+    // saving returns to the overview, whose summary now lists the configured target
+    await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeHidden()
     await expect(body).toContainText('Max')
     await expect(body).toContainText('40 Std/Woche')
   })
 
   test('rejects invalid weekly hours inline (in settings)', async ({ page }) => {
     await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
+    const body = page.locator('.hb-settings-body')
 
-    await page.locator('.hb-settings-body').getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
-    const modal = page.locator('.hb-modal')
-    await modal.getByLabel('Std/Woche Arbeit Max').fill('200')
-    await modal.getByRole('button', { name: 'Speichern' }).click()
-    await expect(modal.getByText('Stunden müssen zwischen 0 und 168 liegen')).toBeVisible()
+    await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
+    await body.getByLabel('Std/Woche Arbeit Max').fill('200')
+    await body.getByRole('button', { name: 'Speichern' }).click()
+    // the inline error keeps us on the editor page (no navigation back)
+    await expect(body.getByText('Stunden müssen zwischen 0 und 168 liegen')).toBeVisible()
+    await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
   })
 
   test('deep-links from the tracker Wochensoll card into settings', async ({ page }) => {
