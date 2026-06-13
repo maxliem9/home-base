@@ -111,6 +111,16 @@ class ShoppingViewModel(
     private val ensureListMutex = Mutex()
 
     /**
+     * Single-flight guard for the **user-named** create path ([createList]). A double-tap on "Neue
+     * Liste"/"Erstellen" (or two quick submits — the sheet isn't disabled in-flight) otherwise fires
+     * [createList] twice → two lists (#191). Unlike [ensureListMutex], this must NOT dedup by reusing
+     * an existing list: a user may legitimately want a second, even same-named list. So it only
+     * collapses one rapid *burst* — a concurrent second call is dropped while the first is in flight;
+     * a *sequential* second call (after the first resolved, a separate user action) still creates.
+     */
+    private var isCreatingList = false
+
+    /**
      * Completes once the previous session's queue has been loaded and merged. [flush] awaits it, so
      * a flush trigger that fires during the async restore re-PUTs the restored entries instead of
      * racing an empty queue.
@@ -321,17 +331,31 @@ class ShoppingViewModel(
         }
     }
 
+    /**
+     * Create a user-named list. Guarded by [isCreatingList] single-flight so a double-tap on the
+     * confirm (or two quick submits) creates only ONE list (#191) — the second concurrent call is
+     * ignored while the first is in flight. A deliberate *second* list via a later, separate action
+     * still works: the flag is cleared once the first create resolves, so a sequential call proceeds.
+     * The flag is set synchronously (before `launch`) so an immediate re-entry on the same frame sees
+     * it, and reset in `finally` so a failed create never wedges the path shut.
+     */
     fun createList(name: String) {
         if (name.isBlank()) return
+        if (isCreatingList) return // a create from this user intent is already in flight — ignore the double-tap
+        isCreatingList = true
         viewModelScope.launch {
-            repository.createList(name.trim())
-                .onSuccess { list ->
-                    _uiState.update { s ->
-                        val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
-                        s.copy(lists = lists, activeListId = list.id)
+            try {
+                repository.createList(name.trim())
+                    .onSuccess { list ->
+                        _uiState.update { s ->
+                            val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
+                            s.copy(lists = lists, activeListId = list.id)
+                        }
                     }
-                }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                    .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            } finally {
+                isCreatingList = false
+            }
         }
     }
 
