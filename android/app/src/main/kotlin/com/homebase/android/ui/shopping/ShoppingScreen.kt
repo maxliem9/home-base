@@ -210,6 +210,9 @@ private fun ListTabs(
     ) {
         Spacer(Modifier.width(18.dp))
         lists.forEach { list ->
+            // The `listId == null` term is the lists-first safety net (#181): list-less items are no
+            // longer created and are migrated into the first list, but a best-effort miss still counts
+            // on the first tab (mirrors visibleItems) so its badge matches what that tab shows.
             val openCount = items.count { item ->
                 !item.checked && (item.listId == list.id || (list.id == firstListId && item.listId == null))
             }

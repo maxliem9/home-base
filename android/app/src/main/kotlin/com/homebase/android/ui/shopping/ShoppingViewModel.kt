@@ -39,7 +39,13 @@ data class ShoppingUiState(
 
     val activeIsFirst: Boolean get() = activeList != null && lists.firstOrNull()?.id == activeList?.id
 
-    /** Items in the active list; the first list also surfaces unfiled (null) items. */
+    /**
+     * Items in the active list. The first list also surfaces any list-less (null) item as a
+     * **safety net**: lists-first (#181) means Android no longer *creates* such items (a new item
+     * always gets a list) and adopts pre-existing ones into the first list on load — but that
+     * migration is best-effort (a failed PUT can leave one behind), so the first list still shows
+     * stragglers rather than orphaning them off-screen.
+     */
     val visibleItems: List<ShoppingItemDto>
         get() {
             val id = activeList?.id ?: return items.filter { it.listId == null }
@@ -145,18 +151,74 @@ class ShoppingViewModel(
                 error = error,
             )
         }
+        migrateListlessItems()
+    }
+
+    /**
+     * Lists-first parity with the web (#181): Android must never *leave* list-less shopping items
+     * around. Newly added items already get a list (see [addItem]); this best-effort sweep adopts any
+     * pre-existing list-less rows (created before this change, or by an older client) into the first
+     * list via PUT `listId`. The optimistic local move keeps them visible meanwhile; the safety-net
+     * `listId == null` surfacing in [ShoppingUiState.visibleItems] catches anything a failed PUT
+     * leaves behind, so a migration miss is never lost.
+     */
+    private suspend fun migrateListlessItems() {
+        val state = _uiState.value
+        val targetId = state.lists.firstOrNull()?.id ?: return // no list yet → nothing to adopt into
+        val orphans = state.items.filter { it.listId == null }
+        if (orphans.isEmpty()) return
+        for (orphan in orphans) {
+            repository.updateItem(orphan.id, UpdateShoppingItemRequest(listId = targetId))
+                .onSuccess { updated ->
+                    // Apply the server row, but let a still-pending local check intent win for the
+                    // checked/checkedAt fields (the user may have toggled this item mid-migration) —
+                    // same rule as the WS echo handling in upsertItemFromServer.
+                    _uiState.update { s ->
+                        s.copy(items = s.items.map { local ->
+                            if (local.id != updated.id) local
+                            else if (updated.id in queue) updated.copy(checked = local.checked, checkedAt = local.checkedAt)
+                            else updated
+                        })
+                    }
+                }
+            // On failure leave the row list-less; the visibleItems safety net keeps it reachable and
+            // the next reload retries. No error surfaced — this is background housekeeping.
+        }
     }
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
 
     fun addItem(name: String) {
         if (name.isBlank()) return
-        val listId = _uiState.value.activeList?.id
         viewModelScope.launch {
+            // Lists-first like the web (#181): an item always belongs to a list. If none exists yet,
+            // auto-create a neutral default list and attach the item to it instead of producing a
+            // list-less item. (The web never reaches this branch — it has no add UI without a list.)
+            val listId = _uiState.value.activeList?.id ?: ensureDefaultList() ?: return@launch
             repository.createItem(name.trim(), listId)
                 .onSuccess { upsertItem(it) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
+    }
+
+    /**
+     * Ensure at least one shopping list exists and return the id to file a new item under. Used by
+     * [addItem] when the user types an item before any list exists (#181). Returns the active/first
+     * list's id if one already appeared (e.g. a partner created one over WS), otherwise creates the
+     * neutral default list. Returns null only if creation fails — the caller then surfaces the error
+     * and skips the add rather than falling back to a list-less item.
+     */
+    private suspend fun ensureDefaultList(): String? {
+        _uiState.value.activeList?.id?.let { return it }
+        return repository.createList(DEFAULT_LIST_NAME)
+            .onSuccess { list ->
+                _uiState.update { s ->
+                    val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
+                    s.copy(lists = lists, activeListId = list.id)
+                }
+            }
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .getOrNull()?.id
     }
 
     /**
@@ -436,5 +498,9 @@ class ShoppingViewModel(
 
     private companion object {
         const val FLUSH_INTERVAL_MS = 15_000L
+
+        /** Neutral default list auto-created when a user adds an item before any list exists (#181).
+         *  Deliberately generic — no user-specific naming (portable-over-hardcoded-household). */
+        const val DEFAULT_LIST_NAME = "Einkaufsliste"
     }
 }
