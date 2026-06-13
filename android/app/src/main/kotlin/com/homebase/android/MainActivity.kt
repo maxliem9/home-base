@@ -208,6 +208,9 @@ class MainActivity : ComponentActivity() {
                     viewModel = timeVm,
                     currentUser = currentUser,
                     onOpenDrawer = openDrawer,
+                    // Suppress the tracker's shared error toast while the settings →
+                    // Zeiterfassung overlay (same TimeViewModel) renders its own on top (#193).
+                    settingsOpen = settingsOpen,
                 )
                 HbRoute.ABWESENHEIT -> AbwesenheitScreen(
                     viewModel = absenceVm,
