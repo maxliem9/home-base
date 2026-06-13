@@ -28,6 +28,14 @@ interface HomeBaseApi {
     @PUT("config/morning-digest")
     suspend fun updateMorningDigest(@Body request: UpdateDigestRequest): DigestConfigResponse
 
+    @GET("config/recurring")
+    suspend fun getRecurring(): RecurringConfigResponse
+
+    // Body is just {time}, the same shape the GET returns — so RecurringConfigResponse doubles
+    // as the request (matching the backend's UpdateRecurringRequest(time)).
+    @PUT("config/recurring")
+    suspend fun updateRecurring(@Body request: RecurringConfigResponse): RecurringConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 

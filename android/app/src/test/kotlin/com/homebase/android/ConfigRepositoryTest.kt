@@ -3,6 +3,7 @@ package com.homebase.android
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.AppConfigResponse
 import com.homebase.android.data.model.DigestConfigResponse
+import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
 import com.homebase.android.data.model.UserDto
@@ -131,6 +132,43 @@ class ConfigRepositoryTest {
 
         assertTrue(result.isSuccess)
         assertEquals("07:15", result.getOrNull()?.time)
+    }
+
+    // Recurring-todo safety-net time (#200): GET maps the {time}-only config.
+    @Test
+    fun `getRecurring maps the time`() = runTest {
+        coEvery { api.getRecurring() } returns RecurringConfigResponse(time = "00:30")
+
+        val result = repository.getRecurring()
+
+        assertTrue(result.isSuccess)
+        assertEquals("00:30", result.getOrNull()?.time)
+    }
+
+    // PUT sends just {time} (request shares RecurringConfigResponse's shape) and adopts the
+    // persisted, normalised time the backend echoes (#200).
+    @Test
+    fun `updateRecurring sends the time and returns the persisted config`() = runTest {
+        coEvery {
+            api.updateRecurring(RecurringConfigResponse(time = "01:15"))
+        } returns RecurringConfigResponse(time = "01:15")
+
+        val result = repository.updateRecurring("01:15")
+
+        assertTrue(result.isSuccess)
+        assertEquals("01:15", result.getOrNull()?.time)
+    }
+
+    @Test
+    fun `updateRecurring maps a 400 to the German time message`() = runTest {
+        coEvery { api.updateRecurring(any()) } throws HttpException(
+            Response.error<Any>(400, """{"code":"INVALID_TIME"}""".toResponseBody("application/json".toMediaType())),
+        )
+
+        val result = repository.updateRecurring("99:99")
+
+        assertTrue(result.isFailure)
+        assertEquals("Ungültige Uhrzeit (Format HH:MM).", result.exceptionOrNull()?.message)
     }
 
     // Avatar-colour roster (Teil von #100): GET /users carries avatarHue; getAvatarHues

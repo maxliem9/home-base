@@ -52,6 +52,15 @@ data class UpdateDigestRequest(
     val sections: List<String>? = null,
 )
 
+/**
+ * GET/PUT /config/recurring (#200): the recurring-todo safety-net scheduler's run [time]
+ * (HH:mm, `app_settings.recurring_time`, default "00:30"). The scheduler is always-on, so —
+ * unlike the digests — there's no enabled/sections, just the time. Serves as both the GET
+ * response and the PUT body (the backend echoes the persisted, normalised time).
+ */
+@JsonClass(generateAdapter = true)
+data class RecurringConfigResponse(val time: String)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
 // avatarHue (Teil von #100): the member's chosen avatar hue (0..359), or null/absent for
