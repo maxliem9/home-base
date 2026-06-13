@@ -46,6 +46,7 @@ import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbPill
+import com.homebase.android.ui.components.HbRadius
 import com.homebase.android.ui.components.HbQuickAdd
 import com.homebase.android.ui.components.HbRow
 import com.homebase.android.ui.components.HbScreenScaffold
@@ -68,7 +69,11 @@ fun ShoppingScreen(
 
     val visible = state.visibleItems
     val openItems = visible.filter { !it.checked }
-    val checkedItems = visible.filter { it.checked }
+    // Most-recently-checked first: ISO checkedAt sorts lexicographically = chronologically;
+    // an item without a timestamp (legacy) sinks to the bottom.
+    val checkedItems = visible
+        .filter { it.checked }
+        .sortedByDescending { it.checkedAt ?: "" }
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
@@ -105,11 +110,23 @@ fun ShoppingScreen(
 
                 Spacer(Modifier.size(18.dp))
 
+                if (state.visiblePendingCount > 0) {
+                    SyncBanner(
+                        count = state.visiblePendingCount,
+                        onRetry = { viewModel.retryPending() },
+                    )
+                    Spacer(Modifier.size(12.dp))
+                }
+
                 if (visible.isEmpty()) {
                     HbEmpty(HbIcons.cart, "Liste ist leer", "Füge oben Artikel hinzu.")
                 } else {
                     openItems.forEach { item ->
-                        OpenItemRow(item = item, onToggle = { viewModel.toggleChecked(item) })
+                        OpenItemRow(
+                            item = item,
+                            pending = state.isPending(item.id),
+                            onToggle = { viewModel.toggleChecked(item) },
+                        )
                     }
 
                     if (checkedItems.isNotEmpty()) {
@@ -137,7 +154,11 @@ fun ShoppingScreen(
                         }
                         Spacer(Modifier.size(8.dp))
                         checkedItems.forEach { item ->
-                            CheckedItemRow(item = item, onToggle = { viewModel.toggleChecked(item) })
+                            CheckedItemRow(
+                                item = item,
+                                pending = state.isPending(item.id),
+                                onToggle = { viewModel.toggleChecked(item) },
+                            )
                         }
                     }
                 }
@@ -262,7 +283,7 @@ private fun Modifier.accentUnderline(): Modifier = drawBehind {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OpenItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
+private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit) {
     HbRow {
         HbCheck(checked = false, onCheckedChange = onToggle)
         Text(
@@ -271,12 +292,13 @@ private fun OpenItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
             color = Hb.ink,
             modifier = Modifier.weight(1f),
         )
+        if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
     }
 }
 
 @Composable
-private fun CheckedItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
+private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit) {
     HbRow {
         HbCheck(checked = true, onCheckedChange = onToggle)
         Text(
@@ -285,7 +307,57 @@ private fun CheckedItemRow(item: ShoppingItemDto, onToggle: () -> Unit) {
             color = Hb.ink3,
             modifier = Modifier.weight(1f),
         )
+        if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Offline check-off sync UI (issue #170)
+// ---------------------------------------------------------------------------
+
+/** Small per-item "not synced yet" marker — the offline check-off is queued and will retry. */
+@Composable
+private fun SyncBadge() {
+    Box(
+        Modifier
+            .size(22.dp)
+            .clip(HbPill)
+            .background(Hb.accentSoft, HbPill),
+        contentAlignment = Alignment.Center,
+    ) {
+        HbIcon(HbIcons.repeat, size = 13.dp, tint = Hb.accentInk)
+    }
+}
+
+/** Collective banner shown while any visible check-off is still queued; offers a manual retry. */
+@Composable
+private fun SyncBanner(count: Int, onRetry: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(HbRadius)
+            .background(Hb.accentSoft, HbRadius)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        HbIcon(HbIcons.repeat, size = 16.dp, tint = Hb.accentInk)
+        Text(
+            if (count == 1) "1 Abhakung wird synchronisiert …" else "$count Abhakungen werden synchronisiert …",
+            style = HbType.small,
+            color = Hb.accentInk,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "Jetzt",
+            style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+            color = Hb.accentInk,
+            modifier = Modifier
+                .clip(HbPill)
+                .clickable { onRetry() }
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
     }
 }
 

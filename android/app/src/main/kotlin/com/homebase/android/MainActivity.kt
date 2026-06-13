@@ -268,7 +268,12 @@ class MainActivity : ComponentActivity() {
     private fun shoppingFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return ShoppingViewModel(container.shoppingRepository, token) as T
+            return ShoppingViewModel(
+                repository = container.shoppingRepository,
+                token = token,
+                pendingStore = container.shoppingPendingStore,
+                networkAvailable = container.connectivityObserver.onAvailable,
+            ) as T
         }
     }
 
