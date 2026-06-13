@@ -72,4 +72,16 @@ class ParseIngredientLineTest {
     fun `does not mis-parse a numeric-looking word (200ml Wasser, no space)`() {
         assertEquals(IngredientDraft(name = "200ml Wasser"), parseIngredientLine("200ml Wasser"))
     }
+
+    // 3/80 is a 4th-decimal tie where Java "%.3f" and JS toFixed historically diverged (0.038 vs
+    // 0.037). Both parsers now round via Math.round(n*1000) -> 0.038 identically; this locks parity.
+    @Test
+    fun `rounds a fraction tie identically to web (3 over 80 - 0_038)`() {
+        assertEquals(IngredientDraft(name = "Mehl", amount = "0.038", unit = "g"), parseIngredientLine("3/80 g Mehl"))
+    }
+
+    @Test
+    fun `strips only a single trailing dot from the unit token (g_dotdot is not a unit)`() {
+        assertEquals(IngredientDraft(name = "g.. Mehl", amount = "2"), parseIngredientLine("2 g.. Mehl"))
+    }
 }

@@ -1262,10 +1262,14 @@ private val FRACTION_NEXT = Regex("""^([0-9]+)/([0-9]+)(?:\s+(.*))?$""")
 private val INTEGER = Regex("""^[0-9]+$""")
 
 // Format a decimal to at most 3 places, trailing zeros stripped ("0.5", "1.5", "1", "0.333").
-// 3 places keeps 1/3, 2/3 etc. honest and identical to the web parser (same rounding).
+// 3 places keeps 1/3, 2/3 etc. honest. Rounds via integer math (Math.round(n*1000)) so it is
+// BIT-IDENTICAL to the web parser, which does the same — Java "%.3f" and JS toFixed disagree on
+// 4th-decimal ties (e.g. 3/80). Amounts are always >= 0 here, so the sign is never an issue.
 private fun formatAmount(n: Double): String {
-    val s = String.format(java.util.Locale.US, "%.3f", n).trimEnd('0').trimEnd('.')
-    return if (s == "-0") "0" else s
+    val k = Math.round(n * 1000.0)
+    val whole = k / 1000
+    val frac = (k % 1000).toString().padStart(3, '0').trimEnd('0')
+    return if (frac.isEmpty()) "$whole" else "$whole.$frac"
 }
 
 private fun numOf(s: String): Double? = s.replace(',', '.').toDoubleOrNull()
@@ -1306,7 +1310,7 @@ internal fun parseIngredientLine(line: String): IngredientDraft {
     if (rest.isEmpty()) return IngredientDraft(name = "", amount = amount)
 
     val parts = rest.split(Regex("\\s+"))
-    val unitKey = parts.firstOrNull()?.trimEnd('.')?.lowercase()
+    val unitKey = parts.firstOrNull()?.removeSuffix(".")?.lowercase()
     return if (parts.size > 1 && unitKey != null && unitKey in KNOWN_UNITS) {
         IngredientDraft(name = parts.drop(1).joinToString(" "), amount = amount, unit = parts[0])
     } else {

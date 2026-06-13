@@ -22,10 +22,14 @@ const KNOWN_UNITS = new Set([
 const isUnitToken = (tok: string) => KNOWN_UNITS.has(tok.toLowerCase().replace(/\.$/, ''))
 
 // Format a decimal to at most 3 places, trailing zeros stripped ("0.5", "1.5", "1", "0.333").
-// 3 places keeps 1/3, 2/3 etc. honest and identical to the Android parser (same rounding).
+// 3 places keeps 1/3, 2/3 etc. honest. Rounds via integer math (Math.round(n*1000)) so it is
+// BIT-IDENTICAL to the Android parser, which does the same — JS toFixed and Java "%.3f" disagree
+// on 4th-decimal ties (e.g. 3/80). Amounts are always >= 0 here, so the sign is never an issue.
 const formatAmount = (n: number): string => {
-  const s = n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-  return s === '-0' ? '0' : s
+  const k = Math.round(n * 1000)
+  const whole = Math.floor(k / 1000)
+  const frac = String(k % 1000).padStart(3, '0').replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : `${whole}`
 }
 
 // Parse a leading amount TOKEN into a normalized decimal string, or null if it isn't a clean

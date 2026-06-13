@@ -53,4 +53,14 @@ describe('parseIngredientLine', () => {
     // No space after the number → the leading token is "200ml", not a clean number → name stays whole.
     expect(parseIngredientLine('200ml Wasser')).toEqual({ name: '200ml Wasser', amount: '', unit: '' })
   })
+
+  // 3/80 is a 4th-decimal tie where JS toFixed and Java "%.3f" historically diverged (0.037 vs
+  // 0.038). Both parsers now round via Math.round(n*1000) → 0.038 identically; this locks the parity.
+  it('rounds a fraction tie identically to Android (3/80 → 0.038)', () => {
+    expect(parseIngredientLine('3/80 g Mehl')).toEqual({ name: 'Mehl', amount: '0.038', unit: 'g' })
+  })
+
+  it('strips only a single trailing dot from the unit token ("g.." is not a unit)', () => {
+    expect(parseIngredientLine('2 g.. Mehl')).toEqual({ name: 'g.. Mehl', amount: '2', unit: '' })
+  })
 })
