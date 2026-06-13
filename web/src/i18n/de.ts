@@ -443,6 +443,12 @@ export const de = {
     // Konto-Unterseite (#100): Darstellung (Theme) + eigenes Passwort ändern.
     account: 'Konto',
     accountSignedInAs: 'Angemeldet als',
+    // Sprache (#6): pro Browser gewählte UI-Sprache (localStorage), sofort wirksam.
+    languageTitle: 'Sprache',
+    languageHint: 'Sprache der Oberfläche. Gilt auf diesem Gerät, sofort wirksam.',
+    languageLabel: 'Anzeigesprache',
+    languageGerman: 'Deutsch',
+    languageEnglish: 'Englisch',
     // Darstellung / Theme (#100): pro Person gespeichert (user_prefs), gilt app-weit.
     themeTitle: 'Darstellung',
     themeHint: 'Hell, dunkel oder dem System folgen. Nur für dich, sofort wirksam.',

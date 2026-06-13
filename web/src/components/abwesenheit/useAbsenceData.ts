@@ -4,9 +4,10 @@
 // Einstellungen → Abwesenheit subpage, so the two share one source of truth instead
 // of each re-implementing the load + WS + write plumbing.
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../../api'
 import type { FetchResult } from '../../api'
-import { t, errorText } from '../../i18n'
+import { errorText } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { useErrorToast } from '../../ui/ErrorToast'
@@ -37,6 +38,7 @@ export interface Api {
 }
 
 export function useAbsenceData(token: string, onLogout: () => void) {
+  const { t } = useTranslation()
   const [data, setData] = useState<AbsenceState>(EMPTY)
   const [loading, setLoading] = useState(true)
   const { flashError, errorToast } = useErrorToast()
@@ -97,54 +99,54 @@ export function useAbsenceData(token: string, onLogout: () => void) {
   }
   const api: Api = {
     setAbsence: async (userId, date, type, half) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) }), t.abwesenheit.saveFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries`, { method: 'POST', ...json({ userId, date, type, half }) }), t('abwesenheit.saveFailed'))
     },
     clearAbsence: async (userId, date) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries?userId=${encodeURIComponent(userId)}&date=${date}`, { method: 'DELETE' }), t('abwesenheit.deleteFailed'))
     },
     setAbsenceRange: async (userId, type, from, to, half) => {
       const dates = type
         ? eachDate(from, to).filter((ds) => isWorkdayFor(data, userId, ds))
         : eachDate(from, to)
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) }), t.abwesenheit.saveFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/entries/batch`, { method: 'POST', ...json({ userId, type, half, dates }) }), t('abwesenheit.saveFailed'))
     },
     toggleKita: async (date, label, keep = false) => {
       const existing = data.kitaClosures.find((k) => k.date === date)
       if (label == null) {
-        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'DELETE' }), t('abwesenheit.deleteFailed'))
       } else if (keep) {
-        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) }), t.abwesenheit.kitaFailed)
-        else await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+        if (existing) await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${existing.id}`, { method: 'PUT', ...json({ label }) }), t('abwesenheit.kitaFailed'))
+        else await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t('abwesenheit.kitaFailed'))
       } else if (!existing) {
-        await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+        await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t('abwesenheit.kitaFailed'))
       }
     },
     addKita: async (date, label) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita`, { method: 'POST', ...json({ date, label }) }), t('abwesenheit.kitaFailed'))
     },
     addKitaRange: async (from, to, label) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/range`, { method: 'POST', ...json({ from, to, label }) }), t('abwesenheit.kitaFailed'))
     },
     updateKita: async (id, patch) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.kitaFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'PUT', ...json(patch) }), t('abwesenheit.kitaFailed'))
     },
     removeKita: async (id) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/kita/${id}`, { method: 'DELETE' }), t('abwesenheit.deleteFailed'))
     },
     addCustomHoliday: async (holiday) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays`, { method: 'POST', ...json(holiday) }), t.abwesenheit.holidayFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays`, { method: 'POST', ...json(holiday) }), t('abwesenheit.holidayFailed'))
     },
     updateCustomHoliday: async (id, patch) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.holidayFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'PUT', ...json(patch) }), t('abwesenheit.holidayFailed'))
     },
     removeCustomHoliday: async (id) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/holidays/${id}`, { method: 'DELETE' }), t('abwesenheit.deleteFailed'))
     },
     updateAbsSettings: async (userId, year, patch) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}/${year}`, { method: 'PUT', ...json(patch) }), t.abwesenheit.settingsFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/settings/${encodeURIComponent(userId)}/${year}`, { method: 'PUT', ...json(patch) }), t('abwesenheit.settingsFailed'))
     },
     addPartTime: async (rule) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t.abwesenheit.partTimeFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime`, { method: 'POST', ...json(rule) }), t('abwesenheit.partTimeFailed'))
     },
     updatePartTime: async (id, patch) => {
       const rule = data.partTime.find((r) => r.id === id)
@@ -154,10 +156,10 @@ export function useAbsenceData(token: string, onLogout: () => void) {
         start: patch.start ?? rule.start,
         end: 'end' in patch ? patch.end ?? null : rule.end ?? null,
       }
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) }), t.abwesenheit.partTimeFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'PUT', ...json(body) }), t('abwesenheit.partTimeFailed'))
     },
     removePartTime: async (id) => {
-      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' }), t.abwesenheit.deleteFailed)
+      await mutate(() => safeFetch(token, `${API_BASE}/absence/parttime/${id}`, { method: 'DELETE' }), t('abwesenheit.deleteFailed'))
     },
   }
 

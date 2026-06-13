@@ -1,9 +1,9 @@
 // Abwesenheit grids — Jahresraster (year grid) + Monatskalender (month view).
 // Ported from the design handoff (abw_grid.jsx).
 import type { MouseEvent, ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Icon } from '../../ui/Icon'
 import { userMeta } from '../../ui/format'
-import { t } from '../../i18n'
 import * as C from './holidays'
 import { type Ctx, type DayState, type Palette, TYPES, cellBg, colorFor, personDay, statusLabel } from './core'
 
@@ -23,14 +23,15 @@ interface GridProps {
 
 /* ---------- Legend ---------- */
 export function AbwLegend({ userIds, pal }: { userIds: string[]; pal: Palette }) {
+  const { t } = useTranslation()
   const items: { sw: string; label: string }[] = [
-    { sw: 'split', label: t.abwesenheit.legendUrlaub },
-    { sw: pal.KRANK, label: t.abwesenheit.legendKrank },
-    { sw: pal.KIND_KRANK, label: t.abwesenheit.legendKind },
-    { sw: pal.FEIERTAG, label: t.abwesenheit.legendFeiertag },
-    { sw: pal.teilzeit(220), label: t.abwesenheit.legendTeilzeit },
-    { sw: pal.WEEKEND, label: t.abwesenheit.legendWeekend },
-    { sw: 'kita', label: t.abwesenheit.legendKita },
+    { sw: 'split', label: t('abwesenheit.legendUrlaub') },
+    { sw: pal.KRANK, label: t('abwesenheit.legendKrank') },
+    { sw: pal.KIND_KRANK, label: t('abwesenheit.legendKind') },
+    { sw: pal.FEIERTAG, label: t('abwesenheit.legendFeiertag') },
+    { sw: pal.teilzeit(220), label: t('abwesenheit.legendTeilzeit') },
+    { sw: pal.WEEKEND, label: t('abwesenheit.legendWeekend') },
+    { sw: 'kita', label: t('abwesenheit.legendKita') },
   ]
   return (
     <div className="abw-legend">
@@ -52,6 +53,7 @@ export function AbwLegend({ userIds, pal }: { userIds: string[]; pal: Palette })
 
 /* =================== JAHRESRASTER =================== */
 export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
+  const { t } = useTranslation()
   const year = ctx.year
   const [uA, uB] = userIds
   const months = C.MON_ABBR
@@ -81,7 +83,7 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
       const halfHol = a.holidayHalf
       const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)} · ${nameOf(uB)}: ${statusLabel(b)}`
         + (showCustom ? ` · ${custom.label}${custom.half ? ' (½)' : ''}` : '')
-        + (kita ? ` · ${t.abwesenheit.kitaShort}: ${kita.label}` : '')
+        + (kita ? ` · ${t('abwesenheit.kitaShort')}: ${kita.label}` : '')
       cells.push(
         <button
           key={mi + '_' + d}
@@ -106,6 +108,7 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
 
 /* =================== MONATSKALENDER =================== */
 function MonatsChip({ st, uid, pal }: { st: DayState; uid: string; pal: Palette }) {
+  const { t } = useTranslation()
   let bg: string
   let fg: string
   let label: string
@@ -121,7 +124,7 @@ function MonatsChip({ st, uid, pal }: { st: DayState; uid: string; pal: Palette 
   } else if (st.ptOff) {
     bg = pal.teilzeit(st.hue)
     fg = pal.onLight
-    label = t.abwesenheit.frei
+    label = t('abwesenheit.frei')
   } else {
     return null
   }
@@ -144,6 +147,7 @@ interface MonthProps extends GridProps {
 }
 
 export function MonatsKalender({ ctx, pal, userIds, today, onPick, month, setMonth }: MonthProps) {
+  const { t } = useTranslation()
   const year = ctx.year
   const first = new Date(year, month, 1, 12)
   const lead = (first.getDay() + 6) % 7 // Mon = 0
@@ -167,7 +171,7 @@ export function MonatsKalender({ ctx, pal, userIds, today, onPick, month, setMon
         >
           <div className="abw-mcell__top">
             <span className={`abw-mcell__num hb-mono${isToday ? ' is-today' : ''}`}>{date.getDate()}</span>
-            {kita ? <span className="abw-mcell__kita" title={`${t.abwesenheit.kitaShort}: ${kita.label}`}>{t.abwesenheit.kitaShort}</span> : null}
+            {kita ? <span className="abw-mcell__kita" title={`${t('abwesenheit.kitaShort')}: ${kita.label}`}>{t('abwesenheit.kitaShort')}</span> : null}
           </div>
           <div className="abw-mcell__chips">
             {userIds.map((uid) => <MonatsChip key={uid} st={personDay(ctx, uid, ds)} uid={uid} pal={pal} />)}
@@ -183,11 +187,11 @@ export function MonatsKalender({ ctx, pal, userIds, today, onPick, month, setMon
   return (
     <div className="abw-month">
       <div className="abw-mnav">
-        <button className="hb-iconbtn" onClick={() => setMonth(month - 1 < 0 ? 11 : month - 1)} aria-label={t.abwesenheit.prevMonth}>
+        <button className="hb-iconbtn" onClick={() => setMonth(month - 1 < 0 ? 11 : month - 1)} aria-label={t('abwesenheit.prevMonth')}>
           <Icon name="chevronLeft" size={18} stroke={2} />
         </button>
         <div className="abw-mnav__title">{C.MON_FULL[month]} <span>{year}</span></div>
-        <button className="hb-iconbtn" onClick={() => setMonth(month + 1 > 11 ? 0 : month + 1)} aria-label={t.abwesenheit.nextMonth}>
+        <button className="hb-iconbtn" onClick={() => setMonth(month + 1 > 11 ? 0 : month + 1)} aria-label={t('abwesenheit.nextMonth')}>
           <Icon name="chevronRight" size={18} stroke={2} />
         </button>
       </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { ShoppingItem, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
@@ -44,6 +45,7 @@ interface ShoppingViewProps {
 }
 
 export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
+  const { t } = useTranslation()
   const [items, setItems] = useState<ShoppingItem[]>([])
   const [lists, setLists] = useState<ShoppingList[]>([])
   const [loading, setLoading] = useState(true)
@@ -216,7 +218,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim(), listId: active.id }),
       })
-      if (!result.ok) return flashError(errorText(null, t.shopping.addFailed))
+      if (!result.ok) return flashError(errorText(null, t('shopping.addFailed')))
       const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
@@ -224,7 +226,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         setItems((prev) => (prev.some((i) => i.id === created.id) ? prev : [created, ...prev]))
         setNewName('')
       } else {
-        flashError(errorText(await errorCode(res), t.shopping.addFailed))
+        flashError(errorText(await errorCode(res), t('shopping.addFailed')))
       }
     } finally {
       setSubmitting(false)
@@ -250,13 +252,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     const result = await safeFetch(token, `${API_BASE}/shopping/${id}`, { method: 'DELETE' })
     if (!result.ok) {
       await fetchAll()
-      return flashError(errorText(null, t.shopping.deleteFailed))
+      return flashError(errorText(null, t('shopping.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchAll()
-      flashError(errorText(await errorCode(res), t.shopping.deleteFailed))
+      flashError(errorText(await errorCode(res), t('shopping.deleteFailed')))
     }
   }
 
@@ -271,7 +273,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     // Any transport reject or HTTP error → refetch to resync the list.
     if (results.some((r) => !r.ok || !r.res.ok)) {
       await fetchAll()
-      flashError(t.shopping.clearFailed)
+      flashError(t('shopping.clearFailed'))
     }
   }
 
@@ -284,13 +286,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       body: JSON.stringify({ name }),
     })
     // transport reject → no Response; surface the inline create error so the modal stays open
-    if (!result.ok) return errorText(null, t.shopping.listCreateFailed)
+    if (!result.ok) return errorText(null, t('shopping.listCreateFailed'))
     const { res } = result
     if (res.status === 401) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.shopping.listCreateFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('shopping.listCreateFailed'))
     const created: ShoppingList = await res.json()
     setLists((prev) => (prev.some((l) => l.id === created.id) ? prev : [...prev, created]))
     setActiveId(created.id)
@@ -312,13 +314,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     // which could clobber a concurrent WS update.
     if (!result.ok) {
       await fetchAll()
-      return flashError(errorText(null, t.shopping.listDeleteFailed))
+      return flashError(errorText(null, t('shopping.listDeleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchAll()
-      flashError(errorText(await errorCode(res), t.shopping.listDeleteFailed))
+      flashError(errorText(await errorCode(res), t('shopping.listDeleteFailed')))
     }
   }
 
@@ -342,8 +344,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={`${lists.length} ${lists.length === 1 ? t.shopping.listOne : t.shopping.listMany} · ${totalOpen} ${t.shopping.open}`}
-        title={t.shopping.title}
+        eyebrow={`${lists.length} ${lists.length === 1 ? t('shopping.listOne') : t('shopping.listMany')} · ${totalOpen} ${t('shopping.open')}`}
+        title={t('shopping.title')}
       />
 
       {/* Listen-Tabs */}
@@ -362,14 +364,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         ))}
         <button className="hb-tab hb-tab--add" onClick={() => setNewListOpen(true)}>
           <Icon name="plus" size={16} stroke={2.2} />
-          {t.shopping.newList}
+          {t('shopping.newList')}
         </button>
       </div>
 
       {loading ? (
-        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : !active ? (
-        <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.noLists} hint={t.shopping.noListsHint} /></Card>
+        <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.noLists')} hint={t('shopping.noListsHint')} /></Card>
       ) : (
         <>
           <div className="hb-shop-add">
@@ -382,21 +384,21 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
             </div>
-            <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t.common.add}</Button>
+            <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t('common.add')}</Button>
           </div>
 
           {pendingCount > 0 && (
             <div className="hb-syncbar" role="status">
               <Icon name="repeat" size={15} stroke={2} />
               <span>
-                {(pendingCount === 1 ? t.shopping.offlineQueuedOne : t.shopping.offlineQueuedMany).replace('{n}', String(pendingCount))}
+                {pendingCount === 1 ? t('shopping.offlineQueuedOne') : t('shopping.offlineQueuedMany', { n: String(pendingCount) })}
               </span>
-              <button className="hb-link" onClick={() => void flushPending()}>{t.shopping.retryNow}</button>
+              <button className="hb-link" onClick={() => void flushPending()}>{t('shopping.retryNow')}</button>
             </div>
           )}
 
           {open.length === 0 && checked.length === 0 ? (
-            <Card className="hb-card--pad"><EmptyState icon="cart" title={t.shopping.emptyTitle} hint={t.shopping.emptyHint} /></Card>
+            <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.emptyTitle')} hint={t('shopping.emptyHint')} /></Card>
           ) : (
             <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
               <div className="hb-list">
@@ -406,18 +408,18 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                     <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                     <div className="hb-row__right">
                       {pending[item.id] && (
-                        <span className="hb-syncbadge" title={t.shopping.notSynced} aria-label={t.shopping.notSynced}>
+                        <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
                           <Icon name="repeat" size={13} stroke={2} />
                         </span>
                       )}
                       <Avatar user={item.createdBy} size={22} />
                       <div className="hb-row__actions">
-                        <IconButton icon="trash" label={t.common.delete} danger onClick={() => handleDelete(item.id)} />
+                        <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
                       </div>
                     </div>
                   </div>
                 ))}
-                {open.length === 0 && <div className="hb-muted" style={{ padding: '14px 4px', fontSize: 14 }}>{t.shopping.allChecked}</div>}
+                {open.length === 0 && <div className="hb-muted" style={{ padding: '14px 4px', fontSize: 14 }}>{t('shopping.allChecked')}</div>}
               </div>
             </Card>
           )}
@@ -425,9 +427,9 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           {checked.length > 0 && (
             <div style={{ marginTop: 26 }}>
               <div className="hb-cardhead" style={{ marginBottom: 12 }}>
-                <div className="hb-sectionlabel" style={{ margin: 0 }}>{t.shopping.inCart} · {checked.length}</div>
+                <div className="hb-sectionlabel" style={{ margin: 0 }}>{t('shopping.inCart')} · {checked.length}</div>
                 <button className="hb-link" onClick={clearChecked}>
-                  {t.shopping.clearChecked} <Icon name="trash" size={14} stroke={2} />
+                  {t('shopping.clearChecked')} <Icon name="trash" size={14} stroke={2} />
                 </button>
               </div>
               <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
@@ -437,7 +439,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                       <Checkbox checked onChange={() => toggleChecked(item)} />
                       <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                       {pending[item.id] && (
-                        <span className="hb-syncbadge" title={t.shopping.notSynced} aria-label={t.shopping.notSynced}>
+                        <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
                           <Icon name="repeat" size={13} stroke={2} />
                         </span>
                       )}
@@ -452,7 +454,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           {lists.length > 1 && (
             <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
               <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {t.shopping.deleteList} „{active.name}"
+              {t('shopping.deleteList')} „{active.name}"
             </button>
           )}
         </>
@@ -461,19 +463,19 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       <Modal
         open={confirmDeleteList && !!active}
         onClose={() => setConfirmDeleteList(false)}
-        title={t.shopping.deleteListTitle}
+        title={t('shopping.deleteListTitle')}
         width={440}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setConfirmDeleteList(false)}>{t.common.cancel}</Button>
-            <Button variant="danger" icon="trash" onClick={removeList}>{t.shopping.deleteListBtn}</Button>
+            <Button variant="ghost" onClick={() => setConfirmDeleteList(false)}>{t('common.cancel')}</Button>
+            <Button variant="danger" icon="trash" onClick={removeList}>{t('shopping.deleteListBtn')}</Button>
           </>
         }
       >
         {active && (
           <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
             Die Liste „<strong>{active.name}</strong>" und alle Einträge darin werden gelöscht.{' '}
-            {t.shopping.deleteListWarn}
+            {t('shopping.deleteListWarn')}
           </p>
         )}
       </Modal>
@@ -486,6 +488,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 }
 
 function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<string | null> }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -498,7 +501,7 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
       const err = await onCreate(name.trim())
       if (err) setError(err)
     } catch {
-      setError(t.shopping.listCreateFailed)
+      setError(t('shopping.listCreateFailed'))
     } finally {
       setBusy(false)
     }
@@ -507,17 +510,17 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
     <Modal
       open
       onClose={onClose}
-      title={t.shopping.newListTitle}
+      title={t('shopping.newListTitle')}
       width={420}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t.shopping.createList}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t('shopping.createList')}</Button>
         </>
       }
     >
-      <Field label={t.shopping.listName}>
-        <TextInput value={name} onChange={setName} placeholder={t.shopping.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
+      <Field label={t('shopping.listName')}>
+        <TextInput value={name} onChange={setName} placeholder={t('shopping.listNamePlaceholder')} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
       </Field>
       {error && <p className="hb-modal-error">{error}</p>}
     </Modal>

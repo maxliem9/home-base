@@ -27,7 +27,7 @@ describe('errorCode', () => {
 
 describe('errorText', () => {
   it('maps a known code to its localized message', () => {
-    expect(errorText('PROJECT_ARCHIVED', 'fallback')).toBe(t.errors.PROJECT_ARCHIVED)
+    expect(errorText('PROJECT_ARCHIVED', 'fallback')).toBe(t('errors.PROJECT_ARCHIVED'))
   })
 
   it('uses the fallback for unknown or absent codes', () => {
@@ -40,8 +40,8 @@ describe('errorText', () => {
   // The recipes "add to shopping" write path (issue #96) routes real failures
   // through the error toast with this per-action German fallback.
   it('exposes the recipes add-to-list write-error fallback', () => {
-    expect(t.recipes.addToListFailed).toBeTruthy()
-    expect(errorText(null, t.recipes.addToListFailed)).toBe(t.recipes.addToListFailed)
+    expect(t('recipes.addToListFailed')).toBeTruthy()
+    expect(errorText(null, t('recipes.addToListFailed'))).toBe(t('recipes.addToListFailed'))
   })
 
   // The domain views added in issue #96 surface these backend codes; every one
@@ -65,8 +65,8 @@ describe('errorText', () => {
       'FORBIDDEN', 'MISSING_PARAM',
     ]
     for (const code of codes) {
-      expect(t.errors[code], `missing German text for ${code}`).toBeTruthy()
-      expect(errorText(code, 'FALLBACK'), `${code} fell through to fallback`).toBe(t.errors[code])
+      expect(t(`errors.${code}`), `missing German text for ${code}`).toBeTruthy()
+      expect(errorText(code, 'FALLBACK'), `${code} fell through to fallback`).toBe(t(`errors.${code}`))
     }
   })
 })

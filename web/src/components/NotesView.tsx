@@ -7,8 +7,9 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
 } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { AuthedImage } from '../ui/AuthedImage'
@@ -57,6 +58,7 @@ interface NotesViewProps {
 }
 
 export function NotesView({ token, onLogout }: NotesViewProps) {
+  const { t } = useTranslation()
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -146,7 +148,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
       // transport reject → keep the editor open and show the inline error so the user can retry
       if (!result.ok) {
-        setSaveError(errorText(null, t.notes.saveFailed))
+        setSaveError(errorText(null, t('notes.saveFailed')))
         return
       }
       const { res } = result
@@ -158,7 +160,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         setDraft(null)
       } else {
         // keep the editor open and show the reason inline so the user can retry
-        setSaveError(errorText(await errorCode(res), t.notes.saveFailed))
+        setSaveError(errorText(await errorCode(res), t('notes.saveFailed')))
       }
     } finally {
       setSaving(false)
@@ -174,13 +176,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     // which could clobber a concurrent WS update.
     if (!result.ok) {
       await fetchNotes(query)
-      return flashError(errorText(null, t.notes.deleteFailed))
+      return flashError(errorText(null, t('notes.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchNotes(query)
-      flashError(errorText(await errorCode(res), t.notes.deleteFailed))
+      flashError(errorText(await errorCode(res), t('notes.deleteFailed')))
     }
   }
 
@@ -238,12 +240,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         // the upload returns the whole note; the newest attachment is the last image
         return updated.images[updated.images.length - 1] ?? null
       }
-      if (res.status === 413) setImageError(t.notes.imageTooLarge)
-      else if (res.status === 415) setImageError(t.notes.imageBadType)
-      else setImageError(errorText(await errorCode(res), t.notes.imageUploadFailed))
+      if (res.status === 413) setImageError(t('notes.imageTooLarge'))
+      else if (res.status === 415) setImageError(t('notes.imageBadType'))
+      else setImageError(errorText(await errorCode(res), t('notes.imageUploadFailed')))
       return null
     } catch {
-      setImageError(t.notes.imageUploadFailed)
+      setImageError(t('notes.imageUploadFailed'))
       return null
     } finally {
       setUploadingImage(false)
@@ -261,7 +263,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // hint to save first rather than dropping the file silently.
   const uploadAndInsert = async (file: File) => {
     if (!draft) return
-    if (!draft.id) { setImageError(t.notes.imageSaveFirst); return }
+    if (!draft.id) { setImageError(t('notes.imageSaveFirst')); return }
     // remember which note this upload belongs to; the await below lets the user switch
     // (or close) the editor meanwhile. The image is still saved to the right note
     // server-side — we just must not paste its ref into a now-different note's content.
@@ -319,7 +321,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     const result = await safeFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
     // transport reject → no Response; surface the inline image error
     if (!result.ok) {
-      setImageError(errorText(null, t.notes.imageDeleteFailed))
+      setImageError(errorText(null, t('notes.imageDeleteFailed')))
       return
     }
     const { res } = result
@@ -328,7 +330,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       const updated: Note = await res.json()
       setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
     } else {
-      setImageError(errorText(await errorCode(res), t.notes.imageDeleteFailed))
+      setImageError(errorText(await errorCode(res), t('notes.imageDeleteFailed')))
     }
   }
 
@@ -373,22 +375,22 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={`${notes.length} ${t.notes.count}`}
-        title={t.notes.title}
-        actions={<Button icon="plus" onClick={() => { setDraft(emptyDraft()); setSelectedId(null) }}>{t.notes.newNote}</Button>}
+        eyebrow={`${notes.length} ${t('notes.count')}`}
+        title={t('notes.title')}
+        actions={<Button icon="plus" onClick={() => { setDraft(emptyDraft()); setSelectedId(null) }}>{t('notes.newNote')}</Button>}
       />
 
       <div className="hb-notes-layout">
         <div>
           <div className="hb-quickadd hb-search" style={{ marginBottom: 14 }}>
             <Icon name="search" size={18} stroke={2} style={{ color: 'var(--ink-3)' }} />
-            <input value={query} placeholder={t.notes.searchPlaceholder} onChange={(e) => setQuery(e.target.value)} />
+            <input value={query} placeholder={t('notes.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} />
           </div>
 
           {allFolders.length > 0 && (
             <div className="hb-tagrow">
               <button className={`hb-tagchip${folderFilter === null ? ' is-active' : ''}`} onClick={() => setFolderFilter(null)}>
-                {t.notes.allFolders}
+                {t('notes.allFolders')}
               </button>
               {allFolders.map((folder) => (
                 <button
@@ -400,7 +402,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 </button>
               ))}
               <button className={`hb-tagchip${folderFilter === '' ? ' is-active' : ''}`} onClick={() => setFolderFilter('')}>
-                {t.notes.noFolder}
+                {t('notes.noFolder')}
               </button>
             </div>
           )}
@@ -408,7 +410,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           {allTags.length > 0 && (
             <div className="hb-tagrow">
               <button className={`hb-tagchip${tagFilter === null ? ' is-active' : ''}`} onClick={() => setTagFilter(null)}>
-                {t.notes.allTags}
+                {t('notes.allTags')}
               </button>
               {allTags.map((tag) => (
                 <button key={tag} className={`hb-tagchip${tagFilter === tag ? ' is-active' : ''}`} onClick={() => setTagFilter(tag)}>
@@ -419,10 +421,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           )}
 
           {loading ? (
-            <p className="hb-muted" style={{ padding: 8 }}>{t.common.loading}</p>
+            <p className="hb-muted" style={{ padding: 8 }}>{t('common.loading')}</p>
           ) : listed.length === 0 ? (
             <Card className="hb-card--pad">
-              <EmptyState icon="note" title={query.trim() ? t.notes.noResults : t.notes.empty} hint={query.trim() ? undefined : t.notes.emptyHint} />
+              <EmptyState icon="note" title={query.trim() ? t('notes.noResults') : t('notes.empty')} hint={query.trim() ? undefined : t('notes.emptyHint')} />
             </Card>
           ) : (
             <div className="hb-notes-items">
@@ -459,16 +461,16 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         <div>
           {draft ? (
             <Card className="hb-card--pad">
-              <Field label={t.common.titlePlaceholder}>
-                <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t.common.titlePlaceholder} />
+              <Field label={t('common.titlePlaceholder')}>
+                <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t('common.titlePlaceholder')} />
               </Field>
-              <Field label={t.notes.contentPlaceholder}>
+              <Field label={t('notes.contentPlaceholder')}>
                 <textarea
                   ref={contentRef}
                   className="hb-input hb-mono-area"
                   rows={12}
                   value={draft.content}
-                  placeholder={t.notes.contentPlaceholder}
+                  placeholder={t('notes.contentPlaceholder')}
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
                   // paste/drag an image straight into the editor → upload + inline ref (#146)
                   onPaste={handleEditorPaste}
@@ -478,21 +480,21 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 {/* subtle inline feedback for the paste/drop upload flow */}
                 {uploadingImage && (
                   <p className="hb-note-editor__uploading">
-                    <Icon name="image" size={14} stroke={2} /> {t.notes.imageUploadingInline}
+                    <Icon name="image" size={14} stroke={2} /> {t('notes.imageUploadingInline')}
                   </p>
                 )}
                 {imageError && <p className="hb-note-images__error">{imageError}</p>}
               </Field>
               {editImages.length > 0 && (
-                <Field label={t.notes.insertImageLabel}>
+                <Field label={t('notes.insertImageLabel')}>
                   <div className="hb-note-insert-strip">
                     {editImages.map((img) => (
                       <button
                         key={img.id}
                         type="button"
                         className="hb-note-insert-thumb"
-                        title={`${t.notes.insertImage}: ${img.originalName}`}
-                        aria-label={`${t.notes.insertImage}: ${img.originalName}`}
+                        title={`${t('notes.insertImage')}: ${img.originalName}`}
+                        aria-label={`${t('notes.insertImage')}: ${img.originalName}`}
                         onClick={() => insertAtCaret(img)}
                       >
                         <AuthedImage url={noteImageUrl(draft.id!, img.id)} token={token} alt={img.originalName} />
@@ -501,15 +503,15 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   </div>
                 </Field>
               )}
-              <Field label={t.notes.tagsPlaceholder}>
-                <TextInput value={draft.tags} onChange={(v) => setDraft({ ...draft, tags: v })} placeholder={t.notes.tagsPlaceholder} />
+              <Field label={t('notes.tagsPlaceholder')}>
+                <TextInput value={draft.tags} onChange={(v) => setDraft({ ...draft, tags: v })} placeholder={t('notes.tagsPlaceholder')} />
               </Field>
-              <Field label={t.notes.folderLabel}>
+              <Field label={t('notes.folderLabel')}>
                 <input
                   className="hb-input"
                   list="hb-note-folders"
                   value={draft.folder}
-                  placeholder={t.notes.folderPlaceholder}
+                  placeholder={t('notes.folderPlaceholder')}
                   onChange={(e) => setDraft({ ...draft, folder: e.target.value })}
                 />
                 {/* autocomplete from folders already in use, derived like tags */}
@@ -518,24 +520,24 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 </datalist>
               </Field>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="hb-field__label">{t.notes.visibility}</span>
+                <span className="hb-field__label">{t('notes.visibility')}</span>
                 <Button
                   variant="secondary"
                   size="sm"
                   icon={draft.visibility === 'PRIVATE' ? 'lock' : 'users'}
                   onClick={() => setDraft({ ...draft, visibility: draft.visibility === 'SHARED' ? 'PRIVATE' : 'SHARED' })}
                 >
-                  {draft.visibility === 'PRIVATE' ? t.notes.private : t.notes.shared}
+                  {draft.visibility === 'PRIVATE' ? t('notes.private') : t('notes.shared')}
                 </Button>
               </div>
               {saveError && <p className="hb-modal-error" style={{ marginTop: 8 }}>{saveError}</p>}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
                 {draft.id ? (
-                  <Button variant="danger" icon="trash" onClick={() => handleDelete(draft.id!)}>{t.common.delete}</Button>
+                  <Button variant="danger" icon="trash" onClick={() => handleDelete(draft.id!)}>{t('common.delete')}</Button>
                 ) : <span />}
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <Button variant="ghost" onClick={() => setDraft(null)}>{t.common.cancel}</Button>
-                  <Button onClick={handleSave} disabled={saving || !draft.title.trim()}>{t.common.save}</Button>
+                  <Button variant="ghost" onClick={() => setDraft(null)}>{t('common.cancel')}</Button>
+                  <Button onClick={handleSave} disabled={saving || !draft.title.trim()}>{t('common.save')}</Button>
                 </div>
               </div>
             </Card>
@@ -547,7 +549,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   <div className="hb-note-doc__meta">
                     <Avatar user={selected.createdBy} size={22} />
                     <Badge tone={selected.visibility === 'PRIVATE' ? 'neutral' : 'accent'}>
-                      {selected.visibility === 'PRIVATE' ? t.notes.private : t.notes.shared}
+                      {selected.visibility === 'PRIVATE' ? t('notes.private') : t('notes.shared')}
                     </Badge>
                     <span className="hb-muted" style={{ fontSize: 13 }}>{relTime(selected.updatedAt)}</span>
                     {selected.folder && (
@@ -559,8 +561,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 2 }}>
-                  <IconButton icon="edit" label={t.common.edit} onClick={() => setDraft(draftFromNote(selected))} />
-                  <IconButton icon="trash" label={t.common.delete} danger onClick={() => handleDelete(selected.id)} />
+                  <IconButton icon="edit" label={t('common.edit')} onClick={() => setDraft(draftFromNote(selected))} />
+                  <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(selected.id)} />
                 </div>
               </div>
               <div className="hb-md">
@@ -575,7 +577,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               <div className="hb-note-images">
                 <div className="hb-note-images__head">
                   <span className="hb-field__label">
-                    {t.notes.images}{selected.images.length > 0 ? ` (${selected.images.length})` : ''}
+                    {t('notes.images')}{selected.images.length > 0 ? ` (${selected.images.length})` : ''}
                   </span>
                   <Button
                     variant="secondary"
@@ -584,7 +586,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploadingImage}
                   >
-                    {uploadingImage ? t.notes.uploading : t.notes.addImage}
+                    {uploadingImage ? t('notes.uploading') : t('notes.addImage')}
                   </Button>
                 </div>
                 {imageError && <p className="hb-note-images__error">{imageError}</p>}
@@ -601,8 +603,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                         <button
                           type="button"
                           className="hb-note-thumb__del"
-                          title={t.notes.removeImage}
-                          aria-label={t.notes.removeImage}
+                          title={t('notes.removeImage')}
+                          aria-label={t('notes.removeImage')}
                           onClick={() => handleDeleteImage(img.id)}
                         >
                           <Icon name="x" size={14} stroke={2.4} />
@@ -625,7 +627,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               </div>
             </Card>
           ) : (
-            <Card className="hb-card--pad"><EmptyState icon="note" title={t.notes.title} hint={t.notes.selectHint} /></Card>
+            <Card className="hb-card--pad"><EmptyState icon="note" title={t('notes.title')} hint={t('notes.selectHint')} /></Card>
           )}
         </div>
       </div>

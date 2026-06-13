@@ -193,6 +193,22 @@ test.describe('Settings — Konto (#100)', () => {
     await page.goto('/')
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   })
+
+  test('language switcher flips the UI to English and persists the choice (#6)', async ({ page }) => {
+    await openKonto(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+    // German is the default: the card and the sidebar read German.
+    await expect(body.getByRole('heading', { name: 'Sprache' })).toBeVisible()
+    await expect(page.locator('.hb-sidebar').getByRole('button', { name: 'Aufgaben' })).toBeVisible()
+
+    // Switching to "Englisch" re-renders every consumer live (no reload).
+    await body.getByRole('tab', { name: 'Englisch', exact: true }).click()
+    await expect(body.getByRole('heading', { name: 'Language' })).toBeVisible()
+    await expect(page.locator('.hb-sidebar').getByRole('button', { name: 'Tasks' })).toBeVisible()
+
+    // The choice is persisted for the next load.
+    expect(await page.evaluate(() => localStorage.getItem('homebase_lang'))).toBe('en')
+  })
 })
 
 test.describe('Settings — Benachrichtigungen (#100)', () => {

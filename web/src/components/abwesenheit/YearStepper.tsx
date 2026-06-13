@@ -5,7 +5,7 @@
 // year after stepping: the value is an aria-live region AND the whole control is
 // a role="group" labelled with the current year. Markup classes are unchanged
 // (abw-yearnav / abw-yearnav__y, styled in abw.css) so existing CSS/e2e match.
-import { t } from '../../i18n'
+import { useTranslation } from 'react-i18next'
 import { Icon } from '../../ui/Icon'
 
 // Keep the visible year inside the same window the backend accepts for settings,
@@ -15,13 +15,14 @@ export const YEAR_MAX = 2200
 export const clampYear = (y: number): number => Math.min(YEAR_MAX, Math.max(YEAR_MIN, y))
 
 export function YearStepper({ year, onChange }: { year: number; onChange: (y: number) => void }) {
+  const { t } = useTranslation()
   return (
-    <div className="abw-yearnav" role="group" aria-label={t.abwesenheit.yearNav.replace('{year}', String(year))}>
-      <button className="hb-iconbtn" onClick={() => onChange(clampYear(year - 1))} aria-label={t.abwesenheit.prevYear}>
+    <div className="abw-yearnav" role="group" aria-label={t('abwesenheit.yearNav', { year: String(year) })}>
+      <button className="hb-iconbtn" onClick={() => onChange(clampYear(year - 1))} aria-label={t('abwesenheit.prevYear')}>
         <Icon name="chevronLeft" size={17} stroke={2.2} />
       </button>
       <span className="abw-yearnav__y hb-mono" aria-live="polite">{year}</span>
-      <button className="hb-iconbtn" onClick={() => onChange(clampYear(year + 1))} aria-label={t.abwesenheit.nextYear}>
+      <button className="hb-iconbtn" onClick={() => onChange(clampYear(year + 1))} aria-label={t('abwesenheit.nextYear')}>
         <Icon name="chevronRight" size={17} stroke={2.2} />
       </button>
     </div>
