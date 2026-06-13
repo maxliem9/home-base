@@ -272,8 +272,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
   // first image among dropped/pasted items, JPEG/PNG/WebP/GIF only (backend-allowed set)
   const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  // Some browsers/paths (certain Safari paste variants, some drag sources) hand us a
+  // File with an EMPTY `type`; matching only on MIME would silently drop those (#154).
+  // Fall back to the file extension in that case so we still recognise an allowed image —
+  // without weakening the MIME allow-list for files that DO report a type (a pasted
+  // empty-type .txt stays a non-image).
+  const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+  const isAllowedImage = (f: File): boolean => {
+    if (f.type) return ALLOWED_IMAGE_TYPES.includes(f.type)
+    const name = f.name.toLowerCase()
+    return ALLOWED_IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext))
+  }
   const firstImageFile = (files: readonly File[]): File | null =>
-    files.find((f) => ALLOWED_IMAGE_TYPES.includes(f.type)) ?? null
+    files.find(isAllowedImage) ?? null
 
   const handleEditorPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     // pull image files out of the clipboard items; ignore plain-text pastes entirely
