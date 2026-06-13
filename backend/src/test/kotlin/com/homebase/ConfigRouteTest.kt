@@ -97,13 +97,27 @@ class ConfigRouteTest {
     }
 
     @Test
-    fun `GET digest falls back to the configured default and reports Telegram disabled in tests`() = testApplication {
+    fun `GET digest defaults to all sections, enabled on, and reports Telegram unconfigured in tests`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val body = digest(token)
         // the test config sets no digest time override and no Telegram creds
         assertEquals("20:00", body["time"]!!.jsonPrimitive.content)
-        assertEquals(false, body["enabled"]!!.jsonPrimitive.boolean)
+        // #182: enabled is the in-app toggle (defaults on); telegramConfigured is the env flag.
+        assertEquals(true, body["enabled"]!!.jsonPrimitive.boolean)
+        assertEquals(false, body["telegramConfigured"]!!.jsonPrimitive.boolean)
+        // an untouched DB selects every evening section, in display order
+        assertEquals(
+            listOf(
+                "evening_done_today", "evening_new_inbox", "evening_due_tomorrow",
+                "evening_absent_tomorrow", "evening_kita_tomorrow",
+            ),
+            body["sections"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(
+            body["sections"]!!.jsonArray.map { it.jsonPrimitive.content },
+            body["availableSections"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
     }
 
     @Test
@@ -118,6 +132,50 @@ class ConfigRouteTest {
         assertEquals(HttpStatusCode.OK, res.status)
         assertEquals("07:05", Json.parseToJsonElement(res.bodyAsText()).jsonObject["time"]!!.jsonPrimitive.content)
         assertEquals("07:05", digest(token)["time"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PUT digest toggles enabled and selects sections independently of the time (#182)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        // Disable + select a subset; the time is left out of the body and must stay at its default.
+        val res = client.put("/api/v1/config/digest") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":false,"sections":["evening_due_tomorrow","evening_done_today"]}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val body = digest(token)
+        assertEquals(false, body["enabled"]!!.jsonPrimitive.boolean)
+        assertEquals("20:00", body["time"]!!.jsonPrimitive.content) // untouched
+        // stored in canonical display order regardless of request order
+        assertEquals(
+            listOf("evening_done_today", "evening_due_tomorrow"),
+            body["sections"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+
+        // An empty selection is allowed (means "render nothing") and round-trips.
+        client.put("/api/v1/config/digest") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"sections":[]}""")
+        }
+        assertEquals(0, digest(token)["sections"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `PUT digest rejects an unknown section id with 400 INVALID_SECTION (#182)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/digest") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            // a morning-only id is not valid for the evening digest
+            setBody("""{"sections":["morning_overdue"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_SECTION",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
     }
 
     @Test
@@ -147,13 +205,18 @@ class ConfigRouteTest {
     }
 
     @Test
-    fun `GET morning-digest falls back to the configured default and reports Telegram disabled in tests`() = testApplication {
+    fun `GET morning-digest defaults to all sections, enabled on, and reports Telegram unconfigured`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val body = morningDigest(token)
         // the test config sets no morning-digest override and no Telegram creds
         assertEquals("07:00", body["time"]!!.jsonPrimitive.content)
-        assertEquals(false, body["enabled"]!!.jsonPrimitive.boolean)
+        assertEquals(true, body["enabled"]!!.jsonPrimitive.boolean)
+        assertEquals(false, body["telegramConfigured"]!!.jsonPrimitive.boolean)
+        assertEquals(
+            listOf("morning_due_today", "morning_overdue", "morning_inbox", "morning_absent", "morning_kita"),
+            body["availableSections"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
     }
 
     @Test

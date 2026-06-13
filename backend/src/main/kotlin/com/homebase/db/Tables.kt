@@ -24,6 +24,16 @@ object AppSettingsTable : Table("app_settings") {
     // Daily run time of the recurring-todo safety-net scheduler, editable in-app like the
     // digest time (#100); the scheduler re-reads it each cycle so a change needs no restart.
     const val RECURRING_TIME = "recurring_time"
+
+    // Per-digest on/off + content-section selection (#182), all editable in-app and re-read by
+    // the scheduler each cycle (like the times). The *_ENABLED keys hold "true"/"false"; the
+    // *_SECTIONS keys hold a compact CSV of selected section ids (DigestSection.id). An unset
+    // key means "use the default" (enabled = on; sections = all of that digest's sections), so a
+    // fresh DB keeps sending the full digest exactly as before.
+    const val DIGEST_EVENING_ENABLED = "digest_evening_enabled"
+    const val DIGEST_MORNING_ENABLED = "digest_morning_enabled"
+    const val DIGEST_EVENING_SECTIONS = "digest_evening_sections"
+    const val DIGEST_MORNING_SECTIONS = "digest_morning_sections"
 }
 
 // Generic PER-USER key/value preferences (#100). Personal (each user reads/writes

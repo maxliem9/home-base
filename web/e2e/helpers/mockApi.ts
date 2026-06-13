@@ -79,9 +79,19 @@ export class MockApi {
   private silent = false
   private householdName = 'Mäxchen'
   private password = 'geheim'
-  private digestTime = '20:00'
-  private morningDigestTime = '07:00'
-  private telegramEnabled = false
+  // Per-digest config (#100/#182): time, in-app on/off, content-section selection. Defaults
+  // mirror the backend — enabled on, all sections selected. telegramConfigured stays false in
+  // tests (no creds), driving the "inactive" note while keeping the controls editable.
+  private telegramConfigured = false
+  private eveningSectionsAll = [
+    'evening_done_today', 'evening_new_inbox', 'evening_due_tomorrow',
+    'evening_absent_tomorrow', 'evening_kita_tomorrow',
+  ]
+  private morningSectionsAll = [
+    'morning_due_today', 'morning_overdue', 'morning_inbox', 'morning_absent', 'morning_kita',
+  ]
+  private evening = { time: '20:00', enabled: true, sections: [...this.eveningSectionsAll] }
+  private morning = { time: '07:00', enabled: true, sections: [...this.morningSectionsAll] }
   private recurringTime = '00:30'
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
   // upserts via PUT /user-prefs/{key}.
@@ -272,6 +282,38 @@ export class MockApi {
     })
   }
 
+  // Shape of a digest GET/PUT response (#182). availableSections is the digest's full, ordered
+  // section list; sections is the current selection (kept in that same order).
+  private digestResponse(d: { time: string; enabled: boolean; sections: string[] }, all: string[]) {
+    return {
+      time: d.time,
+      enabled: d.enabled,
+      telegramConfigured: this.telegramConfigured,
+      sections: d.sections,
+      availableSections: all,
+    }
+  }
+
+  // Mirrors the backend digest PUT: patch only the fields present, validate time + section ids,
+  // store sections in canonical order. Mutates the passed-in digest state in place.
+  private putDigest(route: Route, d: { time: string; enabled: boolean; sections: string[] }, all: string[]) {
+    const body = JSON.parse(route.request().postData() ?? '{}')
+    if (body.time != null) {
+      const raw = String(body.time).trim()
+      // Match the backend's LocalTime.parse: zero-padded HH:mm (seconds optional, dropped).
+      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      d.time = `${m[1]}:${m[2]}`
+    }
+    if (body.enabled != null) d.enabled = Boolean(body.enabled)
+    if (body.sections != null) {
+      const ids: string[] = (body.sections as unknown[]).map((s) => String(s).trim())
+      if (ids.some((id) => !all.includes(id))) return this.json(route, { code: 'INVALID_SECTION', message: 'bad' }, 400)
+      d.sections = all.filter((id) => ids.includes(id))
+    }
+    return this.json(route, this.digestResponse(d, all))
+  }
+
   // Like json(), but tags the response with WebSocket frames the in-page bridge
   // replays onto the given channel's socket(s) after the fetch resolves.
   // `pre = true` delivers them synchronously BEFORE the fetch resolves instead —
@@ -442,30 +484,21 @@ export class MockApi {
       return this.json(route, { householdName: name })
     }
 
-    // Telegram digest time (#100). Mirrors /config/digest: GET returns {time, enabled},
-    // PUT validates HH:mm (with INVALID_TIME), normalizes to HH:mm, stores.
+    // Telegram digest config (#100/#182). Mirrors /config/digest: GET returns
+    // {time, enabled, telegramConfigured, sections, availableSections}; PUT patches whichever of
+    // {time, enabled, sections} the body carries, validating the time (INVALID_TIME) + section ids
+    // (INVALID_SECTION) and persisting sections in canonical order.
     if (path.endsWith('/config/digest') && method === 'GET') {
-      return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
+      return this.json(route, this.digestResponse(this.evening, this.eveningSectionsAll))
     }
     if (path.endsWith('/config/digest') && method === 'PUT') {
-      const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
-      // Match the backend's LocalTime.parse: zero-padded HH:mm (seconds optional, dropped).
-      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
-      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
-      this.digestTime = `${m[1]}:${m[2]}`
-      return this.json(route, { time: this.digestTime, enabled: this.telegramEnabled })
+      return this.putDigest(route, this.evening, this.eveningSectionsAll)
     }
-
-    // Morning-briefing time. Same {time, enabled} contract as /config/digest.
     if (path.endsWith('/config/morning-digest') && method === 'GET') {
-      return this.json(route, { time: this.morningDigestTime, enabled: this.telegramEnabled })
+      return this.json(route, this.digestResponse(this.morning, this.morningSectionsAll))
     }
     if (path.endsWith('/config/morning-digest') && method === 'PUT') {
-      const raw = (JSON.parse(req.postData() ?? '{}').time ?? '').trim()
-      const m = /^(\d{2}):(\d{2})(:\d{2})?$/.exec(raw)
-      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
-      this.morningDigestTime = `${m[1]}:${m[2]}`
-      return this.json(route, { time: this.morningDigestTime, enabled: this.telegramEnabled })
+      return this.putDigest(route, this.morning, this.morningSectionsAll)
     }
 
     // Recurring-todo safety-net time (#100). Mirrors /config/recurring: GET returns {time},

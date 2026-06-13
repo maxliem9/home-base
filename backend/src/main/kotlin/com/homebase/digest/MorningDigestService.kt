@@ -1,7 +1,5 @@
 package com.homebase.digest
 
-import com.homebase.db.AbsencesTable
-import com.homebase.db.KitaClosuresTable
 import com.homebase.db.TodosTable
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
@@ -32,7 +30,14 @@ data class MorningDigestContent(
             absent.isEmpty() && kitaClosed.isEmpty()
 }
 
-class MorningDigestService : DigestSource {
+/**
+ * @param sections which content sections to render (#182), re-read each send cycle from
+ *   `app_settings`. Defaults to all morning sections so a fresh DB / direct construction keeps
+ *   the full briefing.
+ */
+class MorningDigestService(
+    private val sections: () -> Set<DigestSection> = { DigestSection.morning.toSet() },
+) : DigestSource {
 
     fun buildDigest(today: LocalDate): MorningDigestContent = transaction {
         val dueToday = TodosTable.selectAll().where {
@@ -51,52 +56,28 @@ class MorningDigestService : DigestSource {
             (TodosTable.status eq "INBOX") and (TodosTable.dueDate.isNull())
         }.orderBy(TodosTable.createdAt, SortOrder.ASC).map { it[TodosTable.title] }
 
-        val absent = AbsencesTable.selectAll().where { AbsencesTable.date eq today }
-            .orderBy(AbsencesTable.userId, SortOrder.ASC)
-            .map { formatAbsence(it[AbsencesTable.userId], it[AbsencesTable.type], it[AbsencesTable.half]) }
+        val calendar = familyCalendarFor(today)
 
-        val kitaClosed = KitaClosuresTable.selectAll().where { KitaClosuresTable.date eq today }
-            .orderBy(KitaClosuresTable.label, SortOrder.ASC)
-            .map { it[KitaClosuresTable.label] }
-
-        MorningDigestContent(today, dueToday, overdue, inbox, absent, kitaClosed)
+        MorningDigestContent(today, dueToday, overdue, inbox, calendar.absent, calendar.kitaClosed)
     }
 
-    override fun buildMessage(today: LocalDate): String? =
-        buildDigest(today).takeUnless { it.isEmpty }?.let { render(it) }
+    override fun buildMessage(today: LocalDate): String? = render(buildDigest(today), sections())
 
-    fun render(content: MorningDigestContent): String {
+    /** Renders only the [selected] sections (#182); an all-empty/all-deselected briefing yields null. */
+    fun render(content: MorningDigestContent, selected: Set<DigestSection> = DigestSection.morning.toSet()): String? {
         val sb = StringBuilder()
-        sb.append("🌅 HomeBase — Guten Morgen! ").append(content.date)
-        section(sb, "📅 Heute fällig", content.dueToday)
-        section(sb, "⚠️ Überfällig", content.overdue)
-        section(sb, "📥 Inbox", content.inbox)
-        section(sb, "🏖️ Heute abwesend", content.absent)
-        section(sb, "🚸 Kita geschlossen", content.kitaClosed)
-        return sb.toString()
-    }
-
-    // Unlike the evening digest (which prints "— keine —" under every heading), a morning
-    // briefing omits empty sections so only what needs attention shows. An all-empty briefing
-    // is skipped before sending (see [buildMessage] / [MorningDigestContent.isEmpty]).
-    private fun section(sb: StringBuilder, heading: String, items: List<String>) {
-        if (items.isEmpty()) return
-        sb.append("\n\n").append(heading)
-        items.forEach { sb.append("\n• ").append(it) }
-    }
-
-    private fun formatAbsence(userId: String, type: String, half: String?): String {
-        val typeLabel = when (type) {
-            "URLAUB" -> "Urlaub"
-            "KRANK" -> "Krank"
-            "KIND_KRANK" -> "Kind krank"
-            else -> type
+        var any = false
+        fun emit(section: DigestSection, heading: String, items: List<String>) {
+            if (section !in selected || items.isEmpty()) return
+            appendSection(sb, heading, items, emptyPlaceholder = null)
+            any = true
         }
-        val halfLabel = when (half) {
-            "vm" -> " (vormittags)"
-            "nm" -> " (nachmittags)"
-            else -> ""
-        }
-        return "$userId — $typeLabel$halfLabel"
+        emit(DigestSection.MORNING_DUE_TODAY, "📅 Heute fällig", content.dueToday)
+        emit(DigestSection.MORNING_OVERDUE, "⚠️ Überfällig", content.overdue)
+        emit(DigestSection.MORNING_INBOX, "📥 Inbox", content.inbox)
+        emit(DigestSection.MORNING_ABSENT, "🏖️ Heute abwesend", content.absent)
+        emit(DigestSection.MORNING_KITA, "🚸 Kita geschlossen", content.kitaClosed)
+        if (!any) return null
+        return "🌅 HomeBase — Guten Morgen! ${content.date}$sb"
     }
 }

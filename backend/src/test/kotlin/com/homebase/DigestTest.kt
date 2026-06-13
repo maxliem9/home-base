@@ -1,7 +1,10 @@
 package com.homebase
 
+import com.homebase.db.AbsencesTable
+import com.homebase.db.KitaClosuresTable
 import com.homebase.db.TodosTable
 import com.homebase.digest.DigestScheduler
+import com.homebase.digest.DigestSection
 import com.homebase.digest.DigestService
 import com.homebase.digest.TelegramClient
 import kotlinx.coroutines.CoroutineScope
@@ -40,7 +43,25 @@ class DigestTest {
             url = "jdbc:h2:mem:digest_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
             driver = "org.h2.Driver",
         )
-        transaction { SchemaUtils.create(TodosTable) }
+        transaction { SchemaUtils.create(TodosTable, AbsencesTable, KitaClosuresTable) }
+    }
+
+    private fun insertAbsence(userId: String, type: String, date: LocalDate, half: String? = null) = transaction {
+        AbsencesTable.insert {
+            it[AbsencesTable.id] = java.util.UUID.randomUUID()
+            it[AbsencesTable.userId] = userId
+            it[AbsencesTable.date] = date
+            it[AbsencesTable.type] = type
+            it[AbsencesTable.half] = half
+        }
+    }
+
+    private fun insertKitaClosure(label: String, date: LocalDate) = transaction {
+        KitaClosuresTable.insert {
+            it[KitaClosuresTable.id] = java.util.UUID.randomUUID()
+            it[KitaClosuresTable.date] = date
+            it[KitaClosuresTable.label] = label
+        }
     }
 
     private fun insertTodo(
@@ -101,6 +122,77 @@ class DigestTest {
         assertContains(text, "— keine —") // no new inbox items
         assertContains(text, "📅 Morgen fällig")
         assertContains(text, "• Morgen fällig")
+    }
+
+    @Test
+    fun `buildDigest and render include tomorrow's absence and kita preview (#182)`() {
+        val tomorrow = today.plusDays(1)
+        insertTodo("Morgen fällig", status = "PLANNED", dueDate = tomorrow)
+        insertAbsence("alice", type = "URLAUB", date = tomorrow)
+        insertAbsence("bob", type = "KIND_KRANK", date = tomorrow, half = "nm")
+        insertAbsence("alice", type = "KRANK", date = today) // today, not tomorrow → excluded
+        insertKitaClosure("Brückentag", date = tomorrow)
+        insertKitaClosure("Heute zu", date = today) // today → excluded
+
+        val content = service.buildDigest(today)
+        assertEquals(listOf("alice — Urlaub", "bob — Kind krank (nachmittags)"), content.absentTomorrow)
+        assertEquals(listOf("Brückentag"), content.kitaClosedTomorrow)
+
+        val text = service.render(content)
+        assertContains(text, "🏖️ Morgen abwesend")
+        assertContains(text, "• alice — Urlaub")
+        assertContains(text, "🚸 Kita morgen geschlossen")
+        assertContains(text, "• Brückentag")
+    }
+
+    @Test
+    fun `render omits a deselected section and the empty tomorrow-preview sections (#182)`() {
+        insertTodo("Erledigt heute", status = "DONE", doneAt = today.atTime(12, 0).atZone(zone).toInstant())
+        val content = service.buildDigest(today)
+
+        // Deselect the done-today section → its heading is gone even though it has an item.
+        val text = service.render(content, DigestSection.evening.toSet() - DigestSection.EVENING_DONE_TODAY)
+        assertFalse(text.contains("✅ Heute erledigt"))
+        // Core sections still selected keep their "— keine —" placeholder…
+        assertContains(text, "📥 Neu in der Inbox")
+        assertContains(text, "— keine —")
+        // …but the empty tomorrow-preview sections are omitted (extra context, not a checklist).
+        assertFalse(text.contains("🏖️ Morgen abwesend"))
+        assertFalse(text.contains("🚸 Kita morgen geschlossen"))
+    }
+
+    @Test
+    fun `render caps an unbounded section and summarizes the rest (#167)`() {
+        // 25 due-tomorrow todos > MAX_SECTION_ITEMS (20) → 20 bullets + "… und 5 weitere".
+        repeat(25) { i -> insertTodo("Morgen-%02d".format(i), status = "PLANNED", dueDate = today.plusDays(1)) }
+        val text = service.render(service.buildDigest(today))
+
+        assertEquals(20, text.lines().count { it.startsWith("• Morgen-") })
+        assertContains(text, "… und 5 weitere")
+    }
+
+    @Test
+    fun `runDigest skips an evening with content only in deselected sections (#182)`() = runBlocking {
+        insertTodo("Erledigt heute", status = "DONE", doneAt = today.atTime(12, 0).atZone(zone).toInstant())
+        val client = FakeTelegramClient()
+        // Only the (empty) due-tomorrow section is selected → nothing to send.
+        val gated = DigestService(zone, sections = { setOf(DigestSection.EVENING_DUE_TOMORROW) })
+        DigestScheduler({ LocalTime.of(20, 0) }, gated, client, CoroutineScope(EmptyCoroutineContext), zone).runDigest(today)
+        assertTrue(client.messages.isEmpty())
+    }
+
+    @Test
+    fun `runDigest skips entirely when the digest is disabled (#182)`() = runBlocking {
+        insertTodo("Erledigt heute", status = "DONE", doneAt = today.atTime(12, 0).atZone(zone).toInstant())
+        val client = FakeTelegramClient()
+        val scheduler = DigestScheduler(
+            { LocalTime.of(20, 0) }, service, client, CoroutineScope(EmptyCoroutineContext), zone,
+            enabled = { false },
+        )
+
+        scheduler.runDigest(today)
+
+        assertTrue(client.messages.isEmpty())
     }
 
     @Test
