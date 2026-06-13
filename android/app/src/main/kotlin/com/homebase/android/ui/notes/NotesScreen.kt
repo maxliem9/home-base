@@ -46,9 +46,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.homebase.android.R
 import com.homebase.android.data.model.NoteImageDto
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -244,13 +246,13 @@ private fun NoteList(
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Notizen",
-                    title = "Notizen",
+                    eyebrow = stringResource(R.string.notes_eyebrow),
+                    title = stringResource(R.string.notes_title),
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.search, {}) },
                 )
             },
-            fab = { HbFab(onClick = onCreate, label = "Notiz") },
+            fab = { HbFab(onClick = onCreate, label = stringResource(R.string.notes_fab)) },
         ) {
             // Folder-filter row — only when at least one note has a folder. Full-bleed,
             // horizontally scrollable, with an "all" head and a trailing "no folder" bucket.
@@ -264,7 +266,7 @@ private fun NoteList(
                 ) {
                     Spacer(Modifier.width(18.dp))
                     HbTagChip(
-                        text = "Alle Ordner",
+                        text = stringResource(R.string.notes_all_folders),
                         active = selectedFolder == null,
                         onClick = { onSelectFolder(null) },
                     )
@@ -276,7 +278,7 @@ private fun NoteList(
                         )
                     }
                     HbTagChip(
-                        text = "Ohne Ordner",
+                        text = stringResource(R.string.notes_no_folder),
                         active = selectedFolder == "",
                         onClick = { onSelectFolder("") },
                     )
@@ -295,7 +297,7 @@ private fun NoteList(
             ) {
                 Spacer(Modifier.width(18.dp))
                 HbTagChip(
-                    text = "Alle",
+                    text = stringResource(R.string.notes_all_tags),
                     active = selectedTag == null,
                     onClick = { onSelectTag(null) },
                 )
@@ -314,13 +316,13 @@ private fun NoteList(
             when {
                 notes.isEmpty() -> HbEmpty(
                     HbIcons.note,
-                    "Noch keine Notizen",
-                    "Tippe auf „Notiz“, um anzufangen.",
+                    stringResource(R.string.notes_empty_title),
+                    stringResource(R.string.notes_empty_hint),
                 )
                 shown.isEmpty() -> HbEmpty(
                     HbIcons.search,
-                    "Keine Treffer",
-                    "Für diese Auswahl gibt es keine Notizen.",
+                    stringResource(R.string.notes_no_results_title),
+                    stringResource(R.string.notes_no_results_hint),
                 )
                 else -> Column(
                     Modifier.padding(horizontal = 18.dp),
@@ -463,7 +465,7 @@ private fun NoteDetail(
     HbScreenScaffold(
         appBar = {
             HbAppBar(
-                title = "Notiz",
+                title = stringResource(R.string.notes_detail_title),
                 titleSm = true,
                 bordered = true,
                 leftIcon = HbIcons.chevronLeft,
@@ -490,16 +492,16 @@ private fun NoteDetail(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (note.visibility == "PRIVATE") {
-                    VisibilityBadge(HbIcons.lock, "Privat")
+                    VisibilityBadge(HbIcons.lock, stringResource(R.string.notes_private))
                 } else {
-                    VisibilityBadge(HbIcons.users, "Geteilt")
+                    VisibilityBadge(HbIcons.users, stringResource(R.string.notes_shared))
                 }
                 if (!note.folder.isNullOrBlank()) {
                     VisibilityBadge(HbIcons.folder, note.folder)
                 }
                 HbAvatar(note.createdBy, size = 18.dp)
                 Text(
-                    "${displayName(note.createdBy)} · ${Format.relativeTime(note.updatedAt)}",
+                    stringResource(R.string.notes_meta, displayName(note.createdBy), Format.relativeTime(note.updatedAt)),
                     style = HbType.small.copy(fontSize = 12.5.sp),
                     color = Hb.ink3,
                 )
@@ -568,12 +570,12 @@ private fun NoteImagesSection(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                if (images.isEmpty()) "Bilder" else "Bilder (${images.size})",
+                if (images.isEmpty()) stringResource(R.string.notes_images) else stringResource(R.string.notes_images_count, images.size),
                 style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
                 color = Hb.ink2,
             )
             HbButton(
-                "Bild hinzufügen",
+                stringResource(R.string.notes_add_image),
                 onClick = onAdd,
                 variant = HbButtonVariant.Secondary,
                 size = HbButtonSize.Sm,
@@ -680,7 +682,7 @@ private fun NoteEditorSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = if (note == null) "Neue Notiz" else "Notiz bearbeiten",
+        title = if (note == null) stringResource(R.string.notes_new_title) else stringResource(R.string.notes_edit_title),
         full = true,
         footer = {
             if (onDelete != null) {
@@ -692,25 +694,25 @@ private fun NoteEditorSheet(
                 )
             }
             Spacer(Modifier.weight(1f))
-            HbButton("Abbrechen", onClick = onDismiss, variant = HbButtonVariant.Secondary)
-            HbButton("Speichern", onClick = { submit() }, enabled = title.isNotBlank())
+            HbButton(stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
+            HbButton(stringResource(R.string.action_save), onClick = { submit() }, enabled = title.isNotBlank())
         },
     ) {
-        HbField("Titel") {
-            HbTextField(value = title, onValueChange = { title = it }, placeholder = "Titel")
+        HbField(stringResource(R.string.notes_field_title)) {
+            HbTextField(value = title, onValueChange = { title = it }, placeholder = stringResource(R.string.notes_title_placeholder))
         }
-        HbField("Inhalt") {
+        HbField(stringResource(R.string.notes_field_content)) {
             HbTextField(
                 value = content,
                 onValueChange = { content = it },
-                placeholder = "Schreib etwas …",
+                placeholder = stringResource(R.string.notes_content_placeholder),
                 singleLine = false,
                 minLines = 6,
             )
         }
         // Tap an existing attachment to drop its ![name](image:id) reference at the cursor.
         if (note != null && note.images.isNotEmpty()) {
-            HbField("Bild in den Text einfügen") {
+            HbField(stringResource(R.string.notes_insert_image)) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -735,19 +737,19 @@ private fun NoteEditorSheet(
                 }
             }
         }
-        HbField("Tags") {
+        HbField(stringResource(R.string.notes_field_tags)) {
             HbTextField(
                 value = tagsText,
                 onValueChange = { tagsText = it },
-                placeholder = "urlaub, zuhause",
+                placeholder = stringResource(R.string.notes_tags_placeholder),
             )
         }
-        HbField("Ordner") {
+        HbField(stringResource(R.string.notes_field_folder)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 HbTextField(
                     value = folderText,
                     onValueChange = { folderText = it },
-                    placeholder = "Ordner (optional) …",
+                    placeholder = stringResource(R.string.notes_folder_placeholder),
                 )
                 // Quick-pick from folders already in use (Compose equivalent of the web datalist):
                 // tap to fill, tap the active one again to clear.
@@ -768,9 +770,9 @@ private fun NoteEditorSheet(
                 }
             }
         }
-        HbField("Sichtbarkeit") {
+        HbField(stringResource(R.string.notes_field_visibility)) {
             HbSegmented(
-                options = listOf("Geteilt", "Privat"),
+                options = listOf(stringResource(R.string.notes_shared), stringResource(R.string.notes_private)),
                 selectedIndex = segIndex,
                 onSelect = { segIndex = it },
                 leadingIcons = listOf(HbIcons.users, HbIcons.lock),

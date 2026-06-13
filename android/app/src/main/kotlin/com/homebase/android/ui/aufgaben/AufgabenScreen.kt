@@ -36,12 +36,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.RecurrenceDto
 import com.homebase.android.data.model.SubtaskDto
 import com.homebase.android.data.model.TodoDto
@@ -102,13 +104,13 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Aufgaben",
-                    title = if (state.inboxActive) "Inbox" else state.activeList?.name ?: "Aufgaben",
+                    eyebrow = stringResource(R.string.todo_eyebrow),
+                    title = if (state.inboxActive) stringResource(R.string.todo_inbox) else state.activeList?.name ?: stringResource(R.string.todo_title),
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.more, {}) },
                 )
             },
-            fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = "Aufgabe") },
+            fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = stringResource(R.string.todo_fab)) },
         ) {
             // Inbox + list tabs — full-bleed scrollable strip with a bottom hairline.
             ListTabs(
@@ -128,7 +130,7 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                 HbQuickAdd(
                     value = quickAddText,
                     onValueChange = { quickAddText = it },
-                    placeholder = if (state.inboxActive) "Neue Aufgabe in der Inbox …" else "Aufgabe hinzufügen …",
+                    placeholder = if (state.inboxActive) stringResource(R.string.todo_quick_add_inbox) else stringResource(R.string.todo_quick_add),
                     leading = HbIcons.plus,
                     onSubmit = {
                         viewModel.addTodo(quickAddText)
@@ -139,12 +141,16 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
 
             if (openTodos.isEmpty()) {
                 if (state.inboxActive) {
-                    HbEmpty(HbIcons.inbox, "Inbox ist leer", "Füge eine Aufgabe hinzu")
+                    HbEmpty(
+                        HbIcons.inbox,
+                        stringResource(R.string.todo_inbox_empty_title),
+                        stringResource(R.string.todo_inbox_empty_hint),
+                    )
                 } else {
                     HbEmpty(
                         HbIcons.checkCircle,
-                        "Alles erledigt",
-                        "Keine offenen Aufgaben in dieser Liste.\nFüge oben eine neue hinzu.",
+                        stringResource(R.string.todo_list_empty_title),
+                        stringResource(R.string.todo_list_empty_hint),
                     )
                 }
             } else {
@@ -235,7 +241,7 @@ private fun ListTabs(
         Spacer(Modifier.width(18.dp))
         // Built-in Inbox tab before the lists; its badge counts status-INBOX todos (#77).
         ListTab(
-            name = "Inbox",
+            name = stringResource(R.string.todo_inbox),
             count = inboxCount,
             icon = HbIcons.inbox,
             active = inboxActive,
@@ -263,7 +269,7 @@ private fun ListTabs(
         ) {
             HbIcon(HbIcons.plus, size = 16.dp, tint = Hb.accentInk)
             Text(
-                "Neue Liste",
+                stringResource(R.string.todo_new_list_tab),
                 style = HbType.label.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.accentInk,
                 maxLines = 1,
@@ -398,6 +404,7 @@ private fun TaskRow(
                         HbPriority(todo.priority)
                         badge?.let { HbBadge(it.label, it.tone) }
                         todo.recurrence?.let { HbBadge("↻ ${recurrenceLabel(it)}", HbTone.Neutral) }
+                        // recurrenceLabel is @Composable (uses stringResource); see helper below.
                         if (!todo.description.isNullOrBlank()) {
                             Text(
                                 todo.description!!,
@@ -424,7 +431,7 @@ private fun TaskRow(
                 )
                 if (undated) {
                     HbButton(
-                        text = "Planen",
+                        text = stringResource(R.string.todo_plan),
                         onClick = onOpenEdit,
                         variant = HbButtonVariant.Secondary,
                         size = HbButtonSize.Sm,
@@ -464,7 +471,7 @@ private fun SubPill(done: Int, total: Int, open: Boolean, onClick: () -> Unit) {
     ) {
         if (empty) {
             Text(
-                "Unteraufgaben",
+                stringResource(R.string.todo_subtasks),
                 style = HbType.small.copy(fontWeight = FontWeight.SemiBold),
                 color = fg,
             )
@@ -520,7 +527,7 @@ private fun SubtasksPanel(
                 decorationBox = { inner ->
                     if (newSubtask.isEmpty()) {
                         Text(
-                            "Unteraufgabe hinzufügen …",
+                            stringResource(R.string.todo_add_subtask),
                             style = HbType.body.copy(fontSize = 14.5.sp, color = Hb.ink3),
                         )
                     }
@@ -566,7 +573,7 @@ private fun DoneSection(
                 size = 16.dp,
                 tint = Hb.ink3,
             )
-            Text("Erledigt".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            Text(stringResource(R.string.todo_done_section).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
             Box(
                 Modifier
                     .clip(HbPill)
@@ -636,7 +643,7 @@ private fun EditSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = if (isEdit) "Aufgabe bearbeiten" else "Neue Aufgabe",
+        title = if (isEdit) stringResource(R.string.todo_edit_title) else stringResource(R.string.todo_new_title),
         footer = {
             if (isEdit) {
                 HbButton(
@@ -650,9 +657,9 @@ private fun EditSheet(
                 )
             }
             Spacer(Modifier.weight(1f))
-            HbButton(text = "Abbrechen", onClick = onDismiss, variant = HbButtonVariant.Secondary)
+            HbButton(text = stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
             HbButton(
-                text = "Speichern",
+                text = stringResource(R.string.action_save),
                 enabled = !recurrenceNeedsDue,
                 onClick = {
                     if (title.isNotBlank()) {
@@ -684,26 +691,26 @@ private fun EditSheet(
             )
         },
     ) {
-        HbField("Titel") {
-            HbTextField(value = title, onValueChange = { title = it }, placeholder = "Titel")
+        HbField(stringResource(R.string.common_field_title)) {
+            HbTextField(value = title, onValueChange = { title = it }, placeholder = stringResource(R.string.common_field_title))
         }
-        HbField("Beschreibung") {
+        HbField(stringResource(R.string.common_field_description)) {
             HbTextField(
                 value = description,
                 onValueChange = { description = it },
-                placeholder = "Beschreibung",
+                placeholder = stringResource(R.string.common_field_description),
                 singleLine = false,
                 minLines = 2,
             )
         }
         if (showListPicker) {
-            HbField("Liste") {
+            HbField(stringResource(R.string.todo_field_list)) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     HbPickText(
-                        "Bleibt in der Inbox",
+                        stringResource(R.string.todo_stays_in_inbox),
                         active = targetListId == null,
                         onClick = { targetListId = null },
                     )
@@ -717,7 +724,7 @@ private fun EditSheet(
                 }
             }
         }
-        HbField("Zuständig") {
+        HbField(stringResource(R.string.todo_field_assignee)) {
             // A current assignee that isn't a household member (legacy free-text) stays
             // shown so it remains selectable and isn't silently dropped on save.
             val chipUsers = assignee
@@ -739,14 +746,14 @@ private fun EditSheet(
                 }
                 HbPick(active = assignee == null, onClick = { assignee = null }) {
                     Text(
-                        "Niemand",
+                        stringResource(R.string.todo_assignee_nobody),
                         style = HbType.label.copy(fontSize = 13.5.sp),
                         color = if (assignee == null) Hb.accentInk else Hb.ink2,
                     )
                 }
             }
         }
-        HbField("Fällig") {
+        HbField(stringResource(R.string.todo_field_due)) {
             HbTextField(
                 value = dueText,
                 onValueChange = { dueText = it },
@@ -754,28 +761,33 @@ private fun EditSheet(
                 mono = true,
             )
             Text(
-                "Format: JJJJ-MM-TT, z. B. ${Format.dueFieldLabel("2026-06-04") ?: "2026-06-04"}",
+                stringResource(R.string.todo_due_hint, Format.dueFieldLabel("2026-06-04") ?: "2026-06-04"),
                 style = HbType.small,
                 color = Hb.ink3,
             )
         }
-        HbField("Priorität") {
+        HbField(stringResource(R.string.todo_field_priority)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PriorityPick("LOW", "Niedrig", Hb.prioLow, priority) { priority = it }
-                PriorityPick("MEDIUM", "Mittel", Hb.prioMedium, priority) { priority = it }
-                PriorityPick("HIGH", "Hoch", Hb.prioHigh, priority) { priority = it }
+                PriorityPick("LOW", stringResource(R.string.priority_low), Hb.prioLow, priority) { priority = it }
+                PriorityPick("MEDIUM", stringResource(R.string.priority_medium), Hb.prioMedium, priority) { priority = it }
+                PriorityPick("HIGH", stringResource(R.string.priority_high), Hb.prioHigh, priority) { priority = it }
             }
         }
-        HbField("Wiederholung") {
+        HbField(stringResource(R.string.todo_field_recurrence)) {
             val freqOptions = listOf<String?>(null, "DAILY", "WEEKLY", "MONTHLY")
             HbSegmented(
-                options = listOf("Keine", "Täglich", "Wöchentl.", "Monatl."),
+                options = listOf(
+                    stringResource(R.string.todo_recurrence_none),
+                    stringResource(R.string.todo_recurrence_daily),
+                    stringResource(R.string.todo_recurrence_weekly),
+                    stringResource(R.string.todo_recurrence_monthly),
+                ),
                 selectedIndex = freqOptions.indexOf(recurrenceFreq).coerceAtLeast(0),
                 onSelect = { recurrenceFreq = freqOptions[it] },
             )
             if (recurrenceFreq != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Alle", style = HbType.label.copy(fontSize = 13.5.sp), color = Hb.ink2)
+                    Text(stringResource(R.string.todo_recurrence_every), style = HbType.label.copy(fontSize = 13.5.sp), color = Hb.ink2)
                     HbTextField(
                         value = intervalText,
                         onValueChange = { intervalText = it.filter(Char::isDigit).take(4) },
@@ -783,14 +795,18 @@ private fun EditSheet(
                         modifier = Modifier.width(64.dp),
                     )
                     Text(
-                        when (recurrenceFreq) { "DAILY" -> "Tage"; "WEEKLY" -> "Wochen"; else -> "Monate" },
+                        when (recurrenceFreq) {
+                            "DAILY" -> stringResource(R.string.todo_recurrence_days)
+                            "WEEKLY" -> stringResource(R.string.todo_recurrence_weeks)
+                            else -> stringResource(R.string.todo_recurrence_months)
+                        },
                         style = HbType.label.copy(fontSize = 13.5.sp),
                         color = Hb.ink2,
                     )
                 }
                 if (dueText.isBlank()) {
                     Text(
-                        "Für eine Wiederholung ein Fälligkeitsdatum angeben.",
+                        stringResource(R.string.todo_recurrence_needs_due),
                         style = HbType.small,
                         color = Hb.clay,
                     )
@@ -833,16 +849,16 @@ private fun NewListSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Neue Liste",
+        title = stringResource(R.string.todo_new_list_title),
         footer = {
             HbButton(
-                text = "Abbrechen",
+                text = stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                text = "Erstellen",
+                text = stringResource(R.string.action_create),
                 onClick = {
                     if (name.isNotBlank()) {
                         onCreate(name.trim(), if (segIndex == 0) "SHARED" else "PRIVATE")
@@ -854,18 +870,18 @@ private fun NewListSheet(
             )
         },
     ) {
-        HbField("Name") {
-            HbTextField(value = name, onValueChange = { name = it }, placeholder = "z. B. Garten")
+        HbField(stringResource(R.string.common_field_name)) {
+            HbTextField(value = name, onValueChange = { name = it }, placeholder = stringResource(R.string.todo_list_name_placeholder))
         }
-        HbField("Sichtbarkeit") {
+        HbField(stringResource(R.string.todo_field_visibility)) {
             HbSegmented(
-                options = listOf("Geteilt", "Privat"),
+                options = listOf(stringResource(R.string.todo_visibility_shared), stringResource(R.string.todo_visibility_private)),
                 selectedIndex = segIndex,
                 onSelect = { segIndex = it },
                 leadingIcons = listOf(HbIcons.users, HbIcons.lock),
             )
             Text(
-                "Geteilte Listen sehen beide. Private nur du.",
+                stringResource(R.string.todo_visibility_hint),
                 style = HbType.small,
                 color = Hb.ink3,
             )
@@ -877,24 +893,25 @@ private fun NewListSheet(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Compact German label for a recurrence rule, e.g. "wöchentl." or "alle 2 Wochen". */
+/** Compact localized label for a recurrence rule, e.g. "wöchentl."/"weekly" or "alle 2 Wochen". */
+@Composable
 private fun recurrenceLabel(rec: RecurrenceDto): String {
     val n = rec.interval.coerceAtLeast(1)
     return if (n <= 1) {
         when (rec.freq) {
-            "DAILY" -> "täglich"
-            "WEEKLY" -> "wöchentl."
-            "MONTHLY" -> "monatl."
+            "DAILY" -> stringResource(R.string.todo_recurrence_short_daily)
+            "WEEKLY" -> stringResource(R.string.todo_recurrence_short_weekly)
+            "MONTHLY" -> stringResource(R.string.todo_recurrence_short_monthly)
             else -> rec.freq.lowercase()
         }
     } else {
         val unit = when (rec.freq) {
-            "DAILY" -> "Tage"
-            "WEEKLY" -> "Wochen"
-            "MONTHLY" -> "Monate"
+            "DAILY" -> stringResource(R.string.todo_recurrence_days)
+            "WEEKLY" -> stringResource(R.string.todo_recurrence_weeks)
+            "MONTHLY" -> stringResource(R.string.todo_recurrence_months)
             else -> ""
         }
-        "alle $n $unit"
+        stringResource(R.string.todo_recurrence_short_every, n, unit)
     }
 }
 

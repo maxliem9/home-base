@@ -45,6 +45,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -54,6 +56,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
@@ -124,20 +127,25 @@ fun TimeScreen(
     // (#129/#140, web parity). `{name}` is the entry owner. Acting on own entries is
     // immediate. A null currentUser (username not yet known) can't tell own from
     // partner, so it confirms defensively rather than acting silently.
+    // Confirm-message templates captured here (composable scope) so the request* helpers,
+    // which run from non-composable click lambdas, can format them with the entry owner.
+    val confirmEditTpl = stringResource(R.string.confirm_edit_partner_entry)
+    val confirmSplitTpl = stringResource(R.string.confirm_split_partner_entry)
+    val confirmDeleteTpl = stringResource(R.string.confirm_delete_partner_entry)
     fun isPartnerEntry(entry: TimeEntryDto) = currentUser == null || entry.userId != currentUser
     fun requestEdit(entry: TimeEntryDto) {
         if (isPartnerEntry(entry)) {
-            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} bearbeiten?") { editEntry = entry }
+            pendingConfirm = HbConfirm(confirmEditTpl.format(displayName(entry.userId))) { editEntry = entry }
         } else editEntry = entry
     }
     fun requestSplit(entry: TimeEntryDto) {
         if (isPartnerEntry(entry)) {
-            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} splitten?") { splitEntry = entry }
+            pendingConfirm = HbConfirm(confirmSplitTpl.format(displayName(entry.userId))) { splitEntry = entry }
         } else splitEntry = entry
     }
     fun requestDelete(entry: TimeEntryDto) {
         if (isPartnerEntry(entry)) {
-            pendingConfirm = HbConfirm("Eintrag von ${displayName(entry.userId)} löschen?") { viewModel.deleteEntry(entry.id) }
+            pendingConfirm = HbConfirm(confirmDeleteTpl.format(displayName(entry.userId))) { viewModel.deleteEntry(entry.id) }
         } else viewModel.deleteEntry(entry.id)
     }
 
@@ -158,8 +166,8 @@ fun TimeScreen(
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Zeiterfassung",
-                    title = "Zeit",
+                    eyebrow = stringResource(R.string.time_eyebrow),
+                    title = stringResource(R.string.time_title),
                     onLeft = onOpenDrawer,
                     actions = {
                         // "Eintrag erfassen" — manual entry, also for the partner (web parity #140).
@@ -167,7 +175,7 @@ fun TimeScreen(
                     },
                 )
             },
-            fab = { HbFab(onClick = { showNewProject = true }, label = "Projekt") },
+            fab = { HbFab(onClick = { showNewProject = true }, label = stringResource(R.string.time_fab)) },
         ) {
             // --- Timer hero ---
             Box(Modifier.padding(horizontal = 18.dp)) {
@@ -195,14 +203,16 @@ fun TimeScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     others.forEach { user ->
+                        val stopMsg = stringResource(R.string.confirm_stop_partner_timer, displayName(user))
+                        val startMsg = stringResource(R.string.confirm_start_partner_timer, displayName(user))
                         PartnerTimerCard(
                             user = user,
                             running = state.othersRunning.firstOrNull { it.userId == user },
                             projectsById = projectsById,
                             projects = state.activeProjects,
                             eta = state.forecastFor(user)?.expectedEndAt,
-                            onStop = { pendingConfirm = HbConfirm("Timer von ${displayName(user)} stoppen?") { viewModel.stopTimer(user) } },
-                            onStart = { pid -> pendingConfirm = HbConfirm("Timer für ${displayName(user)} starten?") { viewModel.startTimer(pid, null, user) } },
+                            onStop = { pendingConfirm = HbConfirm(stopMsg) { viewModel.stopTimer(user) } },
+                            onStart = { pid -> pendingConfirm = HbConfirm(startMsg) { viewModel.startTimer(pid, null, user) } },
                         )
                     }
                 }
@@ -230,7 +240,7 @@ fun TimeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Projekte".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+                Text(stringResource(R.string.time_section_projects).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
                 Row(
                     Modifier
                         .clip(HbRadiusSm)
@@ -240,7 +250,7 @@ fun TimeScreen(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        if (showArchived) "Aktive" else "Archiv",
+                        if (showArchived) stringResource(R.string.time_show_active) else stringResource(R.string.time_show_archive),
                         style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
                         color = Hb.ink3,
                     )
@@ -250,7 +260,7 @@ fun TimeScreen(
 
             if (gridProjects.isEmpty()) {
                 Text(
-                    "Noch keine Projekte. Lege unten eines an.",
+                    stringResource(R.string.time_no_projects_hint),
                     style = HbType.meta,
                     color = Hb.ink3,
                     modifier = Modifier.padding(horizontal = 18.dp),
@@ -284,7 +294,7 @@ fun TimeScreen(
 
             // --- Letzte Einträge ---
             Text(
-                "Letzte Einträge".uppercase(),
+                stringResource(R.string.time_section_recent).uppercase(),
                 style = HbType.sectionLabel,
                 color = Hb.ink3,
                 modifier = Modifier.padding(horizontal = 18.dp).padding(start = 2.dp),
@@ -295,7 +305,7 @@ fun TimeScreen(
             }
             if (recent.isEmpty()) {
                 Text(
-                    "Noch keine erfassten Zeiten.",
+                    stringResource(R.string.time_no_entries),
                     style = HbType.meta,
                     color = Hb.ink3,
                     modifier = Modifier.padding(horizontal = 18.dp).padding(top = 12.dp),
@@ -325,6 +335,7 @@ fun TimeScreen(
         }
 
         if (showRecordEntry) {
+            val confirmRecordTpl = stringResource(R.string.confirm_record_for_partner)
             RecordEntrySheet(
                 projects = state.activeProjects,
                 users = state.users,
@@ -335,7 +346,7 @@ fun TimeScreen(
                     // confirms first (web parity #129/#140) and commits on confirm.
                     val partner = forUser?.takeIf { currentUser != null && it != currentUser }
                     if (partner != null) {
-                        pendingConfirm = HbConfirm("Eintrag für ${displayName(partner)} erfassen?") {
+                        pendingConfirm = HbConfirm(confirmRecordTpl.format(displayName(partner))) {
                             viewModel.addManualEntry(projectId, startedAt, stoppedAt, description, partner)
                             showRecordEntry = false
                         }
@@ -390,7 +401,7 @@ fun TimeScreen(
                 HbToast(
                     message = msg,
                     icon = HbIcons.x,
-                    actionLabel = "OK",
+                    actionLabel = stringResource(R.string.action_ok),
                     onAction = { viewModel.clearError() },
                 )
             }
@@ -430,7 +441,7 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(9.dp).clip(HbPill).background(Hb.clay))
             Text(
-                "Läuft".uppercase(),
+                stringResource(R.string.time_running).uppercase(),
                 style = HbType.eyebrow.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.05.em),
                 color = Hb.accentInk,
             )
@@ -450,7 +461,7 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String
                     .background(if (project != null) Format.parseColor(project.color) else Hb.ink3),
             )
             Text(
-                project?.name ?: "Projekt",
+                project?.name ?: stringResource(R.string.time_project_fallback),
                 style = HbType.cardTitle.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink,
                 maxLines = 1,
@@ -480,14 +491,14 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String
         if (eta != null) {
             val reached = Format.parseInstant(eta)?.isAfter(Instant.now()) == false
             Text(
-                if (reached) "Tagessoll erreicht" else "Voraussichtlich fertig um ${Format.clockOfDay(eta)}",
+                if (reached) stringResource(R.string.time_eta_reached) else stringResource(R.string.time_eta_until, Format.clockOfDay(eta)),
                 style = HbType.meta,
                 color = Hb.ink3,
                 modifier = Modifier.padding(bottom = 14.dp),
             )
         }
         HbButton(
-            "Timer stoppen",
+            stringResource(R.string.time_stop_timer),
             onClick = onStop,
             variant = HbButtonVariant.Primary,
             icon = HbIcons.stop,
@@ -507,7 +518,7 @@ private fun IdleHero() {
             .padding(22.dp),
     ) {
         Text(
-            "Kein Timer aktiv".uppercase(),
+            stringResource(R.string.time_idle_title).uppercase(),
             style = HbType.eyebrow.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.05.em),
             color = Hb.ink3,
         )
@@ -518,7 +529,7 @@ private fun IdleHero() {
             modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
         )
         Text(
-            "Starte unten ein Projekt, um die Zeit zu erfassen.",
+            stringResource(R.string.time_idle_hint),
             style = HbType.body.copy(fontSize = 14.sp),
             color = Hb.ink3,
         )
@@ -556,7 +567,7 @@ private fun PartnerTimerCard(
                 Box(Modifier.size(10.dp).clip(HbPill).background(if (project != null) Format.parseColor(project.color) else Hb.ink3))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        project?.name ?: "Projekt",
+                        project?.name ?: stringResource(R.string.time_project_fallback),
                         style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold),
                         color = Hb.ink,
                         maxLines = 1,
@@ -582,7 +593,7 @@ private fun PartnerTimerCard(
                     }
                 }
                 Text(Format.clock(elapsed), style = HbType.mono(18.0), color = Hb.ink)
-                HbButton("Stopp", onStop, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.stop)
+                HbButton(stringResource(R.string.time_stop), onStop, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.stop)
             } else {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -592,11 +603,11 @@ private fun PartnerTimerCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text("Kein Timer aktiv", style = HbType.meta, color = Hb.ink3)
+                    Text(stringResource(R.string.time_partner_no_timer), style = HbType.meta, color = Hb.ink3)
                 }
                 if (projects.isNotEmpty()) {
                     HbButton(
-                        if (picking) "Abbrechen" else "Für ${displayName(user)}",
+                        if (picking) stringResource(R.string.action_cancel) else stringResource(R.string.time_partner_for, displayName(user)),
                         { picking = !picking },
                         variant = HbButtonVariant.Primary,
                         size = HbButtonSize.Sm,
@@ -662,7 +673,7 @@ private fun WeekTargetsCard(
             .border(1.dp, Hb.lineSoft, HbRadius)
             .padding(start = 18.dp, end = 10.dp, top = 6.dp, bottom = 18.dp),
     ) {
-        Text("Wochensoll", style = HbType.cardTitle, color = Hb.ink)
+        Text(stringResource(R.string.time_weektargets_title), style = HbType.cardTitle, color = Hb.ink)
         Column(
             Modifier.padding(end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -705,8 +716,8 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 color = Hb.ink,
             )
             Text(
-                if (weekOver) "+${Format.hoursMinutes(-u.weekRemainingSeconds)}"
-                else "noch ${Format.hoursMinutes(u.weekRemainingSeconds)}",
+                if (weekOver) stringResource(R.string.time_week_over, Format.hoursMinutes(-u.weekRemainingSeconds))
+                else stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds)),
                 style = HbType.meta.copy(fontWeight = if (weekOver) FontWeight.SemiBold else FontWeight.Normal),
                 color = if (weekOver) Hb.accentInk else Hb.ink3,
             )
@@ -732,11 +743,11 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
         }
         // today's redistributed target + credits
         val todayLine = when {
-            u.todayRemainingSeconds >= 60 -> "Heute noch ${Format.hoursMinutes(u.todayRemainingSeconds)}"
-            u.todayRemainingSeconds <= -60 -> "Heute ${Format.hoursMinutes(-u.todayRemainingSeconds)} über Soll"
-            else -> "Tagessoll erreicht"
+            u.todayRemainingSeconds >= 60 -> stringResource(R.string.time_today_remaining, Format.hoursMinutes(u.todayRemainingSeconds))
+            u.todayRemainingSeconds <= -60 -> stringResource(R.string.time_today_over, Format.hoursMinutes(-u.todayRemainingSeconds))
+            else -> stringResource(R.string.time_today_reached)
         }
-        val credits = if (u.weekCreditedSeconds > 0) " · ${Format.hoursMinutes(u.weekCreditedSeconds)} gutgeschrieben" else ""
+        val credits = if (u.weekCreditedSeconds > 0) " " + stringResource(R.string.time_credited, Format.hoursMinutes(u.weekCreditedSeconds)) else ""
         Text(todayLine + credits, style = HbType.meta, color = Hb.ink3)
         // per-project saldi — deliberately a soll view: projects with recorded time but no target stay out
         val projects = u.projects.filter { it.weeklyHours > 0 }
@@ -753,7 +764,7 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                                 .background(if (proj != null) Format.parseColor(proj.color) else Hb.ink3),
                         )
                         Text(
-                            proj?.name ?: "Projekt",
+                            proj?.name ?: stringResource(R.string.time_project_fallback),
                             style = HbType.meta,
                             color = Hb.ink2,
                             maxLines = 1,
@@ -813,19 +824,21 @@ internal fun TargetsSheet(
     var defaults by remember { mutableStateOf(users.associateWith { defaultFor(it) }) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val errHoursRange = stringResource(R.string.time_targets_hours_range)
+    val errPickDefault = stringResource(R.string.time_targets_pick_default)
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Wochensoll konfigurieren",
+        title = stringResource(R.string.time_targets_title),
         full = true,
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = {
                     // validate every cell, then collect only the changed ones (mirrors the web modal)
                     val changes = mutableListOf<TargetChange>()
@@ -835,7 +848,7 @@ internal fun TargetsSheet(
                             val raw = hours[u]?.get(p.id).orEmpty().trim()
                             val parsed = if (raw.isEmpty()) 0.0 else raw.replace(',', '.').toDoubleOrNull()
                             if (parsed == null || !parsed.isFinite() || parsed < 0 || parsed > 168) {
-                                error = "Stunden müssen zwischen 0 und 168 liegen"
+                                error = errHoursRange
                                 return@HbButton
                             }
                             sumHours += parsed
@@ -853,7 +866,7 @@ internal fun TargetsSheet(
                         // hours > 0 ⇒ a default project must be chosen (#59); auto-select normally
                         // covers this — backstop for legacy data without a default
                         if (sumHours > 0 && (defaults[u] ?: "").isEmpty()) {
-                            error = "Bitte ein Standard-Projekt wählen"
+                            error = errPickDefault
                             return@HbButton
                         }
                     }
@@ -865,12 +878,12 @@ internal fun TargetsSheet(
         },
     ) {
         Text(
-            "Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.",
+            stringResource(R.string.time_targets_hint),
             style = HbType.meta,
             color = Hb.ink3,
         )
         if (projects.isEmpty()) {
-            Text("Lege zuerst ein Projekt an.", style = HbType.meta, color = Hb.ink3)
+            Text(stringResource(R.string.time_targets_create_project_first), style = HbType.meta, color = Hb.ink3)
         } else {
             users.forEach { user ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -880,9 +893,9 @@ internal fun TargetsSheet(
                     }
                     // column headers
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Projekt", style = HbType.small, color = Hb.ink3, modifier = Modifier.weight(1f))
-                        Text("Std/Woche", style = HbType.small, color = Hb.ink3, modifier = Modifier.width(86.dp))
-                        Text("Standard", style = HbType.small, color = Hb.ink3)
+                        Text(stringResource(R.string.time_targets_col_project), style = HbType.small, color = Hb.ink3, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.time_targets_col_hours), style = HbType.small, color = Hb.ink3, modifier = Modifier.width(86.dp))
+                        Text(stringResource(R.string.time_targets_col_default), style = HbType.small, color = Hb.ink3)
                     }
                     projects.forEach { p ->
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -893,7 +906,7 @@ internal fun TargetsSheet(
                             ) {
                                 Box(Modifier.size(10.dp).clip(HbPill).background(Format.parseColor(p.color)))
                                 Text(
-                                    if (p.archived) "${p.name} (Archiviert)" else p.name,
+                                    if (p.archived) stringResource(R.string.time_project_archived_suffix, p.name) else p.name,
                                     style = HbType.body.copy(fontSize = 14.sp),
                                     color = if (p.archived) Hb.ink3 else Hb.ink,
                                     maxLines = 1,
@@ -1027,7 +1040,7 @@ private fun ProjectCard(
         }
         if (isRunning) {
             HbButton(
-                "Stopp",
+                stringResource(R.string.time_stop),
                 onClick = onStop,
                 variant = HbButtonVariant.Soft,
                 size = HbButtonSize.Sm,
@@ -1035,7 +1048,7 @@ private fun ProjectCard(
             )
         } else {
             HbButton(
-                "Start",
+                stringResource(R.string.time_start),
                 onClick = onStart,
                 variant = HbButtonVariant.Primary,
                 size = HbButtonSize.Sm,
@@ -1083,7 +1096,7 @@ private fun EntriesByDay(
                 )
                 Box(Modifier.weight(1f).size(1.dp).background(Hb.lineSoft))
                 Text(
-                    "Σ ${Format.durationLong(daySum)}",
+                    stringResource(R.string.time_day_sum, Format.durationLong(daySum)),
                     style = HbType.small.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
                     color = Hb.ink2,
                 )
@@ -1113,7 +1126,8 @@ private fun EntryRow(
 ) {
     val duration = Format.entrySeconds(entry.startedAt, entry.stoppedAt)
     val range = "${Format.clockOfDay(entry.startedAt)}–${Format.clockOfDay(entry.stoppedAt)}"
-    val title = if (showProjectName) (project?.name ?: "Projekt") else (entry.description ?: project?.name ?: "Eintrag")
+    val projectFallback = stringResource(R.string.time_project_fallback)
+    val title = if (showProjectName) (project?.name ?: projectFallback) else (entry.description ?: project?.name ?: stringResource(R.string.time_entry_fallback))
 
     Column {
         Row(
@@ -1185,30 +1199,30 @@ private fun NewProjectSheet(onDismiss: () -> Unit, onCreate: (String, String) ->
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Neues Projekt",
+        title = stringResource(R.string.time_new_project_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Erstellen",
+                stringResource(R.string.action_create),
                 onClick = { if (name.isNotBlank()) onCreate(name, hexOf(selected)) },
                 variant = HbButtonVariant.Primary,
                 modifier = Modifier.weight(1f),
             )
         },
     ) {
-        HbField("Name") {
+        HbField(stringResource(R.string.common_field_name)) {
             HbTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = "z. B. Renovierung",
+                placeholder = stringResource(R.string.time_project_name_placeholder),
             )
         }
-        HbField("Farbe") {
+        HbField(stringResource(R.string.time_field_color)) {
             Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Hb.projectSwatches.forEach { color ->
                     val isActive = color == selected
@@ -1263,29 +1277,31 @@ private fun RecordEntrySheet(
     val partners = remember(users, currentUser) {
         if (currentUser == null) emptyList() else users.filter { it != currentUser }
     }
-    val selectedProjectName = projects.firstOrNull { it.id == projectId }?.name ?: "Projekt"
+    val selectedProjectName = projects.firstOrNull { it.id == projectId }?.name ?: stringResource(R.string.time_project_fallback)
+    val errPickProject = stringResource(R.string.time_pick_project)
+    val errEndAfterStart = stringResource(R.string.time_end_after_start)
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Eintrag erfassen",
+        title = stringResource(R.string.time_record_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = {
                     if (projectId.isEmpty()) {
-                        error = "Bitte ein Projekt wählen"
+                        error = errPickProject
                         return@HbButton
                     }
                     val startInstant = date.atTime(startTime).atZone(zone).toInstant()
                     val stopInstant = date.atTime(stopTime).atZone(zone).toInstant()
                     if (!stopInstant.isAfter(startInstant)) {
-                        error = "Ende muss nach dem Start liegen"
+                        error = errEndAfterStart
                         return@HbButton
                     }
                     // Clear a stale validation error on the validated path (web parity):
@@ -1308,9 +1324,9 @@ private fun RecordEntrySheet(
         },
     ) {
         if (projects.isEmpty()) {
-            Text("Lege zuerst ein Projekt an.", style = HbType.meta, color = Hb.ink3)
+            Text(stringResource(R.string.time_targets_create_project_first), style = HbType.meta, color = Hb.ink3)
         } else {
-            HbField("Projekt") {
+            HbField(stringResource(R.string.time_field_project)) {
                 SelectField(
                     value = selectedProjectName,
                     options = projects.map { it.name to it.id },
@@ -1318,7 +1334,7 @@ private fun RecordEntrySheet(
                 )
             }
             if (partners.isNotEmpty() && currentUser != null) {
-                HbField("Person") {
+                HbField(stringResource(R.string.time_field_person)) {
                     SelectField(
                         value = displayName(forUser.takeIf { it.isNotEmpty() } ?: currentUser),
                         options = (listOf(currentUser) + partners).map { displayName(it) to it },
@@ -1326,18 +1342,18 @@ private fun RecordEntrySheet(
                     )
                 }
             }
-            HbField("Datum") {
+            HbField(stringResource(R.string.time_field_date)) {
                 DateField(date) { date = it }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f)) { HbField("Von") { TimeField(startTime) { startTime = it } } }
-                Box(Modifier.weight(1f)) { HbField("Bis") { TimeField(stopTime) { stopTime = it } } }
+                Box(Modifier.weight(1f)) { HbField(stringResource(R.string.time_field_from)) { TimeField(startTime) { startTime = it } } }
+                Box(Modifier.weight(1f)) { HbField(stringResource(R.string.time_field_to)) { TimeField(stopTime) { stopTime = it } } }
             }
-            HbField("Beschreibung (optional)") {
+            HbField(stringResource(R.string.common_description_optional)) {
                 HbTextField(
                     value = description,
                     onValueChange = { description = it },
-                    placeholder = "Beschreibung (optional)",
+                    placeholder = stringResource(R.string.common_description_optional),
                 )
             }
             error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
@@ -1376,20 +1392,22 @@ private fun EditEntrySheet(
         if (activeProjects.any { it.id == entry.projectId }) activeProjects
         else listOfNotNull(project) + activeProjects
     }
-    val selectedName = options.firstOrNull { it.id == projectId }?.name ?: project?.name ?: "Projekt"
+    val selectedName = options.firstOrNull { it.id == projectId }?.name ?: project?.name ?: stringResource(R.string.time_project_fallback)
+    val errStartNotFuture = stringResource(R.string.time_start_not_future)
+    val errEndAfterStart = stringResource(R.string.time_end_after_start)
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = if (running) "Laufenden Timer bearbeiten" else "Eintrag bearbeiten",
+        title = if (running) stringResource(R.string.time_edit_running_title) else stringResource(R.string.time_edit_entry_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = {
                     val startInstant = startDate.atTime(startTime).atZone(zone).toInstant()
                     // Only resend the project when it changed — otherwise an archived
@@ -1399,7 +1417,7 @@ private fun EditEntrySheet(
                         // The backend skips its range check while stoppedAt is null, so
                         // guard here against a future start that would freeze the clock.
                         if (startInstant.isAfter(Instant.now())) {
-                            error = "Beginn darf nicht in der Zukunft liegen"
+                            error = errStartNotFuture
                             return@HbButton
                         }
                         // Still running: leave stoppedAt open — send project + start only.
@@ -1407,7 +1425,7 @@ private fun EditEntrySheet(
                     } else {
                         val stopInstant = stopDate.atTime(stopTime).atZone(zone).toInstant()
                         if (!stopInstant.isAfter(startInstant)) {
-                            error = "Ende muss nach dem Start liegen"
+                            error = errEndAfterStart
                             return@HbButton
                         }
                         onSave(
@@ -1427,32 +1445,32 @@ private fun EditEntrySheet(
     ) {
         if (running) {
             Text(
-                "Läuft noch – die Stoppzeit wird erst beim Stoppen gesetzt.",
+                stringResource(R.string.time_running_hint),
                 style = HbType.meta,
                 color = Hb.ink3,
             )
         }
-        HbField("Projekt") {
+        HbField(stringResource(R.string.time_field_project)) {
             SelectField(value = selectedName, options = options.map { it.name to it.id }, onSelect = { projectId = it })
         }
-        HbField(if (running) "Startzeit" else "Beginn") {
+        HbField(if (running) stringResource(R.string.time_field_start_running) else stringResource(R.string.time_field_start)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { DateField(startDate) { startDate = it } }
                 Box(Modifier.weight(1f)) { TimeField(startTime) { startTime = it } }
             }
         }
         if (!running) {
-            HbField("Ende") {
+            HbField(stringResource(R.string.time_field_end)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.weight(1f)) { DateField(stopDate) { stopDate = it } }
                     Box(Modifier.weight(1f)) { TimeField(stopTime) { stopTime = it } }
                 }
             }
-            HbField("Beschreibung (optional)") {
+            HbField(stringResource(R.string.common_description_optional)) {
                 HbTextField(
                     value = description,
                     onValueChange = { description = it },
-                    placeholder = "Beschreibung (optional)",
+                    placeholder = stringResource(R.string.common_description_optional),
                 )
             }
         }
@@ -1493,16 +1511,16 @@ private fun SplitEntrySheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Eintrag splitten",
+        title = stringResource(R.string.time_split_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = {
                     when (check) {
                         is SplitCheck.Invalid -> error = check.message
@@ -1517,18 +1535,17 @@ private fun SplitEntrySheet(
         },
     ) {
         Text(
-            "Teilt den Eintrag an der Trennzeit in zwei. Eine Pause bleibt als Lücke zwischen den Teilen " +
-                "unerfasst — danach lässt sich Teil 2 wie gewohnt bearbeiten (z. B. anderes Projekt).",
+            stringResource(R.string.time_split_hint),
             style = HbType.meta,
             color = Hb.ink3,
         )
-        HbField("Trennzeit") {
+        HbField(stringResource(R.string.time_split_at)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { DateField(cutDate) { cutDate = it } }
                 Box(Modifier.weight(1f)) { TimeField(cutTime) { cutTime = it } }
             }
         }
-        HbField("Pause in Minuten (optional)") {
+        HbField(stringResource(R.string.time_split_break)) {
             HbTextField(
                 value = breakText,
                 onValueChange = { breakText = it },
@@ -1539,8 +1556,13 @@ private fun SplitEntrySheet(
         // live preview of both resulting parts, e.g. "Teil 1: 14:03–17:33 · Teil 2: 18:18–21:03"
         if (check is SplitCheck.Valid) {
             Text(
-                "Teil 1: ${Format.clockOfDay(entry.startedAt)}–${Format.clockOfDay(check.splitAt.toString())}" +
-                    " · Teil 2: ${Format.clockOfDay(check.secondStart.toString())}–${Format.clockOfDay(stoppedAt)}",
+                stringResource(
+                    R.string.time_split_preview,
+                    Format.clockOfDay(entry.startedAt),
+                    Format.clockOfDay(check.splitAt.toString()),
+                    Format.clockOfDay(check.secondStart.toString()),
+                    Format.clockOfDay(stoppedAt),
+                ),
                 style = HbType.mono.copy(fontSize = 13.5.sp),
                 color = Hb.ink3,
             )
@@ -1594,9 +1616,9 @@ private fun DateField(value: LocalDate, onChange: (LocalDate) -> Unit) {
                         onChange(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
                     }
                     open = false
-                }) { Text("OK") }
+                }) { Text(stringResource(R.string.action_ok)) }
             },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
         ) {
             DatePicker(state = pickerState)
         }
@@ -1627,11 +1649,11 @@ private fun TimeField(value: LocalTime, onChange: (LocalTime) -> Unit) {
                     TimePicker(state = timeState)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { open = false }) { Text("Abbrechen") }
+                        TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) }
                         TextButton(onClick = {
                             onChange(LocalTime.of(timeState.hour, timeState.minute))
                             open = false
-                        }) { Text("OK") }
+                        }) { Text(stringResource(R.string.action_ok)) }
                     }
                 }
             }
@@ -1684,7 +1706,7 @@ private fun ProjectDetailSheet(
         full = true,
         footer = {
             HbButton(
-                "Schließen",
+                stringResource(R.string.action_close),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
@@ -1695,7 +1717,7 @@ private fun ProjectDetailSheet(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(13.dp).clip(HbPill).background(projectColor))
             Text(
-                if (isRunning) "Aktives Projekt" else "Projekt",
+                if (isRunning) stringResource(R.string.time_detail_active_project) else stringResource(R.string.time_detail_project),
                 style = HbType.label.copy(fontSize = 13.sp),
                 color = Hb.ink3,
             )
@@ -1704,12 +1726,12 @@ private fun ProjectDetailSheet(
         // 4 stat tiles (.hb-detail-stats / .hb-fact)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FactTile(Format.durationLong(totalSeconds), "Gesamt", Modifier.weight(1f))
-                FactTile(Format.durationLong(thisWeekSeconds), "Diese Woche", Modifier.weight(1f))
+                FactTile(Format.durationLong(totalSeconds), stringResource(R.string.time_fact_total), Modifier.weight(1f))
+                FactTile(Format.durationLong(thisWeekSeconds), stringResource(R.string.time_fact_this_week), Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FactTile(count.toString(), "Einträge", Modifier.weight(1f))
-                FactTile(Format.durationLong(avgSeconds), "ø / Eintrag", Modifier.weight(1f))
+                FactTile(count.toString(), stringResource(R.string.time_fact_entries), Modifier.weight(1f))
+                FactTile(Format.durationLong(avgSeconds), stringResource(R.string.time_fact_avg), Modifier.weight(1f))
             }
         }
 
@@ -1743,7 +1765,7 @@ private fun ProjectDetailSheet(
 
         // Pro Woche
         if (weeks.isNotEmpty()) {
-            Text("Pro Woche".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            Text(stringResource(R.string.time_per_week).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 weeks.forEach { week ->
                     WeekRow(week = week, busiest = busiestWeek, today = today)
@@ -1753,7 +1775,7 @@ private fun ProjectDetailSheet(
 
         // Alle Einträge
         if (finished.isNotEmpty()) {
-            Text("Alle Einträge".uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            Text(stringResource(R.string.time_all_entries).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
             EntriesByDay(
                 entries = finished.sortedByDescending { it.startedAt },
                 projectsById = mapOf(project.id to project),
@@ -1831,7 +1853,7 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
             val remaining = (1f - scale).coerceIn(0f, 1f)
             if (remaining > 0f) Spacer(Modifier.weight(remaining))
         }
-        Text("${week.count} Einträge", style = HbType.small, color = Hb.ink3)
+        Text(pluralStringResource(R.plurals.time_week_entries, week.count, week.count), style = HbType.small, color = Hb.ink3)
     }
 }
 
@@ -1875,11 +1897,12 @@ private val DETAIL_ZONE: ZoneId get() = ZoneId.systemDefault()
 private fun weekStartOf(iso: String?): LocalDate? =
     Format.parseInstant(iso)?.atZone(DETAIL_ZONE)?.toLocalDate()?.with(DayOfWeek.MONDAY)
 
+@Composable
 private fun weekLabel(weekStart: LocalDate, today: LocalDate): String {
     val currentWeekStart = today.with(DayOfWeek.MONDAY)
     return when (weekStart) {
-        currentWeekStart -> "Diese Woche"
-        currentWeekStart.minusWeeks(1) -> "Letzte Woche"
+        currentWeekStart -> stringResource(R.string.time_this_week)
+        currentWeekStart.minusWeeks(1) -> stringResource(R.string.time_last_week)
         else -> {
             val end = weekStart.plusDays(6)
             "%02d.%02d.–%02d.%02d.".format(

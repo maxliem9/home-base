@@ -46,6 +46,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.model.UpdateAbsSettingsRequest
 import com.homebase.android.ui.components.HbAvatar
@@ -120,8 +122,8 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Familienkalender",
-                    title = "Kalender",
+                    eyebrow = stringResource(R.string.absence_eyebrow),
+                    title = stringResource(R.string.absence_title),
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.edit, { showSettings = true }) },
                 )
@@ -129,12 +131,12 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
             fab = {
                 HbFab(
                     onClick = { rangePrefill = today to today; showRange = true },
-                    label = "Zeitraum",
+                    label = stringResource(R.string.absence_fab),
                 )
             },
         ) {
             HbSegmented(
-                options = listOf("Jahr", "Monat"),
+                options = listOf(stringResource(R.string.absence_view_year), stringResource(R.string.absence_view_month)),
                 selectedIndex = if (isMonth) 1 else 0,
                 onSelect = { isMonth = it == 1 },
                 modifier = Modifier.padding(horizontal = 18.dp),
@@ -144,9 +146,9 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
 
             when {
                 state.isLoading && userIds.isEmpty() ->
-                    Text("Lädt …", style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(horizontal = 18.dp))
+                    Text(stringResource(R.string.common_loading), style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(horizontal = 18.dp))
                 userIds.isEmpty() ->
-                    Text("Kalender konnte nicht geladen werden.", style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(horizontal = 18.dp))
+                    Text(stringResource(R.string.absence_load_failed), style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(horizontal = 18.dp))
                 else -> {
                     SummaryCard(ctx, userIds, today)
                     Spacer(Modifier.size(16.dp))
@@ -190,7 +192,7 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
         }
 
         state.error?.let { msg ->
-            HbToast(message = msg, icon = HbIcons.x, actionLabel = "OK", onAction = { viewModel.clearError() })
+            HbToast(message = msg, icon = HbIcons.x, actionLabel = stringResource(R.string.action_ok), onAction = { viewModel.clearError() })
         }
     }
 }
@@ -223,7 +225,7 @@ private fun PersonSummary(s: AbsSummary, hue: Double, uid: String) {
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(fmtDays(s.remaining), style = HbType.mono(24.0, FontWeight.Bold), color = oklch(0.55, 0.1, hue))
-                Text("ÜBRIG", style = HbType.eyebrow.copy(fontSize = 10.sp, letterSpacing = 0.05.em), color = Hb.ink3)
+                Text(stringResource(R.string.absence_remaining), style = HbType.eyebrow.copy(fontSize = 10.sp, letterSpacing = 0.05.em), color = Hb.ink3)
             }
         }
         // progress bar
@@ -265,13 +267,13 @@ private fun Legend(userIds: List<String>) {
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        LegendItem("Urlaub") { SplitSwatch(AbwPalette.urlaub(hueA), AbwPalette.urlaub(hueB)) }
-        LegendItem("Krank") { Swatch(AbwPalette.krank) }
-        LegendItem("Kind-krank") { Swatch(AbwPalette.kindKrank) }
-        LegendItem("Feiertag") { Swatch(AbwPalette.feiertag) }
-        LegendItem("Teilzeit") { Swatch(AbwPalette.teilzeit(220.0)) }
-        LegendItem("Wochenende") { Swatch(AbwPalette.weekend) }
-        LegendItem("Kita zu") { KitaSwatch() }
+        LegendItem(stringResource(R.string.absence_legend_urlaub)) { SplitSwatch(AbwPalette.urlaub(hueA), AbwPalette.urlaub(hueB)) }
+        LegendItem(stringResource(R.string.absence_legend_krank)) { Swatch(AbwPalette.krank) }
+        LegendItem(stringResource(R.string.absence_legend_kind)) { Swatch(AbwPalette.kindKrank) }
+        LegendItem(stringResource(R.string.absence_legend_holiday)) { Swatch(AbwPalette.feiertag) }
+        LegendItem(stringResource(R.string.absence_legend_parttime)) { Swatch(AbwPalette.teilzeit(220.0)) }
+        LegendItem(stringResource(R.string.absence_legend_weekend)) { Swatch(AbwPalette.weekend) }
+        LegendItem(stringResource(R.string.absence_legend_kita)) { KitaSwatch() }
     }
 }
 
@@ -553,7 +555,7 @@ private fun DayEditorSheet(ctx: AbsCtx, ds: String, userIds: List<String>, vm: A
     HbBottomSheet(
         onDismiss = onDismiss,
         title = AbwCal.dayTitle(ds),
-        footer = { HbButton("Fertig", onClick = onDismiss, modifier = Modifier.weight(1f)) },
+        footer = { HbButton(stringResource(R.string.action_done), onClick = onDismiss, modifier = Modifier.weight(1f)) },
     ) {
         userIds.forEach { uid ->
             EditorPerson(ctx, uid, ds, vm)
@@ -567,13 +569,18 @@ private fun DayEditorSheet(ctx: AbsCtx, ds: String, userIds: List<String>, vm: A
 private fun EditorPerson(ctx: AbsCtx, uid: String, ds: String, vm: AbsenceViewModel) {
     val st = personDay(ctx, uid, ds)
     val note = when {
-        st.holiday != null -> "Feiertag · ${st.holiday}" + if (st.holidayHalf) " (½)" else ""
-        st.ptOff -> "ohnehin frei"
-        st.weekend -> "Wochenende"
+        st.holiday != null ->
+            if (st.holidayHalf) stringResource(R.string.absence_note_holiday_half, st.holiday)
+            else stringResource(R.string.absence_note_holiday, st.holiday)
+        st.ptOff -> stringResource(R.string.absence_note_free)
+        st.weekend -> stringResource(R.string.absence_note_weekend)
         else -> null
     }
     val typeOpts: List<Pair<String, String?>> = listOf(
-        "Arbeit" to null, "Urlaub" to AbsTypes.URLAUB, "Krank" to AbsTypes.KRANK, "Kind-krank" to AbsTypes.KIND_KRANK,
+        stringResource(R.string.absence_type_work) to null,
+        stringResource(R.string.absence_type_urlaub) to AbsTypes.URLAUB,
+        stringResource(R.string.absence_type_krank) to AbsTypes.KRANK,
+        stringResource(R.string.absence_type_kind) to AbsTypes.KIND_KRANK,
     )
     Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -602,7 +609,11 @@ private fun EditorPerson(ctx: AbsCtx, uid: String, ds: String, vm: AbsenceViewMo
 
 @Composable
 private fun HalfToggle(value: String?, onChange: (String?) -> Unit) {
-    val opts: List<Pair<String, String?>> = listOf("Ganzer Tag" to null, "Vormittag (AM)" to "vm", "Nachmittag (PM)" to "nm")
+    val opts: List<Pair<String, String?>> = listOf(
+        stringResource(R.string.absence_half_full) to null,
+        stringResource(R.string.absence_half_morning) to "vm",
+        stringResource(R.string.absence_half_afternoon) to "nm",
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         opts.forEach { (label, v) ->
             val active = value == v
@@ -632,19 +643,21 @@ private fun KitaEditorRow(ctx: AbsCtx, ds: String, vm: AbsenceViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Kita-Schließtag", style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold), color = Hb.ink)
-                Text("Gilt für die ganze Familie", style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+                Text(stringResource(R.string.absence_kita_closing), style = HbType.rowTitle.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold), color = Hb.ink)
+                Text(stringResource(R.string.absence_kita_whole_family), style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
             }
+            val kitaDefaultLabel = stringResource(R.string.absence_kita_default_label)
             ToggleSwitch(on = kita != null) {
-                vm.toggleKita(ds, if (kita != null) null else "Kita geschlossen")
+                vm.toggleKita(ds, if (kita != null) null else kitaDefaultLabel)
             }
         }
         if (kita != null) {
-            HbField("Anlass (optional)") {
+            val kitaDefaultLabel = stringResource(R.string.absence_kita_default_label)
+            HbField(stringResource(R.string.absence_kita_reason)) {
                 HbTextField(
                     value = label,
-                    onValueChange = { label = it; vm.setKitaLabel(ds, it.ifBlank { "Kita geschlossen" }) },
-                    placeholder = "z. B. Brückentag",
+                    onValueChange = { label = it; vm.setKitaLabel(ds, it.ifBlank { kitaDefaultLabel }) },
+                    placeholder = stringResource(R.string.absence_kita_reason_placeholder),
                 )
             }
         }
@@ -681,7 +694,10 @@ private fun RangeSheet(
     var bis by remember { mutableStateOf(prefill?.second ?: todayStr) }
 
     val typeOpts: List<Pair<String, String?>> = listOf(
-        "Urlaub" to AbsTypes.URLAUB, "Krank" to AbsTypes.KRANK, "Kind-krank" to AbsTypes.KIND_KRANK, "Löschen" to null,
+        stringResource(R.string.absence_type_urlaub) to AbsTypes.URLAUB,
+        stringResource(R.string.absence_type_krank) to AbsTypes.KRANK,
+        stringResource(R.string.absence_type_kind) to AbsTypes.KIND_KRANK,
+        stringResource(R.string.absence_type_delete) to null,
     )
     val firstTarget = targets.firstOrNull()
     val preview = if (type != null && firstTarget != null) eachDate(von, bis).count { isWorkdayFor(data, firstTarget, it) } else 0
@@ -689,11 +705,11 @@ private fun RangeSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Zeitraum eintragen",
+        title = stringResource(R.string.absence_range_title),
         footer = {
-            HbButton("Abbrechen", onClick = onDismiss, variant = HbButtonVariant.Secondary, modifier = Modifier.weight(1f))
+            HbButton(stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary, modifier = Modifier.weight(1f))
             HbButton(
-                "Übernehmen", icon = HbIcons.check, modifier = Modifier.weight(1f), enabled = canApply,
+                stringResource(R.string.action_apply), icon = HbIcons.check, modifier = Modifier.weight(1f), enabled = canApply,
                 onClick = {
                     targets.forEach { vm.setAbsenceRange(it, type, von, bis, null) }
                     onDismiss()
@@ -701,7 +717,7 @@ private fun RangeSheet(
             )
         },
     ) {
-        HbField("Für wen") {
+        HbField(stringResource(R.string.absence_for_whom)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 userIds.forEach { uid ->
                     HbPickText(
@@ -712,20 +728,22 @@ private fun RangeSheet(
                 }
             }
         }
-        HbField("Art") {
+        HbField(stringResource(R.string.absence_kind)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 typeOpts.forEach { (label, id) -> HbPickText(label, active = type == id, onClick = { type = id }) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HbField("Von", Modifier.weight(1f)) { AbwDateField(von) { von = it } }
-            HbField("Bis", Modifier.weight(1f)) { AbwDateField(bis) { bis = it } }
+            HbField(stringResource(R.string.time_field_from), Modifier.weight(1f)) { AbwDateField(von) { von = it } }
+            HbField(stringResource(R.string.time_field_to), Modifier.weight(1f)) { AbwDateField(bis) { bis = it } }
         }
         Text(
             if (type != null)
-                "Nur Arbeitstage — Wochenenden, Feiertage und feste freie Tage werden übersprungen" +
-                    (firstTarget?.let { " (≈ $preview Tage für ${displayName(it)})" } ?: "") + "."
-            else "Löschen entfernt alle Einträge im Zeitraum.",
+                stringResource(
+                    R.string.absence_range_workdays,
+                    firstTarget?.let { stringResource(R.string.absence_range_estimate, preview, displayName(it)) } ?: "",
+                )
+            else stringResource(R.string.absence_range_delete),
             style = HbType.small.copy(fontSize = 12.5.sp, lineHeight = 18.sp), color = Hb.ink3,
         )
     }
@@ -746,9 +764,9 @@ private fun SettingsSheet(
 ) {
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Kalender-Einstellungen",
+        title = stringResource(R.string.absence_settings_title),
         full = true,
-        footer = { HbButton("Fertig", onClick = onDismiss, modifier = Modifier.weight(1f)) },
+        footer = { HbButton(stringResource(R.string.action_done), onClick = onDismiss, modifier = Modifier.weight(1f)) },
     ) {
         AbwSettingsPanel(ctx, data, userIds, year, vm)
     }
@@ -786,7 +804,7 @@ private fun SettingsPerson(ctx: AbsCtx, data: AbsenceStateDto, uid: String, year
             HbAvatar(uid, size = 26.dp)
             Text(displayName(uid), style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold), color = Hb.ink)
         }
-        HbField("Bundesland") {
+        HbField(stringResource(R.string.absence_field_state)) {
             SelectField(
                 value = AbwCal.stateName(s.state),
                 options = AbwCal.STATES.map { it.name to it.code },
@@ -794,26 +812,26 @@ private fun SettingsPerson(ctx: AbsCtx, data: AbsenceStateDto, uid: String, year
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HbField("Anspruch", Modifier.weight(1f)) {
+            HbField(stringResource(R.string.absence_field_allowance), Modifier.weight(1f)) {
                 NumberField("alw-$uid", s.allowance) { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(allowance = it)) }
             }
-            HbField("Resturlaub", Modifier.weight(1f)) {
+            HbField(stringResource(R.string.absence_field_carryover), Modifier.weight(1f)) {
                 NumberField("car-$uid", s.carryover) { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(carryover = it)) }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HbField("verfällt am", Modifier.weight(1f)) {
+            HbField(stringResource(R.string.absence_field_carry_expires), Modifier.weight(1f)) {
                 AbwDateField(s.carryoverExpires ?: "$year-03-31") { vm.updateSettings(uid, year, UpdateAbsSettingsRequest(carryoverExpires = it)) }
             }
-            HbField("Kind-krank", Modifier.weight(1f)) {
+            HbField(stringResource(R.string.absence_field_kind_cap), Modifier.weight(1f)) {
                 NumberField("kk-$uid", s.kindKrankCap.toDouble(), integer = true) {
                     vm.updateSettings(uid, year, UpdateAbsSettingsRequest(kindKrankCap = it.toInt()))
                 }
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Teilzeit · feste freie Tage", style = HbType.label, color = Hb.ink2)
-            if (rules.isEmpty()) Text("Keine festen freien Tage.", style = HbType.small, color = Hb.ink3)
+            Text(stringResource(R.string.absence_parttime_label), style = HbType.label, color = Hb.ink2)
+            if (rules.isEmpty()) Text(stringResource(R.string.absence_parttime_none), style = HbType.small, color = Hb.ink3)
             rules.forEach { r -> PartTimeRow(r, vm) }
             Row(
                 Modifier.clip(HbRadiusSm).clickable {
@@ -823,7 +841,7 @@ private fun SettingsPerson(ctx: AbsCtx, data: AbsenceStateDto, uid: String, year
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 HbIcon(HbIcons.plus, size = 14.dp, tint = Hb.accentInk)
-                Text("Freien Tag hinzufügen", style = HbType.meta.copy(fontWeight = FontWeight.SemiBold), color = Hb.accentInk)
+                Text(stringResource(R.string.absence_parttime_add), style = HbType.meta.copy(fontWeight = FontWeight.SemiBold), color = Hb.accentInk)
             }
         }
     }
@@ -854,40 +872,41 @@ private fun PartTimeRow(r: com.homebase.android.data.model.PartTimeRuleDto, vm: 
 
 @Composable
 private fun KitaSettings(data: AbsenceStateDto, year: Int, vm: AbsenceViewModel) {
+    val kitaDefaultLabel = stringResource(R.string.absence_kita_default_label)
     var kDate by remember { mutableStateOf("$year-01-01") }
     var rVon by remember { mutableStateOf("$year-07-27") }
     var rBis by remember { mutableStateOf("$year-08-07") }
-    var rLabel by remember { mutableStateOf("Kita geschlossen") }
+    var rLabel by remember { mutableStateOf(kitaDefaultLabel) }
     val kita = data.kitaClosures.sortedBy { it.date }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("Kita-Schließtage", style = HbType.label, color = Hb.ink2)
-        Text("Gelten für die ganze Familie — Hintergrundmarker, werden nicht gezählt.", style = HbType.small, color = Hb.ink3)
-        if (kita.isEmpty()) Text("Keine Schließtage.", style = HbType.small, color = Hb.ink3)
+        Text(stringResource(R.string.absence_kita_label), style = HbType.label, color = Hb.ink2)
+        Text(stringResource(R.string.absence_kita_hint), style = HbType.small, color = Hb.ink3)
+        if (kita.isEmpty()) Text(stringResource(R.string.absence_kita_none), style = HbType.small, color = Hb.ink3)
         kita.forEach { k ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { AbwDateField(k.date) { vm.updateKita(k.id, date = it) } }
                 Box(Modifier.weight(1.2f)) {
-                    LocalCommitField("kita-${k.id}", k.label, placeholder = "Anlass") { vm.updateKita(k.id, label = it) }
+                    LocalCommitField("kita-${k.id}", k.label, placeholder = stringResource(R.string.absence_kita_reason_short)) { vm.updateKita(k.id, label = it) }
                 }
                 HbIconButton(HbIcons.trash, { vm.removeKita(k.id) }, tint = Hb.ink3, iconSize = 18.dp)
             }
         }
         // add single
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Einzeltag", style = HbType.small, color = Hb.ink3, modifier = Modifier.width(64.dp))
+            Text(stringResource(R.string.absence_kita_single), style = HbType.small, color = Hb.ink3, modifier = Modifier.width(64.dp))
             Box(Modifier.weight(1f)) { AbwDateField(kDate) { kDate = it } }
-            HbButton("Hinzufügen", onClick = { vm.addKita(kDate, "Kita geschlossen") }, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.plus)
+            HbButton(stringResource(R.string.action_add), onClick = { vm.addKita(kDate, kitaDefaultLabel) }, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.plus)
         }
         // add range
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Zeitraum (Wochenenden übersprungen)", style = HbType.small, color = Hb.ink3)
+            Text(stringResource(R.string.absence_kita_range_label), style = HbType.small, color = Hb.ink3)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) { AbwDateField(rVon) { rVon = it } }
                 Box(Modifier.weight(1f)) { AbwDateField(rBis) { rBis = it } }
             }
-            HbTextField(value = rLabel, onValueChange = { rLabel = it }, placeholder = "Anlass")
-            HbButton("Zeitraum hinzufügen", onClick = { vm.addKitaRange(rVon, rBis, rLabel) }, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.plus)
+            HbTextField(value = rLabel, onValueChange = { rLabel = it }, placeholder = stringResource(R.string.absence_kita_reason_short))
+            HbButton(stringResource(R.string.absence_kita_add_range), onClick = { vm.addKitaRange(rVon, rBis, rLabel) }, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.plus)
         }
     }
 }
@@ -943,12 +962,13 @@ private fun SelectField(value: String, options: List<Pair<String, String>>, onSe
 @Composable
 private fun AbwDateField(value: String, onChange: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    val openLabel = stringResource(R.string.absence_date_open)
     Box(
         Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface, HbRadiusSm)
             .border(1.dp, Hb.line, HbRadiusSm).clickable { open = true }
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text(displayDate(value), style = HbType.body.copy(fontSize = 14.sp), color = if (value.isBlank()) Hb.ink3 else Hb.ink)
+        Text(displayDate(value, openLabel), style = HbType.body.copy(fontSize = 14.sp), color = if (value.isBlank()) Hb.ink3 else Hb.ink)
     }
     if (open) {
         val initialMillis = runCatching {
@@ -963,16 +983,16 @@ private fun AbwDateField(value: String, onChange: (String) -> Unit) {
                         onChange(AbwCal.ymd(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate()))
                     }
                     open = false
-                }) { Text("OK") }
+                }) { Text(stringResource(R.string.action_ok)) }
             },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
         ) {
             DatePicker(state = pickerState)
         }
     }
 }
 
-private fun displayDate(ds: String): String = runCatching {
+private fun displayDate(ds: String, openLabel: String): String = runCatching {
     val d = LocalDate.parse(ds)
     "%02d.%02d.%04d".format(d.dayOfMonth, d.monthValue, d.year)
-}.getOrDefault(if (ds.isBlank()) "offen" else ds)
+}.getOrDefault(if (ds.isBlank()) openLabel else ds)

@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
         var isLoading by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
+        val loginFailed = stringResource(R.string.login_failed)
 
         LoginScreen(
             isLoading = isLoading,
@@ -99,7 +101,7 @@ class MainActivity : ComponentActivity() {
                     container.authRepository.login(username, password)
                         .onFailure { e ->
                             isLoading = false
-                            error = e.message ?: "Login fehlgeschlagen."
+                            error = e.message ?: loginFailed
                         }
                         .onSuccess { isLoading = false }
                 }
