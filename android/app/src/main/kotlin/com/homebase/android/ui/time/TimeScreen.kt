@@ -295,7 +295,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 EntriesByDay(
                     entries = recent,
                     projectsById = projectsById,
-                    currentUser = currentUser,
                     showProjectName = true,
                     onDelete = { requestDelete(it) },
                     onEdit = { requestEdit(it) },
@@ -344,7 +343,6 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
                 project = detailProject,
                 entries = entriesByProject[detailProject.id].orEmpty(),
                 isRunning = state.running?.projectId == detailProject.id,
-                currentUser = currentUser,
                 onDelete = { requestDelete(it) },
                 onEdit = { requestEdit(it) },
                 onSplit = { requestSplit(it) },
@@ -1042,7 +1040,6 @@ private fun ProjectCard(
 private fun EntriesByDay(
     entries: List<TimeEntryDto>,
     projectsById: Map<String, ProjectDto>,
-    currentUser: String?,
     showProjectName: Boolean,
     onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
@@ -1082,7 +1079,6 @@ private fun EntriesByDay(
                 EntryRow(
                     entry = entry,
                     project = projectsById[entry.projectId],
-                    currentUser = currentUser,
                     showProjectName = showProjectName,
                     onDelete = { onDelete(entry) },
                     onEdit = { onEdit(entry) },
@@ -1097,7 +1093,6 @@ private fun EntriesByDay(
 private fun EntryRow(
     entry: TimeEntryDto,
     project: ProjectDto?,
-    currentUser: String?,
     showProjectName: Boolean,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
@@ -1280,6 +1275,10 @@ private fun RecordEntrySheet(
                         error = "Ende muss nach dem Start liegen"
                         return@HbButton
                     }
+                    // Clear a stale validation error on the validated path (web parity):
+                    // a partner target keeps this sheet open under the confirm dialog, so
+                    // a previously-shown, since-fixed error would otherwise linger.
+                    error = null
                     onCreate(
                         projectId,
                         startInstant.toString(),
@@ -1289,6 +1288,8 @@ private fun RecordEntrySheet(
                     )
                 },
                 variant = HbButtonVariant.Primary,
+                // No selectable project ⇒ the action is a no-op; disable it honestly (web parity).
+                enabled = projectId.isNotEmpty(),
                 modifier = Modifier.weight(1f),
             )
         },
@@ -1634,7 +1635,6 @@ private fun ProjectDetailSheet(
     project: ProjectDto,
     entries: List<TimeEntryDto>,
     isRunning: Boolean,
-    currentUser: String?,
     onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
     onSplit: (TimeEntryDto) -> Unit,
@@ -1744,7 +1744,6 @@ private fun ProjectDetailSheet(
             EntriesByDay(
                 entries = finished.sortedByDescending { it.startedAt },
                 projectsById = mapOf(project.id to project),
-                currentUser = currentUser,
                 showProjectName = false,
                 onDelete = onDelete,
                 onEdit = onEdit,
