@@ -371,6 +371,11 @@ private fun SyncBanner(count: Int, onRetry: () -> Unit) {
 @Composable
 private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
+    // Re-entry guard mirroring the web `submitRef`: a double-tap on "Erstellen" otherwise fires the
+    // create twice before the sheet dismisses → a duplicate list (#191). Latched on the first press
+    // so the second tap hits a disabled button (the VM-level single-flight in `createList` is the
+    // backstop). Blank names are blocked too (the VM already no-ops, this just disables the button).
+    var submitting by remember { mutableStateOf(false) }
     HbBottomSheet(
         onDismiss = onDismiss,
         title = "Neue Liste",
@@ -383,8 +388,13 @@ private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
             )
             HbButton(
                 "Erstellen",
-                onClick = { onCreate(name) },
+                onClick = {
+                    if (submitting || name.isBlank()) return@HbButton
+                    submitting = true
+                    onCreate(name)
+                },
                 variant = HbButtonVariant.Primary,
+                enabled = !submitting && name.isNotBlank(),
                 modifier = Modifier.weight(1f),
             )
         },

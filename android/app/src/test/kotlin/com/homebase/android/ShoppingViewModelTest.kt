@@ -252,6 +252,83 @@ class ShoppingViewModelTest {
         coVerify(exactly = 0) { repository.createItem(any(), null) }
     }
 
+    // --- Named createList double-submit guard (#191) ---------------------------------------
+
+    @Test
+    fun `two concurrent createList calls create exactly one list (single-flight double-tap guard)`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+
+        // Gated createList: the first call parks on `gate`; a second concurrent call (the double-tap)
+        // must be ignored by the single-flight guard rather than firing a second create → two lists.
+        // Distinct ids per call so a second create would be observable as a second list.
+        val gate = CompletableDeferred<Unit>()
+        var createListCalls = 0
+        coEvery { repository.createList("Drogerie") } coAnswers {
+            val n = ++createListCalls
+            gate.await()
+            Result.success(list(id = "list-$n", name = "Drogerie"))
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // Double-tap "Erstellen" before the first create completes (the sheet isn't dismissed yet).
+        vm.createList("Drogerie")
+        vm.createList("Drogerie")
+        runCurrent() // the first call parks in createList; the second is dropped by the guard
+
+        gate.complete(Unit) // release the single in-flight create
+        advanceUntilIdle()
+
+        // Exactly one create reached the repository; only one list exists.
+        coVerify(exactly = 1) { repository.createList("Drogerie") }
+        assertEquals(1, createListCalls)
+        assertEquals(1, vm.uiState.value.lists.size)
+        assertEquals("list-1", vm.uiState.value.activeListId)
+    }
+
+    @Test
+    fun `a sequential second createList still creates a second list (deliberate second list)`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        // Two separate, deliberate creates of a same-named list: both must land (the guard collapses
+        // only a concurrent burst, never a later separate user action). Distinct ids per call.
+        var createListCalls = 0
+        coEvery { repository.createList("Drogerie") } coAnswers {
+            Result.success(list(id = "list-${++createListCalls}", name = "Drogerie"))
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.createList("Drogerie")
+        advanceUntilIdle() // first create fully resolves → guard clears
+        vm.createList("Drogerie")
+        advanceUntilIdle()
+
+        // Both deliberate creates went through → two lists, even with the same name.
+        coVerify(exactly = 2) { repository.createList("Drogerie") }
+        assertEquals(2, createListCalls)
+        assertEquals(2, vm.uiState.value.lists.size)
+        assertEquals("list-2", vm.uiState.value.activeListId)
+    }
+
+    @Test
+    fun `createList with blank name does nothing`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.createList("   ")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.createList(any()) }
+        assertTrue(vm.uiState.value.lists.isEmpty())
+    }
+
     @Test
     fun `addIngredients with no list auto-creates the default list instead of a list-less batch`() = vmTest {
         coEvery { repository.getItems() } returns Result.success(emptyList())
