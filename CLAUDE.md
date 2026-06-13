@@ -164,8 +164,12 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   getriggert: WS-`onOpen`, Browser-`online`-Event und einem 15-s-Intervall-Backstop
   (flakiges Laden-WLAN feuert oft kein `online`). Bis zum Erfolg trägt das Item einen
   „nicht synchronisiert"-Marker + Sammelbanner (nie still verlieren). Abgehakte sind nach
-  `checkedAt` desc sortiert (zuletzt abgehakt oben). Android hat dieselbe Lücke noch nicht
-  geschlossen — Folge-Issue. Deletes/Clear nutzen weiter den Toast-Pfad (kein Queue).
+  `checkedAt` desc sortiert (zuletzt abgehakt oben). Android hat dieselbe Resilienz
+  inzwischen ebenfalls (#170/#179): persistente Pending-Queue (DataStore, latest-wins),
+  Retry via `ReconnectingWebSocketClient`-onOpen + `ConnectivityManager` + Intervall-Backstop,
+  „nicht synchronisiert"-Marker und `checkedAt`-Sortierung. Deletes/Clear nutzen weiter den
+  Toast-Pfad (kein Queue). Items ohne Liste erzeugt Android nicht mehr (#181: beim ersten Item
+  ohne Liste wird automatisch eine Default-Liste angelegt).
 - Kein Redux — useState/useContext reicht für MVP
 - **Modal vs. Seite/Panel — Leitlinie (Umbrella #29):** Dialoge sparsam einsetzen; pro Stelle die
   passende Form wählen (Primitiven `<Modal>` und `<Sheet>` in `ui/primitives.tsx`, gleiche
@@ -182,7 +186,8 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
     (Konsistenz, #125).
   - Beim Modal→Seite/Slide-over-Umbau die zugehörige `web/e2e/<view>.spec.ts` **im selben PR**
     anpassen (`.hb-modal`-Locator → `.hb-sheet`/Seite) — nur der `e2e`-CI-Job fängt das.
-  - Offene Konvertierungs-Kandidaten leben als eigene Issues (z. B. #128 TargetsModal→Seite).
+  - Offene Konvertierungs-Kandidaten leben als eigene Issues; #128 (TargetsModal→eigene Seite)
+    ist umgesetzt (#187).
     Für Confirms gibt es das Primitive `<ConfirmDialog>` (primitives.tsx, #125/#129) —
     Cross-Person-Aktionen der Zeiterfassung (Partner-Timer, Partner-Einträge) laufen darüber.
 
@@ -208,12 +213,21 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 - Migrationsdateien: /backend/src/main/resources/db/migration/
 
 ## Telegram Digest
-- Kotlin-Coroutine-basierter Scheduler im Backend
-- Sendet täglich zur konfigurierten Uhrzeit. Die Uhrzeit ist in-app editierbar
-  (Einstellungen → Benachrichtigungen, persistiert in `app_settings.digest_time`;
-  Default "20:00"); der Scheduler liest sie pro Zyklus neu, kein Neustart nötig.
-  TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID bleiben env (Secrets) — fehlen sie, ruht der Digest.
-- Inhalt: heute erledigte Todos, neue Inbox-Items, morgen fällige Todos
+- Kotlin-Coroutine-basierter Scheduler im Backend; ein `DigestScheduler` pro Digest, beide
+  über denselben Bot/Chat. Fehlen TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID (env-Secrets), ruhen beide.
+- **Zwei tägliche Digests:** Abend-Recap (`DigestService`, Default 20:00 — heute erledigt /
+  neu in Inbox / morgen fällig) und Morgen-Briefing (`MorningDigestService`, Default 07:00 —
+  heute fällig / überfällig / Inbox / heute abwesend / Kita heute zu).
+- **Pro Digest in-app konfigurierbar** (Einstellungen → Benachrichtigungen, `app_settings`,
+  pro Zyklus frisch gelesen — kein Neustart): Uhrzeit (`DIGEST_TIME` / `MORNING_DIGEST_TIME`),
+  An/Aus (`DIGEST_*_ENABLED`, unset = an) und Inhalts-Auswahl per Checkbox (`DIGEST_*_SECTIONS`,
+  CSV von `DigestSection`-IDs; unset = alle Sektionen, leer **gespeichert** = keine). Gesendet
+  wird nur, wenn `enabled && telegramConfigured` und mindestens eine **gewählte** Sektion Inhalt
+  hat. Lange Sektionen werden bei 20 Einträgen + „… und X weitere" gekappt (#167).
+- **Abend-Digest** enthält zusätzlich eine Vorschau auf **morgen** (wer ist morgen abwesend,
+  Kita morgen zu) via geteiltem `familyCalendarFor(date)` — deshalb kann er auch an einem sonst
+  stillen Tag feuern, wenn nur diese Vorschau Inhalt hat (#182). Web-UI fertig; Android-Spiegelung
+  der Digest-Einstellungen offen (#189).
 
 ## Zeiterfassung-Domänenmodell
 Project: id, name, color (Hex), archived, created_by, created_at
