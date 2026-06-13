@@ -55,6 +55,7 @@ import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
+import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbField
 import com.homebase.android.ui.components.HbIcon
@@ -415,59 +416,101 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Spacer(Modifier.size(10.dp))
             // Morning briefing first (chronological), then the evening recap. Both are Telegram
-            // digests with the same {time, enabled} contract — only the endpoint + copy differ.
-            DigestTimeCard(
+            // digests with the same {time, enabled, sections} contract — only the endpoint + copy
+            // differ (#189). The recurring safety-net has no Android settings entry yet (#TODO).
+            DigestCard(
                 title = "Morgen-Digest",
                 hint = "Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.",
                 placeholder = "07:00",
                 load = configRepository::getMorningDigest,
-                save = configRepository::updateMorningDigestTime,
+                save = configRepository::updateMorningDigest,
             )
-            DigestTimeCard(
+            DigestCard(
                 title = "Abend-Digest",
-                hint = "Abendliche Zusammenfassung: heute erledigt, neue Inbox, morgen fällig.",
+                hint = "Abendliche Zusammenfassung: heute erledigt, neue Inbox, morgen fällig, plus eine Vorschau auf morgen.",
                 placeholder = "20:00",
                 load = configRepository::getDigest,
-                save = configRepository::updateDigestTime,
+                save = configRepository::updateDigest,
             )
         }
     }
 }
 
-// One Telegram-digest time card (morning briefing or evening recap) — identical control,
-// validation and persistence; only the heading/hint/endpoint differ. `enabled` reports whether
-// Telegram is configured server-side; when not, an inactive note shows but the time stays editable.
+// Section-id → German label, mirroring web/src/i18n/de.ts → settings.digestSections (#189). The
+// backend's availableSections drives which rows show (in its display order); this only labels them,
+// with a fallback to the raw id so a new server-side section never renders blank.
+private val DIGEST_SECTION_LABELS = mapOf(
+    "evening_done_today" to "Heute erledigt",
+    "evening_new_inbox" to "Neu in der Inbox",
+    "evening_due_tomorrow" to "Morgen fällig",
+    "evening_absent_tomorrow" to "Morgen abwesend (Vorschau)",
+    "evening_kita_tomorrow" to "Kita morgen geschlossen (Vorschau)",
+    "morning_due_today" to "Heute fällig",
+    "morning_overdue" to "Überfällig",
+    "morning_inbox" to "Inbox",
+    "morning_absent" to "Heute abwesend",
+    "morning_kita" to "Kita geschlossen",
+)
+
+/**
+ * One Telegram-digest card (morning briefing or evening recap), the Android pendant of the web's
+ * NotificationsSettings DigestCard (#189) — identical {time, enabled, sections} contract; only the
+ * heading/hint/endpoint differ. On/off [enabled] toggles whether the digest sends; the section
+ * checkbox group picks which content blocks it renders (driven by the backend's availableSections);
+ * the time stays as before. `telegramConfigured` only drives the inactive hint — every control
+ * stays editable regardless. Save sends all three fields in one PUT.
+ */
 @Composable
-private fun DigestTimeCard(
+private fun DigestCard(
     title: String,
     hint: String,
     placeholder: String,
     load: suspend () -> Result<DigestConfigResponse>,
-    save: suspend (String) -> Result<String>,
+    save: suspend (time: String, enabled: Boolean, sections: List<String>) -> Result<DigestConfigResponse>,
 ) {
     val scope = rememberCoroutineScope()
     var time by remember { mutableStateOf("") }
     var enabled by remember { mutableStateOf(true) }
+    var telegramConfigured by remember { mutableStateOf(true) }
+    var available by remember { mutableStateOf<List<String>>(emptyList()) }
+    // Selected section ids; serialised back in `available` order on save so the payload is stable.
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var loaded by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    // Enable editing only after the GET lands, so a late response can't clobber freshly-typed
+    // values (same guard as the household-name + web digest cards).
     LaunchedEffect(Unit) {
-        load().onSuccess { time = it.time; enabled = it.enabled }
+        load().onSuccess {
+            time = it.time
+            enabled = it.enabled
+            telegramConfigured = it.telegramConfigured
+            available = it.availableSections
+            selected = it.sections.toSet()
+        }
         loaded = true
     }
     LaunchedEffect(saved) { if (saved) { delay(2500); saved = false } }
 
+    val dirty = { error = null; saved = false }
     val valid = time.matches(Regex("""\d{2}:\d{2}"""))
     val doSave = {
         if (loaded && valid && !saving) {
             saving = true
             error = null
             saved = false
+            // Persist in the backend's display order so the stored value stays stable + readable.
+            val sections = available.filter { it in selected }
             scope.launch {
-                save(time)
-                    .onSuccess { persisted -> time = persisted; saved = true }
+                save(time, enabled, sections)
+                    .onSuccess { cfg ->
+                        time = cfg.time
+                        enabled = cfg.enabled
+                        selected = cfg.sections.toSet()
+                        saved = true
+                    }
                     .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
                 saving = false
             }
@@ -489,21 +532,77 @@ private fun DigestTimeCard(
                     color = Hb.ink3,
                 )
             }
-            if (loaded && !enabled) {
+            if (loaded && !telegramConfigured) {
                 Text(
-                    "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.",
+                    "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Einstellungen kannst du trotzdem setzen.",
                     style = HbType.small.copy(fontSize = 12.5.sp),
                     color = Hb.ink3,
                 )
             }
+
+            // On/off toggle (#189): a deselected digest skips sending entirely; the rest stays editable.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .clickable(enabled = loaded) { enabled = !enabled; dirty() }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                HbCheck(checked = enabled, onCheckedChange = { if (loaded) { enabled = !enabled; dirty() } }, size = 22.dp)
+                Text("Digest aktiv", style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink)
+            }
+
             HbField("Uhrzeit (HH:MM)") {
                 HbTextField(
                     value = time,
-                    onValueChange = { time = it.take(5); error = null; saved = false },
+                    onValueChange = { time = it.take(5); dirty() },
                     placeholder = placeholder,
                     mono = true,
                 )
             }
+
+            // Per-section checkbox group (#189): which content blocks this digest renders.
+            if (available.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "Inhalte",
+                        style = HbType.small.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink2,
+                    )
+                    Text(
+                        "Welche Abschnitte dieser Digest zeigt.",
+                        style = HbType.small.copy(fontSize = 12.sp),
+                        color = Hb.ink3,
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    available.forEach { id ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(HbRadiusSm)
+                                .clickable(enabled = loaded) { toggleSection(id, selected) { selected = it }; dirty() }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            HbCheck(
+                                checked = id in selected,
+                                onCheckedChange = { if (loaded) { toggleSection(id, selected) { selected = it }; dirty() } },
+                                size = 22.dp,
+                            )
+                            Text(
+                                DIGEST_SECTION_LABELS[id] ?: id,
+                                style = HbType.body.copy(fontSize = 14.sp),
+                                color = Hb.ink,
+                            )
+                        }
+                    }
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HbButton("Speichern", onClick = doSave, enabled = loaded && valid && !saving)
                 if (saved) SavedHint()
@@ -516,6 +615,11 @@ private fun DigestTimeCard(
             if (error != null) ErrorText(error!!)
         }
     }
+}
+
+/** Flips one section id in/out of [current], handing the new set to [onChange]. */
+private fun toggleSection(id: String, current: Set<String>, onChange: (Set<String>) -> Unit) {
+    onChange(if (id in current) current - id else current + id)
 }
 
 /** Small "saved" confirmation row (check + label), shared by the settings pages. */

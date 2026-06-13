@@ -1,5 +1,6 @@
 package com.homebase.android
 
+import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.TodoDto
 import com.squareup.moshi.Moshi
@@ -104,6 +105,32 @@ class MoshiRoundTripTest {
         assertNull(recipe.description)
         assertNull(recipe.prepTimeMinutes)
         assertNull(recipe.cookTimeMinutes)
+    }
+
+    @Test
+    fun `DigestConfigResponse defaults the section lists to empty when omitted`() {
+        // A digest with no sections selected serializes without the `sections` key under
+        // encodeDefaults=false; `telegramConfigured` is likewise dropped when false (#189). Both
+        // list fields must default to empty, not null — that's what lets the section group render
+        // cleanly (and matches the web's `?? []`).
+        val json = """
+            {
+              "time": "20:00",
+              "enabled": true,
+              "availableSections": ["evening_done_today", "evening_due_tomorrow"]
+            }
+        """.trimIndent()
+
+        val cfg = moshi.adapter(DigestConfigResponse::class.java).fromJson(json)
+
+        assertNotNull("minimal DigestConfigResponse payload must parse", cfg)
+        requireNotNull(cfg)
+        assertEquals("20:00", cfg.time)
+        assertTrue(cfg.enabled)
+        // Omitted `sections` → empty list; omitted `telegramConfigured` → false default.
+        assertEquals("omitted sections must default to empty list", emptyList<Any>(), cfg.sections)
+        assertEquals(false, cfg.telegramConfigured)
+        assertEquals(listOf("evening_done_today", "evening_due_tomorrow"), cfg.availableSections)
     }
 
     @Test

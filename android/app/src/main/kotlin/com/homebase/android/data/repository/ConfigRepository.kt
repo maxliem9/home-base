@@ -4,6 +4,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
+import retrofit2.HttpException
 
 class ConfigRepository(private val api: HomeBaseApi) {
 
@@ -35,29 +36,45 @@ class ConfigRepository(private val api: HomeBaseApi) {
             api.getUsers().mapNotNull { u -> u.avatarHue?.let { u.username to it } }.toMap()
         }
 
-    /** Telegram-digest config — the send time + whether Telegram is configured. Falls back gracefully. */
+    /**
+     * Evening-recap config — send time, in-app on/off, whether Telegram is configured, and the
+     * selected + available sections (#189). Falls back gracefully.
+     */
     suspend fun getDigest(): Result<DigestConfigResponse> =
         apiCatching { api.getDigest() }
 
     /**
-     * Set the Telegram-digest time (PUT /config/digest, #101). Returns the persisted HH:mm. A 400
-     * means an invalid time (the UI pre-validates HH:mm), mapped to German text.
+     * Patch the evening-recap config (PUT /config/digest, #189): time + on/off + sections in one
+     * request. Returns the persisted state. A 400 means an invalid time or section id (the UI
+     * pre-validates HH:mm and only ever sends known section ids), mapped to German text.
      */
-    suspend fun updateDigestTime(time: String): Result<String> =
-        apiCatching(mapHttpError = {
-            if (it.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Uhrzeit konnte nicht gespeichert werden."
-        }) { api.updateDigest(UpdateDigestRequest(time)).time }
+    suspend fun updateDigest(time: String, enabled: Boolean, sections: List<String>): Result<DigestConfigResponse> =
+        apiCatching(mapHttpError = ::digestSaveError) {
+            api.updateDigest(UpdateDigestRequest(time = time, enabled = enabled, sections = sections))
+        }
 
-    /** Morning-briefing config — the send time + whether Telegram is configured. Falls back gracefully. */
+    /**
+     * Morning-briefing config — send time, in-app on/off, whether Telegram is configured, and the
+     * selected + available sections (#189). Falls back gracefully.
+     */
     suspend fun getMorningDigest(): Result<DigestConfigResponse> =
         apiCatching { api.getMorningDigest() }
 
     /**
-     * Set the morning-briefing time (PUT /config/morning-digest). Returns the persisted HH:mm. A 400
-     * means an invalid time (the UI pre-validates HH:mm), mapped to German text.
+     * Patch the morning-briefing config (PUT /config/morning-digest, #189): time + on/off +
+     * sections in one request. Returns the persisted state. A 400 (invalid time/section) is mapped
+     * to German text.
      */
-    suspend fun updateMorningDigestTime(time: String): Result<String> =
-        apiCatching(mapHttpError = {
-            if (it.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Uhrzeit konnte nicht gespeichert werden."
-        }) { api.updateMorningDigest(UpdateDigestRequest(time)).time }
+    suspend fun updateMorningDigest(time: String, enabled: Boolean, sections: List<String>): Result<DigestConfigResponse> =
+        apiCatching(mapHttpError = ::digestSaveError) {
+            api.updateMorningDigest(UpdateDigestRequest(time = time, enabled = enabled, sections = sections))
+        }
 }
+
+/**
+ * Shared 400→German mapping for the digest PUTs. In practice the only 400 the app can trigger is
+ * an invalid time (sections are always sent straight from the server's availableSections, so
+ * INVALID_SECTION can't happen from here), hence the time-specific wording.
+ */
+private fun digestSaveError(e: HttpException): String =
+    if (e.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Einstellungen konnten nicht gespeichert werden."

@@ -23,12 +23,34 @@ data class UpdateConfigRequest(val householdName: String)
 @JsonClass(generateAdapter = true)
 data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
 
-/** GET/PUT /config/digest (#101). [enabled] = Telegram configured server-side; time stays editable. */
+/**
+ * GET/PUT /config/digest + /config/morning-digest (#101/#189). Each digest exposes its send
+ * [time], an in-app on/off [enabled] flag (independent of Telegram), the read-only
+ * [telegramConfigured] flag (whether anything actually sends — drives only the inactive hint),
+ * the currently selected [sections] and all selectable [availableSections] in display order.
+ * `sections`/`availableSections` are `= emptyList()` so a missing key (the `encodeDefaults=false`
+ * convention) deserialises to an empty list rather than failing.
+ */
 @JsonClass(generateAdapter = true)
-data class DigestConfigResponse(val time: String, val enabled: Boolean)
+data class DigestConfigResponse(
+    val time: String,
+    val enabled: Boolean,
+    val telegramConfigured: Boolean = false,
+    val sections: List<String> = emptyList(),
+    val availableSections: List<String> = emptyList(),
+)
 
+/**
+ * Body for PUT /config/digest + /config/morning-digest. All fields optional so a client can
+ * patch any subset ({time, enabled, sections}); the backend leaves omitted fields unchanged.
+ * Sent fully populated from the settings screen's Save.
+ */
 @JsonClass(generateAdapter = true)
-data class UpdateDigestRequest(val time: String)
+data class UpdateDigestRequest(
+    val time: String? = null,
+    val enabled: Boolean? = null,
+    val sections: List<String>? = null,
+)
 
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
