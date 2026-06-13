@@ -7,6 +7,10 @@ import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Badge, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
+import {
+  IngredientDraft, SectionDraft, emptyIngredient, emptySection,
+  parseIngredientsText, serializeSections,
+} from './recipeIngredients'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
@@ -39,8 +43,6 @@ const recipeHue = (id: string) => {
   return h + 20
 }
 
-interface IngredientDraft { name: string; amount: string; unit: string }
-interface SectionDraft { name: string; ingredients: IngredientDraft[] }
 interface Draft {
   id?: string
   title: string
@@ -66,67 +68,6 @@ const groupBySection = (items: Ingredient[]): { section: string | null; items: I
     else groups.push({ section: sec, items: [it] })
   }
   return groups
-}
-
-const emptyIngredient = (): IngredientDraft => ({ name: '', amount: '', unit: '' })
-const emptySection = (): SectionDraft => ({ name: '', ingredients: [emptyIngredient()] })
-
-// --- Free-text ("paste") ingredient editor ---------------------------------
-// One ingredient per line ("200 g Mehl"); a line starting with "#" opens a named section.
-// This is the bulk-entry counterpart to the structured rows — it matches how recipes are
-// copied off the web and mirrors the one-per-line steps field. Parsing is best-effort: it
-// only treats the first token after a leading amount as a unit when it's a known unit, so
-// "3 Eier" keeps "Eier" as the name (not the unit).
-const KNOWN_UNITS = new Set([
-  'g', 'kg', 'mg', 'ml', 'cl', 'dl', 'l', 'el', 'tl', 'msp', 'prise', 'prisen', 'stück', 'stk', 'st',
-  'dose', 'dosen', 'pkg', 'packung', 'päckchen', 'bund', 'zehe', 'zehen', 'scheibe', 'scheiben',
-  'tasse', 'tassen', 'becher', 'glas', 'cm', 'mm', 'kugel', 'kugeln', 'blatt', 'blätter',
-])
-const isUnitToken = (tok: string) => KNOWN_UNITS.has(tok.toLowerCase().replace(/\.$/, ''))
-
-const parseIngredientLine = (line: string): IngredientDraft => {
-  // leading amount: a single number (1, 1.5, 1,5). Ranges/fractions (1-2, 1/2) are intentionally
-  // NOT split off — amount is a single Double, so such a line keeps its full text as the name
-  // (honest + identical to the Android parser) instead of silently storing a wrong number.
-  const m = line.match(/^([0-9]+(?:[.,][0-9]+)?)\s+(.*)$/)
-  if (!m) return { name: line.trim(), amount: '', unit: '' }
-  const amount = m[1]
-  const rest = m[2].trim()
-  const parts = rest.split(/\s+/)
-  if (parts.length > 1 && isUnitToken(parts[0])) {
-    return { name: parts.slice(1).join(' '), amount, unit: parts[0] }
-  }
-  return { name: rest, amount, unit: '' }
-}
-
-const parseIngredientsText = (text: string): SectionDraft[] => {
-  const sections: SectionDraft[] = []
-  let current: SectionDraft | null = null
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    if (line.startsWith('#')) {
-      current = { name: line.replace(/^#+/, '').trim(), ingredients: [] }
-      sections.push(current)
-    } else {
-      if (!current) { current = { name: '', ingredients: [] }; sections.push(current) }
-      current.ingredients.push(parseIngredientLine(line))
-    }
-  }
-  return sections.length ? sections : [emptySection()]
-}
-
-// Structured sections → the editable text block (named sections become "# name" headers).
-const serializeSections = (sections: SectionDraft[]): string => {
-  const out: string[] = []
-  for (const sec of sections) {
-    if (sec.name.trim()) out.push(`# ${sec.name.trim()}`)
-    for (const ing of sec.ingredients) {
-      const line = [ing.amount.trim(), ing.unit.trim(), ing.name.trim()].filter(Boolean).join(' ')
-      if (line) out.push(line)
-    }
-  }
-  return out.join('\n')
 }
 
 const emptyDraft = (): Draft => ({
