@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.HomeBase" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      AppCompat parent (was android:Theme.Material.Light.NoActionBar). MainActivity is an
+      AppCompatActivity so AppCompatDelegate.setApplicationLocales(...) actually applies the
+      in-app language on API 26–32 (pre-API-33 it only recreates AppCompatActivity hosts) and
+      AppCompat can crash at launch without a Theme.AppCompat descendant. Kept light + no-action-bar
+      to stay visually identical to the old framework theme: the app is light-only (Compose uses a
+      lightColorScheme) and draws its own Hb.paper background edge-to-edge, while enableEdgeToEdge()
+      sets transparent system bars at runtime — so the XML theme only governs the brief pre-Compose
+      window flash, which stays light here. (Deliberately NOT DayNight, which could flash dark on a
+      dark-mode device behind the light Compose UI.)
+    -->
+    <style name="Theme.HomeBase" parent="Theme.AppCompat.Light.NoActionBar" />
 </resources>

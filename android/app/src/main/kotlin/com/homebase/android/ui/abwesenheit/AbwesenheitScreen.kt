@@ -240,12 +240,15 @@ private fun PersonSummary(s: AbsSummary, hue: Double, uid: String) {
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (s.carry > 0) {
-                val txt = "+${fmtDays(s.carry)} Übertrag · " +
-                    if (s.carryExpired) "${fmtDays(s.carryLost)} verfallen" else "bis ${AbwCal.ddmm(s.carryExpires)}"
+                val txt = if (s.carryExpired) {
+                    stringResource(R.string.absence_carry_expired, fmtDays(s.carry), fmtDays(s.carryLost))
+                } else {
+                    stringResource(R.string.absence_carry_until, fmtDays(s.carry), AbwCal.ddmm(s.carryExpires))
+                }
                 HbBadge(txt, tone = if (s.carryExpired) HbTone.Over else HbTone.Accent)
             }
-            HbBadge("Krank ${fmtDays(s.krank)}", tone = HbTone.Neutral)
-            HbBadge("Kind-krank ${fmtDays(s.kind)} / ${s.kindCap}", tone = HbTone.Neutral)
+            HbBadge(stringResource(R.string.absence_badge_krank, fmtDays(s.krank)), tone = HbTone.Neutral)
+            HbBadge(stringResource(R.string.absence_badge_kind, fmtDays(s.kind), s.kindCap), tone = HbTone.Neutral)
         }
     }
 }
