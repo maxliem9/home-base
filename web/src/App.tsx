@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { API_BASE, authFetch, safeFetch, login } from './api'
 import { t } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -19,14 +21,15 @@ import { SettingsView, type SettingsTab } from './components/settings/SettingsVi
 
 type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
-const NAV: { id: Tab; label: string; shortLabel: string; icon: string }[] = [
-  { id: 'heute', label: t.nav.dashboard, shortLabel: t.nav.short.dashboard, icon: 'home' },
-  { id: 'todos', label: t.nav.todos, shortLabel: t.nav.short.todos, icon: 'checkCircle' },
-  { id: 'shopping', label: t.nav.shopping, shortLabel: t.nav.short.shopping, icon: 'cart' },
-  { id: 'notes', label: t.nav.notes, shortLabel: t.nav.short.notes, icon: 'note' },
-  { id: 'time', label: t.nav.time, shortLabel: t.nav.short.time, icon: 'clock' },
-  { id: 'recipes', label: t.nav.recipes, shortLabel: t.nav.short.recipes, icon: 'chef' },
-  { id: 'abwesenheit', label: t.nav.abwesenheit, shortLabel: t.nav.short.abwesenheit, icon: 'calendar' },
+// Built inside Shell with the reactive `t` so the labels follow a language switch.
+const buildNav = (t: TFunction): { id: Tab; label: string; shortLabel: string; icon: string }[] => [
+  { id: 'heute', label: t('nav.dashboard'), shortLabel: t('nav.short.dashboard'), icon: 'home' },
+  { id: 'todos', label: t('nav.todos'), shortLabel: t('nav.short.todos'), icon: 'checkCircle' },
+  { id: 'shopping', label: t('nav.shopping'), shortLabel: t('nav.short.shopping'), icon: 'cart' },
+  { id: 'notes', label: t('nav.notes'), shortLabel: t('nav.short.notes'), icon: 'note' },
+  { id: 'time', label: t('nav.time'), shortLabel: t('nav.short.time'), icon: 'clock' },
+  { id: 'recipes', label: t('nav.recipes'), shortLabel: t('nav.short.recipes'), icon: 'chef' },
+  { id: 'abwesenheit', label: t('nav.abwesenheit'), shortLabel: t('nav.short.abwesenheit'), icon: 'calendar' },
 ]
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -90,11 +93,11 @@ function useNavBadges(token: string): NavBadges {
 async function fetchHouseholdName(token: string): Promise<string> {
   try {
     const res = await authFetch(token, `${API_BASE}/config`)
-    if (!res.ok) return t.shell.brandSub
+    if (!res.ok) return t('shell.brandSub')
     const data: { householdName: string } = await res.json()
-    return data.householdName || t.shell.brandSub
+    return data.householdName || t('shell.brandSub')
   } catch {
-    return t.shell.brandSub
+    return t('shell.brandSub')
   }
 }
 
@@ -122,6 +125,8 @@ export default function App() {
 }
 
 function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setTab: (t: Tab) => void; onLogout: () => void }) {
+  const { t } = useTranslation()
+  const NAV = useMemo(() => buildNav(t), [t])
   const badges = useNavBadges(token)
   // Per-user theme (#100): load + apply on mount, follow the OS live while 'system'.
   // Lifted here (always mounted when logged in) so it applies app-wide; the selector
@@ -129,7 +134,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   const themeCtl = useTheme(token)
   const me = usernameFromToken(token)
   const count: Partial<Record<Tab, number>> = { todos: badges.inbox, shopping: badges.shopping }
-  const [household, setHousehold] = useState(t.shell.brandSub)
+  const [household, setHousehold] = useState(t('shell.brandSub'))
   const [confirmLogout, setConfirmLogout] = useState(false)
   // Central settings hub (#99): a separate surface reached via the gear in the
   // account corner — not a primary nav tab. null = closed; opening a nav tab closes it.
@@ -160,7 +165,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
               <Icon name={n.icon} size={20} stroke={2} />
               <span>{n.label}</span>
               {n.id === 'time' && badges.timerRunning && (
-                <span className="hb-syncdot" style={{ animation: 'none', background: 'var(--clay)' }} title={t.shell.timerRunning} />
+                <span className="hb-syncdot" style={{ animation: 'none', background: 'var(--clay)' }} title={t('shell.timerRunning')} />
               )}
               {count[n.id] ? <span className="hb-navitem__badge">{count[n.id]}</span> : null}
             </button>
@@ -170,15 +175,15 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         <div className="hb-side-foot">
           <button className={`hb-navitem hb-side-foot__settings${settings ? ' is-active' : ''}`} onClick={() => openSettings()}>
             <Icon name="settings" size={20} stroke={2} />
-            <span>{t.nav.settings}</span>
+            <span>{t('nav.settings')}</span>
           </button>
-          <button className="hb-userchip" onClick={() => setConfirmLogout(true)} title={t.common.logout}>
+          <button className="hb-userchip" onClick={() => setConfirmLogout(true)} title={t('common.logout')}>
             <Avatar user={me} size={34} />
             <div>
               <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
-              <div className="hb-userchip__sub">{t.shell.syncActive}</div>
+              <div className="hb-userchip__sub">{t('shell.syncActive')}</div>
             </div>
-            <span className="hb-syncdot" title={t.shell.syncActive} />
+            <span className="hb-syncdot" title={t('shell.syncActive')} />
           </button>
         </div>
       </aside>
@@ -198,18 +203,18 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             <button
               className={`hb-iconbtn hb-topbar__gear${settings ? ' is-active' : ''}`}
               onClick={() => openSettings()}
-              aria-label={t.nav.settings}
-              title={t.nav.settings}
+              aria-label={t('nav.settings')}
+              title={t('nav.settings')}
             >
               <Icon name="settings" size={20} stroke={2} />
             </button>
-            <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t.common.logout} aria-label={t.common.logout}>
+            <button className="hb-userchip hb-topbar__user" onClick={() => setConfirmLogout(true)} title={t('common.logout')} aria-label={t('common.logout')}>
               <Avatar user={me} size={32} />
               <div className="hb-userchip__text">
                 <div className="hb-userchip__name">{me ?? 'HomeBase'}</div>
-                <div className="hb-userchip__sub">{t.shell.syncActive}</div>
+                <div className="hb-userchip__sub">{t('shell.syncActive')}</div>
               </div>
-              <span className="hb-syncdot" title={t.shell.syncActive} />
+              <span className="hb-syncdot" title={t('shell.syncActive')} />
             </button>
           </div>
         </header>
@@ -252,7 +257,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             <span className="hb-tabbar__icon">
               <Icon name={n.icon} size={22} stroke={2} />
               {n.id === 'time' && badges.timerRunning && (
-                <span className="hb-tabbar__dot" title={t.shell.timerRunning} />
+                <span className="hb-tabbar__dot" title={t('shell.timerRunning')} />
               )}
               {count[n.id] ? <span className="hb-tabbar__badge">{count[n.id]}</span> : null}
             </span>
@@ -269,16 +274,16 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       <Modal
         open={confirmLogout}
         onClose={() => setConfirmLogout(false)}
-        title={t.shell.logoutTitle}
+        title={t('shell.logoutTitle')}
         width={400}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setConfirmLogout(false)}>{t.common.cancel}</Button>
-            <Button variant="primary" icon="logout" onClick={onLogout}>{t.common.logout}</Button>
+            <Button variant="ghost" onClick={() => setConfirmLogout(false)}>{t('common.cancel')}</Button>
+            <Button variant="primary" icon="logout" onClick={onLogout}>{t('common.logout')}</Button>
           </>
         }
       >
-        <p style={{ margin: 0 }}>{t.shell.logoutBody}</p>
+        <p style={{ margin: 0 }}>{t('shell.logoutBody')}</p>
       </Modal>
     </div>
     </AvatarHuesProvider>
@@ -286,6 +291,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 }
 
 function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
+  const { t } = useTranslation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -299,7 +305,7 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
       const response = await login(username.trim(), password)
       onLogin(response.token)
     } catch (e) {
-      setError(e instanceof Error ? e.message : t.login.failed)
+      setError(e instanceof Error ? e.message : t('login.failed'))
     } finally {
       setSubmitting(false)
     }
@@ -311,32 +317,32 @@ function LoginView({ onLogin }: { onLogin: (token: string) => void }) {
         <div className="hb-login__brand">
           <div className="hb-brand__mark"><Icon name="home" size={21} stroke={2.2} /></div>
           <div>
-            <div className="hb-brand__name">{t.login.title}</div>
-            <div className="hb-brand__sub">{t.login.subtitle}</div>
+            <div className="hb-brand__name">{t('login.title')}</div>
+            <div className="hb-brand__sub">{t('login.subtitle')}</div>
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label={t.login.username}>
+          <Field label={t('login.username')}>
             <TextInput
               autoFocus
               value={username}
               onChange={setUsername}
-              placeholder={t.login.username}
+              placeholder={t('login.username')}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
             />
           </Field>
-          <Field label={t.login.password}>
+          <Field label={t('login.password')}>
             <TextInput
               type="password"
               value={password}
               onChange={setPassword}
-              placeholder={t.login.password}
+              placeholder={t('login.password')}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
             />
           </Field>
           {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
           <Button onClick={submit} disabled={submitting || !username.trim() || !password} style={{ width: '100%' }}>
-            {t.login.submit}
+            {t('login.submit')}
           </Button>
         </div>
       </Card>

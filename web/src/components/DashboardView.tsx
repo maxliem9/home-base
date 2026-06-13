@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -22,12 +24,12 @@ interface DashboardViewProps {
 }
 
 // time-of-day greeting — thresholds mirror the mock (docs/web/src/views_heute.jsx)
-function greeting(hour = new Date().getHours()): string {
-  if (hour < 5) return t.dashboard.greetingNight
-  if (hour < 11) return t.dashboard.greetingMorning
-  if (hour < 17) return t.dashboard.greetingDay
-  if (hour < 22) return t.dashboard.greetingEvening
-  return t.dashboard.greetingNight
+function greeting(t: TFunction, hour = new Date().getHours()): string {
+  if (hour < 5) return t('dashboard.greetingNight')
+  if (hour < 11) return t('dashboard.greetingMorning')
+  if (hour < 17) return t('dashboard.greetingDay')
+  if (hour < 22) return t('dashboard.greetingEvening')
+  return t('dashboard.greetingNight')
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -48,6 +50,7 @@ function StatTile({ value, label, icon, onClick }: { value: number; label: strin
 }
 
 export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProps) {
+  const { t } = useTranslation()
   const me = usernameFromToken(token)
   const meName = userMeta(me)?.name ?? me ?? 'HomeBase'
   const [todos, setTodos] = useState<Todo[]>([])
@@ -137,14 +140,14 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
       })
-      if (!result.ok) return flashError(errorText(null, t.dashboard.addFailed))
+      if (!result.ok) return flashError(errorText(null, t('dashboard.addFailed')))
       if (result.res.status === 401) return onLogout()
       if (result.res.ok) {
         const created: Todo = await result.res.json()
         setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
         setQuick('')
       } else {
-        flashError(errorText(await errorCode(result.res), t.dashboard.addFailed))
+        flashError(errorText(await errorCode(result.res), t('dashboard.addFailed')))
       }
     } finally {
       setSubmitting(false)
@@ -163,7 +166,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     // the WS frame reconciles that too).
     if (!result.ok) {
       await fetchTodos()
-      return flashError(errorText(null, t.dashboard.saveFailed))
+      return flashError(errorText(null, t('dashboard.saveFailed')))
     }
     if (result.res.status === 401) return onLogout()
     if (result.res.ok) {
@@ -171,7 +174,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
       setTodos((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
     } else {
       await fetchTodos()
-      flashError(errorText(await errorCode(result.res), t.dashboard.saveFailed))
+      flashError(errorText(await errorCode(result.res), t('dashboard.saveFailed')))
     }
   }
 
@@ -185,12 +188,12 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     })
     if (!result.ok) {
       await fetchShopping()
-      return flashError(errorText(null, t.dashboard.saveFailed))
+      return flashError(errorText(null, t('dashboard.saveFailed')))
     }
     if (result.res.status === 401) return onLogout()
     if (!result.res.ok) {
       await fetchShopping()
-      flashError(errorText(await errorCode(result.res), t.dashboard.saveFailed))
+      flashError(errorText(await errorCode(result.res), t('dashboard.saveFailed')))
     }
   }
 
@@ -200,7 +203,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     if (me && entry.userId !== me) {
       const name = userMeta(entry.userId)?.name ?? entry.userId
       setPartnerConfirm({
-        message: t.time.confirmStopPartner.replace('{name}', name),
+        message: t('time.confirmStopPartner', { name: name }),
         run: () => void doStopTimer(entry),
       })
       return
@@ -216,12 +219,12 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
     const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, init)
     if (!result.ok) {
       await fetchRunning()
-      return flashError(errorText(null, t.dashboard.saveFailed))
+      return flashError(errorText(null, t('dashboard.saveFailed')))
     }
     if (result.res.status === 401) return onLogout()
     if (!result.res.ok) {
       await fetchRunning()
-      flashError(errorText(await errorCode(result.res), t.dashboard.saveFailed))
+      flashError(errorText(await errorCode(result.res), t('dashboard.saveFailed')))
     }
   }
 
@@ -245,29 +248,29 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
 
   return (
     <div className="hb-page">
-      <PageHead eyebrow={todayLabel()} title={`${greeting()}, ${meName}.`} />
+      <PageHead eyebrow={todayLabel()} title={`${greeting(t)}, ${meName}.`} />
 
       <div className="hb-quickadd" style={{ marginBottom: 26 }}>
         <Icon name="sparkle" size={19} stroke={2} style={{ color: 'var(--accent)' }} />
         <input
           value={quick}
-          aria-label={t.dashboard.quickAddPlaceholder}
-          placeholder={t.dashboard.quickAddPlaceholder}
+          aria-label={t('dashboard.quickAddPlaceholder')}
+          placeholder={t('dashboard.quickAddPlaceholder')}
           onChange={(e) => setQuick(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submitQuick()}
         />
-        <Button size="sm" icon="plus" onClick={submitQuick} disabled={submitting || !quick.trim()}>{t.dashboard.add}</Button>
+        <Button size="sm" icon="plus" onClick={submitQuick} disabled={submitting || !quick.trim()}>{t('dashboard.add')}</Button>
       </div>
 
       {loading ? (
-        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : (
         <>
           <div className="hb-stats">
-            <StatTile value={dueToday.length} label={t.dashboard.statDueToday} icon="calendar" onClick={() => onNavigate('todos')} />
-            <StatTile value={inboxCount} label={t.dashboard.statInbox} icon="inbox" onClick={() => onNavigate('todos')} />
-            <StatTile value={dueTomorrow.length} label={t.dashboard.statDueTomorrow} icon="clock" onClick={() => onNavigate('todos')} />
-            <StatTile value={doneToday.length} label={t.dashboard.statDoneToday} icon="checkCircle" onClick={() => onNavigate('todos')} />
+            <StatTile value={dueToday.length} label={t('dashboard.statDueToday')} icon="calendar" onClick={() => onNavigate('todos')} />
+            <StatTile value={inboxCount} label={t('dashboard.statInbox')} icon="inbox" onClick={() => onNavigate('todos')} />
+            <StatTile value={dueTomorrow.length} label={t('dashboard.statDueTomorrow')} icon="clock" onClick={() => onNavigate('todos')} />
+            <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onNavigate('todos')} />
           </div>
 
           <div className="hb-heute-grid">
@@ -275,13 +278,13 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
               {/* Today's tasks */}
               <Card className="hb-card--pad">
                 <div className="hb-cardhead">
-                  <h3>{t.dashboard.todayTitle}</h3>
+                  <h3>{t('dashboard.todayTitle')}</h3>
                   <button className="hb-link" onClick={() => onNavigate('todos')}>
-                    {t.dashboard.allTasks} <Icon name="chevronRight" size={15} stroke={2.2} />
+                    {t('dashboard.allTasks')} <Icon name="chevronRight" size={15} stroke={2.2} />
                   </button>
                 </div>
                 {dueToday.length === 0 ? (
-                  <EmptyState icon="checkCircle" title={t.dashboard.todayEmpty} hint={t.dashboard.todayEmptyHint} />
+                  <EmptyState icon="checkCircle" title={t('dashboard.todayEmpty')} hint={t('dashboard.todayEmptyHint')} />
                 ) : (
                   <div className="hb-list">
                     {dueToday.map((todo) => (
@@ -305,15 +308,15 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                 <div className="hb-cardhead">
                   <h3>
                     <Icon name="send" size={17} stroke={2} style={{ verticalAlign: '-2px', marginRight: 7, color: 'var(--accent)' }} />
-                    {t.dashboard.digestTitle}
+                    {t('dashboard.digestTitle')}
                   </h3>
-                  <Badge tone="neutral">{t.dashboard.digestBadge}</Badge>
+                  <Badge tone="neutral">{t('dashboard.digestBadge')}</Badge>
                 </div>
-                <p className="hb-muted" style={{ fontSize: 13.5, margin: '2px 0 14px' }}>{t.dashboard.digestSub}</p>
+                <p className="hb-muted" style={{ fontSize: 13.5, margin: '2px 0 14px' }}>{t('dashboard.digestSub')}</p>
                 <div className="hb-digest__body">
-                  <div className="hb-digest__line"><span className="hb-digest__k">✓ {t.dashboard.digestDone}</span><span>{doneToday.length}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t.dashboard.digestInbox}</span><span>{inboxNewToday}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">↻ {t.dashboard.digestTomorrow}</span><span>{dueTomorrow.length}</span></div>
+                  <div className="hb-digest__line"><span className="hb-digest__k">✓ {t('dashboard.digestDone')}</span><span>{doneToday.length}</span></div>
+                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t('dashboard.digestInbox')}</span><span>{inboxNewToday}</span></div>
+                  <div className="hb-digest__line"><span className="hb-digest__k">↻ {t('dashboard.digestTomorrow')}</span><span>{dueTomorrow.length}</span></div>
                   {dueTomorrow.slice(0, 3).map((todo) => (
                     <div key={todo.id} className="hb-digest__sub">· {todo.title}{todo.assignee ? ` (${userMeta(todo.assignee)?.name ?? todo.assignee})` : ''}</div>
                   ))}
@@ -325,9 +328,9 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
               {/* Running timer */}
               <Card className="hb-card--pad">
                 <div className="hb-cardhead">
-                  <h3>{t.dashboard.timeTitle}</h3>
+                  <h3>{t('dashboard.timeTitle')}</h3>
                   <button className="hb-link" onClick={() => onNavigate('time')}>
-                    {t.dashboard.open} <Icon name="chevronRight" size={15} stroke={2.2} />
+                    {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
                   </button>
                 </div>
                 {runningSorted.length > 0 ? (
@@ -341,45 +344,45 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                       const eta = userForecast?.expectedEndAt
                       const etaSuffix = eta
                         ? ` · ${new Date(eta).getTime() <= nowMs
-                          ? t.dashboard.targetReachedShort
-                          : t.dashboard.expectedEndShort.replace('{time}', clockTime(eta))}`
+                          ? t('dashboard.targetReachedShort')
+                          : t('dashboard.expectedEndShort', { time: clockTime(eta) })}`
                         : ''
                       return (
                         <div key={entry.id} className="hb-runwidget">
                           <span className="hb-runwidget__pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="hb-row__title" style={{ fontWeight: 600 }}>{proj?.name ?? t.dashboard.timeTitle}</div>
+                            <div className="hb-row__title" style={{ fontWeight: 600 }}>{proj?.name ?? t('dashboard.timeTitle')}</div>
                             <div className="hb-muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                               {!ownTimer && <Avatar user={entry.userId} size={18} />}
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {ownTimer
-                                  ? (entry.description || t.dashboard.timerRunningHint)
+                                  ? (entry.description || t('dashboard.timerRunningHint'))
                                   : `${userMeta(entry.userId)?.name ?? entry.userId}${entry.description ? ` · ${entry.description}` : ''}`}
                                 {etaSuffix}
                               </span>
                             </div>
                           </div>
                           <span className="hb-mono hb-runwidget__clock">{fmtClock(elapsed)}</span>
-                          <IconButton icon="stop" label={t.dashboard.stop} onClick={() => stopTimer(entry)} />
+                          <IconButton icon="stop" label={t('dashboard.stop')} onClick={() => stopTimer(entry)} />
                         </div>
                       )
                     })}
                   </div>
                 ) : (
-                  <EmptyState icon="timer" title={t.dashboard.noTimer} hint={t.dashboard.noTimerHint} />
+                  <EmptyState icon="timer" title={t('dashboard.noTimer')} hint={t('dashboard.noTimerHint')} />
                 )}
               </Card>
 
               {/* Shopping peek */}
               <Card className="hb-card--pad">
                 <div className="hb-cardhead">
-                  <h3>{t.dashboard.shoppingTitle}</h3>
+                  <h3>{t('dashboard.shoppingTitle')}</h3>
                   <button className="hb-link" onClick={() => onNavigate('shopping')}>
-                    {t.dashboard.open} <Icon name="chevronRight" size={15} stroke={2.2} />
+                    {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
                   </button>
                 </div>
                 {openShop.length === 0 ? (
-                  <EmptyState icon="cart" title={t.dashboard.shoppingEmpty} />
+                  <EmptyState icon="cart" title={t('dashboard.shoppingEmpty')} />
                 ) : (
                   <>
                     <div className="hb-list">
@@ -392,7 +395,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                     </div>
                     {openShop.length > 5 && (
                       <div className="hb-muted" style={{ fontSize: 13, marginTop: 10, textAlign: 'center' }}>
-                        + {openShop.length - 5} {t.dashboard.moreItems}
+                        + {openShop.length - 5} {t('dashboard.moreItems')}
                       </div>
                     )}
                   </>
@@ -405,7 +408,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
 
       {partnerConfirm && (
         <ConfirmDialog
-          title={t.time.partnerActionTitle}
+          title={t('time.partnerActionTitle')}
           message={partnerConfirm.message}
           onConfirm={partnerConfirm.run}
           onClose={() => setPartnerConfirm(null)}

@@ -3,8 +3,9 @@
 // household's members (avatar + display name). On save it calls onRenamed
 // so the live brand in the shell updates without a reload.
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, safeFetch } from '../../api'
-import { t, errorText } from '../../i18n'
+import { errorText } from '../../i18n'
 import { useHouseholdUsers } from '../../hooks/useHouseholdUsers'
 import { userMeta } from '../../ui/format'
 import { Icon } from '../../ui/Icon'
@@ -15,6 +16,7 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
   onLogout: () => void
   onRenamed: (name: string) => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -44,7 +46,7 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
 
   const save = async () => {
     const trimmed = name.trim()
-    if (!trimmed) return setError(t.settings.householdNameRequired)
+    if (!trimmed) return setError(t('settings.householdNameRequired'))
     setSaving(true)
     setError(null)
     setSaved(false)
@@ -54,9 +56,9 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
       body: JSON.stringify({ householdName: trimmed }),
     })
     setSaving(false)
-    if (!result.ok) return setError(errorText(null, t.settings.householdSaveFailed))
+    if (!result.ok) return setError(errorText(null, t('settings.householdSaveFailed')))
     if (result.res.status === 401) return onLogout()
-    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t.settings.householdSaveFailed))
+    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t('settings.householdSaveFailed')))
     const data: { householdName: string } = await result.res.json()
     setName(data.householdName)
     onRenamed(data.householdName)
@@ -69,25 +71,25 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
       <Card className="hb-card--pad">
         <div className="hb-cardhead">
           <div>
-            <h3>{t.settings.householdNameTitle}</h3>
-            <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t.settings.householdNameHint}</p>
+            <h3>{t('settings.householdNameTitle')}</h3>
+            <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.householdNameHint')}</p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
-          <Field label={t.settings.householdNameLabel}>
+          <Field label={t('settings.householdNameLabel')}>
             <TextInput
               value={name}
               onChange={(v) => { setName(v); setSaved(false); setError(null) }}
-              placeholder={t.shell.brandSub}
+              placeholder={t('shell.brandSub')}
               onKeyDown={(e) => e.key === 'Enter' && save()}
               disabled={!loaded}
               maxLength={60}
             />
           </Field>
-          <Button onClick={save} disabled={saving || !loaded || !name.trim()}>{t.common.save}</Button>
+          <Button onClick={save} disabled={saving || !loaded || !name.trim()}>{t('common.save')}</Button>
           {saved && (
             <span className="hb-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 9 }}>
-              <Icon name="check" size={15} stroke={2.4} /> {t.settings.householdSaved}
+              <Icon name="check" size={15} stroke={2.4} /> {t('settings.householdSaved')}
             </span>
           )}
         </div>
@@ -97,8 +99,8 @@ export function HouseholdSettings({ token, onLogout, onRenamed }: {
       <Card className="hb-card--pad hb-members-card">
         <div className="hb-cardhead">
           <div>
-            <h3>{t.settings.householdMembersTitle}</h3>
-            <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t.settings.householdMembersHint}</p>
+            <h3>{t('settings.householdMembersTitle')}</h3>
+            <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.householdMembersHint')}</p>
           </div>
         </div>
         <ul style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>

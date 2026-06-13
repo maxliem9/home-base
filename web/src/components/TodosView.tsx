@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -31,13 +33,14 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.
 // Real list ids are UUIDs, so this can never collide.
 const INBOX_ID = '__inbox__'
 
-// open todos are grouped into these due-date buckets, in this order
-const BUCKETS: { key: string; label: string }[] = [
-  { key: 'over', label: t.todos.bucketOver },
-  { key: 'today', label: t.todos.bucketToday },
-  { key: 'soon', label: t.todos.bucketSoon },
-  { key: 'far', label: t.todos.bucketFar },
-  { key: 'none', label: t.todos.bucketNone },
+// open todos are grouped into these due-date buckets, in this order. Built with the
+// reactive `t` inside the view so the labels follow a language switch.
+const buildBuckets = (t: TFunction): { key: string; label: string }[] => [
+  { key: 'over', label: t('todos.bucketOver') },
+  { key: 'today', label: t('todos.bucketToday') },
+  { key: 'soon', label: t('todos.bucketSoon') },
+  { key: 'far', label: t('todos.bucketFar') },
+  { key: 'none', label: t('todos.bucketNone') },
 ]
 
 interface PlanDraft {
@@ -51,13 +54,13 @@ interface PlanDraft {
 }
 
 // short label for the recurrence badge on a todo row, e.g. "wöchentl." or "alle 2 Wochen"
-function recurrenceBadge(rec: { freq: RecurrenceFreq; interval?: number }): string {
+function recurrenceBadge(t: TFunction, rec: { freq: RecurrenceFreq; interval?: number }): string {
   const n = rec.interval ?? 1
   if (n <= 1) {
-    return { DAILY: t.todos.recurBadgeDaily, WEEKLY: t.todos.recurBadgeWeekly, MONTHLY: t.todos.recurBadgeMonthly }[rec.freq]
+    return { DAILY: t('todos.recurBadgeDaily'), WEEKLY: t('todos.recurBadgeWeekly'), MONTHLY: t('todos.recurBadgeMonthly') }[rec.freq]
   }
-  const unit = { DAILY: t.todos.recurUnitDay, WEEKLY: t.todos.recurUnitWeek, MONTHLY: t.todos.recurUnitMonth }[rec.freq]
-  return `${t.todos.recurBadgeEvery} ${n} ${unit}`
+  const unit = { DAILY: t('todos.recurUnitDay'), WEEKLY: t('todos.recurUnitWeek'), MONTHLY: t('todos.recurUnitMonth') }[rec.freq]
+  return `${t('todos.recurBadgeEvery')} ${n} ${unit}`
 }
 
 interface TodosViewProps {
@@ -66,6 +69,7 @@ interface TodosViewProps {
 }
 
 export function TodosView({ token, onLogout }: TodosViewProps) {
+  const { t } = useTranslation()
   const me = usernameFromToken(token)
   const householdUsers = useHouseholdUsers(token)
   const [todos, setTodos] = useState<Todo[]>([])
@@ -168,7 +172,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
   // Returns true on success so callers (e.g. the plan modal) can decide whether
   // to close. On failure a toast is shown and the call resolves false.
-  const patchTodo = async (id: string, body: Record<string, unknown>, fallback = t.todos.saveFailed): Promise<boolean> => {
+  const patchTodo = async (id: string, body: Record<string, unknown>, fallback = t('todos.saveFailed')): Promise<boolean> => {
     const result = await safeFetch(token, `${API_BASE}/todos/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -204,7 +208,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         // quick-add and the Android FAB).
         body: JSON.stringify({ title: newTitle.trim(), ...(active ? { listId: active.id } : {}) }),
       })
-      if (!result.ok) return flashError(errorText(null, t.todos.addFailed))
+      if (!result.ok) return flashError(errorText(null, t('todos.addFailed')))
       const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
@@ -215,7 +219,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
         setNewTitle('')
       } else {
-        flashError(errorText(await errorCode(res), t.todos.addFailed))
+        flashError(errorText(await errorCode(res), t('todos.addFailed')))
       }
     } finally {
       setSubmitting(false)
@@ -261,13 +265,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     // restoring a captured snapshot, which could clobber a concurrent WS update.
     if (!result.ok) {
       await fetchTodos()
-      return flashError(errorText(null, t.todos.deleteFailed))
+      return flashError(errorText(null, t('todos.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchTodos()
-      flashError(errorText(await errorCode(res), t.todos.deleteFailed))
+      flashError(errorText(await errorCode(res), t('todos.deleteFailed')))
     }
   }
 
@@ -282,14 +286,14 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
     })
-    if (!result.ok) return flashError(errorText(null, t.todos.subAddFailed))
+    if (!result.ok) return flashError(errorText(null, t('todos.subAddFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) {
       applyTodo(await res.json())
       setSubDrafts((d) => ({ ...d, [todoId]: '' }))
     } else {
-      flashError(errorText(await errorCode(res), t.todos.subAddFailed))
+      flashError(errorText(await errorCode(res), t('todos.subAddFailed')))
     }
   }
 
@@ -299,20 +303,20 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ done: !sub.done }),
     })
-    if (!result.ok) return flashError(errorText(null, t.todos.subSaveFailed))
+    if (!result.ok) return flashError(errorText(null, t('todos.subSaveFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
-    else flashError(errorText(await errorCode(res), t.todos.subSaveFailed))
+    else flashError(errorText(await errorCode(res), t('todos.subSaveFailed')))
   }
 
   const deleteSubtask = async (todoId: string, subId: string) => {
     const result = await safeFetch(token, `${API_BASE}/todos/${todoId}/subtasks/${subId}`, { method: 'DELETE' })
-    if (!result.ok) return flashError(errorText(null, t.todos.subDeleteFailed))
+    if (!result.ok) return flashError(errorText(null, t('todos.subDeleteFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
     if (res.ok) applyTodo(await res.json())
-    else flashError(errorText(await errorCode(res), t.todos.subDeleteFailed))
+    else flashError(errorText(await errorCode(res), t('todos.subDeleteFailed')))
   }
 
   const toggleExpand = (id: string) =>
@@ -333,13 +337,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       body: JSON.stringify({ name, visibility }),
     })
     // transport reject → no Response; surface the inline create error so the modal stays open
-    if (!result.ok) return errorText(null, t.todos.listCreateFailed)
+    if (!result.ok) return errorText(null, t('todos.listCreateFailed'))
     const { res } = result
     if (res.status === 401) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.todos.listCreateFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('todos.listCreateFailed'))
     const created: TodoList = await res.json()
     setLists((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]))
     setActiveId(created.id)
@@ -357,13 +361,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       body: JSON.stringify({ name, visibility }),
     })
     // transport reject → no Response; surface the inline edit error so the modal stays open
-    if (!result.ok) return errorText(null, t.todos.listSaveFailed)
+    if (!result.ok) return errorText(null, t('todos.listSaveFailed'))
     const { res } = result
     if (res.status === 401) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.todos.listSaveFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('todos.listSaveFailed'))
     const updated: TodoList = await res.json()
     setLists((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
     setEditListOpen(false)
@@ -385,13 +389,13 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
     // which could clobber a concurrent WS update.
     if (!result.ok) {
       await fetchTodos()
-      return flashError(errorText(null, t.todos.listDeleteFailed))
+      return flashError(errorText(null, t('todos.listDeleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchTodos()
-      flashError(errorText(await errorCode(res), t.todos.listDeleteFailed))
+      flashError(errorText(await errorCode(res), t('todos.listDeleteFailed')))
     }
   }
 
@@ -422,7 +426,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   Object.values(buckets).forEach((b) =>
     b.sort((a, c) => (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')),
   )
-  const groups = BUCKETS.filter((g) => buckets[g.key].length)
+  const groups = buildBuckets(t).filter((g) => buckets[g.key].length)
 
   // the todo currently in the plan modal — inbox todos (no listId) additionally
   // get a list picker there, so planning can file them into a list (#69)
@@ -430,7 +434,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
   return (
     <div className="hb-page">
-      <PageHead eyebrow={t.todos.eyebrow} title={t.todos.title} />
+      <PageHead eyebrow={t('todos.eyebrow')} title={t('todos.title')} />
 
       {/* Listen-Tabs */}
       <div className="hb-tabs" role="tablist">
@@ -441,7 +445,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           onClick={() => setActiveId(INBOX_ID)}
         >
           <Icon name="inbox" size={14} stroke={2} />
-          {t.inbox.tab}
+          {t('inbox.tab')}
           {inboxOpenCount > 0 && <span className="hb-tab__count">{inboxOpenCount}</span>}
         </button>
         {lists.map((l) => (
@@ -459,33 +463,33 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
         ))}
         <button className="hb-tab hb-tab--add" onClick={() => setNewListOpen(true)}>
           <Icon name="plus" size={16} stroke={2.2} />
-          {t.todos.newList}
+          {t('todos.newList')}
         </button>
       </div>
 
       {loading ? (
-        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : !active && !inboxActive ? null : ( // the effect above always selects a tab right after loading
         <>
           <div className="hb-quickadd" style={{ marginBottom: 24 }}>
             <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
             <input
               value={newTitle}
-              placeholder={active ? `${t.todos.quickAddPlaceholder.replace(' …', '')} in „${active.name}" …` : t.inbox.quickAddPlaceholder}
+              placeholder={active ? `${t('todos.quickAddPlaceholder').replace(' …', '')} in „${active.name}" …` : t('inbox.quickAddPlaceholder')}
               onChange={(e) => setNewTitle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
             <Button size="sm" icon="plus" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>
-              {t.todos.addTask}
+              {t('todos.addTask')}
             </Button>
           </div>
 
           {openTodos.length === 0 ? (
             <Card className="hb-card--pad">
               {inboxActive ? (
-                <EmptyState icon="inbox" title={t.inbox.empty} hint={t.inbox.emptyHint} />
+                <EmptyState icon="inbox" title={t('inbox.empty')} hint={t('inbox.emptyHint')} />
               ) : (
-                <EmptyState icon="checkCircle" title={t.todos.allDone} hint={t.todos.allDoneHint} />
+                <EmptyState icon="checkCircle" title={t('todos.allDone')} hint={t('todos.allDoneHint')} />
               )}
             </Card>
           ) : (
@@ -524,7 +528,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             <div style={{ marginTop: 30 }}>
               <button className={`hb-donehead${doneOpen ? ' is-open' : ''}`} onClick={() => setDoneOpen((v) => !v)}>
                 <Icon name="chevronDown" size={16} stroke={2.4} className="hb-donehead__chev" />
-                <span className="hb-sectionlabel" style={{ margin: 0 }}>{t.todos.doneSection}</span>
+                <span className="hb-sectionlabel" style={{ margin: 0 }}>{t('todos.doneSection')}</span>
                 <span className="hb-donehead__c">{done.length}</span>
               </button>
               {doneOpen && (
@@ -557,12 +561,12 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             <div style={{ marginTop: 26, display: 'flex', gap: 20, alignItems: 'center' }}>
               <button className="hb-link" onClick={() => setEditListOpen(true)}>
                 <Icon name="edit" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-                {t.todos.editList} „{active.name}"
+                {t('todos.editList')} „{active.name}"
               </button>
               {lists.length > 1 && (
                 <button className="hb-link hb-link--danger" onClick={() => setConfirmDelete(true)}>
                   <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-                  {t.todos.deleteList} „{active.name}"
+                  {t('todos.deleteList')} „{active.name}"
                 </button>
               )}
             </div>
@@ -573,63 +577,63 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       <Modal
         open={!!plan}
         onClose={() => setPlan(null)}
-        title={t.todos.planTitle}
+        title={t('todos.planTitle')}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setPlan(null)}>{t.common.cancel}</Button>
+            <Button variant="ghost" onClick={() => setPlan(null)}>{t('common.cancel')}</Button>
             <Button
               onClick={handlePlan}
               disabled={!plan || (!plan.assignee.trim() && !plan.dueDate) || (!!plan.recurrenceFreq && !plan.dueDate)}
             >
-              {t.todos.plan}
+              {t('todos.plan')}
             </Button>
           </>
         }
       >
         {plan && (
           <>
-            <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t.todos.planHint}</p>
+            <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t('todos.planHint')}</p>
             {!planTodo?.listId && lists.length > 0 && (
-              <Field label={t.todos.planList}>
+              <Field label={t('todos.planList')}>
                 <Select value={plan.listId} onChange={(v) => setPlan({ ...plan, listId: v })}>
-                  <option value="">{t.todos.planListInbox}</option>
+                  <option value="">{t('todos.planListInbox')}</option>
                   {lists.map((l) => (
                     <option key={l.id} value={l.id}>{l.name}</option>
                   ))}
                 </Select>
               </Field>
             )}
-            <Field label={t.todos.assignee}>
+            <Field label={t('todos.assignee')}>
               <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>
-            <Field label={t.todos.dueDate}>
+            <Field label={t('todos.dueDate')}>
               <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
             </Field>
-            <Field label={t.todos.priority}>
+            <Field label={t('todos.priority')}>
               <Select value={plan.priority} onChange={(v) => setPlan({ ...plan, priority: v as PlanDraft['priority'] })}>
-                <option value="">{t.todos.priorityNone}</option>
+                <option value="">{t('todos.priorityNone')}</option>
                 <option value="LOW">LOW</option>
                 <option value="MEDIUM">MEDIUM</option>
                 <option value="HIGH">HIGH</option>
               </Select>
             </Field>
             <Field
-              label={t.todos.recurrence}
-              hint={plan.recurrenceFreq && !plan.dueDate ? t.todos.recurrenceNeedsDue : undefined}
+              label={t('todos.recurrence')}
+              hint={plan.recurrenceFreq && !plan.dueDate ? t('todos.recurrenceNeedsDue') : undefined}
             >
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Select
                   value={plan.recurrenceFreq}
                   onChange={(v) => setPlan({ ...plan, recurrenceFreq: v as PlanDraft['recurrenceFreq'] })}
                 >
-                  <option value="">{t.todos.recurrenceNone}</option>
-                  <option value="DAILY">{t.todos.recurrenceDaily}</option>
-                  <option value="WEEKLY">{t.todos.recurrenceWeekly}</option>
-                  <option value="MONTHLY">{t.todos.recurrenceMonthly}</option>
+                  <option value="">{t('todos.recurrenceNone')}</option>
+                  <option value="DAILY">{t('todos.recurrenceDaily')}</option>
+                  <option value="WEEKLY">{t('todos.recurrenceWeekly')}</option>
+                  <option value="MONTHLY">{t('todos.recurrenceMonthly')}</option>
                 </Select>
                 {plan.recurrenceFreq && (
                   <>
-                    <span className="hb-muted" style={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>{t.todos.recurrenceEvery}</span>
+                    <span className="hb-muted" style={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>{t('todos.recurrenceEvery')}</span>
                     <TextInput
                       type="number"
                       value={String(plan.recurrenceInterval)}
@@ -637,7 +641,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
                       style={{ width: 72 }}
                     />
                     <span className="hb-muted" style={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>
-                      {{ DAILY: t.todos.recurUnitDay, WEEKLY: t.todos.recurUnitWeek, MONTHLY: t.todos.recurUnitMonth }[plan.recurrenceFreq]}
+                      {{ DAILY: t('todos.recurUnitDay'), WEEKLY: t('todos.recurUnitWeek'), MONTHLY: t('todos.recurUnitMonth') }[plan.recurrenceFreq]}
                     </span>
                   </>
                 )}
@@ -656,12 +660,12 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       <Modal
         open={confirmDelete && !!active}
         onClose={() => setConfirmDelete(false)}
-        title={t.todos.deleteListTitle}
+        title={t('todos.deleteListTitle')}
         width={440}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>{t.common.cancel}</Button>
-            <Button variant="danger" icon="trash" onClick={removeList}>{t.todos.deleteListConfirm}</Button>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>{t('common.cancel')}</Button>
+            <Button variant="danger" icon="trash" onClick={removeList}>{t('todos.deleteListConfirm')}</Button>
           </>
         }
       >
@@ -672,8 +676,8 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
             ) : (
               <>
                 „<strong>{active.name}</strong>" und{' '}
-                <strong>{listTodos.length} {listTodos.length === 1 ? t.todos.taskOne : t.todos.taskMany}</strong>{' '}
-                darin werden gelöscht. {t.todos.deleteListWarn}
+                <strong>{listTodos.length} {listTodos.length === 1 ? t('todos.taskOne') : t('todos.taskMany')}</strong>{' '}
+                darin werden gelöscht. {t('todos.deleteListWarn')}
               </>
             )}
           </p>
@@ -714,6 +718,7 @@ function TodoRow({
   onDraft: (v: string) => void
   onAddSub: () => void
 }) {
+  const { t } = useTranslation()
   const due = dueLabel(todo.dueDate)
   const subs = todo.subtasks ?? []
   const doneCount = subs.filter((s) => s.done).length
@@ -739,18 +744,18 @@ function TodoRow({
             {todo.recurrence && !isDone && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <Icon name="repeat" size={12} stroke={2} />
-                {recurrenceBadge(todo.recurrence)}
+                {recurrenceBadge(t, todo.recurrence)}
               </span>
             )}
-            {isDone && todo.doneAt && <span>{t.todos.markDone.toLowerCase()} {relTime(todo.doneAt)}</span>}
+            {isDone && todo.doneAt && <span>{t('todos.markDone').toLowerCase()} {relTime(todo.doneAt)}</span>}
           </div>
         </div>
         <div className="hb-row__right">
           <button
             className={`hb-subtoggle${open ? ' is-open' : ''}${subs.length ? '' : ' is-empty'}`}
             onClick={onToggleExpand}
-            title={t.todos.subtasks}
-            aria-label={t.todos.subtasks}
+            title={t('todos.subtasks')}
+            aria-label={t('todos.subtasks')}
           >
             <Icon name="checkCircle" size={14} stroke={2} />
             {subs.length > 0 && <span className="hb-subtoggle__c">{doneCount}/{subs.length}</span>}
@@ -760,13 +765,13 @@ function TodoRow({
           {todo.assignee ? (
             <Avatar user={todo.assignee} size={28} />
           ) : !isDone && !todo.dueDate ? (
-            <Button size="sm" variant="soft" icon="calendar" onClick={onPlan}>{t.todos.plan}</Button>
+            <Button size="sm" variant="soft" icon="calendar" onClick={onPlan}>{t('todos.plan')}</Button>
           ) : (
             <Avatar user={null} size={28} />
           )}
           <div className="hb-row__actions">
-            {!isDone && <IconButton icon="edit" label={t.common.edit} size={16} onClick={onPlan} />}
-            <IconButton icon="trash" label={t.common.delete} danger size={16} onClick={onDelete} />
+            {!isDone && <IconButton icon="edit" label={t('common.edit')} size={16} onClick={onPlan} />}
+            <IconButton icon="trash" label={t('common.delete')} danger size={16} onClick={onDelete} />
           </div>
         </div>
       </div>
@@ -777,14 +782,14 @@ function TodoRow({
             <div key={s.id} className={`hb-subtask${s.done ? ' hb-subtask--done' : ''}`}>
               <Checkbox checked={s.done} onChange={() => onToggleSub(s)} />
               <span className="hb-subtask__title">{s.title}</span>
-              <IconButton icon="trash" label={t.common.delete} danger size={15} onClick={() => onDeleteSub(s.id)} />
+              <IconButton icon="trash" label={t('common.delete')} danger size={15} onClick={() => onDeleteSub(s.id)} />
             </div>
           ))}
           <div className="hb-subadd">
             <Icon name="plus" size={15} stroke={2.2} style={{ color: 'var(--ink-3)' }} />
             <input
               value={draft}
-              placeholder={t.todos.addSubtask}
+              placeholder={t('todos.addSubtask')}
               onChange={(e) => onDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && onAddSub()}
             />
@@ -796,6 +801,7 @@ function TodoRow({
 }
 
 function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, visibility: ListVisibility) => Promise<string | null> }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [visibility, setVisibility] = useState<ListVisibility>('SHARED')
   const [error, setError] = useState<string | null>(null)
@@ -809,7 +815,7 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
       const err = await onCreate(name.trim(), visibility)
       if (err) setError(err)
     } catch {
-      setError(t.todos.listCreateFailed)
+      setError(t('todos.listCreateFailed'))
     } finally {
       setBusy(false)
     }
@@ -819,19 +825,19 @@ function NewListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (n
     <Modal
       open
       onClose={onClose}
-      title={t.todos.newListTitle}
+      title={t('todos.newListTitle')}
       width={440}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t.todos.createList}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon="check" onClick={create} disabled={!name.trim() || busy}>{t('todos.createList')}</Button>
         </>
       }
     >
-      <Field label={t.todos.listName}>
-        <TextInput value={name} onChange={setName} placeholder={t.todos.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
+      <Field label={t('todos.listName')}>
+        <TextInput value={name} onChange={setName} placeholder={t('todos.listNamePlaceholder')} autoFocus onKeyDown={(e) => e.key === 'Enter' && create()} />
       </Field>
-      <Field label={t.todos.visibility}>
+      <Field label={t('todos.visibility')}>
         <VisibilityPicker visibility={visibility} onChange={setVisibility} />
       </Field>
       {error && <p className="hb-modal-error">{error}</p>}
@@ -848,6 +854,7 @@ function EditListModal({
   onClose: () => void
   onSave: (name: string, visibility: ListVisibility) => Promise<string | null>
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(list.name)
   const [visibility, setVisibility] = useState<ListVisibility>(list.visibility)
   const [error, setError] = useState<string | null>(null)
@@ -862,7 +869,7 @@ function EditListModal({
       const err = await onSave(name.trim(), visibility)
       if (err) setError(err)
     } catch {
-      setError(t.todos.listSaveFailed)
+      setError(t('todos.listSaveFailed'))
     } finally {
       setBusy(false)
     }
@@ -872,19 +879,19 @@ function EditListModal({
     <Modal
       open
       onClose={onClose}
-      title={t.todos.editListTitle}
+      title={t('todos.editListTitle')}
       width={440}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || !dirty || busy}>{t.todos.saveList}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || !dirty || busy}>{t('todos.saveList')}</Button>
         </>
       }
     >
-      <Field label={t.todos.listName}>
-        <TextInput value={name} onChange={setName} placeholder={t.todos.listNamePlaceholder} autoFocus onKeyDown={(e) => e.key === 'Enter' && save()} />
+      <Field label={t('todos.listName')}>
+        <TextInput value={name} onChange={setName} placeholder={t('todos.listNamePlaceholder')} autoFocus onKeyDown={(e) => e.key === 'Enter' && save()} />
       </Field>
-      <Field label={t.todos.visibility} hint={visibility === 'SHARED' ? t.todos.visSharedHint : t.todos.visPrivateHint}>
+      <Field label={t('todos.visibility')} hint={visibility === 'SHARED' ? t('todos.visSharedHint') : t('todos.visPrivateHint')}>
         <VisibilityPicker visibility={visibility} onChange={setVisibility} />
       </Field>
       {error && <p className="hb-modal-error">{error}</p>}
@@ -893,13 +900,14 @@ function EditListModal({
 }
 
 function VisibilityPicker({ visibility, onChange }: { visibility: ListVisibility; onChange: (v: ListVisibility) => void }) {
+  const { t } = useTranslation()
   return (
     <div className="hb-pickrow">
       <button className={`hb-pick${visibility === 'SHARED' ? ' is-active' : ''}`} onClick={() => onChange('SHARED')}>
-        <Icon name="users" size={16} stroke={2} /> {t.todos.visShared}
+        <Icon name="users" size={16} stroke={2} /> {t('todos.visShared')}
       </button>
       <button className={`hb-pick${visibility === 'PRIVATE' ? ' is-active' : ''}`} onClick={() => onChange('PRIVATE')}>
-        <Icon name="lock" size={16} stroke={2} /> {t.todos.visPrivate}
+        <Icon name="lock" size={16} stroke={2} /> {t('todos.visPrivate')}
       </button>
     </div>
   )
@@ -910,6 +918,7 @@ function VisibilityPicker({ visibility, onChange }: { visibility: ListVisibility
 // chip toggles it off. An assignee that isn't a household member (legacy
 // free-text) is still shown so it stays selectable and isn't dropped on save.
 function AssigneePicker({ value, users: household, onChange }: { value: string; users: string[]; onChange: (v: string) => void }) {
+  const { t } = useTranslation()
   const known = household.some((u) => u.toLowerCase() === value.toLowerCase())
   const users = value && !known ? [...household, value] : household
   return (
@@ -923,7 +932,7 @@ function AssigneePicker({ value, users: household, onChange }: { value: string; 
         )
       })}
       <button className={`hb-pick${!value ? ' is-active' : ''}`} onClick={() => onChange('')}>
-        {t.todos.assigneeNone}
+        {t('todos.assigneeNone')}
       </button>
     </div>
   )

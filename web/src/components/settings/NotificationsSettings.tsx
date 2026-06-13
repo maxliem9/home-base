@@ -10,12 +10,14 @@
 //  - Recurring-todo safety-net time — always-on, so no toggle/sections.
 // Self-contained.
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, safeFetch } from '../../api'
-import { t, errorText } from '../../i18n'
+import { errorText } from '../../i18n'
 import { Icon } from '../../ui/Icon'
 import { Button, Card, Checkbox, Field, TextInput } from '../../ui/primitives'
 
 export function NotificationsSettings({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const { t } = useTranslation()
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       {/* Morning first (chronological), then the evening recap, then the recurring safety-net. */}
@@ -23,15 +25,15 @@ export function NotificationsSettings({ token, onLogout }: { token: string; onLo
         token={token}
         onLogout={onLogout}
         endpoint="/config/morning-digest"
-        title={t.settings.morningDigestTitle}
-        hint={t.settings.morningDigestHint}
+        title={t('settings.morningDigestTitle')}
+        hint={t('settings.morningDigestHint')}
       />
       <DigestCard
         token={token}
         onLogout={onLogout}
         endpoint="/config/digest"
-        title={t.settings.digestTitle}
-        hint={t.settings.digestHint}
+        title={t('settings.digestTitle')}
+        hint={t('settings.digestHint')}
       />
       <RecurringCard token={token} onLogout={onLogout} />
     </div>
@@ -64,6 +66,7 @@ function DigestCard({
   title: string
   hint: string
 }) {
+  const { t } = useTranslation()
   const [time, setTime] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [telegramConfigured, setTelegramConfigured] = useState(true)
@@ -121,9 +124,9 @@ function DigestCard({
       body: JSON.stringify({ time, enabled, sections }),
     })
     setSaving(false)
-    if (!result.ok) return setError(errorText(null, t.settings.digestSaveFailed))
+    if (!result.ok) return setError(errorText(null, t('settings.digestSaveFailed')))
     if (result.res.status === 401) return onLogout()
-    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t.settings.digestSaveFailed))
+    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t('settings.digestSaveFailed')))
     const data: Partial<DigestConfig> = await result.res.json()
     setTime(data.time ?? time)
     setEnabled(data.enabled ?? enabled)
@@ -141,17 +144,17 @@ function DigestCard({
         </div>
       </div>
       {loaded && !telegramConfigured && (
-        <p className="hb-muted" style={{ margin: '12px 0 0' }}>{t.settings.digestDisabled}</p>
+        <p className="hb-muted" style={{ margin: '12px 0 0' }}>{t('settings.digestDisabled')}</p>
       )}
 
       {/* On/off toggle (#182): a deselected digest skips entirely; the rest stays editable. */}
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, cursor: loaded ? 'pointer' : 'default' }}>
         <Checkbox checked={enabled} onChange={(v) => { if (loaded) { setEnabled(v); dirty() } }} />
-        <span>{t.settings.digestEnabledLabel}</span>
+        <span>{t('settings.digestEnabledLabel')}</span>
       </label>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
-        <Field label={t.settings.digestTimeLabel}>
+        <Field label={t('settings.digestTimeLabel')}>
           <TextInput type="time" value={time} onChange={(v) => { setTime(v); dirty() }} disabled={!loaded} />
         </Field>
       </div>
@@ -161,13 +164,13 @@ function DigestCard({
           makes the outer label swallow every row into one giant accessible name. */}
       {available.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div className="hb-field__label">{t.settings.digestSectionsLabel}</div>
-          <p className="hb-muted" style={{ margin: '2px 0 8px', fontSize: 13 }}>{t.settings.digestSectionsHint}</p>
+          <div className="hb-field__label">{t('settings.digestSectionsLabel')}</div>
+          <p className="hb-muted" style={{ margin: '2px 0 8px', fontSize: 13 }}>{t('settings.digestSectionsHint')}</p>
           <div style={{ display: 'grid', gap: 8 }}>
             {available.map((id) => (
               <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: loaded ? 'pointer' : 'default' }}>
                 <Checkbox checked={selected.has(id)} onChange={() => { if (loaded) toggleSection(id) }} />
-                <span>{t.settings.digestSections[id] ?? id}</span>
+                <span>{t(`settings.digestSections.${id}`, { defaultValue: id })}</span>
               </label>
             ))}
           </div>
@@ -175,14 +178,14 @@ function DigestCard({
       )}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 16 }}>
-        <Button onClick={save} disabled={saving || !loaded || !time}>{t.common.save}</Button>
+        <Button onClick={save} disabled={saving || !loaded || !time}>{t('common.save')}</Button>
         {saved && (
           <span className="hb-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Icon name="check" size={15} stroke={2.4} /> {t.settings.digestSaved}
+            <Icon name="check" size={15} stroke={2.4} /> {t('settings.digestSaved')}
           </span>
         )}
       </div>
-      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t.settings.digestApplies}</p>
+      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t('settings.digestApplies')}</p>
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{error}</p>}
     </Card>
   )
@@ -191,6 +194,7 @@ function DigestCard({
 // Recurring-todo safety-net run time. Always-on scheduler, so no enabled flag — otherwise the
 // same control/validation/persistence as the digest time.
 function RecurringCard({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const { t } = useTranslation()
   const [time, setTime] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -224,9 +228,9 @@ function RecurringCard({ token, onLogout }: { token: string; onLogout: () => voi
       body: JSON.stringify({ time }),
     })
     setSaving(false)
-    if (!result.ok) return setError(errorText(null, t.settings.recurringSaveFailed))
+    if (!result.ok) return setError(errorText(null, t('settings.recurringSaveFailed')))
     if (result.res.status === 401) return onLogout()
-    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t.settings.recurringSaveFailed))
+    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t('settings.recurringSaveFailed')))
     const data: { time: string } = await result.res.json()
     setTime(data.time)
     setSaved(true)
@@ -237,22 +241,22 @@ function RecurringCard({ token, onLogout }: { token: string; onLogout: () => voi
     <Card className="hb-card--pad">
       <div className="hb-cardhead">
         <div>
-          <h3>{t.settings.recurringTitle}</h3>
-          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t.settings.recurringHint}</p>
+          <h3>{t('settings.recurringTitle')}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.recurringHint')}</p>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
-        <Field label={t.settings.recurringTimeLabel}>
+        <Field label={t('settings.recurringTimeLabel')}>
           <TextInput type="time" value={time} onChange={(v) => { setTime(v); setError(null); setSaved(false) }} disabled={!loaded} />
         </Field>
-        <Button onClick={save} disabled={saving || !loaded || !time}>{t.common.save}</Button>
+        <Button onClick={save} disabled={saving || !loaded || !time}>{t('common.save')}</Button>
         {saved && (
           <span className="hb-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 9 }}>
-            <Icon name="check" size={15} stroke={2.4} /> {t.settings.recurringSaved}
+            <Icon name="check" size={15} stroke={2.4} /> {t('settings.recurringSaved')}
           </span>
         )}
       </div>
-      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t.settings.recurringApplies}</p>
+      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t('settings.recurringApplies')}</p>
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{error}</p>}
     </Card>
   )

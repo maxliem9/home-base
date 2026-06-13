@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { API_BASE, authFetch, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { AuthedImage } from '../ui/AuthedImage'
@@ -15,15 +17,17 @@ import {
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
 
-const CATEGORIES: { id: RecipeCategory; label: string }[] = [
-  { id: 'BREAKFAST', label: t.recipes.categories.BREAKFAST },
-  { id: 'DINNER', label: t.recipes.categories.DINNER },
-  { id: 'SNACK', label: t.recipes.categories.SNACK },
-  { id: 'DESSERT', label: t.recipes.categories.DESSERT },
-  { id: 'DRINK', label: t.recipes.categories.DRINK },
+// Built with the reactive `t` inside each consumer so the labels follow a language
+// switch. Category IDs match the backend RecipeCategory enum.
+const buildCategories = (t: TFunction): { id: RecipeCategory; label: string }[] => [
+  { id: 'BREAKFAST', label: t('recipes.categories.BREAKFAST') },
+  { id: 'DINNER', label: t('recipes.categories.DINNER') },
+  { id: 'SNACK', label: t('recipes.categories.SNACK') },
+  { id: 'DESSERT', label: t('recipes.categories.DESSERT') },
+  { id: 'DRINK', label: t('recipes.categories.DRINK') },
 ]
 
-const categoryLabel = (c: RecipeCategory) => CATEGORIES.find((x) => x.id === c)?.label ?? c
+const categoryLabel = (t: TFunction, c: RecipeCategory) => buildCategories(t).find((x) => x.id === c)?.label ?? c
 const totalTime = (r: Recipe) => (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0)
 const fmtAmount = (n: number) => String(Math.round(n * 100) / 100)
 
@@ -100,6 +104,7 @@ interface RecipesViewProps {
 }
 
 export function RecipesView({ token, onLogout }: RecipesViewProps) {
+  const { t } = useTranslation()
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([])
   const [loading, setLoading] = useState(true)
@@ -204,7 +209,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       })
       // transport reject → keep the editor modal open and show the inline error so the user can retry
       if (!result.ok) {
-        setSaveError(errorText(null, t.recipes.saveFailed))
+        setSaveError(errorText(null, t('recipes.saveFailed')))
         return
       }
       const { res } = result
@@ -216,7 +221,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         setSelected(saved)
       } else {
         // keep the editor modal open and show the reason inline so the user can retry
-        setSaveError(errorText(await errorCode(res), t.recipes.saveFailed))
+        setSaveError(errorText(await errorCode(res), t('recipes.saveFailed')))
       }
     } finally {
       setSaving(false)
@@ -232,13 +237,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     // which could clobber a concurrent WS update.
     if (!result.ok) {
       await fetchRecipes()
-      return flashError(errorText(null, t.recipes.deleteFailed))
+      return flashError(errorText(null, t('recipes.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchRecipes()
-      flashError(errorText(await errorCode(res), t.recipes.deleteFailed))
+      flashError(errorText(await errorCode(res), t('recipes.deleteFailed')))
     }
   }
 
@@ -263,18 +268,18 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       body: JSON.stringify({ listId, items }),
     })
     // transport reject → no Response; surface the generic German fallback
-    if (!result.ok) return flashError(errorText(null, t.recipes.addToListFailed))
+    if (!result.ok) return flashError(errorText(null, t('recipes.addToListFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
     // a genuine write failure routes through the error toast (was wrongly shown
     // as the success-styled "nothing to add" message before — issue #96)
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.recipes.addToListFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('recipes.addToListFailed')))
     const summary = (await res.json()) as { added: number; merged: number; skipped: number }
     const parts: string[] = []
-    if (summary.added > 0) parts.push(`${summary.added} ${t.recipes.added}`)
-    if (summary.merged > 0) parts.push(`${summary.merged} ${t.recipes.merged}`)
+    if (summary.added > 0) parts.push(`${summary.added} ${t('recipes.added')}`)
+    if (summary.merged > 0) parts.push(`${summary.merged} ${t('recipes.merged')}`)
     // success/empty case keeps the genuine "nothing to add" confirmation
-    flash(parts.length ? parts.join(' · ') : t.recipes.nothingToAdd)
+    flash(parts.length ? parts.join(' · ') : t('recipes.nothingToAdd'))
   }
 
   // keep the open recipe in sync with the store (e.g. after WS edits)
@@ -310,7 +315,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
           onBack={() => setSelected(null)}
           onEdit={() => setDraft(draftFromRecipe(current))}
           onDelete={() => handleDelete(current.id)}
-          onExportError={() => flashError(errorText(null, t.recipes.exportFailed))}
+          onExportError={() => flashError(errorText(null, t('recipes.exportFailed')))}
           onAddToShopping={(servings) => { setPickServings(servings); setPicking(current) }}
         />
         {picking && (
@@ -336,23 +341,23 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={`${recipes.length} ${t.recipes.count}`}
-        title={t.recipes.title}
-        actions={<Button icon="plus" onClick={() => setDraft(emptyDraft())}>{t.recipes.newRecipe}</Button>}
+        eyebrow={`${recipes.length} ${t('recipes.count')}`}
+        title={t('recipes.title')}
+        actions={<Button icon="plus" onClick={() => setDraft(emptyDraft())}>{t('recipes.newRecipe')}</Button>}
       />
 
       <div className="hb-pickrow" style={{ marginBottom: 24 }}>
-        <button className={`hb-pick${filter === 'ALL' ? ' is-active' : ''}`} onClick={() => setFilter('ALL')}>{t.recipes.filterAll}</button>
-        {CATEGORIES.map((c) => (
+        <button className={`hb-pick${filter === 'ALL' ? ' is-active' : ''}`} onClick={() => setFilter('ALL')}>{t('recipes.filterAll')}</button>
+        {buildCategories(t).map((c) => (
           <button key={c.id} className={`hb-pick${filter === c.id ? ' is-active' : ''}`} onClick={() => setFilter(c.id)}>{c.label}</button>
         ))}
       </div>
 
       {loading ? (
-        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : visible.length === 0 ? (
         <Card className="hb-card--pad">
-          <EmptyState icon="chef" title={filter === 'ALL' ? t.recipes.emptyAll : t.recipes.emptyCategory} hint={filter === 'ALL' ? t.recipes.emptyHint : undefined} />
+          <EmptyState icon="chef" title={filter === 'ALL' ? t('recipes.emptyAll') : t('recipes.emptyCategory')} hint={filter === 'ALL' ? t('recipes.emptyHint') : undefined} />
         </Card>
       ) : (
         <div className="hb-recipe-grid">
@@ -369,10 +374,10 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
                 ) : (
                   <>
                     <Icon name="chef" size={26} stroke={1.6} />
-                    <span className="hb-recipecard__ph">{t.recipes.photoSoon}</span>
+                    <span className="hb-recipecard__ph">{t('recipes.photoSoon')}</span>
                   </>
                 )}
-                <Badge tone="clay">{categoryLabel(recipe.category)}</Badge>
+                <Badge tone="clay">{categoryLabel(t, recipe.category)}</Badge>
               </div>
               <div className="hb-recipecard__body">
                 <div className="hb-recipecard__title">{recipe.title}</div>
@@ -380,11 +385,11 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
                 <div className="hb-recipecard__meta">
                   {totalTime(recipe) > 0 && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Icon name="clock" size={15} stroke={2} /> {totalTime(recipe)} {t.recipes.minutesAbbr}
+                      <Icon name="clock" size={15} stroke={2} /> {totalTime(recipe)} {t('recipes.minutesAbbr')}
                     </span>
                   )}
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="users" size={15} stroke={2} /> {recipe.servings} {t.recipes.servingsAbbr}
+                    <Icon name="users" size={15} stroke={2} /> {recipe.servings} {t('recipes.servingsAbbr')}
                   </span>
                 </div>
               </div>
@@ -416,6 +421,7 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
   onUpdated: (recipe: Recipe) => void
   onAddToShopping: (servings: number) => void
 }) {
+  const { t } = useTranslation()
   const [servings, setServings] = useState(recipe.servings)
   const [showExport, setShowExport] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -454,19 +460,19 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
   return (
     <div className="hb-page">
       <button className="hb-backlink" onClick={onBack}>
-        <Icon name="chevronLeft" size={17} stroke={2.2} />{t.recipes.backToRecipes}
+        <Icon name="chevronLeft" size={17} stroke={2.2} />{t('recipes.backToRecipes')}
       </button>
 
       <div className="hb-pagehead">
         <div>
-          <div className="hb-pagehead__eyebrow">{categoryLabel(recipe.category)}</div>
+          <div className="hb-pagehead__eyebrow">{categoryLabel(t, recipe.category)}</div>
           <h1>{recipe.title}</h1>
         </div>
         <div className="hb-pagehead__actions">
-          <Button variant="danger" icon="trash" onClick={onDelete}>{t.common.delete}</Button>
-          <Button variant="ghost" icon="edit" onClick={onEdit}>{t.recipes.edit}</Button>
-          <Button variant="ghost" icon="download" onClick={() => setShowExport(true)}>{t.recipes.export}</Button>
-          <Button variant="soft" icon="cart" onClick={() => onAddToShopping(servings)}>{t.recipes.addToList}</Button>
+          <Button variant="danger" icon="trash" onClick={onDelete}>{t('common.delete')}</Button>
+          <Button variant="ghost" icon="edit" onClick={onEdit}>{t('recipes.edit')}</Button>
+          <Button variant="ghost" icon="download" onClick={() => setShowExport(true)}>{t('recipes.export')}</Button>
+          <Button variant="soft" icon="cart" onClick={() => onAddToShopping(servings)}>{t('recipes.addToList')}</Button>
         </div>
       </div>
 
@@ -474,13 +480,13 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
         <Modal
           open
           onClose={() => setShowExport(false)}
-          title={t.recipes.exportTitle}
-          footer={<Button variant="ghost" onClick={() => setShowExport(false)}>{t.common.cancel}</Button>}
+          title={t('recipes.exportTitle')}
+          footer={<Button variant="ghost" onClick={() => setShowExport(false)}>{t('common.cancel')}</Button>}
         >
-          <p className="hb-muted" style={{ marginTop: 0 }}>{t.recipes.exportHint}</p>
+          <p className="hb-muted" style={{ marginTop: 0 }}>{t('recipes.exportHint')}</p>
           <div style={{ display: 'flex', gap: 10 }}>
-            <Button icon="download" disabled={exporting} onClick={() => exportRecipe('md')}>{t.recipes.exportMarkdown}</Button>
-            <Button variant="soft" icon="download" disabled={exporting} onClick={() => exportRecipe('pdf')}>{t.recipes.exportPdf}</Button>
+            <Button icon="download" disabled={exporting} onClick={() => exportRecipe('md')}>{t('recipes.exportMarkdown')}</Button>
+            <Button variant="soft" icon="download" disabled={exporting} onClick={() => exportRecipe('pdf')}>{t('recipes.exportPdf')}</Button>
           </div>
         </Modal>
       )}
@@ -495,28 +501,28 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
         <div className="hb-servings-step hb-fact" style={{ flexDirection: 'row', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
             <div className="hb-fact__v">{servings}</div>
-            <div className="hb-fact__l">{t.recipes.servings}</div>
+            <div className="hb-fact__l">{t('recipes.servings')}</div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
-            <IconButton icon="minus" label={t.recipes.lessServings} onClick={() => setServings((s) => Math.max(1, s - 1))} />
-            <IconButton icon="plus" label={t.recipes.moreServings} onClick={() => setServings((s) => s + 1)} />
+            <IconButton icon="minus" label={t('recipes.lessServings')} onClick={() => setServings((s) => Math.max(1, s - 1))} />
+            <IconButton icon="plus" label={t('recipes.moreServings')} onClick={() => setServings((s) => s + 1)} />
           </div>
         </div>
         {recipe.prepTimeMinutes != null && (
-          <div className="hb-fact"><div className="hb-fact__v">{recipe.prepTimeMinutes}</div><div className="hb-fact__l">{t.recipes.prep} ({t.recipes.minutesAbbr})</div></div>
+          <div className="hb-fact"><div className="hb-fact__v">{recipe.prepTimeMinutes}</div><div className="hb-fact__l">{t('recipes.prep')} ({t('recipes.minutesAbbr')})</div></div>
         )}
         {recipe.cookTimeMinutes != null && (
-          <div className="hb-fact"><div className="hb-fact__v">{recipe.cookTimeMinutes}</div><div className="hb-fact__l">{t.recipes.cook} ({t.recipes.minutesAbbr})</div></div>
+          <div className="hb-fact"><div className="hb-fact__v">{recipe.cookTimeMinutes}</div><div className="hb-fact__l">{t('recipes.cook')} ({t('recipes.minutesAbbr')})</div></div>
         )}
         {total > 0 && (
-          <div className="hb-fact"><div className="hb-fact__v">{total}</div><div className="hb-fact__l">{t.recipes.totalTime} ({t.recipes.minutesAbbr})</div></div>
+          <div className="hb-fact"><div className="hb-fact__v">{total}</div><div className="hb-fact__l">{t('recipes.totalTime')} ({t('recipes.minutesAbbr')})</div></div>
         )}
       </div>
 
       <div className="hb-recipe-body">
         {recipe.ingredients.length > 0 && (
           <div>
-            <div className="hb-sectionlabel">{t.recipes.ingredients}</div>
+            <div className="hb-sectionlabel">{t('recipes.ingredients')}</div>
             {groupBySection(recipe.ingredients).map((group, gi) => (
               <div key={gi} className="hb-inggroup">
                 {group.section && <div className="hb-ingsubhead">{group.section}</div>}
@@ -534,7 +540,7 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
         )}
         {recipe.steps.length > 0 && (
           <div>
-            <div className="hb-sectionlabel">{t.recipes.preparation}</div>
+            <div className="hb-sectionlabel">{t('recipes.preparation')}</div>
             <ol className="hb-steps">
               {recipe.steps.map((step) => (
                 <li key={step.id} className="hb-step">
@@ -559,6 +565,7 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
   onLogout: () => void
   onUpdated: (recipe: Recipe) => void
 }) {
+  const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState(false)
@@ -574,11 +581,11 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
       const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images`, { method: 'POST', body: fd })
       if (res.status === 401) return onLogout()
       if (res.ok) onUpdated(await res.json())
-      else if (res.status === 413) setImageError(t.recipes.imageTooLarge)
-      else if (res.status === 415) setImageError(t.recipes.imageBadType)
-      else setImageError(errorText(await errorCode(res), t.recipes.imageUploadFailed))
+      else if (res.status === 413) setImageError(t('recipes.imageTooLarge'))
+      else if (res.status === 415) setImageError(t('recipes.imageBadType'))
+      else setImageError(errorText(await errorCode(res), t('recipes.imageUploadFailed')))
     } catch {
-      setImageError(t.recipes.imageUploadFailed)
+      setImageError(t('recipes.imageUploadFailed'))
     } finally {
       setUploading(false)
     }
@@ -591,28 +598,28 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
       const res = await authFetch(token, `${API_BASE}/recipes/${recipe.id}/images/${image.id}`, { method: 'DELETE' })
       if (res.status === 401) return onLogout()
       if (res.ok) onUpdated(await res.json())
-      else setImageError(errorText(await errorCode(res), t.recipes.imageDeleteFailed))
+      else setImageError(errorText(await errorCode(res), t('recipes.imageDeleteFailed')))
     } catch {
-      setImageError(t.recipes.imageDeleteFailed)
+      setImageError(t('recipes.imageDeleteFailed'))
     }
   }
 
   return (
     <div className="hb-recipe-photos">
       {image && (
-        <button type="button" className="hb-recipe-hero" onClick={() => setLightbox(true)} aria-label={t.recipes.openImage}>
+        <button type="button" className="hb-recipe-hero" onClick={() => setLightbox(true)} aria-label={t('recipes.openImage')}>
           <AuthedImage url={recipeImageUrl(recipe.id, image.id)} token={token} alt={recipe.title} />
         </button>
       )}
 
       <div className="hb-recipe-photos__head">
-        <span className="hb-field__label">{t.recipes.image}</span>
+        <span className="hb-field__label">{t('recipes.image')}</span>
         <div style={{ display: 'flex', gap: 8 }}>
           {image && (
-            <Button variant="ghost" size="sm" icon="trash" onClick={handleDelete}>{t.recipes.removeImage}</Button>
+            <Button variant="ghost" size="sm" icon="trash" onClick={handleDelete}>{t('recipes.removeImage')}</Button>
           )}
           <Button variant="secondary" size="sm" icon="plus" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-            {uploading ? t.recipes.uploading : image ? t.recipes.changeImage : t.recipes.addImage}
+            {uploading ? t('recipes.uploading') : image ? t('recipes.changeImage') : t('recipes.addImage')}
           </Button>
         </div>
       </div>
@@ -646,6 +653,7 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   onClose: () => void
   onAdd: (listId: string, items: { name: string; amount?: number; unit?: string }[]) => void
 }) {
+  const { t } = useTranslation()
   const [sel, setSel] = useState<boolean[]>(() => recipe.ingredients.map(() => true))
   const [listId, setListId] = useState(lists[0]?.id ?? '')
   const effServings = servings > 0 ? servings : recipe.servings
@@ -671,21 +679,21 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
     <Sheet
       open
       onClose={onClose}
-      title={t.recipes.pickerTitle}
+      title={t('recipes.pickerTitle')}
       width={440}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button variant="primary" icon="cart" onClick={add} disabled={count === 0 || !listId}>{count} {t.recipes.pickerAdd}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon="cart" onClick={add} disabled={count === 0 || !listId}>{count} {t('recipes.pickerAdd')}</Button>
         </>
       }
     >
       {lists.length === 0 ? (
-        <p className="hb-muted" style={{ margin: 0 }}>{t.recipes.pickerNoList}</p>
+        <p className="hb-muted" style={{ margin: 0 }}>{t('recipes.pickerNoList')}</p>
       ) : (
         <>
           {lists.length > 1 && (
-            <Field label={t.recipes.pickerTargetList}>
+            <Field label={t('recipes.pickerTargetList')}>
               <Select value={listId} onChange={setListId}>
                 {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </Select>
@@ -693,13 +701,13 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
           )}
           {factor !== 1 && (
             <p className="hb-muted" style={{ margin: '0 0 4px', fontSize: 13 }}>
-              {t.recipes.pickerScaledTo.replace('{n}', String(effServings))}
+              {t('recipes.pickerScaledTo', { n: String(effServings) })}
             </p>
           )}
           <div className="hb-picker-head">
-            <span className="hb-muted">{count} von {recipe.ingredients.length} {t.recipes.pickerSelected}</span>
+            <span className="hb-muted">{count} von {recipe.ingredients.length} {t('recipes.pickerSelected')}</span>
             <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
-              {allOn ? t.recipes.pickerNone : t.recipes.pickerAll}
+              {allOn ? t('recipes.pickerNone') : t('recipes.pickerAll')}
             </button>
           </div>
           <div className="hb-picklist">
@@ -725,6 +733,7 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
   onSave: () => void
   onCancel: () => void
 }) {
+  const { t } = useTranslation()
   // Whether the optional section-name fields are shown. Sticky for the editor's lifetime: once
   // sections are in play (an existing recipe already has a named section, or the user clicked
   // "+ Abschnitt"), the name field stays put — clearing a name must not make it vanish mid-edit.
@@ -771,55 +780,55 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
   const multiSection = draft.sections.length > 1
   const actions = (
     <>
-      <Button variant="ghost" onClick={onCancel}>{t.common.cancel}</Button>
-      <Button onClick={onSave} disabled={saving || !draft.title.trim()}>{t.common.save}</Button>
+      <Button variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
+      <Button onClick={onSave} disabled={saving || !draft.title.trim()}>{t('common.save')}</Button>
     </>
   )
 
   return (
     <div className="hb-page">
       <button className="hb-backlink" onClick={onCancel}>
-        <Icon name="chevronLeft" size={17} stroke={2.2} />{t.recipes.backToRecipes}
+        <Icon name="chevronLeft" size={17} stroke={2.2} />{t('recipes.backToRecipes')}
       </button>
 
       <div className="hb-pagehead">
         <div>
-          <div className="hb-pagehead__eyebrow">{t.recipes.newRecipeEyebrow}</div>
-          <h1>{draft.id ? t.recipes.editRecipe : t.recipes.newRecipe}</h1>
+          <div className="hb-pagehead__eyebrow">{t('recipes.newRecipeEyebrow')}</div>
+          <h1>{draft.id ? t('recipes.editRecipe') : t('recipes.newRecipe')}</h1>
         </div>
         <div className="hb-pagehead__actions">{actions}</div>
       </div>
 
       <div className="hb-recipe-form">
-        <Field label={t.common.titlePlaceholder}>
-          <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t.common.titlePlaceholder} />
+        <Field label={t('common.titlePlaceholder')}>
+          <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t('common.titlePlaceholder')} />
         </Field>
-        <Field label={t.common.descriptionOptional}>
-          <textarea className="hb-input" rows={2} value={draft.description} placeholder={t.common.descriptionOptional} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+        <Field label={t('common.descriptionOptional')}>
+          <textarea className="hb-input" rows={2} value={draft.description} placeholder={t('common.descriptionOptional')} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
         </Field>
 
         <div className="hb-formgrid">
-          <Field label={t.recipes.category}>
+          <Field label={t('recipes.category')}>
             <Select value={draft.category} onChange={(v) => setDraft({ ...draft, category: v as RecipeCategory })}>
-              {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              {buildCategories(t).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </Select>
           </Field>
-          <Field label={t.recipes.servings}>
+          <Field label={t('recipes.servings')}>
             <TextInput type="number" value={draft.servings} onChange={(v) => setDraft({ ...draft, servings: v })} />
           </Field>
-          <Field label={t.recipes.prepLabel}>
+          <Field label={t('recipes.prepLabel')}>
             <TextInput type="number" value={draft.prepTimeMinutes} onChange={(v) => setDraft({ ...draft, prepTimeMinutes: v })} />
           </Field>
-          <Field label={t.recipes.cookLabel}>
+          <Field label={t('recipes.cookLabel')}>
             <TextInput type="number" value={draft.cookTimeMinutes} onChange={(v) => setDraft({ ...draft, cookTimeMinutes: v })} />
           </Field>
         </div>
 
         <div>
           <div className="hb-cardhead" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 style={{ fontSize: 15 }}>{t.recipes.ingredients}</h3>
+            <h3 style={{ fontSize: 15 }}>{t('recipes.ingredients')}</h3>
             <button type="button" className="hb-link" onClick={pasteMode ? exitPasteMode : enterPasteMode}>
-              {pasteMode ? t.recipes.editAsList : t.recipes.editAsText}
+              {pasteMode ? t('recipes.editAsList') : t('recipes.editAsText')}
             </button>
           </div>
           {pasteMode ? (
@@ -828,10 +837,10 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
                 className="hb-input hb-mono-area"
                 rows={8}
                 value={ingredientsText}
-                placeholder={t.recipes.ingredientsTextPlaceholder}
+                placeholder={t('recipes.ingredientsTextPlaceholder')}
                 onChange={(e) => onIngredientsTextChange(e.target.value)}
               />
-              <p className="hb-muted" style={{ fontSize: 13, marginTop: 6 }}>{t.recipes.ingredientsTextHint}</p>
+              <p className="hb-muted" style={{ fontSize: 13, marginTop: 6 }}>{t('recipes.ingredientsTextHint')}</p>
             </>
           ) : (
             <>
@@ -844,47 +853,47 @@ function RecipeEditor({ draft, setDraft, saving, error, onSave, onCancel }: {
                       <div className="hb-ingsec__head">
                         <input
                           className="hb-input hb-ingsec__name"
-                          placeholder={t.recipes.sectionName}
+                          placeholder={t('recipes.sectionName')}
                           value={section.name}
                           onChange={(e) => setSection(si, { name: e.target.value })}
                         />
-                        {multiSection && <IconButton icon="x" label={t.recipes.removeSection} onClick={() => removeSection(si)} />}
+                        {multiSection && <IconButton icon="x" label={t('recipes.removeSection')} onClick={() => removeSection(si)} />}
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {section.ingredients.map((ing, ii) => (
                         <div key={ii} className="hb-editrow">
-                          <input className="hb-input" placeholder={t.recipes.ingredientName} value={ing.name} onChange={(e) => setIngredient(si, ii, { name: e.target.value })} />
-                          <input className="hb-input hb-input--amt" placeholder={t.recipes.amount} value={ing.amount} onChange={(e) => setIngredient(si, ii, { amount: e.target.value })} />
-                          <input className="hb-input hb-input--unit" placeholder={t.recipes.unitAbbr} value={ing.unit} onChange={(e) => setIngredient(si, ii, { unit: e.target.value })} />
-                          <IconButton icon="x" label={t.recipes.removeIngredient} onClick={() => removeIngredient(si, ii)} />
+                          <input className="hb-input" placeholder={t('recipes.ingredientName')} value={ing.name} onChange={(e) => setIngredient(si, ii, { name: e.target.value })} />
+                          <input className="hb-input hb-input--amt" placeholder={t('recipes.amount')} value={ing.amount} onChange={(e) => setIngredient(si, ii, { amount: e.target.value })} />
+                          <input className="hb-input hb-input--unit" placeholder={t('recipes.unitAbbr')} value={ing.unit} onChange={(e) => setIngredient(si, ii, { unit: e.target.value })} />
+                          <IconButton icon="x" label={t('recipes.removeIngredient')} onClick={() => removeIngredient(si, ii)} />
                         </div>
                       ))}
                     </div>
                     {/* add-row below the list so it stays reachable as rows grow (issue #123 part 2) */}
-                    <button className="hb-link hb-addrow" onClick={() => addIngredient(si)}>{t.recipes.addIngredient}</button>
+                    <button className="hb-link hb-addrow" onClick={() => addIngredient(si)}>{t('recipes.addIngredient')}</button>
                   </div>
                 ))}
               </div>
-              <button className="hb-link hb-addrow" onClick={addSection}>{t.recipes.addSection}</button>
+              <button className="hb-link hb-addrow" onClick={addSection}>{t('recipes.addSection')}</button>
             </>
           )}
         </div>
 
         <div>
           <div className="hb-cardhead">
-            <h3 style={{ fontSize: 15 }}>{t.recipes.preparation}</h3>
+            <h3 style={{ fontSize: 15 }}>{t('recipes.preparation')}</h3>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {draft.steps.map((step, idx) => (
               <div key={idx} className="hb-editrow" style={{ alignItems: 'flex-start' }}>
                 <span className="hb-step__n" style={{ marginTop: 8 }}>{idx + 1}</span>
-                <textarea className="hb-input" rows={2} placeholder={t.recipes.stepPlaceholder} value={step} onChange={(e) => setStep(idx, e.target.value)} />
-                <IconButton icon="x" label={t.recipes.removeStep} onClick={() => removeStep(idx)} />
+                <textarea className="hb-input" rows={2} placeholder={t('recipes.stepPlaceholder')} value={step} onChange={(e) => setStep(idx, e.target.value)} />
+                <IconButton icon="x" label={t('recipes.removeStep')} onClick={() => removeStep(idx)} />
               </div>
             ))}
           </div>
-          <button className="hb-link hb-addrow" onClick={addStep}>{t.recipes.addStep}</button>
+          <button className="hb-link hb-addrow" onClick={addStep}>{t('recipes.addStep')}</button>
         </div>
 
         {error && <p className="hb-modal-error">{error}</p>}

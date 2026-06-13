@@ -1,6 +1,7 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
-import { t, errorText } from '../i18n'
+import { errorText } from '../i18n'
 import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
@@ -50,6 +51,7 @@ export interface ProjectDraft {
 }
 
 export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
+  const { t } = useTranslation()
   const me = useMemo(() => usernameFromToken(token), [token])
   const [projects, setProjects] = useState<Project[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -187,7 +189,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const startTimer = (projectId: string, description = '', userId?: string) => {
     if (userId && userId !== me) {
       setPartnerConfirm({
-        message: t.time.confirmStartForPartner.replace('{name}', partnerName(userId)),
+        message: t('time.confirmStartForPartner', { name: partnerName(userId) }),
         run: () => void doStartTimer(projectId, description, userId),
       })
       return
@@ -201,10 +203,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, description: description.trim() || undefined, userId }),
     })
-    if (!result.ok) return flashError(errorText(null, t.time.startFailed))
+    if (!result.ok) return flashError(errorText(null, t('time.startFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.startFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('time.startFailed')))
     // Show the new timer right away. Starting auto-stops any running timer for this
     // user on the server (at the same instant), so mirror that locally too — otherwise
     // the previous entry would linger as "running" until the WS echo arrives.
@@ -224,7 +226,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const stopTimer = (userId?: string) => {
     if (userId && userId !== me) {
       setPartnerConfirm({
-        message: t.time.confirmStopPartner.replace('{name}', partnerName(userId)),
+        message: t('time.confirmStopPartner', { name: partnerName(userId) }),
         run: () => void doStopTimer(userId),
       })
       return
@@ -237,10 +239,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) }
       : { method: 'POST' }
     const result = await safeFetch(token, `${API_BASE}/time/entries/stop`, init)
-    if (!result.ok) return flashError(errorText(null, t.time.stopFailed))
+    if (!result.ok) return flashError(errorText(null, t('time.stopFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.stopFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('time.stopFailed')))
     upsertEntry(await res.json())
     fetchForecast()
   }
@@ -252,10 +254,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: desc }),
     })
-    if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
+    if (!result.ok) return flashError(errorText(null, t('time.saveFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.saveFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('time.saveFailed')))
     upsertEntry(await res.json())
   }
 
@@ -265,13 +267,13 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     // On failure refetch to resync (the optimistic removal may be wrong) and toast.
     if (!result.ok) {
       await fetchAll()
-      return flashError(errorText(null, t.time.deleteFailed))
+      return flashError(errorText(null, t('time.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
       await fetchAll()
-      flashError(errorText(await errorCode(res), t.time.deleteFailed))
+      flashError(errorText(await errorCode(res), t('time.deleteFailed')))
       return
     }
     fetchForecast()
@@ -283,9 +285,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     if (isPartnerEntry(entry)) setPartnerConfirm({ message: message.replace('{name}', partnerName(entry.userId)), run, danger })
     else run()
   }
-  const requestEdit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmEditPartner, () => setEditEntry(entry))
-  const requestSplit = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmSplitPartner, () => setSplitEntry(entry))
-  const requestDelete = (entry: TimeEntry) => withPartnerConfirm(entry, t.time.confirmDeletePartner, () => void deleteEntry(entry.id), true)
+  const requestEdit = (entry: TimeEntry) => withPartnerConfirm(entry, t('time.confirmEditPartner'), () => setEditEntry(entry))
+  const requestSplit = (entry: TimeEntry) => withPartnerConfirm(entry, t('time.confirmSplitPartner'), () => setSplitEntry(entry))
+  const requestDelete = (entry: TimeEntry) => withPartnerConfirm(entry, t('time.confirmDeletePartner'), () => void deleteEntry(entry.id), true)
 
   const saveProject = async (d: ProjectDraft) => {
     if (!d.name.trim()) return
@@ -293,10 +295,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     const result = d.id
       ? await safeFetch(token, `${API_BASE}/time/projects/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
       : await safeFetch(token, `${API_BASE}/time/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-    if (!result.ok) return flashError(errorText(null, t.time.saveFailed))
+    if (!result.ok) return flashError(errorText(null, t('time.saveFailed')))
     const { res } = result
     if (res.status === 401) return onLogout()
-    if (!res.ok) return flashError(errorText(await errorCode(res), t.time.saveFailed))
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('time.saveFailed')))
     upsertProject(await res.json())
     setProjectDraft(null)
   }
@@ -310,7 +312,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const createManual = async (body: ManualEntryBody): Promise<string | null> => {
     if (body.userId && me && body.userId !== me) {
       setPartnerConfirm({
-        message: t.time.confirmCreateForPartner.replace('{name}', partnerName(body.userId)),
+        message: t('time.confirmCreateForPartner', { name: partnerName(body.userId) }),
         run: () => {
           setShowManual(false)
           void doCreateManual(body).then((err) => { if (err) flashError(err) })
@@ -331,7 +333,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('time.saveFailed'))
     upsertEntry(await res.json())
     setShowManual(false)
     fetchForecast()
@@ -351,7 +353,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.time.saveFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('time.saveFailed'))
     upsertEntry(await res.json())
     setEditEntry(null)
     fetchForecast()
@@ -371,7 +373,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       onLogout()
       return null
     }
-    if (!res.ok) return errorText(await errorCode(res), t.time.splitFailed)
+    if (!res.ok) return errorText(await errorCode(res), t('time.splitFailed'))
     const { first, second }: { first: TimeEntry; second: TimeEntry } = await res.json()
     upsertEntry(first)
     upsertEntry(second)
@@ -404,9 +406,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       const wl = weekK && weekK !== thisWeek ? weekLabel(`${weekK}T12:00:00`) : null
       stats[pid] = {
         daySeconds: dayK ? slot.days.get(dayK)! : 0,
-        dayLabel: dayK && dayK !== todayKey ? dayGroupLabel(`${dayK}T12:00:00`) : t.time.today,
+        dayLabel: dayK && dayK !== todayKey ? dayGroupLabel(`${dayK}T12:00:00`) : t('time.today'),
         weekSeconds: weekK ? slot.weeks.get(weekK)! : 0,
-        weekLabel: wl ? (wl.label ?? wl.range) : t.time.thisWeek,
+        weekLabel: wl ? (wl.label ?? wl.range) : t('time.thisWeek'),
       }
     }
     return stats
@@ -462,7 +464,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
       {partnerConfirm && (
         <ConfirmDialog
-          title={t.time.partnerActionTitle}
+          title={t('time.partnerActionTitle')}
           message={partnerConfirm.message}
           danger={partnerConfirm.danger}
           onConfirm={partnerConfirm.run}
@@ -501,12 +503,12 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={running ? t.time.running : t.time.projectsLabel}
-        title={t.time.title}
+        eyebrow={running ? t('time.running') : t('time.projectsLabel')}
+        title={t('time.title')}
         actions={
           <>
-            <Button icon="calendar" onClick={() => setShowManual(true)}>{t.time.recordEntry}</Button>
-            <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t.time.newProject}</Button>
+            <Button icon="calendar" onClick={() => setShowManual(true)}>{t('time.recordEntry')}</Button>
+            <Button variant="secondary" size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t('time.newProject')}</Button>
           </>
         }
       />
@@ -515,16 +517,16 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       {running ? (
         <Card className="hb-card--pad hb-timerhero is-running">
           <div className="hb-timerhero__left">
-            <span className="hb-timerhero__live"><span className="hb-livedot" /> {t.time.running}</span>
+            <span className="hb-timerhero__live"><span className="hb-livedot" /> {t('time.running')}</span>
             <div className="hb-timerhero__proj">
               <span className="hb-pdot" style={{ background: runningProject?.color ?? 'var(--ink-3)' }} />
-              {runningProject?.name ?? t.time.project}
-              <IconButton icon="edit" label={t.time.editRunning} size={16} onClick={() => setEditEntry(running)} />
+              {runningProject?.name ?? t('time.project')}
+              <IconButton icon="edit" label={t('time.editRunning')} size={16} onClick={() => setEditEntry(running)} />
             </div>
             <input
               className="hb-timerhero__desc"
               value={desc}
-              placeholder={t.time.descPlaceholder}
+              placeholder={t('time.descPlaceholder')}
               onChange={(e) => setDesc(e.target.value)}
               onBlur={saveDescription}
               onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
@@ -533,18 +535,18 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
           <div className="hb-timerhero__right">
             <div className="hb-timerhero__clock hb-mono">{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</div>
             <EtaLine eta={runningForecast?.expectedEndAt} nowMs={nowMs} />
-            <Button variant="secondary" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
+            <Button variant="secondary" icon="stop" onClick={() => stopTimer()}>{t('time.stop')}</Button>
           </div>
         </Card>
       ) : (
         <Card className="hb-card--pad hb-timerhero">
           <div className="hb-timerhero__left">
-            <span className="hb-timerhero__live" style={{ color: 'var(--ink-3)' }}>{t.time.noTimer}</span>
+            <span className="hb-timerhero__live" style={{ color: 'var(--ink-3)' }}>{t('time.noTimer')}</span>
             {activeProjects.length === 0 ? (
-              <div className="hb-muted">{t.time.noProjectsHint}</div>
+              <div className="hb-muted">{t('time.noProjectsHint')}</div>
             ) : (
               <>
-                <div className="hb-muted">{t.time.startPrompt}</div>
+                <div className="hb-muted">{t('time.startPrompt')}</div>
                 <div className="hb-pickrow">
                   {activeProjects.map((p) => (
                     <button key={p.id} className="hb-pick" onClick={() => startTimer(p.id)}>
@@ -588,8 +590,8 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       {weekUsers.length > 0 && (
         <Card className="hb-card--pad hb-weektargets" style={{ marginTop: 12 }}>
           <div className="hb-cardhead">
-            <h3>{t.time.weekTargetTitle}</h3>
-            <IconButton icon="settings" label={t.settings.wochensollEdit} onClick={onOpenSettings} />
+            <h3>{t('time.weekTargetTitle')}</h3>
+            <IconButton icon="settings" label={t('settings.wochensollEdit')} onClick={onOpenSettings} />
           </div>
           <div className="hb-stack" style={{ gap: 16 }}>
             {weekUsers.map((u) => {
@@ -612,15 +614,15 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
       )}
 
       {loading ? (
-        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t.common.loading}</p>
+        <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : (
         <div className="hb-zeit-grid">
           {/* Projects — the tracker lists active projects to start timers on; project
               management (edit/colour/archive) lives in Einstellungen → Zeiterfassung (#99). */}
           <div>
-            <div className="hb-sectionlabel">{t.time.projectsLabel}</div>
+            <div className="hb-sectionlabel">{t('time.projectsLabel')}</div>
             {activeProjects.length === 0 ? (
-              <Card className="hb-card--pad"><EmptyState icon="clock" title={t.time.noProjects} hint={t.time.noProjectsHint} /></Card>
+              <Card className="hb-card--pad"><EmptyState icon="clock" title={t('time.noProjects')} hint={t('time.noProjectsHint')} /></Card>
             ) : (
               <div className="hb-proj-grid">
                 {activeProjects.map((p) => {
@@ -629,20 +631,20 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
                     <Card key={p.id} className={`hb-projcard${isRunning ? ' is-running' : ''}`}>
                       <div className="hb-projcard__head">
                         <span className="hb-pdot" style={{ background: p.color }} />
-                        <button className="hb-projcard__name hb-projcard__namebtn" title={t.time.viewDetails} onClick={() => setDetailProject(p)}>{p.name}</button>
+                        <button className="hb-projcard__name hb-projcard__namebtn" title={t('time.viewDetails')} onClick={() => setDetailProject(p)}>{p.name}</button>
                       </div>
                       <button className="hb-projcard__statbtn" onClick={() => setDetailProject(p)}>
                         <span className="hb-projcard__stat hb-mono">
-                          {hm(projectStats[p.id]?.daySeconds ?? 0)}<span> {projectStats[p.id]?.dayLabel ?? t.time.today} →</span>
+                          {hm(projectStats[p.id]?.daySeconds ?? 0)}<span> {projectStats[p.id]?.dayLabel ?? t('time.today')} →</span>
                         </span>
                         <span className="hb-projcard__stat2 hb-mono">
-                          {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span> {projectStats[p.id]?.weekLabel ?? t.time.thisWeek}</span>
+                          {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span> {projectStats[p.id]?.weekLabel ?? t('time.thisWeek')}</span>
                         </span>
                       </button>
                       {isRunning ? (
-                        <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t.time.stop}</Button>
+                        <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t('time.stop')}</Button>
                       ) : (
-                        <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t.time.start}</Button>
+                        <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t('time.start')}</Button>
                       )}
                     </Card>
                   )
@@ -653,10 +655,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
           {/* Recent entries */}
           <div>
-            <div className="hb-sectionlabel">{t.time.recentEntries}</div>
+            <div className="hb-sectionlabel">{t('time.recentEntries')}</div>
             <Card className="hb-card--pad">
               {recent.length === 0 ? (
-                <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.emptyHint} />
+                <EmptyState icon="clock" title={t('time.noEntries')} hint={t('time.emptyHint')} />
               ) : (
                 <DayGroupedList entries={recent} projectsById={projectsById} onDelete={requestDelete} onEdit={requestEdit} onSplit={requestSplit} showProject />
               )}
@@ -689,24 +691,25 @@ export function ProjectModal({ draft, onChange, onSave, onClose }: {
   onSave: (d: ProjectDraft) => void
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <Modal
       open
       onClose={onClose}
-      title={draft.id ? t.time.editProject : t.time.newProject}
+      title={draft.id ? t('time.editProject') : t('time.newProject')}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={() => onSave(draft)} disabled={!draft.name.trim()}>
-            {draft.id ? t.common.save : t.time.create}
+            {draft.id ? t('common.save') : t('time.create')}
           </Button>
         </>
       }
     >
-      <Field label={t.time.project}>
-        <TextInput autoFocus value={draft.name} onChange={(v) => onChange({ ...draft, name: v })} placeholder={t.time.projectNamePlaceholder} />
+      <Field label={t('time.project')}>
+        <TextInput autoFocus value={draft.name} onChange={(v) => onChange({ ...draft, name: v })} placeholder={t('time.projectNamePlaceholder')} />
       </Field>
-      <Field label={t.time.color}>
+      <Field label={t('time.color')}>
         <div className="hb-swatches">
           {COLOR_CHOICES.map((c) => (
             <button
@@ -714,7 +717,7 @@ export function ProjectModal({ draft, onChange, onSave, onClose }: {
               className={`hb-swatch${draft.color === c ? ' is-active' : ''}`}
               style={{ background: c }}
               onClick={() => onChange({ ...draft, color: c })}
-              aria-label={`${t.time.colorLabel} ${c}`}
+              aria-label={`${t('time.colorLabel')} ${c}`}
             />
           ))}
         </div>
@@ -726,11 +729,12 @@ export function ProjectModal({ draft, onChange, onSave, onClose }: {
 // "Voraussichtlich fertig um 16:32" under the live clock; flips to "Tagessoll
 // erreicht" once the projected end has passed (#31). Hidden without a forecast.
 function EtaLine({ eta, nowMs }: { eta?: string; nowMs: number }) {
+  const { t } = useTranslation()
   if (!eta) return null
   const reached = new Date(eta).getTime() <= nowMs
   return (
     <div className="hb-timerhero__eta hb-muted">
-      {reached ? t.time.targetReached : t.time.expectedEnd.replace('{time}', clockTime(eta))}
+      {reached ? t('time.targetReached') : t('time.expectedEnd', { time: clockTime(eta) })}
     </div>
   )
 }
@@ -746,6 +750,7 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   liveExtraSeconds?: number
   liveProjectId?: string
 }) {
+  const { t } = useTranslation()
   const u = forecast
   const done = u.weekRecordedSeconds + u.weekCreditedSeconds + liveExtraSeconds
   const weekRemaining = u.weekRemainingSeconds - liveExtraSeconds
@@ -753,10 +758,10 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   const pct = u.weekTargetSeconds > 0 ? Math.min(100, (done / u.weekTargetSeconds) * 100) : 0
   const hue = userMeta(u.userId)?.hue ?? 150
   const todayLine = todayRemaining >= 60
-    ? t.time.todayLeft.replace('{time}', hm(todayRemaining))
+    ? t('time.todayLeft', { time: hm(todayRemaining) })
     : todayRemaining <= -60
-      ? t.time.todayOver.replace('{time}', hm(-todayRemaining))
-      : t.time.targetReached
+      ? t('time.todayOver', { time: hm(-todayRemaining) })
+      : t('time.targetReached')
   // deliberately a soll view: projects with recorded time but no target stay out
   const projects = (u.projects ?? []).filter((p) => p.weeklyHours > 0)
   return (
@@ -767,8 +772,8 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
         <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
         <span className={`hb-weektarget__delta${weekRemaining < 0 ? ' is-over' : ''}`}>
           {weekRemaining < 0
-            ? t.time.weekOver.replace('{time}', hm(-weekRemaining))
-            : t.time.weekLeft.replace('{time}', hm(weekRemaining))}
+            ? t('time.weekOver', { time: hm(-weekRemaining) })
+            : t('time.weekLeft', { time: hm(weekRemaining) })}
         </span>
       </div>
       <div className="hb-weekbar">
@@ -776,7 +781,7 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
       </div>
       <div className="hb-muted" style={{ fontSize: 13 }}>
         {todayLine}
-        {u.weekCreditedSeconds > 0 && <> · {hm(u.weekCreditedSeconds)} {t.time.credited}</>}
+        {u.weekCreditedSeconds > 0 && <> · {hm(u.weekCreditedSeconds)} {t('time.credited')}</>}
       </div>
       {projects.length > 0 && (
         <div className="hb-weektarget__projects">
@@ -787,7 +792,7 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
             return (
               <div key={p.projectId} className="hb-weektarget__proj">
                 <span className="hb-pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
-                <span className="hb-weektarget__projname">{proj?.name ?? t.time.project}</span>
+                <span className="hb-weektarget__projname">{proj?.name ?? t('time.project')}</span>
                 <span className="hb-mono hb-muted">{hm(rec)} / {hm(p.weeklyHours * 3600)}</span>
                 <span className={`hb-weektarget__delta${delta < 0 ? '' : ' is-over'}`} style={{ minWidth: 58, textAlign: 'right' }}>
                   {delta < 0 ? `-${hm(-delta)}` : `+${hm(delta)}`}
@@ -813,11 +818,12 @@ function PartnerTimer({ user, running, projectsById, nowMs, projects, eta, onSto
   onStop: () => void
   onStart: (projectId: string) => void
 }) {
+  const { t } = useTranslation()
   const [picking, setPicking] = useState(false)
   const name = userMeta(user)?.name ?? user
   const project = running ? projectsById[running.projectId] : undefined
   const etaSuffix = running && eta
-    ? ` · ${new Date(eta).getTime() <= nowMs ? t.dashboard.targetReachedShort : t.dashboard.expectedEndShort.replace('{time}', clockTime(eta))}`
+    ? ` · ${new Date(eta).getTime() <= nowMs ? t('dashboard.targetReachedShort') : t('dashboard.expectedEndShort', { time: clockTime(eta) })}`
     : ''
   return (
     <Card className="hb-card--pad">
@@ -827,23 +833,23 @@ function PartnerTimer({ user, running, projectsById, nowMs, projects, eta, onSto
           <>
             <span className="hb-pdot" style={{ background: project?.color ?? 'var(--ink-3)' }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="hb-row__title">{project?.name ?? t.time.project}</div>
+              <div className="hb-row__title">{project?.name ?? t('time.project')}</div>
               <div className="hb-muted" style={{ fontSize: 13 }}>
                 {name}{running.description ? ` · ${running.description}` : ''}{etaSuffix}
               </div>
             </div>
             <span className="hb-mono" style={{ fontWeight: 600 }}>{fmtClock(elapsedSeconds(running.startedAt, nowMs))}</span>
-            <Button variant="secondary" size="sm" icon="stop" onClick={onStop}>{t.time.stop}</Button>
+            <Button variant="secondary" size="sm" icon="stop" onClick={onStop}>{t('time.stop')}</Button>
           </>
         ) : (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="hb-row__title">{name}</div>
-              <div className="hb-muted" style={{ fontSize: 13 }}>{t.time.partnerIdle}</div>
+              <div className="hb-muted" style={{ fontSize: 13 }}>{t('time.partnerIdle')}</div>
             </div>
             {projects.length > 0 && (
               <Button variant="soft" size="sm" icon="play" onClick={() => setPicking((v) => !v)}>
-                {t.time.startForPartner.replace('{name}', name)}
+                {t('time.startForPartner', { name: name })}
               </Button>
             )}
           </>
@@ -895,12 +901,13 @@ function EntryRow({ entry, project, onDelete, onEdit, onSplit, showProject }: {
   onSplit: (entry: TimeEntry) => void
   showProject: boolean
 }) {
-  const noDesc = <span className="hb-muted">{t.time.noDescription}</span>
+  const { t } = useTranslation()
+  const noDesc = <span className="hb-muted">{t('time.noDescription')}</span>
   return (
     <div className="hb-row">
       {showProject && <span className="hb-pdot" style={{ background: project?.color ?? 'var(--ink-3)' }} />}
       <div className="hb-row__main">
-        <div className="hb-row__title">{showProject ? (project?.name ?? t.time.project) : (entry.description || noDesc)}</div>
+        <div className="hb-row__title">{showProject ? (project?.name ?? t('time.project')) : (entry.description || noDesc)}</div>
         <div className="hb-row__meta">
           {showProject && (entry.description ? <span>{entry.description}</span> : noDesc)}
           {showProject && <span className="dot-sep" />}
@@ -910,9 +917,9 @@ function EntryRow({ entry, project, onDelete, onEdit, onSplit, showProject }: {
       <div className="hb-row__right">
         <Avatar user={entry.userId} size={24} />
         <span className="hb-mono" style={{ fontWeight: 600, minWidth: 64, textAlign: 'right' }}>{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
-        <IconButton icon="edit" label={t.common.edit} onClick={() => onEdit(entry)} />
-        <IconButton icon="scissors" label={t.time.split} onClick={() => onSplit(entry)} />
-        <IconButton icon="trash" label={t.common.delete} danger onClick={() => onDelete(entry)} />
+        <IconButton icon="edit" label={t('common.edit')} onClick={() => onEdit(entry)} />
+        <IconButton icon="scissors" label={t('time.split')} onClick={() => onSplit(entry)} />
+        <IconButton icon="trash" label={t('common.delete')} danger onClick={() => onDelete(entry)} />
       </div>
     </div>
   )
@@ -965,6 +972,7 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
   onSplit: (entry: TimeEntry) => void
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   const projEntries = useMemo(
     () =>
       entries
@@ -1002,23 +1010,23 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
   return (
     <>
       <div className="hb-detailnav">
-        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t.time.backToOverview}</Button>
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t('time.backToOverview')}</Button>
       </div>
       <PageHead
-        eyebrow={t.time.projectsLabel}
+        eyebrow={t('time.projectsLabel')}
         title={project.name}
       />
       <div className="hb-projhead">
         <span className="hb-pdot" style={{ background: project.color, width: 16, height: 16 }} />
-        {project.archived && <span className="hb-muted">{t.time.archivedSection}</span>}
+        {project.archived && <span className="hb-muted">{t('time.archivedSection')}</span>}
       </div>
 
       <Card className="hb-card--pad hb-detailpage">
         <div className="hb-detail-stats">
-          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(totalSeconds)}</span><span className="hb-fact__l">{t.time.detailTotal}</span></div>
-          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(thisWeekSeconds)}</span><span className="hb-fact__l">{t.time.thisWeek}</span></div>
-          <div className="hb-fact"><span className="hb-fact__v hb-mono">{projEntries.length}</span><span className="hb-fact__l">{t.time.detailEntries}</span></div>
-          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(avgSeconds)}</span><span className="hb-fact__l">{t.time.detailAvg}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(totalSeconds)}</span><span className="hb-fact__l">{t('time.detailTotal')}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(thisWeekSeconds)}</span><span className="hb-fact__l">{t('time.thisWeek')}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{projEntries.length}</span><span className="hb-fact__l">{t('time.detailEntries')}</span></div>
+          <div className="hb-fact"><span className="hb-fact__v hb-mono">{fmtDurationShort(avgSeconds)}</span><span className="hb-fact__l">{t('time.detailAvg')}</span></div>
         </div>
 
         {userIds.length > 1 && (
@@ -1034,10 +1042,10 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
         )}
 
         {projEntries.length === 0 ? (
-          <EmptyState icon="clock" title={t.time.noEntries} hint={t.time.detailEmptyHint} />
+          <EmptyState icon="clock" title={t('time.noEntries')} hint={t('time.detailEmptyHint')} />
         ) : (
           <>
-            <div className="hb-sectionlabel hb-detail-h">{t.time.perWeek}</div>
+            <div className="hb-sectionlabel hb-detail-h">{t('time.perWeek')}</div>
             <div className="hb-weeklist">
               {weeks.map((w) => (
                 <div key={w.key} className="hb-weekrow">
@@ -1058,12 +1066,12 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
                       ) : null,
                     )}
                   </div>
-                  <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t.time.entryOne : t.time.entryMany}</div>
+                  <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t('time.entryOne') : t('time.entryMany')}</div>
                 </div>
               ))}
             </div>
 
-            <div className="hb-sectionlabel hb-detail-h">{t.time.allEntries}</div>
+            <div className="hb-sectionlabel hb-detail-h">{t('time.allEntries')}</div>
             <DayGroupedList entries={projEntries} projectsById={projectsById} onDelete={onDelete} onEdit={onEdit} onSplit={onSplit} showProject={false} />
           </>
         )}
@@ -1088,6 +1096,7 @@ function ManualEntryModal({ projects, users, me, onCreate, onClose }: {
   onCreate: (body: ManualEntryBody) => Promise<string | null>
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const today = dayKey(new Date())
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
   const [date, setDate] = useState(today)
@@ -1107,7 +1116,7 @@ function ManualEntryModal({ projects, users, me, onCreate, onClose }: {
     const startedAt = new Date(`${date}T${start}`)
     const stoppedAt = new Date(`${date}T${end}`)
     if (!(stoppedAt.getTime() > startedAt.getTime())) {
-      setError(t.time.endAfterStart)
+      setError(t('time.endAfterStart'))
       return
     }
     submitRef.current = true
@@ -1132,7 +1141,7 @@ function ManualEntryModal({ projects, users, me, onCreate, onClose }: {
       }
     } catch {
       submitRef.current = false
-      setError(t.time.saveFailed)
+      setError(t('time.saveFailed'))
     }
   }
 
@@ -1140,36 +1149,36 @@ function ManualEntryModal({ projects, users, me, onCreate, onClose }: {
     <Sheet
       open
       onClose={onClose}
-      title={t.time.recordEntry}
+      title={t('time.recordEntry')}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button onClick={submit} disabled={!projectId}>{t.common.save}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={submit} disabled={!projectId}>{t('common.save')}</Button>
         </>
       }
     >
-      <Field label={t.time.project}>
+      <Field label={t('time.project')}>
         <Select value={projectId} onChange={setProjectId}>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </Field>
       {me && partners.length > 0 && (
-        <Field label={t.time.personLabel}>
+        <Field label={t('time.personLabel')}>
           <Select value={forUser} onChange={setForUser}>
             <option value={me}>{userMeta(me)?.name ?? me}</option>
             {partners.map((u) => <option key={u} value={u}>{userMeta(u)?.name ?? u}</option>)}
           </Select>
         </Field>
       )}
-      <Field label={t.time.date}>
+      <Field label={t('time.date')}>
         <TextInput type="date" value={date} onChange={setDate} />
       </Field>
       <div className="hb-formgrid">
-        <Field label={t.time.from}><TextInput type="time" value={start} onChange={setStart} /></Field>
-        <Field label={t.time.to}><TextInput type="time" value={end} onChange={setEnd} /></Field>
+        <Field label={t('time.from')}><TextInput type="time" value={start} onChange={setStart} /></Field>
+        <Field label={t('time.to')}><TextInput type="time" value={end} onChange={setEnd} /></Field>
       </div>
-      <Field label={t.common.descriptionOptional}>
-        <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
+      <Field label={t('common.descriptionOptional')}>
+        <TextInput value={description} onChange={setDescription} placeholder={t('common.descriptionOptional')} />
       </Field>
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
     </Sheet>
@@ -1187,6 +1196,7 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
   onSave: (id: string, body: object) => Promise<string | null>
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const running = !entry.stoppedAt
   const [projectId, setProjectId] = useState(entry.projectId)
   const [start, setStart] = useState(toLocalInput(entry.startedAt))
@@ -1200,7 +1210,7 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
   const submit = async () => {
     if (submitRef.current) return
     if (!start) {
-      setError(t.errors.INVALID_DATE)
+      setError(t('errors.INVALID_DATE'))
       return
     }
     if (!projectId) return
@@ -1214,13 +1224,13 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
       // The backend skips its range check while stoppedAt is null, so guard here
       // against a future start that would freeze the live clock at 00:00:00.
       if (startedAt.getTime() > Date.now()) {
-        setError(t.time.startInFuture)
+        setError(t('time.startInFuture'))
         return
       }
     } else {
       const stoppedAt = new Date(stop)
       if (!(stoppedAt.getTime() > startedAt.getTime())) {
-        setError(t.time.endAfterStart)
+        setError(t('time.endAfterStart'))
         return
       }
       body.stoppedAt = stoppedAt.toISOString()
@@ -1238,7 +1248,7 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
       }
     } catch {
       submitRef.current = false
-      setError(t.time.saveFailed)
+      setError(t('time.saveFailed'))
     }
   }
 
@@ -1246,31 +1256,31 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
     <Sheet
       open
       onClose={onClose}
-      title={running ? t.time.editRunning : t.time.editEntry}
+      title={running ? t('time.editRunning') : t('time.editEntry')}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button onClick={submit} disabled={!start || !projectId || (!running && !stop)}>{t.common.save}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={submit} disabled={!start || !projectId || (!running && !stop)}>{t('common.save')}</Button>
         </>
       }
     >
-      {running && <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.editRunningHint}</p>}
-      <Field label={t.time.project}>
+      {running && <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.editRunningHint')}</p>}
+      <Field label={t('time.project')}>
         <Select value={projectId} onChange={setProjectId}>
           {projectOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </Field>
-      <Field label={t.time.startLabel}>
+      <Field label={t('time.startLabel')}>
         <TextInput type="datetime-local" value={start} onChange={setStart} />
       </Field>
       {!running && (
-        <Field label={t.time.endLabel}>
+        <Field label={t('time.endLabel')}>
           <TextInput type="datetime-local" value={stop} onChange={setStop} />
         </Field>
       )}
       {!running && (
-        <Field label={t.common.descriptionOptional}>
-          <TextInput value={description} onChange={setDescription} placeholder={t.common.descriptionOptional} />
+        <Field label={t('common.descriptionOptional')}>
+          <TextInput value={description} onChange={setDescription} placeholder={t('common.descriptionOptional')} />
         </Field>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}
@@ -1288,6 +1298,7 @@ function SplitEntryModal({ entry, onSave, onClose }: {
   onSave: (id: string, body: object) => Promise<string | null>
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const startMs = new Date(entry.startedAt).getTime()
   // the split action is only offered on completed entries (lists filter on
   // stoppedAt); a running entry would make stopMs NaN and every cut invalid
@@ -1309,9 +1320,9 @@ function SplitEntryModal({ entry, onSave, onClose }: {
 
   const submit = async () => {
     if (submitRef.current) return
-    if (!cutValid) return setError(t.time.splitInvalidCut)
-    if (!breakParses) return setError(t.time.splitInvalidBreak)
-    if (!breakValid) return setError(t.time.splitBreakTooLong)
+    if (!cutValid) return setError(t('time.splitInvalidCut'))
+    if (!breakParses) return setError(t('time.splitInvalidBreak'))
+    if (!breakValid) return setError(t('time.splitBreakTooLong'))
     submitRef.current = true
     setError(null)
     // On failure the modal stays open; re-enable submit and show the reason.
@@ -1327,7 +1338,7 @@ function SplitEntryModal({ entry, onSave, onClose }: {
       }
     } catch {
       submitRef.current = false
-      setError(t.time.splitFailed)
+      setError(t('time.splitFailed'))
     }
   }
 
@@ -1335,26 +1346,26 @@ function SplitEntryModal({ entry, onSave, onClose }: {
     <Modal
       open
       onClose={onClose}
-      title={t.time.splitTitle}
+      title={t('time.splitTitle')}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
-          <Button icon="scissors" onClick={submit} disabled={!cut}>{t.common.save}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button icon="scissors" onClick={submit} disabled={!cut}>{t('common.save')}</Button>
         </>
       }
     >
-      <p className="hb-muted" style={{ marginTop: 0 }}>{t.time.splitHint}</p>
-      <Field label={t.time.splitAtLabel}>
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.splitHint')}</p>
+      <Field label={t('time.splitAtLabel')}>
         <TextInput type="datetime-local" value={cut} onChange={setCut} />
       </Field>
-      <Field label={t.time.breakLabel}>
+      <Field label={t('time.breakLabel')}>
         <TextInput value={breakMin} onChange={setBreakMin} placeholder="0" />
       </Field>
       {cutValid && breakValid && (
         <p className="hb-mono hb-muted" style={{ fontSize: 13.5, margin: 0 }}>
-          {t.time.splitPart1} {clockTime(entry.startedAt)}–{clockTime(new Date(cutMs).toISOString())}
+          {t('time.splitPart1')} {clockTime(entry.startedAt)}–{clockTime(new Date(cutMs).toISOString())}
           {' · '}
-          {t.time.splitPart2} {clockTime(new Date(secondStartMs).toISOString())}–{clockTime(entry.stoppedAt!)}
+          {t('time.splitPart2')} {clockTime(new Date(secondStartMs).toISOString())}–{clockTime(entry.stoppedAt!)}
         </p>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}

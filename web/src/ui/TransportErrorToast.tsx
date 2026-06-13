@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { onTransportError } from '../api'
-import { t } from '../i18n'
 import { Icon } from './Icon'
 
 // Global transport-error toast (issue #93). Mounted ONCE in App's Shell, it
@@ -13,6 +13,7 @@ import { Icon } from './Icon'
 const TOAST_MS = 3500
 
 export function TransportErrorToast() {
+  const { t } = useTranslation()
   const [visible, setVisible] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>()
 
@@ -34,7 +35,7 @@ export function TransportErrorToast() {
   return (
     <div className="hb-toast hb-toast--error" role="alert">
       <Icon name="x" size={18} stroke={2.4} />
-      {t.common.networkError}
+      {t('common.networkError')}
     </div>
   )
 }

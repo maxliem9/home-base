@@ -8,10 +8,10 @@ import {
   type ReactNode,
   type KeyboardEvent,
 } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Icon } from './Icon'
 import { userMeta } from './format'
 import { useAvatarHues } from '../hooks/useAvatarHues'
-import { t } from '../i18n'
 import { TodoPriority } from '../types'
 
 // --- Page head -------------------------------------------------------------
@@ -357,6 +357,7 @@ export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm,
   onConfirm: () => void
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <Modal
       open
@@ -365,9 +366,9 @@ export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm,
       width={400}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t.common.cancel}</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button variant={danger ? 'danger' : 'primary'} onClick={() => { onClose(); onConfirm() }}>
-            {confirmLabel ?? t.common.confirm}
+            {confirmLabel ?? t('common.confirm')}
           </Button>
         </>
       }

@@ -3,7 +3,8 @@
 // rarely-changed configuration lives here; workflow objects (todo lists, the
 // time tracker itself) stay in their own views. Subpages: Haushalt · Konto ·
 // Benachrichtigungen (#100) · Zeiterfassung · Abwesenheit (#99). Built to grow.
-import { t } from '../../i18n'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { Theme } from '../../ui/theme'
 import { Icon } from '../../ui/Icon'
 import { Button, PageHead } from '../../ui/primitives'
@@ -15,12 +16,13 @@ import { AbwesenheitSettings } from './AbwesenheitSettings'
 
 export type SettingsTab = 'household' | 'account' | 'notifications' | 'time' | 'absence'
 
-const SUBNAV: { id: SettingsTab; label: string; icon: string }[] = [
-  { id: 'household', label: t.settings.household, icon: 'home' },
-  { id: 'account', label: t.settings.account, icon: 'lock' },
-  { id: 'notifications', label: t.settings.notifications, icon: 'send' },
-  { id: 'time', label: t.settings.time, icon: 'clock' },
-  { id: 'absence', label: t.settings.absence, icon: 'calendar' },
+// Built with the reactive `t` inside the hub so the tab labels follow a language switch.
+const buildSubnav = (t: TFunction): { id: SettingsTab; label: string; icon: string }[] => [
+  { id: 'household', label: t('settings.household'), icon: 'home' },
+  { id: 'account', label: t('settings.account'), icon: 'lock' },
+  { id: 'notifications', label: t('settings.notifications'), icon: 'send' },
+  { id: 'time', label: t('settings.time'), icon: 'clock' },
+  { id: 'absence', label: t('settings.absence'), icon: 'calendar' },
 ]
 
 export function SettingsView({
@@ -37,16 +39,18 @@ export function SettingsView({
   themeLoaded: boolean
   onChangeTheme: (next: Theme) => Promise<boolean>
 }) {
+  const { t } = useTranslation()
+  const SUBNAV = buildSubnav(t)
   const current = SUBNAV.find((s) => s.id === active) ?? SUBNAV[0]
   return (
     <div className="hb-page">
       <PageHead
-        eyebrow={t.settings.title}
+        eyebrow={t('settings.title')}
         title={current.label}
-        actions={<Button variant="ghost" size="sm" icon="x" onClick={onClose}>{t.common.close}</Button>}
+        actions={<Button variant="ghost" size="sm" icon="x" onClick={onClose}>{t('common.close')}</Button>}
       />
       <div className="hb-settings-grid">
-        <nav className="hb-settings-nav" aria-label={t.settings.title}>
+        <nav className="hb-settings-nav" aria-label={t('settings.title')}>
           {SUBNAV.map((s) => (
             <button
               key={s.id}
