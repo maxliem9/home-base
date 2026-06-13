@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { t } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
-import { Icon } from '../../ui/Icon'
 import { Avatar, Button, Card, Field, Modal, SegmentedControl, Sheet, TextInput } from '../../ui/primitives'
 import { userMeta } from '../../ui/format'
 import * as C from './holidays'
@@ -20,6 +19,7 @@ import {
   summarize,
 } from './core'
 import { AbwLegend, JahresRaster, MonatsKalender } from './Grids'
+import { YearStepper } from './YearStepper'
 import './abw.css'
 import { useAbsenceData, type Api } from './useAbsenceData'
 
@@ -31,12 +31,6 @@ const ddmm = (ds?: string | null): string => {
   return `${d.getDate()}.${d.getMonth() + 1}.`
 }
 const currentTheme = (): Theme => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light')
-
-// Keep the visible year inside the same window the backend accepts for settings,
-// so paging the year nav can never produce a year the settings PUT would reject.
-const YEAR_MIN = 2000
-const YEAR_MAX = 2200
-const clampYear = (y: number): number => Math.min(YEAR_MAX, Math.max(YEAR_MIN, y))
 
 interface ViewProps {
   token: string
@@ -83,15 +77,7 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
           <h1>{t.abwesenheit.title}</h1>
         </div>
         <div className="hb-pagehead__actions abw-actions">
-          <div className="abw-yearnav">
-            <button className="hb-iconbtn" onClick={() => setYear((y) => clampYear(y - 1))} aria-label={t.abwesenheit.prevYear}>
-              <Icon name="chevronLeft" size={17} stroke={2.2} />
-            </button>
-            <span className="abw-yearnav__y hb-mono">{year}</span>
-            <button className="hb-iconbtn" onClick={() => setYear((y) => clampYear(y + 1))} aria-label={t.abwesenheit.nextYear}>
-              <Icon name="chevronRight" size={17} stroke={2.2} />
-            </button>
-          </div>
+          <YearStepper year={year} onChange={setYear} />
           <SegmentedControl
             value={layout}
             onChange={setLayout}
