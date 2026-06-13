@@ -102,6 +102,15 @@ class ShoppingViewModel(
     private val persistMutex = Mutex()
 
     /**
+     * Serializes the auto-create-default-list path ([ensureDefaultList]). Without it, two quick adds
+     * (Enter-Enter) or a partner's WS `ListCreated` arriving mid-add both pass the "does a list
+     * exist?" re-check before either [ShoppingRepository.createList] completes → two "Einkaufsliste"
+     * lists with distinct ids (items split across tabs). The lock makes the check-then-create atomic:
+     * the first caller creates the list, later waiters re-read state under the lock and reuse it.
+     */
+    private val ensureListMutex = Mutex()
+
+    /**
      * Completes once the previous session's queue has been loaded and merged. [flush] awaits it, so
      * a flush trigger that fires during the async restore re-PUTs the restored entries instead of
      * racing an empty queue.
@@ -202,23 +211,34 @@ class ShoppingViewModel(
     }
 
     /**
-     * Ensure at least one shopping list exists and return the id to file a new item under. Used by
-     * [addItem] when the user types an item before any list exists (#181). Returns the active/first
-     * list's id if one already appeared (e.g. a partner created one over WS), otherwise creates the
-     * neutral default list. Returns null only if creation fails — the caller then surfaces the error
-     * and skips the add rather than falling back to a list-less item.
+     * Ensure at least one shopping list exists and return the id to file a new item/batch under.
+     * Used by [addItem] and [addIngredients] when content is added before any list exists (#181).
+     * Returns the active/first list's id if one already appeared (e.g. a partner created one over WS),
+     * otherwise creates the neutral default list. Returns null only if creation fails — the caller
+     * then surfaces the error and skips the add rather than falling back to a list-less item.
+     *
+     * Serialized via [ensureListMutex] so concurrent adds (Enter-Enter) or a racing WS `ListCreated`
+     * create at most ONE default list: the lock-free fast path covers the common "a list exists"
+     * case, and the slow path re-reads state *inside* the lock before creating, so later waiters reuse
+     * the first caller's list instead of creating a second one.
      */
     private suspend fun ensureDefaultList(): String? {
+        // Fast path: a list already exists, no need to serialize.
         _uiState.value.activeList?.id?.let { return it }
-        return repository.createList(DEFAULT_LIST_NAME)
-            .onSuccess { list ->
-                _uiState.update { s ->
-                    val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
-                    s.copy(lists = lists, activeListId = list.id)
+        return ensureListMutex.withLock {
+            // Re-read under the lock: a list may have appeared while we waited (a prior waiter created
+            // the default, or a partner's WS `ListCreated` landed) — reuse it, don't create a second.
+            _uiState.value.activeList?.id?.let { return@withLock it }
+            repository.createList(DEFAULT_LIST_NAME)
+                .onSuccess { list ->
+                    _uiState.update { s ->
+                        val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
+                        s.copy(lists = lists, activeListId = list.id)
+                    }
                 }
-            }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
-            .getOrNull()?.id
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .getOrNull()?.id
+        }
     }
 
     /**
@@ -266,6 +286,11 @@ class ShoppingViewModel(
      * Push the chosen (already serving-scaled) recipe ingredients onto [listId] via the batch
      * endpoint, which formats each as a "200 g Mehl" label and merges quantities into matching
      * items already on the list. Reports how many were freshly added vs. merged via [onResult].
+     *
+     * Lists-first (#181): batch-add must never create list-less items either. When no explicit
+     * [listId] and no active list exists, route through [ensureDefaultList] (same serialized
+     * auto-create as [addItem]); if that create fails, surface the error and skip rather than
+     * batch-adding with a null list.
      */
     fun addIngredients(
         listId: String?,
@@ -276,8 +301,14 @@ class ShoppingViewModel(
             onResult(0, 0)
             return
         }
-        val targetId = listId ?: _uiState.value.activeList?.id
         viewModelScope.launch {
+            val targetId = listId ?: _uiState.value.activeList?.id ?: ensureDefaultList()
+            if (targetId == null) {
+                // List creation failed (error already surfaced by ensureDefaultList) → skip the add
+                // rather than producing list-less items.
+                onResult(0, 0)
+                return@launch
+            }
             repository.batchAdd(targetId, lines)
                 .onSuccess { resp ->
                     resp.items.forEach { upsertItem(it) }
