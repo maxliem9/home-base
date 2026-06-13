@@ -1247,17 +1247,70 @@ private val KNOWN_UNITS = setOf(
     "tasse", "tassen", "becher", "glas", "cm", "mm", "kugel", "kugeln", "blatt", "blätter",
 )
 
-// leading amount: a single number (1, 1.5, 1,5), then the rest. Ranges/fractions (1-2, 1/2) are
-// intentionally NOT split off (amount is a single Double) — such a line keeps its full text as the
-// name, identical to the web parser, instead of storing a wrong number.
-private val AMOUNT_PREFIX = Regex("""^([0-9]+(?:[.,][0-9]+)?)\s+(.*)$""")
+// A leading number / fraction / range becomes the amount (#166); otherwise the whole line stays
+// the name (never silently stores a wrong number). Fractions → decimal (1/2 → 0.5), ranges → LOWER
+// bound (1-2 → 1), mixed numbers ("1 1/2" → 1.5). MUST stay identical to the web parser in
+// web/src/components/recipeIngredients.ts — same rules and same 3-decimal rounding.
 
-private fun parseIngredientLine(line: String): IngredientDraft {
-    val m = AMOUNT_PREFIX.matchEntire(line) ?: return IngredientDraft(name = line.trim())
-    val amount = m.groupValues[1]
-    val rest = m.groupValues[2].trim()
+// Splits the leading whitespace-delimited token off the line: group 1 = first token, group 2 = rest.
+private val FIRST_TOKEN = Regex("""^(\S+)\s+(.*)$""")
+private val RANGE = Regex("""^([0-9]+(?:[.,][0-9]+)?)-([0-9]+(?:[.,][0-9]+)?)$""")
+private val FRACTION = Regex("""^([0-9]+(?:[.,][0-9]+)?)/([0-9]+(?:[.,][0-9]+)?)$""")
+private val PLAIN_NUMBER = Regex("""^[0-9]+(?:[.,][0-9]+)?$""")
+// A "b/c" fraction at the start of the rest, for the mixed-number form "a b/c": groups b, c, tail.
+private val FRACTION_NEXT = Regex("""^([0-9]+)/([0-9]+)(?:\s+(.*))?$""")
+private val INTEGER = Regex("""^[0-9]+$""")
+
+// Format a decimal to at most 3 places, trailing zeros stripped ("0.5", "1.5", "1", "0.333").
+// 3 places keeps 1/3, 2/3 etc. honest. Rounds via integer math (Math.round(n*1000)) so it is
+// BIT-IDENTICAL to the web parser, which does the same — Java "%.3f" and JS toFixed disagree on
+// 4th-decimal ties (e.g. 3/80). Amounts are always >= 0 here, so the sign is never an issue.
+private fun formatAmount(n: Double): String {
+    val k = Math.round(n * 1000.0)
+    val whole = k / 1000
+    val frac = (k % 1000).toString().padStart(3, '0').trimEnd('0')
+    return if (frac.isEmpty()) "$whole" else "$whole.$frac"
+}
+
+private fun numOf(s: String): Double? = s.replace(',', '.').toDoubleOrNull()
+
+// Parse a leading amount TOKEN into a normalized decimal string, or null if it isn't a clean
+// number / fraction / range. The mixed-number form "a b/c" spans two tokens (handled by the caller).
+private fun parseAmountToken(tok: String): String? {
+    RANGE.matchEntire(tok)?.let { m -> // range a-b → lower bound
+        return numOf(m.groupValues[1])?.let { formatAmount(it) }
+    }
+    FRACTION.matchEntire(tok)?.let { m -> // fraction a/b → decimal (b must be non-zero)
+        val a = numOf(m.groupValues[1])
+        val b = numOf(m.groupValues[2])
+        return if (a != null && b != null && b != 0.0) formatAmount(a / b) else null
+    }
+    // plain number (keep as typed, only normalize the decimal comma)
+    return if (PLAIN_NUMBER.matches(tok)) tok.replace(',', '.') else null
+}
+
+internal fun parseIngredientLine(line: String): IngredientDraft {
+    val trimmed = line.trim()
+    val m = FIRST_TOKEN.matchEntire(trimmed) ?: return IngredientDraft(name = trimmed)
+    val first = m.groupValues[1]
+    var rest = m.groupValues[2].trim()
+    var amount = parseAmountToken(first) ?: return IngredientDraft(name = trimmed)
+
+    // mixed number: a leading integer followed by a "b/c" fraction ("1 1/2" → 1.5). Only when the
+    // first token was a bare integer (not itself a fraction/range) and the next token is a fraction.
+    if (INTEGER.matches(first)) {
+        FRACTION_NEXT.matchEntire(rest)?.let { fn ->
+            val b = fn.groupValues[2].toDouble()
+            if (b != 0.0) {
+                amount = formatAmount(first.toDouble() + fn.groupValues[1].toDouble() / b)
+                rest = fn.groupValues[3].trim()
+            }
+        }
+    }
+    if (rest.isEmpty()) return IngredientDraft(name = "", amount = amount)
+
     val parts = rest.split(Regex("\\s+"))
-    val unitKey = parts.firstOrNull()?.trimEnd('.')?.lowercase()
+    val unitKey = parts.firstOrNull()?.removeSuffix(".")?.lowercase()
     return if (parts.size > 1 && unitKey != null && unitKey in KNOWN_UNITS) {
         IngredientDraft(name = parts.drop(1).joinToString(" "), amount = amount, unit = parts[0])
     } else {
