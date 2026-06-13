@@ -13,6 +13,7 @@ import com.homebase.android.data.model.UpsertWorkTargetRequest
 import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.model.StopTimerRequest
 import com.homebase.android.data.model.TimeEntryDto
+import com.homebase.android.data.model.UpdateProjectRequest
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.websocket.TimeWebSocketClient
@@ -34,8 +35,12 @@ class TimeRepository(
     suspend fun createProject(name: String, color: String): Result<ProjectDto> =
         apiCatching { api.createProject(CreateProjectRequest(name, color)) }
 
+    /** Rename / recolour a project (PUT). Both fields are always sent (web parity). */
+    suspend fun updateProject(id: String, name: String, color: String): Result<ProjectDto> =
+        apiCatching(mapHttpError = ::germanProjectError) { api.updateProject(id, UpdateProjectRequest(name, color)) }
+
     suspend fun setArchived(id: String, archived: Boolean): Result<ProjectDto> =
-        apiCatching { api.archiveProject(id, ArchiveProjectRequest(archived)) }
+        apiCatching(mapHttpError = ::germanProjectError) { api.archiveProject(id, ArchiveProjectRequest(archived)) }
 
     suspend fun getEntries(): Result<List<TimeEntryDto>> = apiCatching { api.getTimeEntries() }
 
@@ -86,6 +91,15 @@ class TimeRepository(
     ): Result<WorkTargetDto> =
         apiCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault)) }
 
+    /**
+     * Download the server-rendered CSV export of completed entries as raw bytes
+     * (the JWT travels in the auth header, like every other call). Optional
+     * date-range / project filters mirror the entry list; the screen turns the
+     * bytes into a cached file + system share-sheet (it owns the Android Context).
+     */
+    suspend fun exportCsv(from: String?, to: String?, projectId: String?): Result<ByteArray> =
+        apiCatching { api.exportTimeCsv(from, to, projectId).use { it.bytes() } }
+
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
@@ -97,6 +111,14 @@ class TimeRepository(
         "INVALID_DATE" -> "Ungültiges Datum."
         "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
         else -> "Konnte nicht gespeichert werden."
+    }
+
+    /** Map a failed project create/update/archive to German text (web parity: t.time.saveFailed / archiveFailed). */
+    private fun germanProjectError(e: HttpException): String = when (errorCodeOf(e)) {
+        "INVALID_PROJECT" -> "Der Name darf nicht leer sein."
+        "INVALID_COLOR" -> "Ungültige Farbe."
+        "NOT_FOUND" -> "Projekt nicht gefunden – bitte neu laden."
+        else -> "Projekt konnte nicht gespeichert werden."
     }
 
     /** Same for a failed split (#66) — wording mirrors the web errors map (de.ts). */

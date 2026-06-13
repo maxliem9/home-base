@@ -202,6 +202,20 @@ class TimeViewModel(
         }
     }
 
+    /** Rename / recolour a project (#175). The returned row replaces the local one in place. */
+    fun updateProject(id: String, name: String, color: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.updateProject(id, name.trim(), color)
+                .onSuccess { project ->
+                    _uiState.update { state ->
+                        state.copy(projects = state.projects.map { if (it.id == project.id) project else it })
+                    }
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
     fun setArchived(id: String, archived: Boolean) {
         viewModelScope.launch {
             repository.setArchived(id, archived)
@@ -212,6 +226,20 @@ class TimeViewModel(
                 }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
+    }
+
+    /**
+     * Fetch the CSV export bytes (optional date-range/project filter) and hand the
+     * result to [onResult] (#175). The screen turns success into a file + share-sheet
+     * — it owns the Android Context, like the recipe export.
+     */
+    fun exportCsv(
+        from: String?,
+        to: String?,
+        projectId: String?,
+        onResult: (Result<ByteArray>) -> Unit,
+    ) {
+        viewModelScope.launch { onResult(repository.exportCsv(from, to, projectId)) }
     }
 
     fun clearError() = _uiState.update { it.copy(error = null) }

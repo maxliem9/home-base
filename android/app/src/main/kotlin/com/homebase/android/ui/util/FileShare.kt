@@ -13,7 +13,7 @@ import java.text.Normalizer
  */
 object FileShare {
 
-    fun share(context: Context, filename: String, mimeType: String, bytes: ByteArray) {
+    fun share(context: Context, filename: String, mimeType: String, bytes: ByteArray, chooserTitle: String = "Teilen") {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
         // Keep the export cache from growing: a prior share has handed off by the time
         // the user triggers another, so stale files are safe to drop.
@@ -28,7 +28,7 @@ object FileShare {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(
-            Intent.createChooser(send, "Rezept teilen").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 
