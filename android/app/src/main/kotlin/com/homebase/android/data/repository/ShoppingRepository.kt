@@ -50,4 +50,9 @@ class ShoppingRepository(
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
+
+    /** Register a "socket (re)connected, server reachable" callback (drives the offline-queue flush). */
+    fun setWebSocketOnConnected(onConnected: (() -> Unit)?) {
+        wsClient.onConnected = onConnected
+    }
 }

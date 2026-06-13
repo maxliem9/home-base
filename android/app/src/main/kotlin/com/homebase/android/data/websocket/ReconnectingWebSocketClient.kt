@@ -51,6 +51,14 @@ abstract class ReconnectingWebSocketClient<E>(
     private val eventChannel = Channel<E>(Channel.BUFFERED)
     val events: Flow<E> = eventChannel.receiveAsFlow()
 
+    /**
+     * Invoked every time a socket finishes (re)connecting — a "server is reachable again" signal,
+     * the mobile analog of the web's WS `onOpen`. Owners use it to flush work that should retry on
+     * reconnect (e.g. the shopping offline check-off queue). Runs on an OkHttp background thread.
+     */
+    @Volatile
+    var onConnected: (() -> Unit)? = null
+
     private val lock = Any()
     private var token: String? = null
     private var webSocket: WebSocket? = null
@@ -120,8 +128,16 @@ abstract class ReconnectingWebSocketClient<E>(
     }
 
     private val listener = object : WebSocketListener() {
-        override fun onOpen(webSocket: WebSocket, response: Response) = synchronized(lock) {
-            if (webSocket === this@ReconnectingWebSocketClient.webSocket) attempt = 0
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            val isCurrent = synchronized(lock) {
+                if (webSocket === this@ReconnectingWebSocketClient.webSocket) {
+                    attempt = 0
+                    true
+                } else false
+            }
+            // Fire the reachable-again hook outside the lock — the callback may do real work
+            // (e.g. a queue flush) and must not run while holding the connection lock.
+            if (isCurrent) onConnected?.invoke()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {

@@ -7,12 +7,22 @@ import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
+import com.homebase.android.data.shopping.FlushDecision
+import com.homebase.android.data.shopping.PendingCheck
+import com.homebase.android.data.shopping.PendingQueue
+import com.homebase.android.data.shopping.ShoppingClock
+import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.classifyFlush
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 data class ShoppingUiState(
     val lists: List<ShoppingListDto> = emptyList(),
@@ -20,6 +30,8 @@ data class ShoppingUiState(
     val activeListId: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** Item ids whose check-off has not yet been acknowledged by the backend (offline queue). */
+    val pendingIds: Set<String> = emptySet(),
 ) {
     val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
@@ -34,19 +46,55 @@ data class ShoppingUiState(
 
     /** Count of open (unchecked) items across all lists — used for the drawer badge. */
     val openCount: Int get() = items.count { !it.checked }
+
+    /** Not-yet-synced check-offs among the items currently on screen (drives the sync banner). */
+    val visiblePendingCount: Int get() = visibleItems.count { it.id in pendingIds }
+
+    fun isPending(id: String): Boolean = id in pendingIds
 }
 
+/**
+ * Owns the shopping screen state plus the **offline-resilient check-off** machinery (issue #170,
+ * parity with the web `ShoppingView`):
+ *
+ * Tapping a checkbox updates the UI optimistically *and* records the intent in a durable, latest-wins
+ * queue ([pendingStore]) keyed by item id. A tap in a store with flaky/no wifi is therefore remembered
+ * across process death and retried — never silently lost. The item carries a "not synced" marker
+ * ([ShoppingUiState.pendingIds]) until the PUT lands. Three signals drain the queue: the WebSocket
+ * reconnect (`ShoppingWebSocketClient.onConnected`), a `ConnectivityObserver` network-available event,
+ * and a periodic backstop (flaky store wifi often regains internet without any callback firing).
+ */
 class ShoppingViewModel(
     private val repository: ShoppingRepository,
     private val token: String,
+    private val pendingStore: ShoppingPendingStore,
+    /** Emits whenever the device regains a default network (the `online`-event analog). */
+    networkAvailable: Flow<Unit>,
+    private val clock: ShoppingClock = ShoppingClock.System,
+    private val flushIntervalMs: Long = FLUSH_INTERVAL_MS,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))
     val uiState: StateFlow<ShoppingUiState> = _uiState.asStateFlow()
 
+    /** Source of truth for the durable queue; the UI only mirrors its key set via [pendingIds]. */
+    private var queue = PendingQueue(pendingStore.load())
+
+    /** Serializes flush passes so two triggers can't double-send the same entry. */
+    private val flushMutex = Mutex()
+
+    /** Periodic backstop loop; runs only while the queue is non-empty, restarted on enqueue. */
+    private var backstopJob: Job? = null
+
     init {
+        // Reflect any queue restored from a previous session before the first frame.
+        _uiState.update { it.copy(pendingIds = queue.entries.keys) }
         load()
         observeWebSocket()
+        observeConnectivity(networkAvailable)
+        // Drain anything left over from a previous session right away, and arm the backstop if needed.
+        flush()
+        ensureBackstop()
     }
 
     fun load() {
@@ -78,15 +126,26 @@ class ShoppingViewModel(
         }
     }
 
+    /**
+     * Toggle a check-off optimistically and queue it for delivery. The queue (not an inline call)
+     * does the network work, so a tap in a dead zone is remembered and retried instead of lost —
+     * the item just shows a "not synced" marker until it lands. `checkedAt` is set locally too, so
+     * the "Im Wagen" ordering is correct immediately.
+     */
     fun toggleChecked(item: ShoppingItemDto) {
-        viewModelScope.launch {
-            repository.updateItem(item.id, UpdateShoppingItemRequest(checked = !item.checked))
-                .onSuccess { upsertItem(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        val next = !item.checked
+        val at = clock.nowMillis()
+        val checkedAt = if (next) clock.nowIso() else null
+        _uiState.update { s ->
+            s.copy(items = s.items.map { if (it.id == item.id) it.copy(checked = next, checkedAt = checkedAt) else it })
         }
+        enqueue(item.id, PendingCheck(checked = next, at = at))
+        flush()
     }
 
     fun deleteItem(id: String) {
+        // A queued check for an item we're deleting can never land — drop it.
+        dequeue(id)
         viewModelScope.launch {
             repository.deleteItem(id)
                 .onSuccess { _uiState.update { s -> s.copy(items = s.items.filter { it.id != id }) } }
@@ -144,6 +203,85 @@ class ShoppingViewModel(
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
+    /** Manual "retry now" from the sync banner. */
+    fun retryPending() = flush()
+
+    // --- Offline check-off queue ---------------------------------------------------------------
+
+    private fun enqueue(id: String, check: PendingCheck) {
+        queue = queue.enqueue(id, check)
+        persistAndReflect()
+        ensureBackstop()
+    }
+
+    private fun dequeue(id: String) {
+        val next = queue.dequeue(id)
+        if (next !== queue) {
+            queue = next
+            persistAndReflect()
+        }
+    }
+
+    private fun dequeueAll(ids: Collection<String>) {
+        val next = queue.dequeueAll(ids)
+        if (next !== queue) {
+            queue = next
+            persistAndReflect()
+        }
+    }
+
+    /** Persist the queue and mirror its key set into the UI so the markers/banner update. */
+    private fun persistAndReflect() {
+        pendingStore.save(queue.entries)
+        _uiState.update { it.copy(pendingIds = queue.entries.keys) }
+    }
+
+    /**
+     * Drain the queue. Each entry's PUT is kept-and-retried on a transport reject (offline) or a
+     * transient 5xx — both are the "silently lost check-off" this exists to prevent. A success or a
+     * terminal 4xx (e.g. 404, item already gone) drops the entry, but not if it was re-toggled
+     * meanwhile (a newer `at` survives). One pass at a time, guarded by [flushMutex].
+     */
+    private fun flush() {
+        viewModelScope.launch {
+            if (!flushMutex.tryLock()) return@launch
+            try {
+                // Snapshot under the lock; new toggles appending meanwhile are handled by their own
+                // flush() and by the dequeueIfUnchanged guard below.
+                for ((id, intent) in queue.entries) {
+                    val result = repository.updateItem(id, UpdateShoppingItemRequest(checked = intent.checked))
+                    val updated = result.getOrNull()
+                    if (updated != null) {
+                        // Don't let a now-stale response overwrite a newer toggle made while in flight:
+                        // the optimistic state already reflects the newer intent.
+                        if (queue[id] == intent) {
+                            _uiState.update { s ->
+                                s.copy(items = s.items.map { if (it.id == updated.id) updated else it })
+                            }
+                        }
+                        dequeueIfUnchanged(id, intent)
+                    } else {
+                        when (classifyFlush(result.exceptionOrNull() ?: RuntimeException())) {
+                            FlushDecision.KEEP_RETRY -> break // offline / transient — stop, retry later
+                            FlushDecision.DROP_TERMINAL -> dequeueIfUnchanged(id, intent)
+                            FlushDecision.DROP_DONE -> dequeueIfUnchanged(id, intent)
+                        }
+                    }
+                }
+            } finally {
+                flushMutex.unlock()
+            }
+        }
+    }
+
+    private fun dequeueIfUnchanged(id: String, expected: PendingCheck) {
+        val next = queue.dequeueIfUnchanged(id, expected)
+        if (next !== queue) {
+            queue = next
+            persistAndReflect()
+        }
+    }
+
     private fun upsertItem(item: ShoppingItemDto) {
         _uiState.update { s ->
             val items = if (s.items.any { it.id == item.id }) {
@@ -168,18 +306,70 @@ class ShoppingViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
+        // A (re)connected socket means the server is reachable — drain the queue (web WS `onOpen`).
+        repository.setWebSocketOnConnected { flush() }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
                     is ShoppingWebSocketClient.WsEvent.ItemCreated -> upsertItem(event.item)
-                    is ShoppingWebSocketClient.WsEvent.ItemUpdated -> upsertItem(event.item)
-                    is ShoppingWebSocketClient.WsEvent.ItemDeleted ->
+                    is ShoppingWebSocketClient.WsEvent.ItemUpdated -> upsertItemFromServer(event.item)
+                    is ShoppingWebSocketClient.WsEvent.ItemDeleted -> {
                         _uiState.update { s -> s.copy(items = s.items.filter { it.id != event.item.id }) }
+                        dequeue(event.item.id) // a queued check for a now-deleted item can never land
+                    }
                     is ShoppingWebSocketClient.WsEvent.ListCreated -> upsertList(event.list)
                     is ShoppingWebSocketClient.WsEvent.ListUpdated -> upsertList(event.list)
-                    is ShoppingWebSocketClient.WsEvent.ListDeleted ->
-                        _uiState.update { s -> s.copy(lists = s.lists.filter { it.id != event.list.id }) }
+                    is ShoppingWebSocketClient.WsEvent.ListDeleted -> {
+                        val goneList = event.list.id
+                        val orphanIds = _uiState.value.items.filter { it.listId == goneList }.map { it.id }
+                        _uiState.update { s -> s.copy(lists = s.lists.filter { it.id != goneList }, items = s.items.filter { it.listId != goneList }) }
+                        dequeueAll(orphanIds) // queued checks for items on a deleted list can't land
+                    }
                 }
+            }
+        }
+    }
+
+    /**
+     * Apply a server ITEM_UPDATED echo, but let a still-pending local check intent win over it for
+     * the `checked`/`checkedAt` fields (the echo may carry an older state — e.g. our own in-flight
+     * PUT after we re-toggled). Other fields (name/list) take the server value.
+     */
+    private fun upsertItemFromServer(server: ShoppingItemDto) {
+        if (server.id !in queue) {
+            upsertItem(server)
+            return
+        }
+        _uiState.update { s ->
+            val items = if (s.items.any { it.id == server.id }) {
+                s.items.map { local ->
+                    if (local.id == server.id) server.copy(checked = local.checked, checkedAt = local.checkedAt) else local
+                }
+            } else {
+                listOf(server) + s.items
+            }
+            s.copy(items = items)
+        }
+    }
+
+    private fun observeConnectivity(networkAvailable: Flow<Unit>) {
+        viewModelScope.launch {
+            networkAvailable.collect { flush() }
+        }
+    }
+
+    /**
+     * Periodic backstop: flaky store wifi often regains internet without ever firing a network or
+     * socket callback, so poll while the queue is non-empty. The loop exits once the queue drains
+     * (and is re-armed on the next [enqueue]), so it never spins when there is nothing to send.
+     */
+    private fun ensureBackstop() {
+        if (queue.isEmpty) return
+        if (backstopJob?.isActive == true) return
+        backstopJob = viewModelScope.launch {
+            while (!queue.isEmpty) {
+                delay(flushIntervalMs)
+                if (!queue.isEmpty) flush()
             }
         }
     }
@@ -189,6 +379,11 @@ class ShoppingViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
+    }
+
+    private companion object {
+        const val FLUSH_INTERVAL_MS = 15_000L
     }
 }

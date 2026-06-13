@@ -12,6 +12,9 @@ import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.shopping.ConnectivityObserver
+import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingPendingStore
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
@@ -68,6 +71,12 @@ class AppContainer(context: Context) {
         api = api,
         wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
+
+    /** Durable backing store for the shopping offline check-off queue (issue #170). */
+    val shoppingPendingStore: ShoppingPendingStore = SharedPrefsShoppingPendingStore(context, moshi)
+
+    /** Device network-available signal — retry trigger for the offline check-off queue. */
+    val connectivityObserver = ConnectivityObserver(context)
 
     val notesRepository = NotesRepository(
         api = api,
