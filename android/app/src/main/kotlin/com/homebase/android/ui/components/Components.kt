@@ -33,11 +33,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.homebase.android.R
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 
@@ -138,8 +140,9 @@ fun HbConfirmDialog(
     message: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    confirmLabel: String = "Ja",
-    dismissLabel: String = "Abbrechen",
+    // Default to the localized "Yes"/"Cancel"; callers may override for a specific verb.
+    confirmLabel: String = stringResource(R.string.action_yes),
+    dismissLabel: String = stringResource(R.string.action_cancel),
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -176,14 +179,14 @@ fun HbBadge(text: String, tone: HbTone = HbTone.Neutral, modifier: Modifier = Mo
     }
 }
 
-/** Priority pill: colored dot + German label. */
+/** Priority pill: colored dot + localized label. */
 @Composable
 fun HbPriority(priority: String?, modifier: Modifier = Modifier) {
     if (priority == null) return
     val (color, label) = when (priority.uppercase()) {
-        "HIGH" -> Hb.prioHigh to "Hoch"
-        "MEDIUM" -> Hb.prioMedium to "Mittel"
-        "LOW" -> Hb.prioLow to "Niedrig"
+        "HIGH" -> Hb.prioHigh to stringResource(R.string.priority_high)
+        "MEDIUM" -> Hb.prioMedium to stringResource(R.string.priority_medium)
+        "LOW" -> Hb.prioLow to stringResource(R.string.priority_low)
         else -> return
     }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

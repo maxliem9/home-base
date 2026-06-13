@@ -1,108 +1,487 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Default (German) UI strings. Single source of truth for all user-facing text.
-  To add another language later, create res/values-<lang>/strings.xml (e.g.
-  res/values-en/strings.xml) with the same keys; Android then picks it up
-  automatically based on the device locale. An in-app language picker would
-  additionally need AppCompatDelegate.setApplicationLocales(...).
+  Default (German) UI strings — the app's base locale and single source of truth for keys.
+  English lives in res/values-en/strings.xml with the SAME keys; Android falls back to this
+  file for any key missing there, and the in-app switcher (Einstellungen → Sprache) flips
+  between them via AppCompatDelegate.setApplicationLocales(...).
+
+  Conventions: keys are grouped by screen (login_, shopping_, todo_, time_, recipe_,
+  notes_, absence_, settings_, drawer_, dashboard_) with shared bits under action_/common_.
+  Interpolated text uses positional args (%1$s/%1$d); count-dependent wording uses <plurals>.
 -->
 <resources>
     <string name="app_name">HomeBase</string>
 
-    <!-- Shared actions / labels -->
+    <!-- ===== Shared actions / labels ===== -->
     <string name="action_ok">OK</string>
     <string name="action_cancel">Abbrechen</string>
     <string name="action_add">Hinzufügen</string>
     <string name="action_save">Speichern</string>
     <string name="action_delete">Löschen</string>
-    <string name="error_title">Fehler</string>
-    <string name="field_title">Titel</string>
+    <string name="action_create">Erstellen</string>
+    <string name="action_done">Fertig</string>
+    <string name="action_close">Schließen</string>
+    <string name="action_remove">Entfernen</string>
+    <string name="action_apply">Übernehmen</string>
+    <string name="action_yes">Ja</string>
+    <string name="action_now">Jetzt</string>
+    <string name="action_export">Exportieren</string>
+    <string name="common_field_name">Name</string>
+    <string name="common_field_title">Titel</string>
+    <string name="common_field_description">Beschreibung</string>
+    <string name="common_description_optional">Beschreibung (optional)</string>
+    <string name="common_loading">Lädt …</string>
+    <string name="common_save_failed">Speichern fehlgeschlagen.</string>
 
-    <!-- Login -->
+    <!-- Priorities (shared pill) -->
+    <string name="priority_low">Niedrig</string>
+    <string name="priority_medium">Mittel</string>
+    <string name="priority_high">Hoch</string>
+
+    <!-- ===== Drawer / navigation ===== -->
+    <string name="drawer_sync_active">Echtzeit-Sync aktiv</string>
+    <string name="nav_today">Heute</string>
+    <string name="nav_tasks">Aufgaben</string>
+    <string name="nav_shopping">Einkaufsliste</string>
+    <string name="nav_notes">Notizen</string>
+    <string name="nav_time">Zeiterfassung</string>
+    <string name="nav_calendar">Kalender</string>
+    <string name="nav_recipes">Rezepte</string>
+
+    <!-- ===== Login ===== -->
     <string name="login_username">Benutzername</string>
     <string name="login_password">Passwort</string>
     <string name="login_submit">Anmelden</string>
+    <string name="login_failed">Login fehlgeschlagen.</string>
 
-    <!-- Inbox -->
-    <string name="inbox_title">Inbox</string>
-    <string name="inbox_add_todo_cd">Aufgabe hinzufügen</string>
-    <string name="inbox_empty">Inbox ist leer — füge mit + eine Aufgabe hinzu.</string>
-    <string name="inbox_mark_done_cd">Als erledigt markieren</string>
-    <string name="inbox_new_item">Neue Aufgabe</string>
+    <!-- ===== Dashboard / Heute ===== -->
+    <string name="greeting_morning">Guten Morgen</string>
+    <string name="greeting_day">Guten Tag</string>
+    <string name="greeting_evening">Guten Abend</string>
+    <string name="dashboard_greeting">%1$s,\n%2$s.</string>
+    <string name="dashboard_quick_add">Schnell erfassen …</string>
+    <string name="dashboard_stat_due_today">Heute fällig</string>
+    <string name="dashboard_stat_inbox">In der Inbox</string>
+    <string name="dashboard_stat_due_tomorrow">Morgen fällig</string>
+    <string name="dashboard_stat_done_today">Heute erledigt</string>
+    <string name="dashboard_today_card">Heute dran</string>
+    <string name="dashboard_all_tasks">Alle Aufgaben</string>
+    <string name="dashboard_nothing_today">Nichts für heute</string>
+    <string name="dashboard_time_card">Zeiterfassung</string>
+    <string name="dashboard_open">Öffnen</string>
+    <string name="dashboard_no_timer">Kein Timer aktiv</string>
+    <string name="dashboard_stop">Stoppen</string>
+    <string name="dashboard_shopping_card">Einkaufsliste</string>
+    <string name="dashboard_list_empty">Liste ist leer</string>
+    <string name="dashboard_more_items">+ %1$d weitere</string>
+    <string name="dashboard_digest_title">Abend-Digest</string>
+    <string name="dashboard_digest_badge">heute · 20:00</string>
+    <string name="dashboard_digest_hint">Vorschau der Telegram-Nachricht, die ihr beide bekommt.</string>
+    <string name="dashboard_digest_done_today">Heute erledigt</string>
+    <string name="dashboard_digest_new_inbox">Neu in der Inbox</string>
+    <string name="dashboard_digest_due_tomorrow">Morgen fällig</string>
+    <string name="confirm_stop_partner_timer">Timer von %1$s stoppen?</string>
+    <string name="time_project_fallback">Projekt</string>
 
-    <!-- Shopping -->
-    <string name="shopping_title">Einkaufsliste</string>
-    <string name="shopping_empty">Liste ist leer — nutze + zum Hinzufügen.</string>
-    <string name="shopping_uncategorized">Sonstiges</string>
-    <string name="shopping_new_item">Neuer Artikel</string>
-    <string name="shopping_field_item">Artikel</string>
-    <string name="shopping_field_category">Kategorie (optional)</string>
+    <!-- ===== Tasks (Aufgaben) ===== -->
+    <string name="todo_eyebrow">Aufgaben</string>
+    <string name="todo_title">Aufgaben</string>
+    <string name="todo_inbox">Inbox</string>
+    <string name="todo_fab">Aufgabe</string>
+    <string name="todo_new_list_tab">Neue Liste</string>
+    <string name="todo_quick_add_inbox">Neue Aufgabe in der Inbox …</string>
+    <string name="todo_quick_add">Aufgabe hinzufügen …</string>
+    <string name="todo_inbox_empty_title">Inbox ist leer</string>
+    <string name="todo_inbox_empty_hint">Füge eine Aufgabe hinzu</string>
+    <string name="todo_list_empty_title">Alles erledigt</string>
+    <string name="todo_list_empty_hint">Keine offenen Aufgaben in dieser Liste.\nFüge oben eine neue hinzu.</string>
+    <string name="todo_subtasks">Unteraufgaben</string>
+    <string name="todo_plan">Planen</string>
+    <string name="todo_add_subtask">Unteraufgabe hinzufügen …</string>
+    <string name="todo_done_section">Erledigt</string>
+    <string name="todo_edit_title">Aufgabe bearbeiten</string>
+    <string name="todo_new_title">Neue Aufgabe</string>
+    <string name="todo_field_list">Liste</string>
+    <string name="todo_stays_in_inbox">Bleibt in der Inbox</string>
+    <string name="todo_field_assignee">Zuständig</string>
+    <string name="todo_assignee_nobody">Niemand</string>
+    <string name="todo_field_due">Fällig</string>
+    <string name="todo_due_hint">Format: JJJJ-MM-TT, z. B. %1$s</string>
+    <string name="todo_field_priority">Priorität</string>
+    <string name="todo_field_recurrence">Wiederholung</string>
+    <string name="todo_recurrence_none">Keine</string>
+    <string name="todo_recurrence_daily">Täglich</string>
+    <string name="todo_recurrence_weekly">Wöchentl.</string>
+    <string name="todo_recurrence_monthly">Monatl.</string>
+    <string name="todo_recurrence_every">Alle</string>
+    <string name="todo_recurrence_days">Tage</string>
+    <string name="todo_recurrence_weeks">Wochen</string>
+    <string name="todo_recurrence_months">Monate</string>
+    <string name="todo_recurrence_needs_due">Für eine Wiederholung ein Fälligkeitsdatum angeben.</string>
+    <string name="todo_recurrence_short_daily">täglich</string>
+    <string name="todo_recurrence_short_weekly">wöchentl.</string>
+    <string name="todo_recurrence_short_monthly">monatl.</string>
+    <string name="todo_recurrence_short_every">alle %1$d %2$s</string>
+    <string name="todo_new_list_title">Neue Liste</string>
+    <string name="todo_list_name_placeholder">z. B. Garten</string>
+    <string name="todo_field_visibility">Sichtbarkeit</string>
+    <string name="todo_visibility_shared">Geteilt</string>
+    <string name="todo_visibility_private">Privat</string>
+    <string name="todo_visibility_hint">Geteilte Listen sehen beide. Private nur du.</string>
 
-    <!-- Notes -->
+    <!-- ===== Shopping (Einkauf) ===== -->
+    <string name="shopping_eyebrow">Einkaufsliste</string>
+    <string name="shopping_title_fallback">Einkauf</string>
+    <string name="shopping_fab">Artikel</string>
+    <string name="shopping_quick_add">Artikel hinzufügen …</string>
+    <string name="shopping_empty_title">Liste ist leer</string>
+    <string name="shopping_empty_hint">Füge oben Artikel hinzu.</string>
+    <string name="shopping_in_cart">Im Wagen · %1$d</string>
+    <string name="shopping_clear_checked">Abgehakte entfernen</string>
+    <string name="shopping_new_list_tab">Neue Liste</string>
+    <string name="shopping_new_list_title">Neue Liste</string>
+    <string name="shopping_list_name_placeholder">z. B. Drogerie</string>
+    <string name="shopping_lists_shared_hint">Alle Einkaufslisten sind geteilt.</string>
+    <string name="shopping_add_item_title">Artikel</string>
+    <string name="shopping_item_name_placeholder">z. B. Tomaten</string>
+    <plurals name="shopping_sync_banner">
+        <item quantity="one">1 Abhakung wird synchronisiert …</item>
+        <item quantity="other">%1$d Abhakungen werden synchronisiert …</item>
+    </plurals>
+
+    <!-- ===== Notes (Notizen) ===== -->
+    <string name="notes_eyebrow">Notizen</string>
     <string name="notes_title">Notizen</string>
-    <string name="notes_search">Suche in Titel, Inhalt, Tags…</string>
-    <string name="notes_empty">Noch keine Notizen — nutze + zum Erstellen.</string>
-    <string name="notes_no_results">Keine Treffer.</string>
-    <string name="notes_new">Neue Notiz</string>
-    <string name="notes_edit">Notiz bearbeiten</string>
-    <string name="notes_field_content">Inhalt (Markdown)</string>
-    <string name="notes_field_tags">Tags (kommagetrennt)</string>
-    <string name="notes_visibility">Sichtbarkeit:</string>
-    <string name="notes_private">🔒 Privat</string>
-    <string name="notes_shared">👥 Geteilt</string>
+    <string name="notes_fab">Notiz</string>
+    <string name="notes_all_folders">Alle Ordner</string>
+    <string name="notes_no_folder">Ohne Ordner</string>
+    <string name="notes_all_tags">Alle</string>
+    <string name="notes_empty_title">Noch keine Notizen</string>
+    <string name="notes_empty_hint">Tippe auf „Notiz“, um anzufangen.</string>
+    <string name="notes_no_results_title">Keine Treffer</string>
+    <string name="notes_no_results_hint">Für diese Auswahl gibt es keine Notizen.</string>
+    <string name="notes_detail_title">Notiz</string>
+    <string name="notes_private">Privat</string>
+    <string name="notes_shared">Geteilt</string>
+    <string name="notes_meta">%1$s · %2$s</string>
+    <string name="notes_images">Bilder</string>
+    <string name="notes_images_count">Bilder (%1$d)</string>
+    <string name="notes_add_image">Bild hinzufügen</string>
+    <string name="notes_new_title">Neue Notiz</string>
+    <string name="notes_edit_title">Notiz bearbeiten</string>
+    <string name="notes_field_title">Titel</string>
+    <string name="notes_title_placeholder">Titel</string>
+    <string name="notes_field_content">Inhalt</string>
+    <string name="notes_content_placeholder">Schreib etwas …</string>
+    <string name="notes_insert_image">Bild in den Text einfügen</string>
+    <string name="notes_field_tags">Tags</string>
+    <string name="notes_tags_placeholder">urlaub, zuhause</string>
+    <string name="notes_field_folder">Ordner</string>
+    <string name="notes_folder_placeholder">Ordner (optional) …</string>
+    <string name="notes_field_visibility">Sichtbarkeit</string>
 
-    <!-- Time tracking -->
+    <!-- ===== Time tracking (Zeiterfassung) ===== -->
+    <string name="time_eyebrow">Zeiterfassung</string>
     <string name="time_title">Zeit</string>
-    <string name="time_add_project_cd">Projekt hinzufügen</string>
-    <string name="time_entry">Eintrag</string>
-    <string name="time_quickstart">Schnell-Start</string>
-    <string name="time_no_projects">Noch keine Projekte — oben rechts mit + anlegen.</string>
-    <string name="time_today">Heute</string>
-    <string name="time_no_entries_today">Keine Einträge heute.</string>
-    <string name="time_project">Projekt</string>
-    <string name="time_start_timer_cd">Timer starten</string>
-    <string name="time_record_entry">Eintrag erfassen</string>
-    <string name="time_field_date">Datum (JJJJ-MM-TT)</string>
-    <string name="time_field_start">Start (HH:mm)</string>
-    <string name="time_field_end">Ende (HH:mm)</string>
-    <string name="time_field_description">Beschreibung (optional)</string>
-    <string name="time_invalid_times">Ungültige Zeiten — Ende muss nach Start liegen</string>
-    <string name="time_select_project">Projekt wählen</string>
-    <string name="time_new_project">Neues Projekt</string>
-    <string name="time_project_name">Name</string>
-    <string name="time_create">Anlegen</string>
+    <string name="time_fab">Projekt</string>
+    <string name="time_running">Läuft</string>
+    <string name="time_eta_reached">Tagessoll erreicht</string>
+    <string name="time_eta_until">Voraussichtlich fertig um %1$s</string>
+    <string name="time_stop_timer">Timer stoppen</string>
+    <string name="time_idle_title">Kein Timer aktiv</string>
+    <string name="time_idle_hint">Starte unten ein Projekt, um die Zeit zu erfassen.</string>
+    <string name="time_eta_short_until">bis ca. %1$s</string>
+    <string name="time_eta_short_reached">Soll erreicht</string>
+    <string name="time_partner_no_timer">Kein Timer aktiv</string>
+    <string name="time_partner_for">Für %1$s</string>
+    <string name="time_stop">Stopp</string>
+    <string name="confirm_start_partner_timer">Timer für %1$s starten?</string>
+    <string name="time_weektargets_title">Wochensoll</string>
+    <string name="time_week_remaining">noch %1$s</string>
+    <string name="time_week_over">+%1$s</string>
+    <string name="time_today_remaining">Heute noch %1$s</string>
+    <string name="time_today_over">Heute %1$s über Soll</string>
+    <string name="time_today_reached">Tagessoll erreicht</string>
+    <string name="time_credited">· %1$s gutgeschrieben</string>
+    <string name="time_section_projects">Projekte</string>
+    <string name="time_show_active">Aktive</string>
+    <string name="time_show_archive">Archiv</string>
+    <string name="time_no_projects_hint">Noch keine Projekte. Lege unten eines an.</string>
+    <string name="time_section_recent">Letzte Einträge</string>
+    <string name="time_no_entries">Noch keine erfassten Zeiten.</string>
+    <string name="time_start">Start</string>
+    <string name="time_entry_fallback">Eintrag</string>
+    <string name="time_day_sum">Σ %1$s</string>
+    <string name="time_targets_title">Wochensoll konfigurieren</string>
+    <string name="time_targets_hint">Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.</string>
+    <string name="time_targets_create_project_first">Lege zuerst ein Projekt an.</string>
+    <string name="time_targets_col_project">Projekt</string>
+    <string name="time_targets_col_hours">Std/Woche</string>
+    <string name="time_targets_col_default">Standard</string>
+    <string name="time_project_archived_suffix">%1$s (Archiviert)</string>
+    <string name="time_targets_hours_range">Stunden müssen zwischen 0 und 168 liegen</string>
+    <string name="time_targets_pick_default">Bitte ein Standard-Projekt wählen</string>
+    <string name="time_new_project_title">Neues Projekt</string>
+    <string name="time_project_name_placeholder">z. B. Renovierung</string>
+    <string name="time_field_color">Farbe</string>
+    <string name="time_record_title">Eintrag erfassen</string>
+    <string name="time_field_project">Projekt</string>
+    <string name="time_field_person">Person</string>
+    <string name="time_field_date">Datum</string>
+    <string name="time_field_from">Von</string>
+    <string name="time_field_to">Bis</string>
+    <string name="time_pick_project">Bitte ein Projekt wählen</string>
+    <string name="time_end_after_start">Ende muss nach dem Start liegen</string>
+    <string name="confirm_record_for_partner">Eintrag für %1$s erfassen?</string>
+    <string name="time_edit_running_title">Laufenden Timer bearbeiten</string>
+    <string name="time_edit_entry_title">Eintrag bearbeiten</string>
+    <string name="time_running_hint">Läuft noch – die Stoppzeit wird erst beim Stoppen gesetzt.</string>
+    <string name="time_field_start_running">Startzeit</string>
+    <string name="time_field_start">Beginn</string>
+    <string name="time_field_end">Ende</string>
+    <string name="time_start_not_future">Beginn darf nicht in der Zukunft liegen</string>
+    <string name="confirm_edit_partner_entry">Eintrag von %1$s bearbeiten?</string>
+    <string name="confirm_split_partner_entry">Eintrag von %1$s splitten?</string>
+    <string name="confirm_delete_partner_entry">Eintrag von %1$s löschen?</string>
+    <string name="time_split_title">Eintrag splitten</string>
+    <string name="time_split_hint">Teilt den Eintrag an der Trennzeit in zwei. Eine Pause bleibt als Lücke zwischen den Teilen unerfasst — danach lässt sich Teil 2 wie gewohnt bearbeiten (z. B. anderes Projekt).</string>
+    <string name="time_split_at">Trennzeit</string>
+    <string name="time_split_break">Pause in Minuten (optional)</string>
+    <string name="time_split_preview">Teil 1: %1$s–%2$s · Teil 2: %3$s–%4$s</string>
+    <string name="time_detail_active_project">Aktives Projekt</string>
+    <string name="time_detail_project">Projekt</string>
+    <string name="time_fact_total">Gesamt</string>
+    <string name="time_fact_this_week">Diese Woche</string>
+    <string name="time_fact_entries">Einträge</string>
+    <string name="time_fact_avg">ø / Eintrag</string>
+    <string name="time_per_week">Pro Woche</string>
+    <string name="time_all_entries">Alle Einträge</string>
+    <string name="time_this_week">Diese Woche</string>
+    <string name="time_last_week">Letzte Woche</string>
+    <plurals name="time_week_entries">
+        <item quantity="one">%1$d Eintrag</item>
+        <item quantity="other">%1$d Einträge</item>
+    </plurals>
+    <string name="time_card_today">Heute</string>
+    <string name="time_card_this_week">Diese Woche</string>
+    <string name="time_card_day_before">Vorgestern</string>
 
-    <!-- Recipes -->
+    <!-- ===== Recipes (Rezepte) ===== -->
+    <string name="recipe_count_eyebrow">%1$d Rezepte</string>
     <string name="recipe_title">Rezepte</string>
-    <string name="recipe_filter_all">Alle</string>
-    <string name="recipe_empty_all">Noch keine Rezepte — nutze + zum Erstellen.</string>
-    <string name="recipe_empty_category">Keine Rezepte in dieser Kategorie.</string>
-    <string name="recipe_minutes_abbr">Min</string>
-    <string name="recipe_servings_abbr">Port.</string>
-    <string name="recipe_back_cd">Zurück</string>
-    <string name="recipe_edit">Bearbeiten</string>
-    <string name="recipe_prep">Vorbereitung</string>
-    <string name="recipe_cook">Kochzeit</string>
-    <string name="recipe_servings">Portionen</string>
-    <string name="recipe_ingredients">Zutaten</string>
-    <string name="recipe_preparation">Zubereitung</string>
-    <string name="recipe_delete">Rezept löschen</string>
-    <string name="recipe_new">Neues Rezept</string>
-    <string name="recipe_edit_title">Rezept bearbeiten</string>
-    <string name="recipe_field_description">Beschreibung</string>
-    <string name="recipe_category">Kategorie</string>
-    <string name="recipe_prep_min">Vorb. Min</string>
-    <string name="recipe_cook_min">Koch. Min</string>
-    <string name="recipe_add_ingredient">+ Zutat</string>
-    <string name="recipe_ingredient_name">Zutat</string>
-    <string name="recipe_amount">Menge</string>
-    <string name="recipe_unit_abbr">Einh.</string>
-    <string name="recipe_add_step">+ Schritt</string>
-    <string name="recipe_step_n">Schritt %1$d</string>
+    <string name="recipe_fab">Rezept</string>
+    <string name="recipe_cat_all">Alle</string>
     <string name="recipe_cat_breakfast">Frühstück</string>
-    <string name="recipe_cat_lunch">Mittag</string>
-    <string name="recipe_cat_dinner">Abend</string>
+    <string name="recipe_cat_main">Hauptgerichte</string>
     <string name="recipe_cat_snack">Snack</string>
     <string name="recipe_cat_dessert">Dessert</string>
     <string name="recipe_cat_drink">Getränk</string>
+    <string name="recipe_empty_title">Keine Rezepte</string>
+    <string name="recipe_empty_all">Lege dein erstes Rezept an.</string>
+    <string name="recipe_empty_category">In „%1$s“ ist noch nichts.\nLege ein neues Rezept an.</string>
+    <string name="recipe_photo_placeholder">FOTO FOLGT</string>
+    <string name="recipe_minutes">%1$d Min</string>
+    <string name="recipe_detail_title">Rezept</string>
+    <string name="recipe_edit">Bearbeiten</string>
+    <string name="recipe_export_md">Als Markdown</string>
+    <string name="recipe_export_pdf">Als PDF</string>
+    <string name="recipe_export_failed">Rezept konnte nicht exportiert werden.</string>
+    <string name="recipe_share_chooser">Rezept teilen</string>
+    <string name="recipe_field_servings">Portionen</string>
+    <string name="recipe_amount_factor">Mengen ×%1$s</string>
+    <string name="recipe_fact_prep">Vorb. Min</string>
+    <string name="recipe_fact_cook">Koch Min</string>
+    <string name="recipe_fact_total">Gesamt</string>
+    <string name="recipe_image">Bild</string>
+    <string name="recipe_image_change">Bild ändern</string>
+    <string name="recipe_image_add">Bild hinzufügen</string>
+    <string name="recipe_section_ingredients">Zutaten</string>
+    <string name="recipe_section_steps">Zubereitung</string>
+    <string name="recipe_add_to_list">Zutaten zur Liste</string>
+    <string name="recipe_add_to_list_title">Zutaten zur Liste</string>
+    <string name="recipe_add_n">%1$d hinzufügen</string>
+    <string name="recipe_create_list_first">Lege zuerst eine Einkaufsliste an.</string>
+    <string name="recipe_field_list">Liste</string>
+    <string name="recipe_toast_nothing">Nichts hinzugefügt</string>
+    <string name="recipe_toast_merged">%1$d zusammengeführt</string>
+    <string name="recipe_toast_added_merged">%1$d hinzugefügt · %2$d zusammengeführt</string>
+    <plurals name="recipe_toast_added">
+        <item quantity="one">%1$d Zutat hinzugefügt</item>
+        <item quantity="other">%1$d Zutaten hinzugefügt</item>
+    </plurals>
+    <string name="recipe_new_title">Neues Rezept</string>
+    <string name="recipe_edit_title">Rezept bearbeiten</string>
+    <string name="recipe_title_placeholder">z. B. Ofengemüse</string>
+    <string name="recipe_field_category">Kategorie</string>
+    <string name="recipe_field_prep">Vorb.</string>
+    <string name="recipe_field_cook">Kochen</string>
+    <string name="recipe_servings_placeholder">4</string>
+    <string name="recipe_prep_placeholder">15</string>
+    <string name="recipe_cook_placeholder">30</string>
+    <string name="recipe_field_description">Beschreibung</string>
+    <string name="recipe_description_placeholder">Kurz beschreiben …</string>
+    <string name="recipe_field_ingredients">Zutaten</string>
+    <string name="recipe_as_list">Als Liste</string>
+    <string name="recipe_as_text">Als Text</string>
+    <string name="recipe_paste_placeholder">Eine Zutat pro Zeile, z. B. 200 g Mehl\n# Name beginnt einen Abschnitt</string>
+    <string name="recipe_paste_hint">Eine Zutat pro Zeile (z. B. „200 g Mehl“). „# Name“ beginnt einen Abschnitt.</string>
+    <string name="recipe_section_placeholder">Abschnitt, z. B. Boden</string>
+    <string name="recipe_ingredient_placeholder">Zutat</string>
+    <string name="recipe_amount_placeholder">Menge</string>
+    <string name="recipe_unit_placeholder">Einh.</string>
+    <string name="recipe_add_ingredient">+ Zutat</string>
+    <string name="recipe_add_section">+ Abschnitt</string>
+    <string name="recipe_field_steps">Schritte</string>
+    <string name="recipe_steps_placeholder">Ein Schritt pro Zeile …</string>
+
+    <!-- ===== Absence (Familienkalender) ===== -->
+    <string name="absence_eyebrow">Familienkalender</string>
+    <string name="absence_title">Kalender</string>
+    <string name="absence_fab">Zeitraum</string>
+    <string name="absence_view_year">Jahr</string>
+    <string name="absence_view_month">Monat</string>
+    <string name="absence_load_failed">Kalender konnte nicht geladen werden.</string>
+    <string name="absence_remaining">ÜBRIG</string>
+    <string name="absence_summary_meta">%1$s · Anspruch %2$s</string>
+    <string name="absence_carry_until">+%1$s Übertrag · bis %2$s</string>
+    <string name="absence_carry_expired">+%1$s Übertrag · %2$s verfallen</string>
+    <string name="absence_badge_krank">Krank %1$s</string>
+    <string name="absence_badge_kind">Kind-krank %1$s / %2$d</string>
+    <string name="absence_legend_urlaub">Urlaub</string>
+    <string name="absence_legend_krank">Krank</string>
+    <string name="absence_legend_kind">Kind-krank</string>
+    <string name="absence_legend_holiday">Feiertag</string>
+    <string name="absence_legend_parttime">Teilzeit</string>
+    <string name="absence_legend_weekend">Wochenende</string>
+    <string name="absence_legend_kita">Kita zu</string>
+    <string name="absence_day_morning">AM</string>
+    <string name="absence_day_afternoon">PM</string>
+    <string name="absence_type_work">Arbeit</string>
+    <string name="absence_type_urlaub">Urlaub</string>
+    <string name="absence_type_krank">Krank</string>
+    <string name="absence_type_kind">Kind-krank</string>
+    <string name="absence_type_delete">Löschen</string>
+    <string name="absence_note_holiday">Feiertag · %1$s</string>
+    <string name="absence_note_holiday_half">Feiertag · %1$s (½)</string>
+    <string name="absence_note_free">ohnehin frei</string>
+    <string name="absence_note_weekend">Wochenende</string>
+    <string name="absence_half_full">Ganzer Tag</string>
+    <string name="absence_half_morning">Vormittag (AM)</string>
+    <string name="absence_half_afternoon">Nachmittag (PM)</string>
+    <string name="absence_kita_closing">Kita-Schließtag</string>
+    <string name="absence_kita_whole_family">Gilt für die ganze Familie</string>
+    <string name="absence_kita_default_label">Kita geschlossen</string>
+    <string name="absence_kita_reason">Anlass (optional)</string>
+    <string name="absence_kita_reason_placeholder">z. B. Brückentag</string>
+    <string name="absence_range_title">Zeitraum eintragen</string>
+    <string name="absence_for_whom">Für wen</string>
+    <string name="absence_kind">Art</string>
+    <string name="absence_range_workdays">Nur Arbeitstage — Wochenenden, Feiertage und feste freie Tage werden übersprungen%1$s.</string>
+    <string name="absence_range_estimate"> (≈ %1$d Tage für %2$s)</string>
+    <string name="absence_range_delete">Löschen entfernt alle Einträge im Zeitraum.</string>
+    <string name="absence_settings_title">Kalender-Einstellungen</string>
+    <string name="absence_field_state">Bundesland</string>
+    <string name="absence_field_allowance">Anspruch</string>
+    <string name="absence_field_carryover">Resturlaub</string>
+    <string name="absence_field_carry_expires">verfällt am</string>
+    <string name="absence_field_kind_cap">Kind-krank</string>
+    <string name="absence_parttime_label">Teilzeit · feste freie Tage</string>
+    <string name="absence_parttime_none">Keine festen freien Tage.</string>
+    <string name="absence_parttime_day_free">%1$s frei</string>
+    <string name="absence_parttime_add">Freien Tag hinzufügen</string>
+    <string name="absence_kita_label">Kita-Schließtage</string>
+    <string name="absence_kita_hint">Gelten für die ganze Familie — Hintergrundmarker, werden nicht gezählt.</string>
+    <string name="absence_kita_none">Keine Schließtage.</string>
+    <string name="absence_kita_reason_short">Anlass</string>
+    <string name="absence_kita_single">Einzeltag</string>
+    <string name="absence_kita_range_label">Zeitraum (Wochenenden übersprungen)</string>
+    <string name="absence_kita_add_range">Zeitraum hinzufügen</string>
+    <string name="absence_date_open">offen</string>
+
+    <!-- ===== Settings (Einstellungen) ===== -->
+    <string name="settings_eyebrow">Einstellungen</string>
+    <string name="settings_overview">Übersicht</string>
+    <string name="settings_household">Haushalt</string>
+    <string name="settings_household_sub">Name des Haushalts</string>
+    <string name="settings_account">Konto</string>
+    <string name="settings_account_sub">Passwort ändern</string>
+    <string name="settings_notifications">Benachrichtigungen</string>
+    <string name="settings_notifications_sub">Digests (morgens &amp; abends) und Wiederholungs-Planer</string>
+    <string name="settings_time">Zeiterfassung</string>
+    <string name="settings_time_sub">Wochensoll</string>
+    <string name="settings_absence">Abwesenheit</string>
+    <string name="settings_absence_sub">Kontingente, Teilzeit, Feier- &amp; Schließtage</string>
+    <string name="settings_language">Sprache</string>
+    <string name="settings_language_sub">Deutsch oder English</string>
+    <string name="settings_language_de">Deutsch</string>
+    <string name="settings_language_en">English</string>
+
+    <string name="settings_saved">Gespeichert</string>
+    <string name="settings_household_name">Haushaltsname</string>
+    <string name="settings_household_name_hint">Wird in der Seitenleiste angezeigt. Beide können ihn ändern.</string>
+    <string name="settings_household_placeholder">Mäxchen</string>
+
+    <string name="settings_change_password">Passwort ändern</string>
+    <string name="settings_logged_in_as">Angemeldet als %1$s</string>
+    <string name="settings_current_password">Aktuelles Passwort</string>
+    <string name="settings_new_password">Neues Passwort</string>
+    <string name="settings_confirm_password">Neues Passwort bestätigen</string>
+    <string name="settings_changed">Geändert</string>
+    <string name="settings_password_min">Das neue Passwort muss mindestens 8 Zeichen haben.</string>
+    <string name="settings_password_mismatch">Die neuen Passwörter stimmen nicht überein.</string>
+    <string name="settings_password_failed">Passwort konnte nicht geändert werden.</string>
+    <string name="settings_logout">Abmelden</string>
+    <string name="settings_logout_hint">Beendet die Sitzung auf diesem Gerät. Du musst dich danach erneut anmelden.</string>
+    <string name="settings_logout_confirm">Du wirst abgemeldet und musst dich danach erneut anmelden.</string>
+
+    <string name="settings_morning_digest">Morgen-Digest</string>
+    <string name="settings_morning_digest_hint">Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.</string>
+    <string name="settings_evening_digest">Abend-Digest</string>
+    <string name="settings_evening_digest_hint">Abendliche Zusammenfassung: heute erledigt, neue Inbox, morgen fällig, plus eine Vorschau auf morgen.</string>
+    <string name="settings_telegram_inactive">Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Einstellungen kannst du trotzdem setzen.</string>
+    <string name="settings_digest_active">Digest aktiv</string>
+    <string name="settings_time_hhmm">Uhrzeit (HH:MM)</string>
+    <string name="settings_digest_sections">Inhalte</string>
+    <string name="settings_digest_sections_hint">Welche Abschnitte dieser Digest zeigt.</string>
+    <string name="settings_changes_next_run">Änderungen greifen ab dem nächsten geplanten Lauf.</string>
+    <string name="settings_recurring_title">Wiederholungs-Planer</string>
+    <string name="settings_recurring_hint">Tägliches Sicherheitsnetz: rollt verpasste, noch offene wiederkehrende Aufgaben auf die aktuelle Periode vor.</string>
+
+    <string name="digest_section_evening_done_today">Heute erledigt</string>
+    <string name="digest_section_evening_new_inbox">Neu in der Inbox</string>
+    <string name="digest_section_evening_due_tomorrow">Morgen fällig</string>
+    <string name="digest_section_evening_absent_tomorrow">Morgen abwesend (Vorschau)</string>
+    <string name="digest_section_evening_kita_tomorrow">Kita morgen geschlossen (Vorschau)</string>
+    <string name="digest_section_morning_due_today">Heute fällig</string>
+    <string name="digest_section_morning_overdue">Überfällig</string>
+    <string name="digest_section_morning_inbox">Inbox</string>
+    <string name="digest_section_morning_absent">Heute abwesend</string>
+    <string name="digest_section_morning_kita">Kita geschlossen</string>
+
+    <string name="settings_projects">Projekte</string>
+    <string name="settings_projects_hint">Projekte umbenennen, einfärben oder archivieren. Neue Projekte legst du in der Zeiterfassung an.</string>
+    <string name="settings_no_projects">Noch keine Projekte.</string>
+    <string name="settings_show_archived">Archivierte anzeigen</string>
+    <string name="settings_hide_archived">Archivierte ausblenden</string>
+    <string name="settings_project_archived_suffix">%1$s · Archiviert</string>
+    <string name="settings_weektargets">Wochensoll</string>
+    <string name="settings_weektargets_hint">Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.</string>
+    <string name="settings_weektargets_no_project">Lege zuerst in der Zeiterfassung ein Projekt an.</string>
+    <string name="settings_weektargets_none">Noch kein Wochensoll konfiguriert.</string>
+    <string name="settings_weektargets_configured">Für %1$d von %2$d Personen konfiguriert.</string>
+    <string name="settings_weektargets_edit">Wochensoll bearbeiten</string>
+    <string name="settings_csv_export">CSV-Export</string>
+    <string name="settings_csv_export_hint">Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.</string>
+    <string name="settings_csv_export_button">CSV exportieren</string>
+    <string name="settings_csv_chooser">CSV exportieren</string>
+    <string name="settings_export_failed">Export fehlgeschlagen.</string>
+    <string name="settings_project_edit_title">Projekt bearbeiten</string>
+    <string name="settings_export_title">Als CSV exportieren</string>
+    <string name="settings_field_from">Von</string>
+    <string name="settings_field_to">Bis</string>
+    <string name="settings_field_project">Projekt</string>
+    <string name="settings_all_projects">Alle Projekte</string>
+    <string name="settings_date_any">Beliebig</string>
+    <string name="settings_absence_quotas">Kontingente &amp; Kalender</string>
+    <string name="settings_absence_quotas_hint">Urlaubskontingent, Übertrag, Bundesland und Teilzeit pro Person; dazu haushaltsweite Kita-Schließtage. Kontingent und Übertrag gelten pro Jahr.</string>
 </resources>

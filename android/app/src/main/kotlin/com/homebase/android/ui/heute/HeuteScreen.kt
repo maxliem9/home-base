@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TodoDto
@@ -131,9 +133,15 @@ fun HeuteScreen(
                 modifier = Modifier.padding(horizontal = 18.dp).padding(start = 2.dp),
             )
 
-            // Greeting (two lines)
+            // Greeting (two lines). The greeting word is localized here (not via the German-only
+            // Format.greeting) so it follows the in-app language; the time-of-day buckets mirror it.
+            val greetingWord = when (java.time.LocalTime.now().hour) {
+                in 5..10 -> stringResource(R.string.greeting_morning)
+                in 11..17 -> stringResource(R.string.greeting_day)
+                else -> stringResource(R.string.greeting_evening)
+            }
             Text(
-                "${Format.greeting()},\n${displayName(currentUser)}.",
+                stringResource(R.string.dashboard_greeting, greetingWord, displayName(currentUser)),
                 style = HbType.greeting,
                 color = Hb.ink,
                 modifier = Modifier.padding(horizontal = 18.dp).padding(top = 6.dp, bottom = 18.dp),
@@ -149,7 +157,7 @@ fun HeuteScreen(
                         value = ""
                     }
                 },
-                placeholder = "Schnell erfassen …",
+                placeholder = stringResource(R.string.dashboard_quick_add),
                 leading = HbIcons.sparkle,
                 modifier = Modifier.padding(horizontal = 18.dp),
             )
@@ -162,12 +170,12 @@ fun HeuteScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(HbIcons.calendar, dueTodayCount.toString(), "Heute fällig", Modifier.weight(1f))
-                    StatCard(HbIcons.inbox, inboxCount.toString(), "In der Inbox", Modifier.weight(1f))
+                    StatCard(HbIcons.calendar, dueTodayCount.toString(), stringResource(R.string.dashboard_stat_due_today), Modifier.weight(1f))
+                    StatCard(HbIcons.inbox, inboxCount.toString(), stringResource(R.string.dashboard_stat_inbox), Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(HbIcons.clock, dueTomorrowCount.toString(), "Morgen fällig", Modifier.weight(1f))
-                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), "Heute erledigt", Modifier.weight(1f))
+                    StatCard(HbIcons.clock, dueTomorrowCount.toString(), stringResource(R.string.dashboard_stat_due_tomorrow), Modifier.weight(1f))
+                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), stringResource(R.string.dashboard_stat_done_today), Modifier.weight(1f))
                 }
             }
 
@@ -177,12 +185,12 @@ fun HeuteScreen(
             HbCard(Modifier.padding(horizontal = 18.dp)) {
                 Column {
                     HbCardHead(
-                        "Heute dran",
-                        linkText = "Alle Aufgaben",
+                        stringResource(R.string.dashboard_today_card),
+                        linkText = stringResource(R.string.dashboard_all_tasks),
                         onLink = { onNavigate(HbRoute.AUFGABEN) },
                     )
                     if (heuteDran.isEmpty()) {
-                        Text("Nichts für heute", style = HbType.meta, color = Hb.ink3)
+                        Text(stringResource(R.string.dashboard_nothing_today), style = HbType.meta, color = Hb.ink3)
                     } else {
                         Column {
                             heuteDran.forEachIndexed { index, todo ->
@@ -216,11 +224,11 @@ fun HeuteScreen(
             // "Zeiterfassung"
             HbCard(Modifier.padding(horizontal = 18.dp)) {
                 Column {
-                    HbCardHead("Zeiterfassung", linkText = "Öffnen", onLink = { onNavigate(HbRoute.ZEIT) })
+                    HbCardHead(stringResource(R.string.dashboard_time_card), linkText = stringResource(R.string.dashboard_open), onLink = { onNavigate(HbRoute.ZEIT) })
                     val ownRunning = timeState.running
                     val othersRunning = timeState.othersRunning
                     if (ownRunning == null && othersRunning.isEmpty()) {
-                        Text("Kein Timer aktiv", style = HbType.meta, color = Hb.ink3)
+                        Text(stringResource(R.string.dashboard_no_timer), style = HbType.meta, color = Hb.ink3)
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             // own timer first
@@ -235,7 +243,7 @@ fun HeuteScreen(
                                         eta = timeState.forecastFor(ownRunning.userId)?.expectedEndAt,
                                     )
                                     HbButton(
-                                        "Stoppen",
+                                        stringResource(R.string.dashboard_stop),
                                         { timeVm.stopTimer() },
                                         modifier = Modifier.padding(top = 14.dp),
                                         variant = HbButtonVariant.Soft,
@@ -247,6 +255,7 @@ fun HeuteScreen(
                             // partner's running timer(s) — see & stop
                             othersRunning.forEach { entry ->
                                 val project = timeState.projects.firstOrNull { it.id == entry.projectId }
+                                val stopPartnerMsg = stringResource(R.string.confirm_stop_partner_timer, displayName(entry.userId))
                                 Column {
                                     RunWidget(
                                         running = entry,
@@ -256,8 +265,8 @@ fun HeuteScreen(
                                         eta = timeState.forecastFor(entry.userId)?.expectedEndAt,
                                     )
                                     HbButton(
-                                        "Stoppen",
-                                        { pendingConfirm = HbConfirm("Timer von ${displayName(entry.userId)} stoppen?") { timeVm.stopTimer(entry.userId) } },
+                                        stringResource(R.string.dashboard_stop),
+                                        { pendingConfirm = HbConfirm(stopPartnerMsg) { timeVm.stopTimer(entry.userId) } },
                                         modifier = Modifier.padding(top = 14.dp),
                                         variant = HbButtonVariant.Soft,
                                         size = HbButtonSize.Sm,
@@ -275,9 +284,9 @@ fun HeuteScreen(
             // "Einkaufsliste"
             HbCard(Modifier.padding(horizontal = 18.dp)) {
                 Column {
-                    HbCardHead("Einkaufsliste", linkText = "Öffnen", onLink = { onNavigate(HbRoute.EINKAUF) })
+                    HbCardHead(stringResource(R.string.dashboard_shopping_card), linkText = stringResource(R.string.dashboard_open), onLink = { onNavigate(HbRoute.EINKAUF) })
                     if (shoppingShown.isEmpty()) {
-                        Text("Liste ist leer", style = HbType.meta, color = Hb.ink3)
+                        Text(stringResource(R.string.dashboard_list_empty), style = HbType.meta, color = Hb.ink3)
                     } else {
                         Column {
                             shoppingShown.forEachIndexed { index, item ->
@@ -287,7 +296,7 @@ fun HeuteScreen(
                         val remaining = openShopping.size - shoppingShown.size
                         if (remaining > 0) {
                             Text(
-                                "+ $remaining weitere",
+                                stringResource(R.string.dashboard_more_items, remaining),
                                 style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink3,
                                 modifier = Modifier
@@ -397,7 +406,7 @@ private fun RunWidget(
         )
         Column(Modifier.weight(1f)) {
             Text(
-                projectName ?: "Projekt",
+                projectName ?: stringResource(R.string.time_project_fallback),
                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink,
                 maxLines = 1,
@@ -467,20 +476,20 @@ private fun DigestCard(doneToday: Int, inbox: Int, dueTomorrow: Int, modifier: M
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HbIcon(HbIcons.send, size = 17.dp, tint = Hb.accent)
-                    Text("Abend-Digest", style = HbType.cardTitle, color = Hb.ink)
+                    Text(stringResource(R.string.dashboard_digest_title), style = HbType.cardTitle, color = Hb.ink)
                 }
-                HbBadge("heute · 20:00", tone = HbTone.Neutral)
+                HbBadge(stringResource(R.string.dashboard_digest_badge), tone = HbTone.Neutral)
             }
             Text(
-                "Vorschau der Telegram-Nachricht, die ihr beide bekommt.",
+                stringResource(R.string.dashboard_digest_hint),
                 style = HbType.meta,
                 color = Hb.ink3,
                 modifier = Modifier.padding(bottom = 14.dp),
             )
             Column {
-                DigestLine("Heute erledigt", doneToday.toString(), divider = true)
-                DigestLine("Neu in der Inbox", inbox.toString(), divider = true)
-                DigestLine("Morgen fällig", dueTomorrow.toString(), divider = false)
+                DigestLine(stringResource(R.string.dashboard_digest_done_today), doneToday.toString(), divider = true)
+                DigestLine(stringResource(R.string.dashboard_digest_new_inbox), inbox.toString(), divider = true)
+                DigestLine(stringResource(R.string.dashboard_digest_due_tomorrow), dueTomorrow.toString(), divider = false)
             }
         }
     }

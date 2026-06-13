@@ -1,10 +1,10 @@
 package com.homebase.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -58,7 +59,14 @@ import com.homebase.android.ui.time.TimeViewModel
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-class MainActivity : ComponentActivity() {
+// AppCompatActivity (not a bare ComponentActivity) so AppCompatDelegate.setApplicationLocales(...)
+// applies the in-app de/en switch on API 26–32 too: pre-API-33 AppCompat only recreates locales for
+// AppCompatActivity hosts (it tracks them in sActivityDelegates) and only then does autoStoreLocales
+// persist the choice; a pure ComponentActivity flips the chip but leaves the UI German. On API 33+ the
+// framework LocaleManager handles it regardless. Compose `setContent {}` works unchanged inside an
+// AppCompatActivity; the theme is a Theme.AppCompat descendant (see res/values/themes.xml) as AppCompat
+// requires. (Was ComponentActivity.)
+class MainActivity : AppCompatActivity() {
 
     private val container by lazy { (application as HomeBaseApplication).container }
 
@@ -88,6 +96,7 @@ class MainActivity : ComponentActivity() {
         var isLoading by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
+        val loginFailed = stringResource(R.string.login_failed)
 
         LoginScreen(
             isLoading = isLoading,
@@ -99,7 +108,7 @@ class MainActivity : ComponentActivity() {
                     container.authRepository.login(username, password)
                         .onFailure { e ->
                             isLoading = false
-                            error = e.message ?: "Login fehlgeschlagen."
+                            error = e.message ?: loginFailed
                         }
                         .onSuccess { isLoading = false }
                 }

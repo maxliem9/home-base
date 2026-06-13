@@ -37,10 +37,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.homebase.android.R
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 
@@ -48,14 +51,16 @@ import com.homebase.android.ui.theme.HbType
 // Navigation routes (mirrors the drawer order in the design)
 // ---------------------------------------------------------------------------
 
-enum class HbRoute(val label: String, val icon: ImageVector) {
-    HEUTE("Heute", HbIcons.home),
-    AUFGABEN("Aufgaben", HbIcons.checkCircle),
-    EINKAUF("Einkaufsliste", HbIcons.cart),
-    NOTIZEN("Notizen", HbIcons.note),
-    ZEIT("Zeiterfassung", HbIcons.clock),
-    ABWESENHEIT("Kalender", HbIcons.calendar),
-    REZEPTE("Rezepte", HbIcons.chef),
+// Drawer/app-bar label resolved via stringResource at the call site (enum args can't be
+// composable). labelRes points at the localized nav_* string.
+enum class HbRoute(@StringRes val labelRes: Int, val icon: ImageVector) {
+    HEUTE(R.string.nav_today, HbIcons.home),
+    AUFGABEN(R.string.nav_tasks, HbIcons.checkCircle),
+    EINKAUF(R.string.nav_shopping, HbIcons.cart),
+    NOTIZEN(R.string.nav_notes, HbIcons.note),
+    ZEIT(R.string.nav_time, HbIcons.clock),
+    ABWESENHEIT(R.string.nav_calendar, HbIcons.calendar),
+    REZEPTE(R.string.nav_recipes, HbIcons.chef),
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +409,7 @@ fun HbDrawerContent(
                 ) {
                     HbIcon(route.icon, size = 21.dp, tint = if (isActive) Hb.accent else Hb.ink2)
                     Text(
-                        route.label,
+                        stringResource(route.labelRes),
                         style = HbType.rowTitle.copy(
                             fontSize = 15.5.sp,
                             fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
@@ -447,7 +452,7 @@ fun HbDrawerContent(
             HbAvatar(currentUser, size = 36.dp)
             Column(Modifier.weight(1f)) {
                 Text(displayName(currentUser), style = HbType.label.copy(fontSize = 14.5.sp), color = Hb.ink)
-                Text("Echtzeit-Sync aktiv", style = HbType.small, color = Hb.ink3)
+                Text(stringResource(R.string.drawer_sync_active), style = HbType.small, color = Hb.ink3)
             }
             // Account-corner gear → central settings (#101). Web has it in the topbar; on a phone
             // the drawer foot next to the user chip is the natural spot.

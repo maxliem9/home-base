@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,6 +53,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.homebase.android.R
 import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.data.model.IngredientInput
@@ -263,13 +265,13 @@ private fun RecipeListPage(
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "${state.recipes.size} Rezepte",
-                    title = "Rezepte",
+                    eyebrow = stringResource(R.string.recipe_count_eyebrow, state.recipes.size),
+                    title = stringResource(R.string.recipe_title),
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.search, {}) },
                 )
             },
-            fab = { HbFab(onClick = { showNewSheet = true }, label = "Rezept") },
+            fab = { HbFab(onClick = { showNewSheet = true }, label = stringResource(R.string.recipe_fab)) },
         ) {
             // Full-bleed category chip row
             Row(
@@ -295,11 +297,11 @@ private fun RecipeListPage(
             if (recipes.isEmpty()) {
                 HbEmpty(
                     HbIcons.chef,
-                    "Keine Rezepte",
+                    stringResource(R.string.recipe_empty_title),
                     if (selectedCat == "Alle") {
-                        "Lege dein erstes Rezept an."
+                        stringResource(R.string.recipe_empty_all)
                     } else {
-                        "In „$selectedCat“ ist noch nichts.\nLege ein neues Rezept an."
+                        stringResource(R.string.recipe_empty_category, selectedCat)
                     },
                 )
             } else {
@@ -374,7 +376,7 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                     ) {
                         HbIcon(HbIcons.chef, size = 26.dp, tint = Hb.recipeBandInk(hue))
                         Text(
-                            "FOTO FOLGT",
+                            stringResource(R.string.recipe_photo_placeholder),
                             style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
                             color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
                         )
@@ -412,7 +414,7 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                 ) {
                     HbIcon(HbIcons.clock, size = 14.dp, tint = Hb.ink2)
                     Text(
-                        "${totalTime(recipe)} Min",
+                        stringResource(R.string.recipe_minutes, totalTime(recipe)),
                         style = HbType.small.copy(fontWeight = FontWeight.Medium),
                         color = Hb.ink2,
                     )
@@ -474,14 +476,18 @@ private fun RecipeDetailPage(
     var servings by remember(recipe.id) { mutableStateOf(baseServings) }
     val factor = servings.toDouble() / baseServings.toDouble()
 
+    // Captured here because the export callback below runs outside composition.
+    val recipeShareChooser = stringResource(R.string.recipe_share_chooser)
+    val recipeExportFailed = stringResource(R.string.recipe_export_failed)
+
     // Fetch the export bytes, then hand them to the system share sheet as a cached file.
     // The chosen servings travel along (omitted at base, like web) so the file matches the view.
     val export: (String) -> Unit = { format ->
         val (ext, mime) = if (format == "pdf") "pdf" to "application/pdf" else "md" to "text/markdown"
         viewModel.exportRecipe(recipe.id, format, servings.takeIf { it != baseServings }) { result ->
             result
-                .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes, chooserTitle = "Rezept teilen") }
-                .onFailure { toastMsg = "Rezept konnte nicht exportiert werden." }
+                .onSuccess { bytes -> FileShare.share(context, "rezept_${FileShare.slug(recipe.title)}.$ext", mime, bytes, chooserTitle = recipeShareChooser) }
+                .onFailure { toastMsg = recipeExportFailed }
         }
     }
 
@@ -491,7 +497,7 @@ private fun RecipeDetailPage(
     HbScreenScaffold(
         appBar = {
             HbAppBar(
-                title = "Rezept",
+                title = stringResource(R.string.recipe_detail_title),
                 titleSm = true,
                 bordered = true,
                 leftIcon = HbIcons.chevronLeft,
@@ -501,15 +507,15 @@ private fun RecipeDetailPage(
                         HbIconButton(HbIcons.more, { menuOpen = true })
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
-                                text = { Text("Bearbeiten", style = HbType.body, color = Hb.ink) },
+                                text = { Text(stringResource(R.string.recipe_edit), style = HbType.body, color = Hb.ink) },
                                 onClick = { menuOpen = false; showEdit = true },
                             )
                             DropdownMenuItem(
-                                text = { Text("Als Markdown", style = HbType.body, color = Hb.ink) },
+                                text = { Text(stringResource(R.string.recipe_export_md), style = HbType.body, color = Hb.ink) },
                                 onClick = { menuOpen = false; export("md") },
                             )
                             DropdownMenuItem(
-                                text = { Text("Als PDF", style = HbType.body, color = Hb.ink) },
+                                text = { Text(stringResource(R.string.recipe_export_pdf), style = HbType.body, color = Hb.ink) },
                                 onClick = { menuOpen = false; export("pdf") },
                             )
                         }
@@ -545,7 +551,7 @@ private fun RecipeDetailPage(
                 ) {
                     HbIcon(HbIcons.chef, size = 34.dp, tint = Hb.recipeBandInk(hue))
                     Text(
-                        "FOTO FOLGT",
+                        stringResource(R.string.recipe_photo_placeholder),
                         style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
                         color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
                     )
@@ -570,7 +576,7 @@ private fun RecipeDetailPage(
 
             // Portions stepper + fact tiles
             Spacer(Modifier.size(18.dp))
-            HbField("Portionen") {
+            HbField(stringResource(R.string.recipe_field_servings)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -584,7 +590,7 @@ private fun RecipeDetailPage(
                     StepButton(HbIcons.plus) { servings++ }
                     if (factor != 1.0) {
                         Text(
-                            "Mengen ×${Format.amount(factor)}",
+                            stringResource(R.string.recipe_amount_factor, Format.amount(factor)),
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
@@ -596,9 +602,9 @@ private fun RecipeDetailPage(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FactTile("${recipe.prepTimeMinutes ?: 0}", "Vorb. Min", Modifier.weight(1f))
-                FactTile("${recipe.cookTimeMinutes ?: 0}", "Koch Min", Modifier.weight(1f))
-                FactTile("${totalTime(recipe)}", "Gesamt", Modifier.weight(1f))
+                FactTile("${recipe.prepTimeMinutes ?: 0}", stringResource(R.string.recipe_fact_prep), Modifier.weight(1f))
+                FactTile("${recipe.cookTimeMinutes ?: 0}", stringResource(R.string.recipe_fact_cook), Modifier.weight(1f))
+                FactTile("${totalTime(recipe)}", stringResource(R.string.recipe_fact_total), Modifier.weight(1f))
             }
             Spacer(Modifier.size(18.dp))
 
@@ -612,7 +618,7 @@ private fun RecipeDetailPage(
 
             // Ingredients (optionally grouped into named sections — issue #123)
             if (recipe.ingredients.isNotEmpty()) {
-                HbSectionLabel("Zutaten")
+                HbSectionLabel(stringResource(R.string.recipe_section_ingredients))
                 groupIngredientsBySection(recipe.ingredients).forEach { group ->
                     val section = group.first
                     val items = group.second
@@ -630,7 +636,7 @@ private fun RecipeDetailPage(
 
             // Steps
             if (recipe.steps.isNotEmpty()) {
-                HbSectionLabel("Zubereitung")
+                HbSectionLabel(stringResource(R.string.recipe_section_steps))
                 Column(verticalArrangement = Arrangement.spacedBy(15.dp)) {
                     recipe.steps.forEach { step ->
                         StepRow(number = step.stepNumber, description = step.description)
@@ -646,13 +652,13 @@ private fun RecipeDetailPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 HbButton(
-                    "Löschen",
+                    stringResource(R.string.action_delete),
                     onClick = onDelete,
                     variant = HbButtonVariant.Danger,
                     icon = HbIcons.trash,
                 )
                 HbButton(
-                    "Zutaten zur Liste",
+                    stringResource(R.string.recipe_add_to_list),
                     onClick = { showPicker = true },
                     variant = HbButtonVariant.Primary,
                     icon = HbIcons.cart,
@@ -671,7 +677,7 @@ private fun RecipeDetailPage(
                 onConfirm = { listId, lines ->
                     showPicker = false
                     shoppingViewModel.addIngredients(listId, lines) { added, merged ->
-                        toastMsg = addToast(added, merged)
+                        toastMsg = addToast(context, added, merged)
                     }
                 },
             )
@@ -784,7 +790,7 @@ private fun RecipeImageControls(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            "Bild",
+            stringResource(R.string.recipe_image),
             style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
             color = Hb.ink2,
         )
@@ -794,7 +800,7 @@ private fun RecipeImageControls(
         ) {
             if (hasImage) {
                 HbButton(
-                    "Entfernen",
+                    stringResource(R.string.action_remove),
                     onClick = onRemove,
                     variant = HbButtonVariant.Ghost,
                     size = HbButtonSize.Sm,
@@ -802,7 +808,7 @@ private fun RecipeImageControls(
                 )
             }
             HbButton(
-                if (hasImage) "Bild ändern" else "Bild hinzufügen",
+                if (hasImage) stringResource(R.string.recipe_image_change) else stringResource(R.string.recipe_image_add),
                 onClick = onAddOrReplace,
                 variant = HbButtonVariant.Secondary,
                 size = HbButtonSize.Sm,
@@ -839,12 +845,15 @@ private fun RecipeImageLightbox(url: String, onDismiss: () -> Unit) {
 // "Zutaten zur Liste" picker — pick servings, ingredients and a target list
 // ---------------------------------------------------------------------------
 
-/** Toast copy after a batch add, e.g. "3 hinzugefügt · 1 zusammengeführt". */
-private fun addToast(added: Int, merged: Int): String = when {
-    added == 0 && merged == 0 -> "Nichts hinzugefügt"
-    merged == 0 -> "$added ${if (added == 1) "Zutat" else "Zutaten"} hinzugefügt"
-    added == 0 -> "$merged zusammengeführt"
-    else -> "$added hinzugefügt · $merged zusammengeführt"
+/**
+ * Toast copy after a batch add, e.g. "3 hinzugefügt · 1 zusammengeführt". Takes a [Context]
+ * (not @Composable) because it runs inside the addIngredients callback, outside composition.
+ */
+private fun addToast(context: android.content.Context, added: Int, merged: Int): String = when {
+    added == 0 && merged == 0 -> context.getString(R.string.recipe_toast_nothing)
+    merged == 0 -> context.resources.getQuantityString(R.plurals.recipe_toast_added, added, added)
+    added == 0 -> context.getString(R.string.recipe_toast_merged, merged)
+    else -> context.getString(R.string.recipe_toast_added_merged, added, merged)
 }
 
 @Composable
@@ -866,16 +875,16 @@ private fun AddToShoppingSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Zutaten zur Liste",
+        title = stringResource(R.string.recipe_add_to_list_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                if (count > 0) "$count hinzufügen" else "Hinzufügen",
+                if (count > 0) stringResource(R.string.recipe_add_n, count) else stringResource(R.string.action_add),
                 onClick = {
                     val targetId = selectedList?.id
                     val lines = recipe.ingredients
@@ -897,11 +906,11 @@ private fun AddToShoppingSheet(
         },
     ) {
         if (lists.isEmpty()) {
-            Text("Lege zuerst eine Einkaufsliste an.", style = HbType.body, color = Hb.ink3)
+            Text(stringResource(R.string.recipe_create_list_first), style = HbType.body, color = Hb.ink3)
         } else {
             // Target list — only offer a choice when there's more than one.
             if (lists.size > 1) {
-                HbField("Liste") {
+                HbField(stringResource(R.string.recipe_field_list)) {
                     Box {
                         Row(
                             Modifier
@@ -934,7 +943,7 @@ private fun AddToShoppingSheet(
             }
 
             // Servings — drives the amount scaling.
-            HbField("Portionen") {
+            HbField(stringResource(R.string.recipe_field_servings)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -944,7 +953,7 @@ private fun AddToShoppingSheet(
                     StepButton(HbIcons.plus) { servings++ }
                     if (factor != 1.0) {
                         Text(
-                            "Mengen ×${Format.amount(factor)}",
+                            stringResource(R.string.recipe_amount_factor, Format.amount(factor)),
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
@@ -953,7 +962,7 @@ private fun AddToShoppingSheet(
             }
 
             // Ingredient checklist (all on by default — untick the staples you keep at home).
-            HbSectionLabel("Zutaten")
+            HbSectionLabel(stringResource(R.string.recipe_section_ingredients))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 recipe.ingredients.forEachIndexed { i, ing ->
                     val amountUnit = "${ing.amount?.let { Format.amount(it * factor) } ?: ""} ${ing.unit ?: ""}".trim()
@@ -1041,17 +1050,17 @@ private fun RecipeFormSheet(
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = if (existing == null) "Neues Rezept" else "Rezept bearbeiten",
+        title = if (existing == null) stringResource(R.string.recipe_new_title) else stringResource(R.string.recipe_edit_title),
         full = true,
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = {
                     onSave(
                         CreateRecipeRequest(
@@ -1071,11 +1080,11 @@ private fun RecipeFormSheet(
             )
         },
     ) {
-        HbField("Titel") {
-            HbTextField(value = title, onValueChange = { title = it }, placeholder = "z. B. Ofengemüse")
+        HbField(stringResource(R.string.common_field_title)) {
+            HbTextField(value = title, onValueChange = { title = it }, placeholder = stringResource(R.string.recipe_title_placeholder))
         }
 
-        HbField("Kategorie") {
+        HbField(stringResource(R.string.recipe_field_category)) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1091,32 +1100,32 @@ private fun RecipeFormSheet(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            HbField("Portionen", Modifier.weight(1f)) {
-                HbTextField(value = servings, onValueChange = { servings = it.filter(Char::isDigit) }, placeholder = "4")
+            HbField(stringResource(R.string.recipe_field_servings), Modifier.weight(1f)) {
+                HbTextField(value = servings, onValueChange = { servings = it.filter(Char::isDigit) }, placeholder = stringResource(R.string.recipe_servings_placeholder))
             }
-            HbField("Vorb.", Modifier.weight(1f)) {
-                HbTextField(value = prep, onValueChange = { prep = it.filter(Char::isDigit) }, placeholder = "15")
+            HbField(stringResource(R.string.recipe_field_prep), Modifier.weight(1f)) {
+                HbTextField(value = prep, onValueChange = { prep = it.filter(Char::isDigit) }, placeholder = stringResource(R.string.recipe_prep_placeholder))
             }
-            HbField("Kochen", Modifier.weight(1f)) {
-                HbTextField(value = cook, onValueChange = { cook = it.filter(Char::isDigit) }, placeholder = "30")
+            HbField(stringResource(R.string.recipe_field_cook), Modifier.weight(1f)) {
+                HbTextField(value = cook, onValueChange = { cook = it.filter(Char::isDigit) }, placeholder = stringResource(R.string.recipe_cook_placeholder))
             }
         }
 
-        HbField("Beschreibung") {
+        HbField(stringResource(R.string.recipe_field_description)) {
             HbTextField(
                 value = description,
                 onValueChange = { description = it },
-                placeholder = "Kurz beschreiben …",
+                placeholder = stringResource(R.string.recipe_description_placeholder),
                 singleLine = false,
                 minLines = 2,
             )
         }
 
-        HbField("Zutaten") {
+        HbField(stringResource(R.string.recipe_field_ingredients)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // toggle: structured rows ⇄ free-text bulk entry (paste a whole list at once)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    AddRowLink(if (pasteMode) "Als Liste" else "Als Text") {
+                    AddRowLink(if (pasteMode) stringResource(R.string.recipe_as_list) else stringResource(R.string.recipe_as_text)) {
                         if (pasteMode) {
                             sectionsShown = sectionsShown || sections.size > 1 || sections.any { it.name.isNotBlank() }
                             pasteMode = false
@@ -1130,13 +1139,13 @@ private fun RecipeFormSheet(
                     HbTextField(
                         value = ingredientsText,
                         onValueChange = { v -> ingredientsText = v; sections = sectionsFromText(v) },
-                        placeholder = "Eine Zutat pro Zeile, z. B. 200 g Mehl\n# Name beginnt einen Abschnitt",
+                        placeholder = stringResource(R.string.recipe_paste_placeholder),
                         singleLine = false,
                         minLines = 6,
                         mono = true,
                     )
                     Text(
-                        "Eine Zutat pro Zeile (z. B. „200 g Mehl“). „# Name“ beginnt einen Abschnitt.",
+                        stringResource(R.string.recipe_paste_hint),
                         style = HbType.small.copy(fontSize = 12.sp),
                         color = Hb.ink3,
                     )
@@ -1155,7 +1164,7 @@ private fun RecipeFormSheet(
                                             HbTextField(
                                                 value = section.name,
                                                 onValueChange = { v -> mutateSection(si) { it.copy(name = v) } },
-                                                placeholder = "Abschnitt, z. B. Boden",
+                                                placeholder = stringResource(R.string.recipe_section_placeholder),
                                             )
                                         }
                                         // can't remove the last section
@@ -1177,14 +1186,14 @@ private fun RecipeFormSheet(
                                             HbTextField(
                                                 value = ing.name,
                                                 onValueChange = { v -> mutateIngredient(si, ii) { it.copy(name = v) } },
-                                                placeholder = "Zutat",
+                                                placeholder = stringResource(R.string.recipe_ingredient_placeholder),
                                             )
                                         }
                                         Box(Modifier.width(56.dp)) {
                                             HbTextField(
                                                 value = ing.amount,
                                                 onValueChange = { v -> mutateIngredient(si, ii) { it.copy(amount = v) } },
-                                                placeholder = "Menge",
+                                                placeholder = stringResource(R.string.recipe_amount_placeholder),
                                                 mono = true,
                                             )
                                         }
@@ -1192,7 +1201,7 @@ private fun RecipeFormSheet(
                                             HbTextField(
                                                 value = ing.unit,
                                                 onValueChange = { v -> mutateIngredient(si, ii) { it.copy(unit = v) } },
-                                                placeholder = "Einh.",
+                                                placeholder = stringResource(R.string.recipe_unit_placeholder),
                                             )
                                         }
                                         HbIconButton(
@@ -1206,12 +1215,12 @@ private fun RecipeFormSheet(
                                         )
                                     }
                                 }
-                                AddRowLink("+ Zutat") {
+                                AddRowLink(stringResource(R.string.recipe_add_ingredient)) {
                                     mutateSection(si) { it.copy(ingredients = it.ingredients + IngredientDraft()) }
                                 }
                             }
                         }
-                        AddRowLink("+ Abschnitt") {
+                        AddRowLink(stringResource(R.string.recipe_add_section)) {
                             sectionsShown = true
                             sections = sections + SectionDraft()
                         }
@@ -1220,11 +1229,11 @@ private fun RecipeFormSheet(
             }
         }
 
-        HbField("Schritte") {
+        HbField(stringResource(R.string.recipe_field_steps)) {
             HbTextField(
                 value = stepsText,
                 onValueChange = { stepsText = it },
-                placeholder = "Ein Schritt pro Zeile …",
+                placeholder = stringResource(R.string.recipe_steps_placeholder),
                 singleLine = false,
                 minLines = 3,
             )

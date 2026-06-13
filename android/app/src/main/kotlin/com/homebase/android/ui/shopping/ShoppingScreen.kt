@@ -26,11 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.ui.components.HbAppBar
@@ -79,13 +82,13 @@ fun ShoppingScreen(
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Einkaufsliste",
-                    title = state.activeList?.name ?: "Einkauf",
+                    eyebrow = stringResource(R.string.shopping_eyebrow),
+                    title = state.activeList?.name ?: stringResource(R.string.shopping_title_fallback),
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.more, {}) },
                 )
             },
-            fab = { HbFab(onClick = { showAddItemSheet = true }, label = "Artikel") },
+            fab = { HbFab(onClick = { showAddItemSheet = true }, label = stringResource(R.string.shopping_fab)) },
         ) {
             // Full-bleed list-tabs strip
             ListTabs(
@@ -104,7 +107,7 @@ fun ShoppingScreen(
                         viewModel.addItem(addItemText)
                         addItemText = ""
                     },
-                    placeholder = "Artikel hinzufügen …",
+                    placeholder = stringResource(R.string.shopping_quick_add),
                     leading = HbIcons.plus,
                 )
 
@@ -119,7 +122,11 @@ fun ShoppingScreen(
                 }
 
                 if (visible.isEmpty()) {
-                    HbEmpty(HbIcons.cart, "Liste ist leer", "Füge oben Artikel hinzu.")
+                    HbEmpty(
+                        HbIcons.cart,
+                        stringResource(R.string.shopping_empty_title),
+                        stringResource(R.string.shopping_empty_hint),
+                    )
                 } else {
                     openItems.forEach { item ->
                         OpenItemRow(
@@ -137,13 +144,13 @@ fun ShoppingScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(
-                                "Im Wagen · ${checkedItems.size}".uppercase(),
+                                stringResource(R.string.shopping_in_cart, checkedItems.size).uppercase(),
                                 style = HbType.sectionLabel,
                                 color = Hb.ink3,
                                 modifier = Modifier.padding(start = 2.dp),
                             )
                             Text(
-                                "Abgehakte entfernen",
+                                stringResource(R.string.shopping_clear_checked),
                                 style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink3,
                                 modifier = Modifier
@@ -270,7 +277,7 @@ private fun NewListTab(onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HbIcon(HbIcons.plus, size = 16.dp, tint = Hb.accentInk)
-        Text("Neue Liste", style = HbType.label.copy(fontSize = 14.5.sp), color = Hb.accentInk)
+        Text(stringResource(R.string.shopping_new_list_tab), style = HbType.label.copy(fontSize = 14.5.sp), color = Hb.accentInk)
     }
 }
 
@@ -347,13 +354,13 @@ private fun SyncBanner(count: Int, onRetry: () -> Unit) {
     ) {
         HbIcon(HbIcons.repeat, size = 16.dp, tint = Hb.accentInk)
         Text(
-            if (count == 1) "1 Abhakung wird synchronisiert …" else "$count Abhakungen werden synchronisiert …",
+            pluralStringResource(R.plurals.shopping_sync_banner, count, count),
             style = HbType.small,
             color = Hb.accentInk,
             modifier = Modifier.weight(1f),
         )
         Text(
-            "Jetzt",
+            stringResource(R.string.action_now),
             style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
             color = Hb.accentInk,
             modifier = Modifier
@@ -378,16 +385,16 @@ private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var submitting by remember { mutableStateOf(false) }
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Neue Liste",
+        title = stringResource(R.string.shopping_new_list_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Erstellen",
+                stringResource(R.string.action_create),
                 onClick = {
                     if (submitting || name.isBlank()) return@HbButton
                     submitting = true
@@ -399,15 +406,15 @@ private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
             )
         },
     ) {
-        HbField("Name") {
+        HbField(stringResource(R.string.common_field_name)) {
             HbTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = "z. B. Drogerie",
+                placeholder = stringResource(R.string.shopping_list_name_placeholder),
             )
         }
         Text(
-            "Alle Einkaufslisten sind geteilt.",
+            stringResource(R.string.shopping_lists_shared_hint),
             style = HbType.small.copy(fontSize = 12.5.sp),
             color = Hb.ink3,
         )
@@ -419,27 +426,27 @@ private fun AddItemSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Artikel",
+        title = stringResource(R.string.shopping_add_item_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Hinzufügen",
+                stringResource(R.string.action_add),
                 onClick = { onAdd(name) },
                 variant = HbButtonVariant.Primary,
                 modifier = Modifier.weight(1f),
             )
         },
     ) {
-        HbField("Name") {
+        HbField(stringResource(R.string.common_field_name)) {
             HbTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = "z. B. Tomaten",
+                placeholder = stringResource(R.string.shopping_item_name_placeholder),
             )
         }
     }

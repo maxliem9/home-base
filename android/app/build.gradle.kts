@@ -63,6 +63,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+    // AppCompat backports per-app locales (AppCompatDelegate.setApplicationLocales) to
+    // minSdk 26, even though MainActivity is a ComponentActivity — used by the in-app
+    // language switcher (de/en). The androidx.appcompat AppLocalesMetadataHolderService in
+    // the manifest persists the choice across restarts (autoStoreLocales=true).
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Supported per-app languages for the in-app language switcher (Einstellungen → Sprache).
+  German is the app's default/base locale (res/values/strings.xml); English lives in
+  res/values-en. Listing them here lets the system surface a per-app language toggle and
+  scopes AppCompat's locale switching.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="de" />
+    <locale android:name="en" />
+</locale-config>

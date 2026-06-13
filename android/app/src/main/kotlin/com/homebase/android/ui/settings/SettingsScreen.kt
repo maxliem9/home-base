@@ -37,11 +37,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.R
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.RecurringConfigResponse
@@ -62,6 +64,7 @@ import com.homebase.android.ui.components.HbField
 import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
+import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbRadiusSm
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbTextField
@@ -74,6 +77,7 @@ import com.homebase.android.ui.time.TargetsSheet
 import com.homebase.android.ui.time.TimeViewModel
 import com.homebase.android.ui.util.FileShare
 import com.homebase.android.ui.util.Format
+import com.homebase.android.ui.util.LocaleManager
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -140,8 +144,8 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
     HbScreenScaffold(
         appBar = {
             HbAppBar(
-                eyebrow = "Einstellungen",
-                title = "Übersicht",
+                eyebrow = stringResource(R.string.settings_eyebrow),
+                title = stringResource(R.string.settings_overview),
                 leftIcon = HbIcons.chevronLeft,
                 onLeft = onClose,
                 bordered = true,
@@ -152,35 +156,99 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
             Spacer(Modifier.size(8.dp))
             SettingsNavRow(
                 icon = HbIcons.home,
-                title = "Haushalt",
-                subtitle = "Name des Haushalts",
+                title = stringResource(R.string.settings_household),
+                subtitle = stringResource(R.string.settings_household_sub),
                 onClick = { onPick(SettingsSub.HOUSEHOLD) },
             )
             SettingsNavRow(
                 icon = HbIcons.lock,
-                title = "Konto",
-                subtitle = "Passwort ändern",
+                title = stringResource(R.string.settings_account),
+                subtitle = stringResource(R.string.settings_account_sub),
                 onClick = { onPick(SettingsSub.KONTO) },
             )
             SettingsNavRow(
                 icon = HbIcons.bell,
-                title = "Benachrichtigungen",
-                subtitle = "Digests (morgens & abends) und Wiederholungs-Planer",
+                title = stringResource(R.string.settings_notifications),
+                subtitle = stringResource(R.string.settings_notifications_sub),
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
             )
             SettingsNavRow(
                 icon = HbIcons.clock,
-                title = "Zeiterfassung",
-                subtitle = "Wochensoll",
+                title = stringResource(R.string.settings_time),
+                subtitle = stringResource(R.string.settings_time_sub),
                 onClick = { onPick(SettingsSub.ZEITERFASSUNG) },
             )
             SettingsNavRow(
                 icon = HbIcons.calendar,
-                title = "Abwesenheit",
-                subtitle = "Kontingente, Teilzeit, Feier- & Schließtage",
+                title = stringResource(R.string.settings_absence),
+                subtitle = stringResource(R.string.settings_absence_sub),
                 onClick = { onPick(SettingsSub.ABWESENHEIT) },
             )
+            // Language switcher (Issue #6) — flips the per-app locale (de/en) immediately and
+            // persists it. Inline radio-style card so it needs no own subpage.
+            LanguageCard()
         }
+    }
+}
+
+/**
+ * Sprache / Language switcher (Issue #6). Two options (Deutsch/English) wired to
+ * [LocaleManager], which uses AppCompat's per-app locales API; selecting one recreates the
+ * activity so the whole UI re-renders in the new language right away. Styled like the other
+ * settings rows (icon + title + subtitle), with a trailing segmented control for the choice.
+ */
+@Composable
+private fun LanguageCard() {
+    val current = LocaleManager.current()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        HbIcon(HbIcons.users, size = 21.dp, tint = Hb.ink2)
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.settings_language),
+                style = HbType.rowTitle.copy(fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink,
+            )
+            Text(stringResource(R.string.settings_language_sub), style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+        }
+        Row(
+            Modifier.clip(HbPill).background(Hb.surface2, HbPill).padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            LanguageChip(
+                label = stringResource(R.string.settings_language_de),
+                active = current == LocaleManager.Language.GERMAN,
+                onClick = { LocaleManager.set(LocaleManager.Language.GERMAN) },
+            )
+            LanguageChip(
+                label = stringResource(R.string.settings_language_en),
+                active = current == LocaleManager.Language.ENGLISH,
+                onClick = { LocaleManager.set(LocaleManager.Language.ENGLISH) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LanguageChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(HbPill)
+            .background(if (active) Hb.accent else Color.Transparent, HbPill)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = HbType.label.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+            color = if (active) Hb.onAccent else Hb.ink2,
+        )
     }
 }
 
@@ -217,6 +285,8 @@ private fun HouseholdPage(
     var saved by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val saveFailed = stringResource(R.string.common_save_failed)
+
     // Auto-clear the "Gespeichert" confirmation, mirroring the web's 2.5s timeout.
     LaunchedEffect(saved) { if (saved) { delay(2500); saved = false } }
 
@@ -229,7 +299,7 @@ private fun HouseholdPage(
             scope.launch {
                 configRepository.updateHouseholdName(trimmed)
                     .onSuccess { persisted -> name = persisted; onRenamed(persisted); saved = true }
-                    .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
+                    .onFailure { e -> error = e.message ?: saveFailed }
                 saving = false
             }
         }
@@ -238,8 +308,8 @@ private fun HouseholdPage(
     HbScreenScaffold(
         appBar = {
             HbAppBar(
-                eyebrow = "Einstellungen",
-                title = "Haushalt",
+                eyebrow = stringResource(R.string.settings_eyebrow),
+                title = stringResource(R.string.settings_household),
                 leftIcon = HbIcons.chevronLeft,
                 onLeft = onBack,
                 bordered = true,
@@ -252,28 +322,28 @@ private fun HouseholdPage(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            "Haushaltsname",
+                            stringResource(R.string.settings_household_name),
                             style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                             color = Hb.ink,
                         )
                         Text(
-                            "Wird in der Seitenleiste angezeigt. Beide können ihn ändern.",
+                            stringResource(R.string.settings_household_name_hint),
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
                     }
-                    HbField("Name") {
+                    HbField(stringResource(R.string.common_field_name)) {
                         HbTextField(
                             value = name,
                             onValueChange = { name = it.take(60); saved = false; error = null },
-                            placeholder = "Mäxchen",
+                            placeholder = stringResource(R.string.settings_household_placeholder),
                         )
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        HbButton("Speichern", onClick = save, enabled = !saving && name.trim().isNotEmpty())
+                        HbButton(stringResource(R.string.action_save), onClick = save, enabled = !saving && name.trim().isNotEmpty())
                         if (saved) SavedHint()
                     }
                     if (error != null) ErrorText(error!!)
@@ -299,6 +369,10 @@ private fun KontoPage(
     var error by remember { mutableStateOf<String?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
 
+    val errPwMin = stringResource(R.string.settings_password_min)
+    val errPwMismatch = stringResource(R.string.settings_password_mismatch)
+    val errPwFailed = stringResource(R.string.settings_password_failed)
+
     LaunchedEffect(done) { if (done) { delay(3000); done = false } }
 
     val canSubmit = !saving && current.isNotEmpty() && next.isNotEmpty() && confirm.isNotEmpty()
@@ -308,14 +382,14 @@ private fun KontoPage(
         error = null
         done = false
         when {
-            next.length < 8 -> error = "Das neue Passwort muss mindestens 8 Zeichen haben."
-            next != confirm -> error = "Die neuen Passwörter stimmen nicht überein."
+            next.length < 8 -> error = errPwMin
+            next != confirm -> error = errPwMismatch
             canSubmit -> {
                 saving = true
                 scope.launch {
                     authRepository.changePassword(current, next)
                         .onSuccess { current = ""; next = ""; confirm = ""; done = true }
-                        .onFailure { e -> error = e.message ?: "Passwort konnte nicht geändert werden." }
+                        .onFailure { e -> error = e.message ?: errPwFailed }
                     saving = false
                 }
             }
@@ -325,7 +399,7 @@ private fun KontoPage(
 
     HbScreenScaffold(
         appBar = {
-            HbAppBar(eyebrow = "Einstellungen", title = "Konto", leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
+            HbAppBar(eyebrow = stringResource(R.string.settings_eyebrow), title = stringResource(R.string.settings_account), leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
         },
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
@@ -336,29 +410,29 @@ private fun KontoPage(
                         HbAvatar(currentUser, size = 28.dp)
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "Passwort ändern",
+                                stringResource(R.string.settings_change_password),
                                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink,
                             )
                             Text(
-                                "Angemeldet als ${displayName(currentUser)}",
+                                stringResource(R.string.settings_logged_in_as, displayName(currentUser)),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
                         }
                     }
-                    HbField("Aktuelles Passwort") {
+                    HbField(stringResource(R.string.settings_current_password)) {
                         HbTextField(value = current, onValueChange = { current = it; error = null; done = false }, password = true)
                     }
-                    HbField("Neues Passwort") {
+                    HbField(stringResource(R.string.settings_new_password)) {
                         HbTextField(value = next, onValueChange = { next = it; error = null; done = false }, password = true)
                     }
-                    HbField("Neues Passwort bestätigen") {
+                    HbField(stringResource(R.string.settings_confirm_password)) {
                         HbTextField(value = confirm, onValueChange = { confirm = it; error = null; done = false }, password = true)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        HbButton("Passwort ändern", onClick = submit, icon = HbIcons.lock, enabled = canSubmit)
-                        if (done) SavedHint("Geändert")
+                        HbButton(stringResource(R.string.settings_change_password), onClick = submit, icon = HbIcons.lock, enabled = canSubmit)
+                        if (done) SavedHint(stringResource(R.string.settings_changed))
                     }
                     if (error != null) ErrorText(error!!)
                 }
@@ -370,18 +444,18 @@ private fun KontoPage(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            "Abmelden",
+                            stringResource(R.string.settings_logout),
                             style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                             color = Hb.ink,
                         )
                         Text(
-                            "Beendet die Sitzung auf diesem Gerät. Du musst dich danach erneut anmelden.",
+                            stringResource(R.string.settings_logout_hint),
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
                     }
                     HbButton(
-                        "Abmelden",
+                        stringResource(R.string.settings_logout),
                         onClick = { confirmLogout = true },
                         icon = HbIcons.logout,
                         variant = HbButtonVariant.Danger,
@@ -393,8 +467,8 @@ private fun KontoPage(
 
     if (confirmLogout) {
         HbConfirmDialog(
-            message = "Du wirst abgemeldet und musst dich danach erneut anmelden.",
-            confirmLabel = "Abmelden",
+            message = stringResource(R.string.settings_logout_confirm),
+            confirmLabel = stringResource(R.string.settings_logout),
             onConfirm = {
                 confirmLogout = false
                 scope.launch {
@@ -411,7 +485,7 @@ private fun KontoPage(
 private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> Unit) {
     HbScreenScaffold(
         appBar = {
-            HbAppBar(eyebrow = "Einstellungen", title = "Benachrichtigungen", leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
+            HbAppBar(eyebrow = stringResource(R.string.settings_eyebrow), title = stringResource(R.string.settings_notifications), leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
         },
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -421,15 +495,15 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
             // {time, enabled, sections} contract (only endpoint + copy differ, #189); the recurring
             // card is always-on, so just a time (#200).
             DigestCard(
-                title = "Morgen-Digest",
-                hint = "Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.",
+                title = stringResource(R.string.settings_morning_digest),
+                hint = stringResource(R.string.settings_morning_digest_hint),
                 placeholder = "07:00",
                 load = configRepository::getMorningDigest,
                 save = configRepository::updateMorningDigest,
             )
             DigestCard(
-                title = "Abend-Digest",
-                hint = "Abendliche Zusammenfassung: heute erledigt, neue Inbox, morgen fällig, plus eine Vorschau auf morgen.",
+                title = stringResource(R.string.settings_evening_digest),
+                hint = stringResource(R.string.settings_evening_digest_hint),
                 placeholder = "20:00",
                 load = configRepository::getDigest,
                 save = configRepository::updateDigest,
@@ -439,21 +513,23 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
     }
 }
 
-// Section-id → German label, mirroring web/src/i18n/de.ts → settings.digestSections (#189). The
+// Section-id → localized label, mirroring web/src/i18n → settings.digestSections (#189). The
 // backend's availableSections drives which rows show (in its display order); this only labels them,
 // with a fallback to the raw id so a new server-side section never renders blank.
-private val DIGEST_SECTION_LABELS = mapOf(
-    "evening_done_today" to "Heute erledigt",
-    "evening_new_inbox" to "Neu in der Inbox",
-    "evening_due_tomorrow" to "Morgen fällig",
-    "evening_absent_tomorrow" to "Morgen abwesend (Vorschau)",
-    "evening_kita_tomorrow" to "Kita morgen geschlossen (Vorschau)",
-    "morning_due_today" to "Heute fällig",
-    "morning_overdue" to "Überfällig",
-    "morning_inbox" to "Inbox",
-    "morning_absent" to "Heute abwesend",
-    "morning_kita" to "Kita geschlossen",
-)
+@Composable
+private fun digestSectionLabel(id: String): String = when (id) {
+    "evening_done_today" -> stringResource(R.string.digest_section_evening_done_today)
+    "evening_new_inbox" -> stringResource(R.string.digest_section_evening_new_inbox)
+    "evening_due_tomorrow" -> stringResource(R.string.digest_section_evening_due_tomorrow)
+    "evening_absent_tomorrow" -> stringResource(R.string.digest_section_evening_absent_tomorrow)
+    "evening_kita_tomorrow" -> stringResource(R.string.digest_section_evening_kita_tomorrow)
+    "morning_due_today" -> stringResource(R.string.digest_section_morning_due_today)
+    "morning_overdue" -> stringResource(R.string.digest_section_morning_overdue)
+    "morning_inbox" -> stringResource(R.string.digest_section_morning_inbox)
+    "morning_absent" -> stringResource(R.string.digest_section_morning_absent)
+    "morning_kita" -> stringResource(R.string.digest_section_morning_kita)
+    else -> id
+}
 
 /**
  * One Telegram-digest card (morning briefing or evening recap), the Android pendant of the web's
@@ -482,6 +558,7 @@ private fun DigestCard(
     var saving by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val saveFailed = stringResource(R.string.common_save_failed)
 
     // Enable editing only after the GET lands, so a late response can't clobber freshly-typed
     // values (same guard as the household-name + web digest cards).
@@ -514,7 +591,7 @@ private fun DigestCard(
                         selected = cfg.sections.toSet()
                         saved = true
                     }
-                    .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
+                    .onFailure { e -> error = e.message ?: saveFailed }
                 saving = false
             }
         }
@@ -537,7 +614,7 @@ private fun DigestCard(
             }
             if (loaded && !telegramConfigured) {
                 Text(
-                    "Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Einstellungen kannst du trotzdem setzen.",
+                    stringResource(R.string.settings_telegram_inactive),
                     style = HbType.small.copy(fontSize = 12.5.sp),
                     color = Hb.ink3,
                 )
@@ -554,10 +631,10 @@ private fun DigestCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 HbCheck(checked = enabled, onCheckedChange = { if (loaded) { enabled = !enabled; dirty() } }, size = 22.dp)
-                Text("Digest aktiv", style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink)
+                Text(stringResource(R.string.settings_digest_active), style = HbType.body.copy(fontSize = 14.sp), color = Hb.ink)
             }
 
-            HbField("Uhrzeit (HH:MM)") {
+            HbField(stringResource(R.string.settings_time_hhmm)) {
                 HbTextField(
                     value = time,
                     onValueChange = { time = it.take(5); dirty() },
@@ -570,12 +647,12 @@ private fun DigestCard(
             if (available.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        "Inhalte",
+                        stringResource(R.string.settings_digest_sections),
                         style = HbType.small.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
                         color = Hb.ink2,
                     )
                     Text(
-                        "Welche Abschnitte dieser Digest zeigt.",
+                        stringResource(R.string.settings_digest_sections_hint),
                         style = HbType.small.copy(fontSize = 12.sp),
                         color = Hb.ink3,
                     )
@@ -597,7 +674,7 @@ private fun DigestCard(
                                 size = 22.dp,
                             )
                             Text(
-                                DIGEST_SECTION_LABELS[id] ?: id,
+                                digestSectionLabel(id),
                                 style = HbType.body.copy(fontSize = 14.sp),
                                 color = Hb.ink,
                             )
@@ -607,11 +684,11 @@ private fun DigestCard(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HbButton("Speichern", onClick = doSave, enabled = loaded && valid && !saving)
+                HbButton(stringResource(R.string.action_save), onClick = doSave, enabled = loaded && valid && !saving)
                 if (saved) SavedHint()
             }
             Text(
-                "Änderungen greifen ab dem nächsten geplanten Lauf.",
+                stringResource(R.string.settings_changes_next_run),
                 style = HbType.small.copy(fontSize = 12.sp),
                 color = Hb.ink3,
             )
@@ -640,6 +717,7 @@ private fun RecurringCard(configRepository: ConfigRepository) {
     var saving by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val saveFailed = stringResource(R.string.common_save_failed)
 
     // Enable editing only after the GET lands, so a late response can't clobber a freshly-typed
     // value (same guard as the household-name + digest cards).
@@ -659,7 +737,7 @@ private fun RecurringCard(configRepository: ConfigRepository) {
             scope.launch {
                 configRepository.updateRecurring(time)
                     .onSuccess { cfg -> time = cfg.time; saved = true }
-                    .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
+                    .onFailure { e -> error = e.message ?: saveFailed }
                 saving = false
             }
         }
@@ -670,19 +748,18 @@ private fun RecurringCard(configRepository: ConfigRepository) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
-                    "Wiederholungs-Planer",
+                    stringResource(R.string.settings_recurring_title),
                     style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                     color = Hb.ink,
                 )
                 Text(
-                    "Tägliches Sicherheitsnetz: rollt verpasste, noch offene wiederkehrende Aufgaben " +
-                        "auf die aktuelle Periode vor.",
+                    stringResource(R.string.settings_recurring_hint),
                     style = HbType.small.copy(fontSize = 12.5.sp),
                     color = Hb.ink3,
                 )
             }
 
-            HbField("Uhrzeit (HH:MM)") {
+            HbField(stringResource(R.string.settings_time_hhmm)) {
                 HbTextField(
                     value = time,
                     onValueChange = { time = it.take(5); dirty() },
@@ -692,11 +769,11 @@ private fun RecurringCard(configRepository: ConfigRepository) {
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HbButton("Speichern", onClick = doSave, enabled = loaded && valid && !saving)
+                HbButton(stringResource(R.string.action_save), onClick = doSave, enabled = loaded && valid && !saving)
                 if (saved) SavedHint()
             }
             Text(
-                "Änderungen greifen ab dem nächsten geplanten Lauf.",
+                stringResource(R.string.settings_changes_next_run),
                 style = HbType.small.copy(fontSize = 12.sp),
                 color = Hb.ink3,
             )
@@ -707,7 +784,7 @@ private fun RecurringCard(configRepository: ConfigRepository) {
 
 /** Small "saved" confirmation row (check + label), shared by the settings pages. */
 @Composable
-private fun SavedHint(label: String = "Gespeichert") {
+private fun SavedHint(label: String = stringResource(R.string.settings_saved)) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         HbIcon(HbIcons.check, size = 16.dp, tint = Hb.ink3)
         Text(label, style = HbType.small, color = Hb.ink3)
@@ -752,12 +829,16 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
     val hasArchived = state.projects.any { it.archived }
     val shownProjects = if (showArchived) state.projects else activeProjects
 
+    // Captured for the export callback, which runs outside composition.
+    val csvChooser = stringResource(R.string.settings_csv_chooser)
+    val exportFailed = stringResource(R.string.settings_export_failed)
+
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    eyebrow = "Einstellungen",
-                    title = "Zeiterfassung",
+                    eyebrow = stringResource(R.string.settings_eyebrow),
+                    title = stringResource(R.string.settings_time),
                     leftIcon = HbIcons.chevronLeft,
                     onLeft = onBack,
                     bordered = true,
@@ -775,19 +856,19 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(
-                                "Projekte",
+                                stringResource(R.string.settings_projects),
                                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink,
                             )
                             Text(
-                                "Projekte umbenennen, einfärben oder archivieren. Neue Projekte legst du in der Zeiterfassung an.",
+                                stringResource(R.string.settings_projects_hint),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
                         }
                         if (state.projects.isEmpty()) {
                             Text(
-                                if (state.isLoading) "Lädt …" else "Noch keine Projekte.",
+                                if (state.isLoading) stringResource(R.string.common_loading) else stringResource(R.string.settings_no_projects),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
@@ -803,7 +884,7 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                             }
                             if (hasArchived) {
                                 Text(
-                                    if (showArchived) "Archivierte ausblenden" else "Archivierte anzeigen",
+                                    if (showArchived) stringResource(R.string.settings_hide_archived) else stringResource(R.string.settings_show_archived),
                                     style = HbType.small.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
                                     color = Hb.accentInk,
                                     modifier = Modifier
@@ -821,27 +902,27 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(
-                                "Wochensoll",
+                                stringResource(R.string.settings_weektargets),
                                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink,
                             )
                             Text(
-                                "Wochenstunden pro Person und Projekt. Urlaub, Krankheit und Feiertage werden dem Standard-Projekt gutgeschrieben.",
+                                stringResource(R.string.settings_weektargets_hint),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
                         }
                         Text(
                             when {
-                                state.projects.isEmpty() -> "Lege zuerst in der Zeiterfassung ein Projekt an."
-                                configuredUsers == 0 -> "Noch kein Wochensoll konfiguriert."
-                                else -> "Für $configuredUsers von ${state.users.size} Personen konfiguriert."
+                                state.projects.isEmpty() -> stringResource(R.string.settings_weektargets_no_project)
+                                configuredUsers == 0 -> stringResource(R.string.settings_weektargets_none)
+                                else -> stringResource(R.string.settings_weektargets_configured, configuredUsers, state.users.size)
                             },
                             style = HbType.small.copy(fontSize = 12.5.sp),
                             color = Hb.ink3,
                         )
                         HbButton(
-                            "Wochensoll bearbeiten",
+                            stringResource(R.string.settings_weektargets_edit),
                             onClick = { showTargets = true },
                             icon = HbIcons.edit,
                             enabled = state.projects.isNotEmpty(),
@@ -854,18 +935,18 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(
-                                "CSV-Export",
+                                stringResource(R.string.settings_csv_export),
                                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink,
                             )
                             Text(
-                                "Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.",
+                                stringResource(R.string.settings_csv_export_hint),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
                         }
                         HbButton(
-                            "CSV exportieren",
+                            stringResource(R.string.settings_csv_export_button),
                             onClick = { showExport = true },
                             icon = HbIcons.send,
                             variant = HbButtonVariant.Secondary,
@@ -910,10 +991,10 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                                     "zeiterfassung_export.csv",
                                     "text/csv",
                                     bytes,
-                                    chooserTitle = "CSV exportieren",
+                                    chooserTitle = csvChooser,
                                 )
                             }
-                            .onFailure { e -> toast = e.message ?: "Export fehlgeschlagen." }
+                            .onFailure { e -> toast = e.message ?: exportFailed }
                     }
                 },
                 onDismiss = { showExport = false },
@@ -926,7 +1007,7 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
             HbToast(
                 message = msg,
                 icon = HbIcons.x,
-                actionLabel = "OK",
+                actionLabel = stringResource(R.string.action_ok),
                 onAction = { toast = null; timeViewModel.clearError() },
             )
         }
@@ -943,7 +1024,7 @@ private fun ProjectRow(project: ProjectDto, onEdit: () -> Unit, onToggleArchive:
     ) {
         Box(Modifier.size(11.dp).clip(RoundedCornerShape(4.dp)).background(Format.parseColor(project.color)))
         Text(
-            if (project.archived) "${project.name} · Archiviert" else project.name,
+            if (project.archived) stringResource(R.string.settings_project_archived_suffix, project.name) else project.name,
             style = HbType.rowTitle.copy(fontSize = 14.5.sp),
             color = if (project.archived) Hb.ink3 else Hb.ink,
             modifier = Modifier.weight(1f),
@@ -977,16 +1058,16 @@ private fun ProjectEditSheet(project: ProjectDto, onSave: (String, String) -> Un
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Projekt bearbeiten",
+        title = stringResource(R.string.settings_project_edit_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Speichern",
+                stringResource(R.string.action_save),
                 onClick = { if (name.isNotBlank()) onSave(name.trim(), hexOf(selected)) },
                 variant = HbButtonVariant.Primary,
                 enabled = name.isNotBlank(),
@@ -994,10 +1075,10 @@ private fun ProjectEditSheet(project: ProjectDto, onSave: (String, String) -> Un
             )
         },
     ) {
-        HbField("Name") {
-            HbTextField(value = name, onValueChange = { name = it }, placeholder = "z. B. Renovierung")
+        HbField(stringResource(R.string.common_field_name)) {
+            HbTextField(value = name, onValueChange = { name = it }, placeholder = stringResource(R.string.time_project_name_placeholder))
         }
-        HbField("Farbe") {
+        HbField(stringResource(R.string.time_field_color)) {
             Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Hb.projectSwatches.forEach { color ->
                     val isActive = color == selected
@@ -1041,20 +1122,21 @@ private fun ExportSheet(
     var to by remember { mutableStateOf<LocalDate?>(null) }
     var projectId by remember { mutableStateOf("") }
 
-    val projectName = projects.firstOrNull { it.id == projectId }?.name ?: "Alle Projekte"
+    val projectName = projects.firstOrNull { it.id == projectId }?.name ?: stringResource(R.string.settings_all_projects)
+    val allProjectsLabel = stringResource(R.string.settings_all_projects)
 
     HbBottomSheet(
         onDismiss = onDismiss,
-        title = "Als CSV exportieren",
+        title = stringResource(R.string.settings_export_title),
         footer = {
             HbButton(
-                "Abbrechen",
+                stringResource(R.string.action_cancel),
                 onClick = onDismiss,
                 variant = HbButtonVariant.Secondary,
                 modifier = Modifier.weight(1f),
             )
             HbButton(
-                "Exportieren",
+                stringResource(R.string.action_export),
                 onClick = {
                     onExport(
                         from?.atStartOfDay(zone)?.toInstant()?.toString(),
@@ -1068,16 +1150,16 @@ private fun ExportSheet(
         },
     ) {
         Text(
-            "Optional auf Zeitraum und Projekt eingrenzen. Leer lassen exportiert alle abgeschlossenen Einträge.",
+            stringResource(R.string.settings_csv_export_hint),
             style = HbType.small.copy(fontSize = 12.5.sp),
             color = Hb.ink3,
         )
-        HbField("Von") { DateFilterField(from) { from = it } }
-        HbField("Bis") { DateFilterField(to) { to = it } }
-        HbField("Projekt") {
+        HbField(stringResource(R.string.settings_field_from)) { DateFilterField(from) { from = it } }
+        HbField(stringResource(R.string.settings_field_to)) { DateFilterField(to) { to = it } }
+        HbField(stringResource(R.string.settings_field_project)) {
             SettingsSelectField(
                 value = projectName,
-                options = listOf("Alle Projekte" to "") + projects.map { it.name to it.id },
+                options = listOf(allProjectsLabel to "") + projects.map { it.name to it.id },
                 onSelect = { projectId = it },
             )
         }
@@ -1096,7 +1178,7 @@ private fun DateFilterField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            value?.let { "%02d.%02d.%04d".format(it.dayOfMonth, it.monthValue, it.year) } ?: "Beliebig",
+            value?.let { "%02d.%02d.%04d".format(it.dayOfMonth, it.monthValue, it.year) } ?: stringResource(R.string.settings_date_any),
             style = HbType.body.copy(fontSize = 14.sp),
             color = if (value != null) Hb.ink else Hb.ink3,
             modifier = Modifier.weight(1f),
@@ -1114,9 +1196,9 @@ private fun DateFilterField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
                         onChange(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
                     }
                     open = false
-                }) { Text("OK") }
+                }) { Text(stringResource(R.string.action_ok)) }
             },
-            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
         ) {
             DatePicker(state = pickerState)
         }
@@ -1174,8 +1256,8 @@ private fun AbwesenheitPage(absenceViewModel: AbsenceViewModel, onBack: () -> Un
     HbScreenScaffold(
         appBar = {
             HbAppBar(
-                eyebrow = "Einstellungen",
-                title = "Abwesenheit",
+                eyebrow = stringResource(R.string.settings_eyebrow),
+                title = stringResource(R.string.settings_absence),
                 leftIcon = HbIcons.chevronLeft,
                 onLeft = onBack,
                 bordered = true,
@@ -1189,13 +1271,12 @@ private fun AbwesenheitPage(absenceViewModel: AbsenceViewModel, onBack: () -> Un
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(
-                                "Kontingente & Kalender",
+                                stringResource(R.string.settings_absence_quotas),
                                 style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                                 color = Hb.ink,
                             )
                             Text(
-                                "Urlaubskontingent, Übertrag, Bundesland und Teilzeit pro Person; dazu " +
-                                    "haushaltsweite Kita-Schließtage. Kontingent und Übertrag gelten pro Jahr.",
+                                stringResource(R.string.settings_absence_quotas_hint),
                                 style = HbType.small.copy(fontSize = 12.5.sp),
                                 color = Hb.ink3,
                             )
@@ -1216,9 +1297,9 @@ private fun AbwesenheitPage(absenceViewModel: AbsenceViewModel, onBack: () -> Un
                     }
                     when {
                         state.isLoading && userIds.isEmpty() ->
-                            Text("Lädt …", style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+                            Text(stringResource(R.string.common_loading), style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
                         userIds.isEmpty() ->
-                            Text("Kalender konnte nicht geladen werden.", style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+                            Text(stringResource(R.string.absence_load_failed), style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
                         else -> AbwSettingsPanel(ctx, data, userIds, year, absenceViewModel)
                     }
                 }
