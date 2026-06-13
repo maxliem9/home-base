@@ -55,26 +55,82 @@ class ConfigRepositoryTest {
         assertEquals("Name muss 1–60 Zeichen lang sein.", result.exceptionOrNull()?.message)
     }
 
+    // GET maps every field the digest cards drive (#189): time, the in-app on/off flag, the
+    // read-only telegramConfigured hint, and the selected + available sections.
     @Test
-    fun `updateDigestTime returns the persisted time`() = runTest {
-        coEvery { api.updateDigest(UpdateDigestRequest("20:30")) } returns DigestConfigResponse("20:30", enabled = true)
+    fun `getDigest maps all digest config fields`() = runTest {
+        coEvery { api.getDigest() } returns DigestConfigResponse(
+            time = "20:00",
+            enabled = false,
+            telegramConfigured = true,
+            sections = listOf("evening_done_today", "evening_due_tomorrow"),
+            availableSections = listOf(
+                "evening_done_today", "evening_new_inbox", "evening_due_tomorrow",
+                "evening_absent_tomorrow", "evening_kita_tomorrow",
+            ),
+        )
 
-        val result = repository.updateDigestTime("20:30")
+        val cfg = repository.getDigest().getOrNull()
+
+        assertEquals("20:00", cfg?.time)
+        assertEquals(false, cfg?.enabled)
+        assertEquals(true, cfg?.telegramConfigured)
+        assertEquals(listOf("evening_done_today", "evening_due_tomorrow"), cfg?.sections)
+        assertEquals(5, cfg?.availableSections?.size)
+    }
+
+    // PUT sends the full {time, enabled, sections} patch and returns the persisted state (#189).
+    @Test
+    fun `updateDigest sends the full patch and returns the persisted config`() = runTest {
+        val sections = listOf("evening_done_today", "evening_due_tomorrow")
+        coEvery {
+            api.updateDigest(UpdateDigestRequest(time = "20:30", enabled = false, sections = sections))
+        } returns DigestConfigResponse(
+            time = "20:30",
+            enabled = false,
+            telegramConfigured = true,
+            sections = sections,
+            availableSections = sections,
+        )
+
+        val result = repository.updateDigest("20:30", enabled = false, sections = sections)
 
         assertTrue(result.isSuccess)
-        assertEquals("20:30", result.getOrNull())
+        val cfg = result.getOrNull()
+        assertEquals("20:30", cfg?.time)
+        assertEquals(false, cfg?.enabled)
+        assertEquals(sections, cfg?.sections)
     }
 
     @Test
-    fun `updateDigestTime maps a 400 to the German time message`() = runTest {
+    fun `updateDigest maps a 400 to the German time message`() = runTest {
         coEvery { api.updateDigest(any()) } throws HttpException(
             Response.error<Any>(400, """{"code":"INVALID_TIME"}""".toResponseBody("application/json".toMediaType())),
         )
 
-        val result = repository.updateDigestTime("99:99")
+        val result = repository.updateDigest("99:99", enabled = true, sections = emptyList())
 
         assertTrue(result.isFailure)
         assertEquals("Ungültige Uhrzeit (Format HH:MM).", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `updateMorningDigest sends the full patch`() = runTest {
+        val sections = listOf("morning_due_today", "morning_inbox")
+        coEvery {
+            api.updateMorningDigest(UpdateDigestRequest(time = "07:15", enabled = true, sections = sections))
+        } returns DigestConfigResponse(
+            time = "07:15",
+            enabled = true,
+            telegramConfigured = false,
+            sections = sections,
+            availableSections = sections,
+        )
+
+        val result = repository.updateMorningDigest("07:15", enabled = true, sections = sections)
+
+        assertTrue(result.isSuccess)
+        assertEquals("07:15", result.getOrNull()?.time)
     }
 
     // Avatar-colour roster (Teil von #100): GET /users carries avatarHue; getAvatarHues
