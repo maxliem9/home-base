@@ -620,6 +620,7 @@ export const de = {
     today: 'Heute',
     prevYear: 'Vorheriges Jahr',
     nextYear: 'Nächstes Jahr',
+    yearNav: 'Jahr: {year}', // a11y group label for the year stepper (#133)
     prevMonth: 'Vorheriger Monat',
     nextMonth: 'Nächster Monat',
     clickHint: 'Tag klicken zum Bearbeiten · mit ⇧ Shift einen Zeitraum markieren',
