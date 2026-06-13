@@ -140,8 +140,8 @@ test.describe('Notes', () => {
   // Dispatch a clipboard/drag event carrying a synthetic image File onto the editor
   // textarea, at the given caret offset. `mime` defaults to image/png; pass '' to
   // simulate the empty-MIME File some Safari paste/drag paths deliver (#154), where
-  // detection must fall back to the filename extension. Returns whether the event was
-  // cancelled-by-preventDefault is NOT reported here — use waitForRequest to assert uploads.
+  // detection must fall back to the filename extension. Whether the event was
+  // cancelled by preventDefault is NOT reported here — use waitForRequest to assert uploads.
   const fireEditorImageEvent = (
     page: Page,
     kind: 'paste' | 'drop',
