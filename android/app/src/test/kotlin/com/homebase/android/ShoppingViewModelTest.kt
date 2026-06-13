@@ -17,6 +17,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -36,8 +37,8 @@ class ShoppingViewModelTest {
 
     /** In-memory [ShoppingPendingStore] standing in for the SharedPreferences-backed one. */
     private class FakeStore(var data: MutableMap<String, PendingCheck> = mutableMapOf()) : ShoppingPendingStore {
-        override fun load(): Map<String, PendingCheck> = data.toMap()
-        override fun save(pending: Map<String, PendingCheck>) { data = pending.toMutableMap() }
+        override suspend fun load(): Map<String, PendingCheck> = data.toMap()
+        override suspend fun save(pending: Map<String, PendingCheck>) { data = pending.toMutableMap() }
     }
 
     private lateinit var store: FakeStore
@@ -85,14 +86,16 @@ class ShoppingViewModelTest {
         }
     }
 
-    private fun createVm(): ShoppingViewModel {
+    private fun createVm(
+        networkAvailable: kotlinx.coroutines.flow.Flow<Unit> = emptyFlow(),
+    ): ShoppingViewModel {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T = ShoppingViewModel(
                 repository = repository,
                 token = "test-token",
                 pendingStore = store,
-                networkAvailable = emptyFlow(),
+                networkAvailable = networkAvailable,
                 clock = clock,
                 // Large interval so the backstop loop never fires inside advanceUntilIdle().
                 flushIntervalMs = 10_000_000L,
@@ -445,5 +448,92 @@ class ShoppingViewModelTest {
         assertFalse("optimistic state reflects the newer toggle", vm.uiState.value.items[0].checked)
         assertEquals("queue holds the newer intent", false, store.data["1"]?.checked)
         assertEquals(2_000L, store.data["1"]?.at)
+    }
+
+    @Test
+    fun `a retry that succeeds on a later trigger clears the pending entry and marker`() = vmTest {
+        val original = item(id = "1", checked = false)
+        val updated = original.copy(checked = true, checkedAt = "2026-01-02T00:00:00Z")
+        coEvery { repository.getItems() } returns Result.success(listOf(original))
+        // First flush fails offline; a later trigger (networkAvailable) retries and lands.
+        var online = false
+        coEvery { repository.updateItem("1", UpdateShoppingItemRequest(checked = true)) } coAnswers {
+            if (online) Result.success(updated) else Result.failure(java.io.IOException("offline"))
+        }
+        val network = MutableSharedFlow<Unit>()
+
+        val vm = createVm(networkAvailable = network)
+        advanceUntilIdle()
+
+        vm.toggleChecked(original)
+        // runCurrent (not advanceUntilIdle): the queue stays non-empty while offline, so advancing
+        // virtual time would fire the (armed) backstop loop forever. We only need the immediate
+        // optimistic update + the first failed flush attempt here.
+        runCurrent()
+        assertTrue("still pending after the offline attempt", vm.uiState.value.isPending("1"))
+        assertEquals("intent still queued", true, store.data["1"]?.checked)
+
+        // Connectivity returns → the network-available trigger flushes again, now succeeding. The
+        // queue drains here, so advanceUntilIdle is safe (the backstop loop exits once empty).
+        online = true
+        network.emit(Unit)
+        advanceUntilIdle()
+
+        assertFalse("pending marker gone after the retry lands", vm.uiState.value.isPending("1"))
+        assertTrue("durable store cleared after the retry lands", store.data.isEmpty())
+        assertTrue("item reflects the server's checked state", vm.uiState.value.items[0].checked)
+    }
+
+    @Test
+    fun `a pending entry restored on init is re-PUT and cleared`() = vmTest {
+        // Previous session left a queued check on disk; this session must actually re-send it.
+        store.data = mutableMapOf("1" to PendingCheck(checked = true, at = 500L))
+        val restoredItem = item(id = "1", checked = true).copy(checkedAt = "2026-01-01T09:00:00Z")
+        coEvery { repository.getItems() } returns Result.success(listOf(restoredItem))
+        coEvery { repository.updateItem("1", UpdateShoppingItemRequest(checked = true)) } returns
+            Result.success(restoredItem)
+
+        val vm = createVm()
+        advanceUntilIdle() // restore → flush re-PUTs the entry → lands
+
+        coVerify(exactly = 1) { repository.updateItem("1", UpdateShoppingItemRequest(checked = true)) }
+        assertFalse("restored entry no longer pending once re-sent", vm.uiState.value.isPending("1"))
+        assertTrue("durable store cleared after the restored entry lands", store.data.isEmpty())
+    }
+
+    @Test
+    fun `a delete during an in-flight flush PUT does not resurrect the item`() = vmTest {
+        val original = item(id = "1", checked = false)
+        val staleEcho = original.copy(checked = true, checkedAt = "2026-01-02T00:00:00Z")
+        coEvery { repository.getItems() } returns Result.success(listOf(original))
+        coEvery { repository.deleteItem("1") } returns Result.success(Unit)
+        // The flush PUT parks on this gate; the test deletes the item, then releases it. The PUT then
+        // "succeeds" with a now-stale echo that must NOT re-add the deleted row.
+        val putGate = CompletableDeferred<Unit>()
+        coEvery { repository.updateItem("1", UpdateShoppingItemRequest(checked = true)) } coAnswers {
+            putGate.await()
+            Result.success(staleEcho)
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // runCurrent throughout: while the PUT is parked the queue stays non-empty, so advancing
+        // virtual time would spin the armed backstop loop. runCurrent processes the immediately
+        // ready continuations without firing the (far-future) backstop delay.
+        vm.toggleChecked(original) // enqueue + flush; the PUT now parks on putGate
+        runCurrent()
+        assertTrue("the check-off is in flight", vm.uiState.value.isPending("1"))
+
+        vm.deleteItem("1") // delete arrives while the PUT is suspended: removes row + dequeues
+        runCurrent()
+        assertTrue("item gone after delete", vm.uiState.value.items.none { it.id == "1" })
+
+        putGate.complete(Unit) // the parked PUT resumes and returns its stale success
+        runCurrent()
+
+        assertTrue("stale PUT success must not resurrect the deleted item", vm.uiState.value.items.none { it.id == "1" })
+        assertFalse("no lingering pending marker", vm.uiState.value.isPending("1"))
+        assertTrue("durable store is empty", store.data.isEmpty())
     }
 }

@@ -3,6 +3,7 @@ package com.homebase.android.data.shopping
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.util.Log
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -15,6 +16,11 @@ import kotlinx.coroutines.flow.callbackFlow
  *
  * Uses [ConnectivityManager.registerDefaultNetworkCallback], so it tracks the network the app would
  * actually use. The callback is unregistered when the collector stops.
+ *
+ * `registerDefaultNetworkCallback` needs `ACCESS_NETWORK_STATE` (declared in the manifest). As
+ * defense-in-depth — a stripped manifest or an OEM quirk must not hard-crash the Einkauf screen —
+ * register/unregister are wrapped: on failure this flow simply never emits (the WS-reconnect and the
+ * periodic backstop still drive the queue flush), rather than throwing out of the collector.
  */
 class ConnectivityObserver(context: Context) {
 
@@ -28,7 +34,31 @@ class ConnectivityObserver(context: Context) {
                 trySend(Unit)
             }
         }
-        cm.registerDefaultNetworkCallback(callback)
-        awaitClose { cm.unregisterNetworkCallback(callback) }
+        val registered = try {
+            cm.registerDefaultNetworkCallback(callback)
+            true
+        } catch (e: SecurityException) {
+            // Missing ACCESS_NETWORK_STATE (or revoked) — degrade gracefully, don't crash the flow.
+            Log.w(TAG, "registerDefaultNetworkCallback denied; network-available retries disabled", e)
+            false
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "registerDefaultNetworkCallback failed; network-available retries disabled", e)
+            false
+        }
+        awaitClose {
+            if (registered) {
+                // unregister can throw if the callback was never (successfully) registered or the
+                // service is gone — swallow so cleanup never crashes the collector's scope.
+                try {
+                    cm.unregisterNetworkCallback(callback)
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "unregisterNetworkCallback failed", e)
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG = "ConnectivityObserver"
     }
 }

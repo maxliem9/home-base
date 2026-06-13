@@ -23,8 +23,11 @@ data class PendingCheck(val checked: Boolean, val at: Long)
  * Implemented over [android.content.SharedPreferences] (a tiny JSON map, no new dependency)
  * rather than Room/DataStore — the data is a handful of entries and the web analog is equally
  * lightweight. The interface keeps the queue logic unit-testable with an in-memory fake.
+ *
+ * Both methods are `suspend` so the implementation can do its disk I/O off the main thread
+ * (the SharedPreferences load/commit blocks); see [SharedPrefsShoppingPendingStore].
  */
 interface ShoppingPendingStore {
-    fun load(): Map<String, PendingCheck>
-    fun save(pending: Map<String, PendingCheck>)
+    suspend fun load(): Map<String, PendingCheck>
+    suspend fun save(pending: Map<String, PendingCheck>)
 }

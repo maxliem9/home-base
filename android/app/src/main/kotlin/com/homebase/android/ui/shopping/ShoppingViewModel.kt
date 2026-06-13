@@ -14,6 +14,7 @@ import com.homebase.android.data.shopping.ShoppingClock
 import com.homebase.android.data.shopping.ShoppingPendingStore
 import com.homebase.android.data.shopping.classifyFlush
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class ShoppingUiState(
     val lists: List<ShoppingListDto> = emptyList(),
@@ -77,40 +79,71 @@ class ShoppingViewModel(
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))
     val uiState: StateFlow<ShoppingUiState> = _uiState.asStateFlow()
 
-    /** Source of truth for the durable queue; the UI only mirrors its key set via [pendingIds]. */
-    private var queue = PendingQueue(pendingStore.load())
+    /**
+     * Source of truth for the durable queue; the UI only mirrors its key set via [pendingIds].
+     * Starts empty and is seeded from [pendingStore] off-main in [init] (the prefs read blocks, so
+     * it must not run on the main thread). Live toggles win over the restore — see [restored].
+     */
+    private var queue = PendingQueue()
 
     /** Serializes flush passes so two triggers can't double-send the same entry. */
     private val flushMutex = Mutex()
+
+    /**
+     * Serializes the off-main durable writes so two saves can't reorder and persist a stale
+     * snapshot of the queue. Each mutation captures its snapshot synchronously before launching.
+     */
+    private val persistMutex = Mutex()
+
+    /**
+     * Completes once the previous session's queue has been loaded and merged. [flush] awaits it, so
+     * a flush trigger that fires during the async restore re-PUTs the restored entries instead of
+     * racing an empty queue.
+     */
+    private val restored = CompletableDeferred<Unit>()
 
     /** Periodic backstop loop; runs only while the queue is non-empty, restarted on enqueue. */
     private var backstopJob: Job? = null
 
     init {
-        // Reflect any queue restored from a previous session before the first frame.
-        _uiState.update { it.copy(pendingIds = queue.entries.keys) }
         load()
         observeWebSocket()
         observeConnectivity(networkAvailable)
-        // Drain anything left over from a previous session right away, and arm the backstop if needed.
-        flush()
-        ensureBackstop()
+        // Restore the previous session's queue off-main, then drain it. A toggle made before this
+        // finishes already lives in `queue`; we merge the restored entries *under* it so a live
+        // toggle (newer) is never clobbered, then flush + arm the backstop.
+        viewModelScope.launch {
+            val persisted = pendingStore.load()
+            if (persisted.isNotEmpty()) {
+                queue = PendingQueue(persisted + queue.entries) // live (later) entries override restored
+                // Persist + reflect the authoritative merged set (a toggle during restore may have
+                // written only itself); serialized via persistMutex so it lands last.
+                persistAndReflect()
+            }
+            restored.complete(Unit)
+            flush()
+            ensureBackstop()
+        }
     }
 
     fun load() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            val lists = repository.getLists()
-            val items = repository.getItems()
-            val error = lists.exceptionOrNull()?.message ?: items.exceptionOrNull()?.message
-            _uiState.update { state ->
-                state.copy(
-                    lists = lists.getOrDefault(state.lists),
-                    items = items.getOrDefault(state.items),
-                    isLoading = false,
-                    error = error,
-                )
-            }
+        viewModelScope.launch { reload() }
+    }
+
+    /** Refetch lists + items into the UI state (the body of [load]); awaited by callers that need
+     *  the snapshot in place before they act, e.g. the delete-failure resync. */
+    private suspend fun reload() {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        val lists = repository.getLists()
+        val items = repository.getItems()
+        val error = lists.exceptionOrNull()?.message ?: items.exceptionOrNull()?.message
+        _uiState.update { state ->
+            state.copy(
+                lists = lists.getOrDefault(state.lists),
+                items = items.getOrDefault(state.items),
+                isLoading = false,
+                error = error,
+            )
         }
     }
 
@@ -149,7 +182,15 @@ class ShoppingViewModel(
         viewModelScope.launch {
             repository.deleteItem(id)
                 .onSuccess { _uiState.update { s -> s.copy(items = s.items.filter { it.id != id }) } }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e ->
+                    // The check-off intent was already dropped above; if the delete itself fails the
+                    // item is still on the server (and now un-queued), so a naive failure would leave
+                    // the row shown-and-checked locally with no pending marker → silent divergence.
+                    // Resync from the server like the web does (ShoppingView.handleDelete), then
+                    // surface the error (after the reload, which clears it, so it survives).
+                    reload()
+                    _uiState.update { it.copy(error = e.message) }
+                }
         }
     }
 
@@ -230,10 +271,18 @@ class ShoppingViewModel(
         }
     }
 
-    /** Persist the queue and mirror its key set into the UI so the markers/banner update. */
+    /**
+     * Mirror the queue's key set into the UI (synchronous, so the marker/banner update on the same
+     * frame as the optimistic item change) and persist the queue off-main. The snapshot is captured
+     * here, before launching, and writes are serialized by [persistMutex] so concurrent mutations
+     * can't reorder and leave a stale map on disk.
+     */
     private fun persistAndReflect() {
-        pendingStore.save(queue.entries)
-        _uiState.update { it.copy(pendingIds = queue.entries.keys) }
+        val snapshot = queue.entries
+        _uiState.update { it.copy(pendingIds = snapshot.keys) }
+        viewModelScope.launch {
+            persistMutex.withLock { pendingStore.save(snapshot) }
+        }
     }
 
     /**
@@ -244,6 +293,9 @@ class ShoppingViewModel(
      */
     private fun flush() {
         viewModelScope.launch {
+            // Wait for the previous session's queue to be restored, so a trigger that fires during
+            // the async restore re-PUTs those entries instead of racing an empty queue.
+            restored.await()
             if (!flushMutex.tryLock()) return@launch
             try {
                 // Snapshot under the lock; new toggles appending meanwhile are handled by their own
@@ -264,7 +316,6 @@ class ShoppingViewModel(
                         when (classifyFlush(result.exceptionOrNull() ?: RuntimeException())) {
                             FlushDecision.KEEP_RETRY -> break // offline / transient — stop, retry later
                             FlushDecision.DROP_TERMINAL -> dequeueIfUnchanged(id, intent)
-                            FlushDecision.DROP_DONE -> dequeueIfUnchanged(id, intent)
                         }
                     }
                 }

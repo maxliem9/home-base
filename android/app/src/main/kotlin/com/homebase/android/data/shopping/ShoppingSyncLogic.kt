@@ -28,11 +28,11 @@ fun interface ShoppingClock {
  *  2. [PendingQueue] — the latest-wins map of not-yet-acknowledged check intents.
  */
 
-/** What a queued PUT result means for the queue entry. */
+/**
+ * What a *failed* queued PUT means for the queue entry. ([classifyFlush] is only consulted on
+ * failure; a success drops the entry directly in the ViewModel's flush loop.)
+ */
 enum class FlushDecision {
-    /** Landed — remove the entry (unless re-toggled meanwhile). */
-    DROP_DONE,
-
     /** Transient failure (offline / 5xx) — keep the entry and retry on the next signal. */
     KEEP_RETRY,
 
