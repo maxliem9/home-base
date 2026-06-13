@@ -114,9 +114,10 @@ class TimeViewModel(
         }
     }
 
-    fun addManualEntry(projectId: String, startedAt: String, stoppedAt: String, description: String?) {
+    /** `userId` records the entry for the partner (shared household); null → self. */
+    fun addManualEntry(projectId: String, startedAt: String, stoppedAt: String, description: String?, userId: String? = null) {
         viewModelScope.launch {
-            repository.createEntry(projectId, startedAt, stoppedAt, description?.trim()?.takeIf { it.isNotEmpty() })
+            repository.createEntry(projectId, startedAt, stoppedAt, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
                 .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }

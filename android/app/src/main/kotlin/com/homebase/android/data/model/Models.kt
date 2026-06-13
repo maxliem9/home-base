@@ -327,6 +327,9 @@ data class CreateTimeEntryRequest(
     val startedAt: String,
     val stoppedAt: String,
     val description: String? = null,
+    // Optional target user (shared household): record the entry for the partner.
+    // Null/absent → the calling user, mirrors /start and /stop.
+    val userId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
