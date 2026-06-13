@@ -137,23 +137,32 @@ test.describe('Notes', () => {
   // the upload happened (POST /notes/{id}/images) and an inline `![name](image:<id>)`
   // ref was inserted. Both go through the same uploadImageToNote → insertAtCaret flow.
 
-  // Dispatch a clipboard/drag event carrying a synthetic PNG File onto the editor
-  // textarea, at the given caret offset. Returns nothing; the app reacts to the event.
-  const fireEditorImageEvent = (page: Page, kind: 'paste' | 'drop', filename: string, caret = 0) =>
+  // Dispatch a clipboard/drag event carrying a synthetic image File onto the editor
+  // textarea, at the given caret offset. `mime` defaults to image/png; pass '' to
+  // simulate the empty-MIME File some Safari paste/drag paths deliver (#154), where
+  // detection must fall back to the filename extension. Returns whether the event was
+  // cancelled-by-preventDefault is NOT reported here — use waitForRequest to assert uploads.
+  const fireEditorImageEvent = (
+    page: Page,
+    kind: 'paste' | 'drop',
+    filename: string,
+    caret = 0,
+    mime = 'image/png',
+  ) =>
     page.evaluate(
-      ({ kind, filename, caret }) => {
+      ({ kind, filename, caret, mime }) => {
         const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
         ta.focus()
         ta.setSelectionRange(caret, caret)
         const dt = new DataTransfer()
-        dt.items.add(new File([new Uint8Array([1, 2, 3])], filename, { type: 'image/png' }))
+        dt.items.add(new File([new Uint8Array([1, 2, 3])], filename, mime ? { type: mime } : {}))
         const ev =
           kind === 'paste'
             ? new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
             : new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })
         ta.dispatchEvent(ev)
       },
-      { kind, filename, caret },
+      { kind, filename, caret, mime },
     )
 
   // Dispatch a paste/drop carrying a NON-image payload (plain text, or a non-image file
@@ -218,6 +227,54 @@ test.describe('Notes', () => {
     await expect(page.locator('.hb-note-images__error')).toHaveText('Nur JPEG, PNG, WebP oder GIF erlaubt.')
     // nothing was inserted — content is unchanged
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+  })
+
+  // #154: some browsers/paths (certain Safari paste variants, some drag sources) hand us
+  // an image File with an EMPTY `type`. MIME-only matching dropped those silently (no
+  // upload, no error). Detection now falls back to the filename extension — so an
+  // empty-type .png still uploads and inserts, on both the paste and the drop path.
+  test('empty-MIME image (extension fallback) still uploads + inserts on paste', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'paste', 'safari-screenshot.png', 0, '') // empty type
+    await upload
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^!\[safari-screenshot\.png\]\(image:noteimg-\d+\)Router: \*\*abc123\*\*$/)
+  })
+
+  test('empty-MIME image (extension fallback) still uploads + inserts on drop', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
+    await fireEditorImageEvent(page, 'drop', 'dragged.gif', 'Router: **abc123**'.length, '') // empty type
+    await upload
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue(/^Router: \*\*abc123\*\*!\[dragged\.gif\]\(image:noteimg-\d+\)$/)
+  })
+
+  // The extension fallback must NOT swallow non-image files that also lack a MIME type:
+  // an empty-type .txt is left to the browser (no preventDefault, no upload).
+  test('empty-MIME non-image file (.txt) is NOT treated as an image on drop', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    let uploaded = false
+    page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
+
+    const droppedPrevented = await page.evaluate(() => {
+      const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+      ta.focus()
+      const dt = new DataTransfer()
+      dt.items.add(new File(['hello'], 'notes.txt', {})) // empty type, non-image extension
+      return ta.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    })
+    expect(droppedPrevented).toBe(true) // dispatchEvent === true ⇒ default not cancelled
+    expect(uploaded).toBe(false)
   })
 
   test('keeps edits typed WHILE the upload is in flight (no stale-draft clobber)', async ({ page }) => {
