@@ -208,14 +208,22 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
     // scope to the morning card — the page also has the evening + recurring cards
     const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Morgen-Digest' })
 
-    // the mock reports Telegram disabled → the inactive note shows, but the time is editable
+    // the mock reports Telegram unconfigured → the inactive note shows, but the controls are editable
     await expect(card.getByText(/Telegram ist nicht konfiguriert/)).toBeVisible()
     await expect(card.getByLabel('Uhrzeit', { exact: true })).toHaveValue('07:00')
+    // enabled defaults on; all morning sections selected
+    await expect(card.getByRole('checkbox', { name: 'Digest aktiv' })).toHaveAttribute('aria-checked', 'true')
+    await expect(card.getByRole('checkbox', { name: 'Heute fällig', exact: true })).toHaveAttribute('aria-checked', 'true')
 
     await card.getByLabel('Uhrzeit', { exact: true }).fill('06:15')
     const reqP = page.waitForRequest((r) => r.url().endsWith('/config/morning-digest') && r.method() === 'PUT')
     await card.getByRole('button', { name: 'Speichern' }).click()
-    expect((await reqP).postDataJSON()).toEqual({ time: '06:15' })
+    // #182: time + enabled + the full ordered section selection go in one PUT
+    expect((await reqP).postDataJSON()).toEqual({
+      time: '06:15',
+      enabled: true,
+      sections: ['morning_due_today', 'morning_overdue', 'morning_inbox', 'morning_absent', 'morning_kita'],
+    })
     await expect(card.getByText('Gespeichert')).toBeVisible()
   })
 
@@ -225,12 +233,42 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
     const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Abend-Digest' })
 
     await expect(card.getByLabel('Uhrzeit', { exact: true })).toHaveValue('20:00')
+    // the evening tomorrow-preview sections (#182) are offered + selected by default
+    await expect(card.getByRole('checkbox', { name: 'Morgen abwesend (Vorschau)', exact: true })).toHaveAttribute('aria-checked', 'true')
 
     await card.getByLabel('Uhrzeit', { exact: true }).fill('07:30')
     const reqP = page.waitForRequest((r) => r.url().endsWith('/config/digest') && r.method() === 'PUT')
     await card.getByRole('button', { name: 'Speichern' }).click()
-    expect((await reqP).postDataJSON()).toEqual({ time: '07:30' })
+    expect((await reqP).postDataJSON()).toEqual({
+      time: '07:30',
+      enabled: true,
+      sections: [
+        'evening_done_today', 'evening_new_inbox', 'evening_due_tomorrow',
+        'evening_absent_tomorrow', 'evening_kita_tomorrow',
+      ],
+    })
     await expect(card.getByText('Gespeichert')).toBeVisible()
+  })
+
+  test('toggles a digest off and deselects a section, persisting both (#182)', async ({ page }) => {
+    await openDigest(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Abend-Digest' })
+
+    // turn the whole digest off and drop the "done today" section
+    await card.getByRole('checkbox', { name: 'Digest aktiv' }).click()
+    await card.getByRole('checkbox', { name: 'Heute erledigt', exact: true }).click()
+
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/config/digest') && r.method() === 'PUT')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    const body = (await reqP).postDataJSON()
+    expect(body.enabled).toBe(false)
+    // the dropped section is gone; the rest keep their order
+    expect(body.sections).toEqual([
+      'evening_new_inbox', 'evening_due_tomorrow', 'evening_absent_tomorrow', 'evening_kita_tomorrow',
+    ])
+    await expect(card.getByText('Gespeichert')).toBeVisible()
+    // the toggle reflects the saved (off) state
+    await expect(card.getByRole('checkbox', { name: 'Digest aktiv' })).toHaveAttribute('aria-checked', 'false')
   })
 
   test('shows the recurring-todo run time and saves a change (#100)', async ({ page }) => {

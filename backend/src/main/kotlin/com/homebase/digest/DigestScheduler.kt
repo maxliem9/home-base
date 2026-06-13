@@ -38,6 +38,10 @@ class DigestScheduler(
     private val zone: ZoneId = ZoneId.systemDefault(),
     // Human-readable name for logs, so the evening and morning runs are distinguishable.
     private val label: String = "Digest",
+    // Per-digest on/off (#182), a provider like [digestTime] so an in-app toggle in app_settings is
+    // honored from the next run without a restart. Checked at send time; a disabled digest skips
+    // both building and sending. Defaults to always-on.
+    private val enabled: () -> Boolean = { true },
 ) {
     private val logger = LoggerFactory.getLogger(DigestScheduler::class.java)
 
@@ -59,6 +63,10 @@ class DigestScheduler(
     }
 
     suspend fun runDigest(today: LocalDate = LocalDate.now(zone)) {
+        if (!enabled()) {
+            logger.info("{} for {} disabled in settings — skipping send", label, today)
+            return
+        }
         val message = source.buildMessage(today)
         if (message == null) {
             logger.info("{} for {} is empty — skipping send", label, today)

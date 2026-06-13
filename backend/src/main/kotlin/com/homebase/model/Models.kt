@@ -14,13 +14,33 @@ data class AppConfigResponse(val householdName: String)
 @Serializable
 data class UpdateConfigRequest(val householdName: String)
 
-// Telegram digest time (#100). `enabled` = whether Telegram is configured at all
-// (bot token + chat id); the time is editable regardless so it's ready once it is.
+// Telegram digest config (#100, extended #182). Per-digest and independent of the morning/
+// evening sibling:
+//  - time: HH:mm send time.
+//  - enabled: the in-app on/off toggle (#182) — distinct from whether Telegram is wired up.
+//  - telegramConfigured: whether bot token + chat id are set server-side; a digest only actually
+//    sends when both enabled AND configured. The UI keeps the controls editable regardless and
+//    shows an "inactive" note when not configured.
+//  - sections: the section ids this digest currently renders (the user's selection).
+//  - availableSections: all section ids this digest can render, in display order (drives the
+//    checkbox group + their labels client-side).
 @Serializable
-data class DigestConfigResponse(val time: String, val enabled: Boolean)
+data class DigestConfigResponse(
+    val time: String,
+    val enabled: Boolean,
+    val telegramConfigured: Boolean,
+    val sections: List<String>,
+    val availableSections: List<String>,
+)
 
+// All fields optional so a client can patch just the time, just the toggle, or just the
+// sections (the old time-only PUT still works). null = leave unchanged.
 @Serializable
-data class UpdateDigestRequest(val time: String)
+data class UpdateDigestRequest(
+    val time: String? = null,
+    val enabled: Boolean? = null,
+    val sections: List<String>? = null,
+)
 
 // Recurring-todo safety-net run time (#100). Always-on scheduler (no Telegram-style
 // `enabled` flag), so just the editable HH:mm time. Mirrors the digest-time shape.

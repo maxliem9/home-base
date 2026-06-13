@@ -4,6 +4,7 @@ import com.homebase.db.AbsencesTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.TodosTable
 import com.homebase.digest.DigestScheduler
+import com.homebase.digest.DigestSection
 import com.homebase.digest.MorningDigestService
 import com.homebase.digest.TelegramClient
 import kotlinx.coroutines.CoroutineScope
@@ -110,7 +111,7 @@ class MorningDigestTest {
         insertTodo("Heute fällig", status = "PLANNED", dueDate = today)
         insertKitaClosure("Brückentag")
 
-        val text = service.render(service.buildDigest(today))
+        val text = service.render(service.buildDigest(today))!!
 
         assertContains(text, "Guten Morgen")
         assertContains(text, "2026-06-01")
@@ -123,6 +124,43 @@ class MorningDigestTest {
         assertFalse(text.contains("📥 Inbox"))
         assertFalse(text.contains("🏖️ Heute abwesend"))
         assertFalse(text.contains("— keine —"))
+    }
+
+    @Test
+    fun `render omits deselected sections and skips when only deselected ones have content (#182)`() {
+        insertTodo("Heute fällig", status = "PLANNED", dueDate = today)
+        insertTodo("Überfällig", status = "PLANNED", dueDate = today.minusDays(2))
+        val content = service.buildDigest(today)
+
+        // Only the overdue section selected → due-today is omitted.
+        val onlyOverdue = service.render(content, setOf(DigestSection.MORNING_OVERDUE))!!
+        assertContains(onlyOverdue, "⚠️ Überfällig")
+        assertContains(onlyOverdue, "• Überfällig")
+        assertFalse(onlyOverdue.contains("📅 Heute fällig"))
+
+        // A digest whose only selected section is empty (here: inbox, which has no items) renders
+        // nothing → null → the scheduler skips it.
+        assertEquals(null, service.render(content, setOf(DigestSection.MORNING_INBOX)))
+    }
+
+    @Test
+    fun `render caps an unbounded section and summarizes the rest (#167)`() {
+        // 25 overdue todos > MAX_SECTION_ITEMS (20) → 20 bullets + a "… und 5 weitere" line.
+        repeat(25) { i -> insertTodo("Alt-%02d".format(i), status = "PLANNED", dueDate = today.minusDays(3)) }
+        val text = service.render(service.buildDigest(today))!!
+
+        assertEquals(20, text.lines().count { it.startsWith("• Alt-") })
+        assertContains(text, "… und 5 weitere")
+    }
+
+    @Test
+    fun `service honors the section selection provider so a deselected section never sends (#182)`() = runBlocking {
+        insertTodo("Heute fällig", status = "PLANNED", dueDate = today)
+        // Provider deselects everything but the (empty) inbox → nothing to send.
+        val client = FakeTelegramClient()
+        val gated = MorningDigestService(sections = { setOf(DigestSection.MORNING_INBOX) })
+        DigestScheduler({ LocalTime.of(7, 0) }, gated, client, CoroutineScope(EmptyCoroutineContext), zone).runDigest(today)
+        assertTrue(client.messages.isEmpty())
     }
 
     @Test

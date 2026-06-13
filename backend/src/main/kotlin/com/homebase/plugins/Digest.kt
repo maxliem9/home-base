@@ -2,6 +2,7 @@ package com.homebase.plugins
 
 import com.homebase.db.AppSettingsTable
 import com.homebase.digest.DigestScheduler
+import com.homebase.digest.DigestSection
 import com.homebase.digest.DigestService
 import com.homebase.digest.HttpTelegramClient
 import com.homebase.digest.MorningDigestService
@@ -20,9 +21,10 @@ import java.time.LocalTime
  *  - the morning briefing ([MorningDigestService]: due today / overdue / inbox / absences /
  *    kita closures), default 07:00.
  *
- * Each send time is read fresh every scheduling cycle from `app_settings` (the value editable
- * in settings, #100), falling back to the configured default — so an in-app change applies
- * from the next scheduled run without a restart.
+ * Each send time, the per-digest on/off flag, and the per-digest content-section selection are
+ * read fresh every scheduling cycle from `app_settings` (all editable in settings, #100/#182),
+ * falling back to defaults — so an in-app change applies from the next scheduled run without a
+ * restart. A disabled digest skips entirely; deselected sections aren't rendered.
  */
 fun Application.configureDigest() {
     val config = environment.config
@@ -41,10 +43,11 @@ fun Application.configureDigest() {
     val eveningTime = storedTimeProvider(AppSettingsTable.DIGEST_TIME, eveningDefault)
     DigestScheduler(
         digestTime = eveningTime,
-        source = DigestService(),
+        source = DigestService(sections = storedSectionsProvider(AppSettingsTable.DIGEST_EVENING_SECTIONS, DigestSection.evening)),
         client = client,
         scope = this,
         label = "Evening digest",
+        enabled = storedEnabledProvider(AppSettingsTable.DIGEST_EVENING_ENABLED),
     ).start()
 
     val morningDefault = parseDigestTime(config.propertyOrNull("telegram.morningDigestTime")?.getString())
@@ -52,10 +55,11 @@ fun Application.configureDigest() {
     val morningTime = storedTimeProvider(AppSettingsTable.MORNING_DIGEST_TIME, morningDefault)
     DigestScheduler(
         digestTime = morningTime,
-        source = MorningDigestService(),
+        source = MorningDigestService(sections = storedSectionsProvider(AppSettingsTable.DIGEST_MORNING_SECTIONS, DigestSection.morning)),
         client = client,
         scope = this,
         label = "Morning digest",
+        enabled = storedEnabledProvider(AppSettingsTable.DIGEST_MORNING_ENABLED),
     ).start()
 
     log.info("Telegram digests scheduled — morning {}, evening {} (overridable in settings)", morningTime(), eveningTime())
@@ -67,11 +71,31 @@ fun Application.configureDigest() {
  * the next run without a restart (#100).
  */
 private fun storedTimeProvider(key: String, default: LocalTime): () -> LocalTime = {
-    val stored = transaction {
-        AppSettingsTable.selectAll().where { AppSettingsTable.key eq key }
-            .singleOrNull()?.get(AppSettingsTable.value)
-    }
-    parseDigestTime(stored) ?: default
+    parseDigestTime(readSetting(key)) ?: default
+}
+
+/**
+ * Per-digest on/off provider (#182): re-reads the `app_settings` flag each call so an in-app
+ * toggle applies from the next run. Unset (fresh DB) means on, so behavior is unchanged until
+ * someone disables a digest. Only "false" disables.
+ */
+private fun storedEnabledProvider(key: String): () -> Boolean = {
+    readSetting(key)?.equals("false", ignoreCase = true) != true
+}
+
+/**
+ * Per-digest section-selection provider (#182): re-reads the persisted CSV of section ids each
+ * call (intersected with [allowed]); unset selects all of [allowed], so a fresh DB renders the
+ * full digest. The scheduler picks up an in-app change from the next run.
+ */
+private fun storedSectionsProvider(key: String, allowed: List<DigestSection>): () -> Set<DigestSection> = {
+    DigestSection.parseSelection(readSetting(key), allowed)
+}
+
+/** Reads one `app_settings` value by key, or null if unset. */
+private fun readSetting(key: String): String? = transaction {
+    AppSettingsTable.selectAll().where { AppSettingsTable.key eq key }
+        .singleOrNull()?.get(AppSettingsTable.value)
 }
 
 /** Parses an "HH:mm" string into a [LocalTime], or null if it is blank or malformed. */

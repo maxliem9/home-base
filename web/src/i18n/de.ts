@@ -482,7 +482,25 @@ export const de = {
     digestSaved: 'Gespeichert',
     digestSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
     digestApplies: 'Änderungen greifen ab dem nächsten geplanten Digest.',
-    digestDisabled: 'Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Die Uhrzeit kannst du trotzdem setzen.',
+    digestDisabled: 'Telegram ist nicht konfiguriert — der Digest ist derzeit inaktiv. Einstellungen kannst du trotzdem setzen.',
+    // Pro-Digest an/aus + Inhalts-Auswahl (#182). Beide Digests teilen sich diese Texte.
+    digestEnabledLabel: 'Digest aktiv',
+    digestSectionsLabel: 'Inhalte',
+    digestSectionsHint: 'Welche Abschnitte dieser Digest zeigt.',
+    digestSaveSections: 'Inhalte konnten nicht gespeichert werden.',
+    // Abschnitts-Labels, indexiert über die Section-IDs vom Backend (availableSections).
+    digestSections: {
+      evening_done_today: 'Heute erledigt',
+      evening_new_inbox: 'Neu in der Inbox',
+      evening_due_tomorrow: 'Morgen fällig',
+      evening_absent_tomorrow: 'Morgen abwesend (Vorschau)',
+      evening_kita_tomorrow: 'Kita morgen geschlossen (Vorschau)',
+      morning_due_today: 'Heute fällig',
+      morning_overdue: 'Überfällig',
+      morning_inbox: 'Inbox',
+      morning_absent: 'Heute abwesend',
+      morning_kita: 'Kita geschlossen',
+    } as Record<string, string>,
     // Wiederholungs-Planer-Uhrzeit (#100): tägliche Laufzeit des Sicherheitsnetzes für
     // wiederkehrende Aufgaben (rollt verpasste offene Wiederholungen vor).
     recurringTitle: 'Wiederholungs-Planer',

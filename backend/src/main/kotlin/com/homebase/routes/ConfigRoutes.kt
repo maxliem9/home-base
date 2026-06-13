@@ -1,6 +1,7 @@
 package com.homebase.routes
 
 import com.homebase.db.AppSettingsTable
+import com.homebase.digest.DigestSection
 import com.homebase.model.AppConfigResponse
 import com.homebase.model.DigestConfigResponse
 import com.homebase.model.ErrorResponse
@@ -32,15 +33,13 @@ private val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
  * All endpoints sit under auth-jwt (see configureRouting).
  *
  * - household name — the sidebar brand ([defaultHouseholdName] fallback).
- * - digest time — when the evening Telegram recap is sent ([digestDefaultTime] fallback). The
- *   scheduler re-reads this each cycle, so a change applies from the next run.
- *   [telegramEnabled] reports whether Telegram is configured at all; the time is editable
- *   regardless, ready for when it is.
- * - morning-digest time — when the morning briefing is sent ([morningDigestDefaultTime]
- *   fallback). Same shape/contract as the digest time (re-read each cycle, same `enabled`).
- * - recurring time — when the recurring-todo safety-net runs ([recurringDefaultTime]
- *   fallback). Same shape as the digest time (re-read each cycle), but always-on, so no
- *   enabled flag.
+ * - digest config — the evening recap and morning briefing each expose {time, enabled, sections}
+ *   plus the read-only telegramConfigured flag (#100/#182). The scheduler re-reads all of these
+ *   each cycle, so a change applies from the next run. The on/off toggle + section selection are
+ *   in-app; `telegramConfigured` ([telegramEnabled]) only tells the UI whether anything will
+ *   actually send. Defaults: enabled on, all sections selected (back-compat with the full digest).
+ * - recurring time — when the recurring-todo safety-net runs ([recurringDefaultTime] fallback).
+ *   Same time shape, but always-on with no sections, so a plain {time}.
  */
 fun Route.configRoutes(
     defaultHouseholdName: String,
@@ -65,47 +64,26 @@ fun Route.configRoutes(
         call.respond(AppConfigResponse(householdName = name))
     }
 
-    get("/config/digest") {
-        call.respond(
-            DigestConfigResponse(
-                time = readSetting(AppSettingsTable.DIGEST_TIME) ?: digestDefaultTime,
-                enabled = telegramEnabled,
-            ),
-        )
-    }
-
-    put("/config/digest") {
-        val parsed = runCatching { LocalTime.parse(call.receive<UpdateDigestRequest>().time.trim()) }.getOrNull()
-            ?: return@put call.respond(
-                HttpStatusCode.BadRequest,
-                ErrorResponse("INVALID_TIME", "time must be a valid HH:mm"),
-            )
-        val normalized = parsed.format(HH_MM)
-        upsertSetting(AppSettingsTable.DIGEST_TIME, normalized)
-        call.respond(DigestConfigResponse(time = normalized, enabled = telegramEnabled))
-    }
-
-    // Morning briefing — same {time, enabled} contract as /config/digest (reuses its DTOs),
-    // just a different stored key and default; `enabled` is the same Telegram-configured flag.
-    get("/config/morning-digest") {
-        call.respond(
-            DigestConfigResponse(
-                time = readSetting(AppSettingsTable.MORNING_DIGEST_TIME) ?: morningDigestDefaultTime,
-                enabled = telegramEnabled,
-            ),
-        )
-    }
-
-    put("/config/morning-digest") {
-        val parsed = runCatching { LocalTime.parse(call.receive<UpdateDigestRequest>().time.trim()) }.getOrNull()
-            ?: return@put call.respond(
-                HttpStatusCode.BadRequest,
-                ErrorResponse("INVALID_TIME", "time must be a valid HH:mm"),
-            )
-        val normalized = parsed.format(HH_MM)
-        upsertSetting(AppSettingsTable.MORNING_DIGEST_TIME, normalized)
-        call.respond(DigestConfigResponse(time = normalized, enabled = telegramEnabled))
-    }
+    // Evening recap and morning briefing share one {time, enabled, sections} contract (#100/#182),
+    // differing only in their app_settings keys + default time + which sections they offer.
+    digestConfigRoutes(
+        path = "/config/digest",
+        timeKey = AppSettingsTable.DIGEST_TIME,
+        enabledKey = AppSettingsTable.DIGEST_EVENING_ENABLED,
+        sectionsKey = AppSettingsTable.DIGEST_EVENING_SECTIONS,
+        defaultTime = digestDefaultTime,
+        allowedSections = DigestSection.evening,
+        telegramConfigured = telegramEnabled,
+    )
+    digestConfigRoutes(
+        path = "/config/morning-digest",
+        timeKey = AppSettingsTable.MORNING_DIGEST_TIME,
+        enabledKey = AppSettingsTable.DIGEST_MORNING_ENABLED,
+        sectionsKey = AppSettingsTable.DIGEST_MORNING_SECTIONS,
+        defaultTime = morningDigestDefaultTime,
+        allowedSections = DigestSection.morning,
+        telegramConfigured = telegramEnabled,
+    )
 
     get("/config/recurring") {
         call.respond(
@@ -122,6 +100,64 @@ fun Route.configRoutes(
         val normalized = parsed.format(HH_MM)
         upsertSetting(AppSettingsTable.RECURRING_TIME, normalized)
         call.respond(RecurringConfigResponse(time = normalized))
+    }
+}
+
+/**
+ * GET/PUT for one digest's {time, enabled, sections} config (#182), shared by the evening recap
+ * and morning briefing. GET reads each value (falling back to enabled-on + all-sections so an
+ * untouched DB keeps the full digest); PUT patches only the fields present in the body (time-only
+ * still works) and validates the time + section ids, leaving unset fields unchanged.
+ */
+private fun Route.digestConfigRoutes(
+    path: String,
+    timeKey: String,
+    enabledKey: String,
+    sectionsKey: String,
+    defaultTime: String,
+    allowedSections: List<DigestSection>,
+    telegramConfigured: Boolean,
+) {
+    fun currentResponse() = DigestConfigResponse(
+        time = readSetting(timeKey) ?: defaultTime,
+        // Unset = on (default); only an explicit "false" disables.
+        enabled = readSetting(enabledKey)?.equals("false", ignoreCase = true) != true,
+        telegramConfigured = telegramConfigured,
+        sections = DigestSection.parseSelection(readSetting(sectionsKey), allowedSections).map { it.id },
+        availableSections = allowedSections.map { it.id },
+    )
+
+    get(path) { call.respond(currentResponse()) }
+
+    put(path) {
+        val body = call.receive<UpdateDigestRequest>()
+
+        // Validate everything before writing anything (a bad field rejects the whole PUT).
+        val normalizedTime = body.time?.trim()?.let { raw ->
+            runCatching { LocalTime.parse(raw) }.getOrNull()?.format(HH_MM)
+                ?: return@put call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponse("INVALID_TIME", "time must be a valid HH:mm"),
+                )
+        }
+        val allowedIds = allowedSections.map { it.id }.toSet()
+        val sectionsCsv = body.sections?.let { ids ->
+            val cleaned = ids.map { it.trim() }
+            if (cleaned.any { it !in allowedIds }) {
+                return@put call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponse("INVALID_SECTION", "sections must be a subset of $allowedIds"),
+                )
+            }
+            // De-dupe while keeping the canonical display order, so the stored value is stable.
+            allowedSections.filter { it.id in cleaned.toSet() }.joinToString(",") { it.id }
+        }
+
+        normalizedTime?.let { upsertSetting(timeKey, it) }
+        body.enabled?.let { upsertSetting(enabledKey, it.toString()) }
+        sectionsCsv?.let { upsertSetting(sectionsKey, it) }
+
+        call.respond(currentResponse())
     }
 }
 
