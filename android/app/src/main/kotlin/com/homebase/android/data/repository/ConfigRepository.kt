@@ -2,6 +2,7 @@ package com.homebase.android.data.repository
 
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.DigestConfigResponse
+import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
 import retrofit2.HttpException
@@ -68,6 +69,24 @@ class ConfigRepository(private val api: HomeBaseApi) {
     suspend fun updateMorningDigest(time: String, enabled: Boolean, sections: List<String>): Result<DigestConfigResponse> =
         apiCatching(mapHttpError = ::digestSaveError) {
             api.updateMorningDigest(UpdateDigestRequest(time = time, enabled = enabled, sections = sections))
+        }
+
+    /**
+     * Recurring-todo safety-net run time (#200) — when the always-on scheduler rolls overdue
+     * recurring todos forward. Always-on, so just the time (no enabled/sections). Falls back
+     * gracefully.
+     */
+    suspend fun getRecurring(): Result<RecurringConfigResponse> =
+        apiCatching { api.getRecurring() }
+
+    /**
+     * Patch the recurring-todo run time (PUT /config/recurring, #200). Returns the persisted,
+     * normalised time. The only 400 is an invalid time (the UI pre-validates HH:mm), mapped to
+     * German via the shared digest-time wording.
+     */
+    suspend fun updateRecurring(time: String): Result<RecurringConfigResponse> =
+        apiCatching(mapHttpError = ::digestSaveError) {
+            api.updateRecurring(RecurringConfigResponse(time = time))
         }
 }
 

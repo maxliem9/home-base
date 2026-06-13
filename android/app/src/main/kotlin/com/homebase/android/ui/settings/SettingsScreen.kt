@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.ProjectDto
+import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
@@ -164,7 +165,7 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
             SettingsNavRow(
                 icon = HbIcons.bell,
                 title = "Benachrichtigungen",
-                subtitle = "Digests (morgens & abends): an/aus, Uhrzeit, Inhalte",
+                subtitle = "Digests (morgens & abends) und Wiederholungs-Planer",
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
             )
             SettingsNavRow(
@@ -415,9 +416,10 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Spacer(Modifier.size(10.dp))
-            // Morning briefing first (chronological), then the evening recap. Both are Telegram
-            // digests with the same {time, enabled, sections} contract — only the endpoint + copy
-            // differ (#189). The recurring safety-net has no Android settings entry yet (#TODO).
+            // Morning briefing first (chronological), then the evening recap, then the recurring
+            // safety-net — same order as the web's NotificationsSettings. The two digests share the
+            // {time, enabled, sections} contract (only endpoint + copy differ, #189); the recurring
+            // card is always-on, so just a time (#200).
             DigestCard(
                 title = "Morgen-Digest",
                 hint = "Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.",
@@ -432,6 +434,7 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
                 load = configRepository::getDigest,
                 save = configRepository::updateDigest,
             )
+            RecurringCard(configRepository = configRepository)
         }
     }
 }
@@ -620,6 +623,86 @@ private fun DigestCard(
 /** Flips one section id in/out of [current], handing the new set to [onChange]. */
 private fun toggleSection(id: String, current: Set<String>, onChange: (Set<String>) -> Unit) {
     onChange(if (id in current) current - id else current + id)
+}
+
+/**
+ * Recurring-todo safety-net run time (#200) — the Android pendant of the web's NotificationsSettings
+ * RecurringCard. The scheduler is always-on (it rolls overdue, still-open recurring todos forward to
+ * the current period), so — unlike the digests — there's no enabled flag or section group, just a
+ * validated HH:mm time. Same load-then-enable guard, HH:mm validation and persistence as the digest
+ * cards. Labels mirror web/src/i18n/de.ts → settings.recurring*.
+ */
+@Composable
+private fun RecurringCard(configRepository: ConfigRepository) {
+    val scope = rememberCoroutineScope()
+    var time by remember { mutableStateOf("") }
+    var loaded by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    // Enable editing only after the GET lands, so a late response can't clobber a freshly-typed
+    // value (same guard as the household-name + digest cards).
+    LaunchedEffect(Unit) {
+        configRepository.getRecurring().onSuccess { time = it.time }
+        loaded = true
+    }
+    LaunchedEffect(saved) { if (saved) { delay(2500); saved = false } }
+
+    val dirty = { error = null; saved = false }
+    val valid = time.matches(Regex("""\d{2}:\d{2}"""))
+    val doSave = {
+        if (loaded && valid && !saving) {
+            saving = true
+            error = null
+            saved = false
+            scope.launch {
+                configRepository.updateRecurring(time)
+                    .onSuccess { cfg -> time = cfg.time; saved = true }
+                    .onFailure { e -> error = e.message ?: "Speichern fehlgeschlagen." }
+                saving = false
+            }
+        }
+        Unit
+    }
+
+    HbCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "Wiederholungs-Planer",
+                    style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink,
+                )
+                Text(
+                    "Tägliches Sicherheitsnetz: rollt verpasste, noch offene wiederkehrende Aufgaben " +
+                        "auf die aktuelle Periode vor.",
+                    style = HbType.small.copy(fontSize = 12.5.sp),
+                    color = Hb.ink3,
+                )
+            }
+
+            HbField("Uhrzeit (HH:MM)") {
+                HbTextField(
+                    value = time,
+                    onValueChange = { time = it.take(5); dirty() },
+                    placeholder = "00:30",
+                    mono = true,
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HbButton("Speichern", onClick = doSave, enabled = loaded && valid && !saving)
+                if (saved) SavedHint()
+            }
+            Text(
+                "Änderungen greifen ab dem nächsten geplanten Lauf.",
+                style = HbType.small.copy(fontSize = 12.sp),
+                color = Hb.ink3,
+            )
+            if (error != null) ErrorText(error!!)
+        }
+    }
 }
 
 /** Small "saved" confirmation row (check + label), shared by the settings pages. */
