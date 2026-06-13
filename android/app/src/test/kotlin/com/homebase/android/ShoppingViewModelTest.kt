@@ -3,6 +3,7 @@ package com.homebase.android
 import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
+import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import androidx.lifecycle.ViewModel
@@ -53,6 +54,10 @@ class ShoppingViewModelTest {
     ) = ShoppingItemDto(
         id = id, name = name, checked = checked,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+    )
+
+    private fun list(id: String = "L1", name: String = "Liste") = ShoppingListDto(
+        id = id, name = name, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
     @Before
@@ -130,8 +135,9 @@ class ShoppingViewModelTest {
     @Test
     fun `addItem prepends new item`() = vmTest {
         coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
         val created = item(id = "2", name = "Brot")
-        coEvery { repository.createItem("Brot", null) } returns Result.success(created)
+        coEvery { repository.createItem("Brot", "L1") } returns Result.success(created)
 
         val vm = createVm()
         advanceUntilIdle()
@@ -144,9 +150,10 @@ class ShoppingViewModelTest {
     }
 
     @Test
-    fun `addItem uses null list when none is selected`() = vmTest {
+    fun `addItem files into the active list`() = vmTest {
         coEvery { repository.getItems() } returns Result.success(emptyList())
-        coEvery { repository.createItem("Brot", null) } returns Result.success(item(id = "2", name = "Brot"))
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.createItem("Brot", "L1") } returns Result.success(item(id = "2", name = "Brot"))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -154,7 +161,192 @@ class ShoppingViewModelTest {
         vm.addItem("Brot")
         advanceUntilIdle()
 
-        coVerify { repository.createItem("Brot", null) }
+        coVerify { repository.createItem("Brot", "L1") }
+    }
+
+    // --- Lists-first: no list-less items (#181) --------------------------------------------
+
+    @Test
+    fun `addItem with no lists auto-creates a default list and files the item into it`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        val defaultList = list(id = "new-list", name = "Einkaufsliste")
+        coEvery { repository.createList("Einkaufsliste") } returns Result.success(defaultList)
+        coEvery { repository.createItem("Brot", "new-list") } returns Result.success(
+            item(id = "2", name = "Brot").copy(listId = "new-list"),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.addItem("Brot")
+        advanceUntilIdle()
+
+        // A default list was created and the item is filed under it — never list-less.
+        coVerify { repository.createList("Einkaufsliste") }
+        coVerify { repository.createItem("Brot", "new-list") }
+        coVerify(exactly = 0) { repository.createItem(any(), null) }
+        assertEquals("new-list", vm.uiState.value.activeListId)
+        assertEquals(1, vm.uiState.value.lists.size)
+        assertEquals("new-list", vm.uiState.value.items.single().listId)
+    }
+
+    @Test
+    fun `addItem with no lists does not create a list-less item when list creation fails`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        coEvery { repository.createList("Einkaufsliste") } returns Result.failure(RuntimeException("boom"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.addItem("Brot")
+        advanceUntilIdle()
+
+        // List creation failed → the add is skipped rather than producing a list-less item.
+        coVerify(exactly = 0) { repository.createItem(any(), any()) }
+        assertTrue(vm.uiState.value.items.isEmpty())
+        assertEquals("boom", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `two concurrent adds on a fresh state create exactly one default list and share it`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+
+        // Gated createList: every invocation parks on `gate`, and each would mint a DISTINCT list id.
+        // Without serialization both adds pass the "no list yet" check and call createList → two
+        // lists. The ensureListMutex must collapse this to a single create that both adds reuse.
+        val gate = CompletableDeferred<Unit>()
+        var createListCalls = 0
+        coEvery { repository.createList("Einkaufsliste") } coAnswers {
+            val n = ++createListCalls
+            gate.await()
+            Result.success(list(id = "new-list-$n", name = "Einkaufsliste"))
+        }
+        coEvery { repository.createItem(any(), any()) } coAnswers {
+            val name = firstArg<String>()
+            val listId = secondArg<String>()
+            Result.success(item(id = "item-$name", name = name).copy(listId = listId))
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // Two quick submits before either create completes (Enter-Enter; the field isn't disabled).
+        vm.addItem("A")
+        vm.addItem("B")
+        runCurrent() // both coroutines start; the first parks in createList, the second on the mutex
+
+        gate.complete(Unit) // release the (single) in-flight create
+        advanceUntilIdle()
+
+        // Exactly one default list ever created; the second add reused it.
+        coVerify(exactly = 1) { repository.createList("Einkaufsliste") }
+        assertEquals(1, createListCalls)
+        assertEquals(1, vm.uiState.value.lists.size)
+        // Both items landed on the same single list — nothing split across a duplicate tab.
+        assertEquals(2, vm.uiState.value.items.size)
+        val listIds = vm.uiState.value.items.map { it.listId }.toSet()
+        assertEquals(setOf("new-list-1"), listIds)
+        coVerify(exactly = 0) { repository.createItem(any(), null) }
+    }
+
+    @Test
+    fun `addIngredients with no list auto-creates the default list instead of a list-less batch`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        val defaultList = list(id = "new-list", name = "Einkaufsliste")
+        coEvery { repository.createList("Einkaufsliste") } returns Result.success(defaultList)
+        coEvery { repository.batchAdd("new-list", any()) } returns Result.success(
+            BatchAddShoppingResponse(
+                added = 1, merged = 0, skipped = 0,
+                items = listOf(item(id = "10", name = "200 g Mehl").copy(listId = "new-list")),
+            ),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var addedSeen = -1
+        // No explicit listId and no active list → must route through ensureDefaultList, never null.
+        vm.addIngredients(null, listOf(ShoppingLineInput("Mehl", 200.0, "g"))) { a, _ -> addedSeen = a }
+        advanceUntilIdle()
+
+        coVerify { repository.createList("Einkaufsliste") }
+        coVerify { repository.batchAdd("new-list", any()) }
+        coVerify(exactly = 0) { repository.batchAdd(null, any()) }
+        assertEquals(1, addedSeen)
+        assertEquals("new-list", vm.uiState.value.items.single().listId)
+    }
+
+    @Test
+    fun `addIngredients with no list skips the batch when list creation fails`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        coEvery { repository.createList("Einkaufsliste") } returns Result.failure(RuntimeException("boom"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var addedSeen = -1
+        var mergedSeen = -1
+        vm.addIngredients(null, listOf(ShoppingLineInput("Mehl", 200.0, "g"))) { a, m ->
+            addedSeen = a; mergedSeen = m
+        }
+        advanceUntilIdle()
+
+        // List creation failed → no batch-add with a null list; the callback reports nothing added.
+        coVerify(exactly = 0) { repository.batchAdd(any(), any()) }
+        assertEquals(0, addedSeen)
+        assertEquals(0, mergedSeen)
+        assertEquals("boom", vm.uiState.value.error)
+        assertTrue(vm.uiState.value.items.isEmpty())
+    }
+
+    @Test
+    fun `pre-existing list-less items are migrated into the first list on load`() = vmTest {
+        val orphan = item(id = "o1", name = "Altlast").copy(listId = null)
+        coEvery { repository.getItems() } returns Result.success(listOf(orphan))
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.updateItem("o1", UpdateShoppingItemRequest(listId = "L1")) } returns
+            Result.success(orphan.copy(listId = "L1"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coVerify { repository.updateItem("o1", UpdateShoppingItemRequest(listId = "L1")) }
+        assertEquals("L1", vm.uiState.value.items.single().listId)
+    }
+
+    @Test
+    fun `a failed migration leaves the orphan list-less but still visible on the first list`() = vmTest {
+        val orphan = item(id = "o1", name = "Altlast").copy(listId = null)
+        coEvery { repository.getItems() } returns Result.success(listOf(orphan))
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.updateItem("o1", UpdateShoppingItemRequest(listId = "L1")) } returns
+            Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // Best-effort: the PUT failed, the row stays list-less, no blocking error surfaced…
+        assertNull(vm.uiState.value.error)
+        assertNull(vm.uiState.value.items.single().listId)
+        // …but the safety net keeps it reachable on the first (active) list.
+        assertEquals(1, vm.uiState.value.visibleItems.size)
+        assertEquals("o1", vm.uiState.value.visibleItems.single().id)
+    }
+
+    @Test
+    fun `no migration PUT when there are no list-less items`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "1").copy(listId = "L1")))
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateItem(any(), match { it.listId != null }) }
     }
 
     @Test

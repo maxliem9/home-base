@@ -39,7 +39,13 @@ data class ShoppingUiState(
 
     val activeIsFirst: Boolean get() = activeList != null && lists.firstOrNull()?.id == activeList?.id
 
-    /** Items in the active list; the first list also surfaces unfiled (null) items. */
+    /**
+     * Items in the active list. The first list also surfaces any list-less (null) item as a
+     * **safety net**: lists-first (#181) means Android no longer *creates* such items (a new item
+     * always gets a list) and adopts pre-existing ones into the first list on load — but that
+     * migration is best-effort (a failed PUT can leave one behind), so the first list still shows
+     * stragglers rather than orphaning them off-screen.
+     */
     val visibleItems: List<ShoppingItemDto>
         get() {
             val id = activeList?.id ?: return items.filter { it.listId == null }
@@ -96,6 +102,15 @@ class ShoppingViewModel(
     private val persistMutex = Mutex()
 
     /**
+     * Serializes the auto-create-default-list path ([ensureDefaultList]). Without it, two quick adds
+     * (Enter-Enter) or a partner's WS `ListCreated` arriving mid-add both pass the "does a list
+     * exist?" re-check before either [ShoppingRepository.createList] completes → two "Einkaufsliste"
+     * lists with distinct ids (items split across tabs). The lock makes the check-then-create atomic:
+     * the first caller creates the list, later waiters re-read state under the lock and reuse it.
+     */
+    private val ensureListMutex = Mutex()
+
+    /**
      * Completes once the previous session's queue has been loaded and merged. [flush] awaits it, so
      * a flush trigger that fires during the async restore re-PUTs the restored entries instead of
      * racing an empty queue.
@@ -145,17 +160,84 @@ class ShoppingViewModel(
                 error = error,
             )
         }
+        migrateListlessItems()
+    }
+
+    /**
+     * Lists-first parity with the web (#181): Android must never *leave* list-less shopping items
+     * around. Newly added items already get a list (see [addItem]); this best-effort sweep adopts any
+     * pre-existing list-less rows (created before this change, or by an older client) into the first
+     * list via PUT `listId`. The optimistic local move keeps them visible meanwhile; the safety-net
+     * `listId == null` surfacing in [ShoppingUiState.visibleItems] catches anything a failed PUT
+     * leaves behind, so a migration miss is never lost.
+     */
+    private suspend fun migrateListlessItems() {
+        val state = _uiState.value
+        val targetId = state.lists.firstOrNull()?.id ?: return // no list yet → nothing to adopt into
+        val orphans = state.items.filter { it.listId == null }
+        if (orphans.isEmpty()) return
+        for (orphan in orphans) {
+            repository.updateItem(orphan.id, UpdateShoppingItemRequest(listId = targetId))
+                .onSuccess { updated ->
+                    // Apply the server row, but let a still-pending local check intent win for the
+                    // checked/checkedAt fields (the user may have toggled this item mid-migration) —
+                    // same rule as the WS echo handling in upsertItemFromServer.
+                    _uiState.update { s ->
+                        s.copy(items = s.items.map { local ->
+                            if (local.id != updated.id) local
+                            else if (updated.id in queue) updated.copy(checked = local.checked, checkedAt = local.checkedAt)
+                            else updated
+                        })
+                    }
+                }
+            // On failure leave the row list-less; the visibleItems safety net keeps it reachable and
+            // the next reload retries. No error surfaced — this is background housekeeping.
+        }
     }
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
 
     fun addItem(name: String) {
         if (name.isBlank()) return
-        val listId = _uiState.value.activeList?.id
         viewModelScope.launch {
+            // Lists-first like the web (#181): an item always belongs to a list. If none exists yet,
+            // auto-create a neutral default list and attach the item to it instead of producing a
+            // list-less item. (The web never reaches this branch — it has no add UI without a list.)
+            val listId = _uiState.value.activeList?.id ?: ensureDefaultList() ?: return@launch
             repository.createItem(name.trim(), listId)
                 .onSuccess { upsertItem(it) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Ensure at least one shopping list exists and return the id to file a new item/batch under.
+     * Used by [addItem] and [addIngredients] when content is added before any list exists (#181).
+     * Returns the active/first list's id if one already appeared (e.g. a partner created one over WS),
+     * otherwise creates the neutral default list. Returns null only if creation fails — the caller
+     * then surfaces the error and skips the add rather than falling back to a list-less item.
+     *
+     * Serialized via [ensureListMutex] so concurrent adds (Enter-Enter) or a racing WS `ListCreated`
+     * create at most ONE default list: the lock-free fast path covers the common "a list exists"
+     * case, and the slow path re-reads state *inside* the lock before creating, so later waiters reuse
+     * the first caller's list instead of creating a second one.
+     */
+    private suspend fun ensureDefaultList(): String? {
+        // Fast path: a list already exists, no need to serialize.
+        _uiState.value.activeList?.id?.let { return it }
+        return ensureListMutex.withLock {
+            // Re-read under the lock: a list may have appeared while we waited (a prior waiter created
+            // the default, or a partner's WS `ListCreated` landed) — reuse it, don't create a second.
+            _uiState.value.activeList?.id?.let { return@withLock it }
+            repository.createList(DEFAULT_LIST_NAME)
+                .onSuccess { list ->
+                    _uiState.update { s ->
+                        val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
+                        s.copy(lists = lists, activeListId = list.id)
+                    }
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .getOrNull()?.id
         }
     }
 
@@ -204,6 +286,11 @@ class ShoppingViewModel(
      * Push the chosen (already serving-scaled) recipe ingredients onto [listId] via the batch
      * endpoint, which formats each as a "200 g Mehl" label and merges quantities into matching
      * items already on the list. Reports how many were freshly added vs. merged via [onResult].
+     *
+     * Lists-first (#181): batch-add must never create list-less items either. When no explicit
+     * [listId] and no active list exists, route through [ensureDefaultList] (same serialized
+     * auto-create as [addItem]); if that create fails, surface the error and skip rather than
+     * batch-adding with a null list.
      */
     fun addIngredients(
         listId: String?,
@@ -214,8 +301,14 @@ class ShoppingViewModel(
             onResult(0, 0)
             return
         }
-        val targetId = listId ?: _uiState.value.activeList?.id
         viewModelScope.launch {
+            val targetId = listId ?: _uiState.value.activeList?.id ?: ensureDefaultList()
+            if (targetId == null) {
+                // List creation failed (error already surfaced by ensureDefaultList) → skip the add
+                // rather than producing list-less items.
+                onResult(0, 0)
+                return@launch
+            }
             repository.batchAdd(targetId, lines)
                 .onSuccess { resp ->
                     resp.items.forEach { upsertItem(it) }
@@ -436,5 +529,9 @@ class ShoppingViewModel(
 
     private companion object {
         const val FLUSH_INTERVAL_MS = 15_000L
+
+        /** Neutral default list auto-created when a user adds an item before any list exists (#181).
+         *  Deliberately generic — no user-specific naming (portable-over-hardcoded-household). */
+        const val DEFAULT_LIST_NAME = "Einkaufsliste"
     }
 }
