@@ -99,7 +99,16 @@ import kotlin.math.roundToLong
 // ---------------------------------------------------------------------------
 
 @Composable
-fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () -> Unit) {
+fun TimeScreen(
+    viewModel: TimeViewModel,
+    currentUser: String?,
+    onOpenDrawer: () -> Unit,
+    // The Einstellungen → Zeiterfassung subpage shares this TimeViewModel and renders the
+    // same state.error toast. While that overlay sits on top of us (route == ZEIT), suppress
+    // the tracker's copy so one error never shows twice — the visible settings toast owns it
+    // and stays the single OK target (#193).
+    settingsOpen: Boolean = false,
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showNewProject by remember { mutableStateOf(false) }
@@ -374,13 +383,17 @@ fun TimeScreen(viewModel: TimeViewModel, currentUser: String?, onOpenDrawer: () 
             )
         }
 
-        state.error?.let { msg ->
-            HbToast(
-                message = msg,
-                icon = HbIcons.x,
-                actionLabel = "OK",
-                onAction = { viewModel.clearError() },
-            )
+        // Suppressed while the settings → Zeiterfassung overlay is open: it renders the
+        // same shared state.error toast on top, so showing it here too would duplicate (#193).
+        if (!settingsOpen) {
+            state.error?.let { msg ->
+                HbToast(
+                    message = msg,
+                    icon = HbIcons.x,
+                    actionLabel = "OK",
+                    onAction = { viewModel.clearError() },
+                )
+            }
         }
 
         pendingConfirm?.let { c ->
