@@ -242,9 +242,13 @@ class MainActivity : ComponentActivity() {
                     configRepository = container.configRepository,
                     authRepository = container.authRepository,
                     timeViewModel = timeVm,
+                    absenceViewModel = absenceVm,
                     currentUser = currentUser,
                     householdName = household,
                     onHouseholdRenamed = { household = it },
+                    // Logout (#141): close the overlay; AuthRepository.logout() flips auth state to
+                    // LoggedOut, so the top-level `when` swaps MainScaffold → LoginGate on its own.
+                    onLoggedOut = { settingsOpen = false },
                     onClose = { settingsOpen = false },
                 )
             }

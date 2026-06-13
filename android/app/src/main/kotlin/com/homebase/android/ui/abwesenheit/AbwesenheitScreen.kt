@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -749,12 +750,31 @@ private fun SettingsSheet(
         full = true,
         footer = { HbButton("Fertig", onClick = onDismiss, modifier = Modifier.weight(1f)) },
     ) {
-        userIds.forEach { uid ->
-            SettingsPerson(ctx, data, uid, year, vm)
-            HbDivider()
-        }
-        KitaSettings(data, year, vm)
+        AbwSettingsPanel(ctx, data, userIds, year, vm)
     }
+}
+
+/**
+ * The Abwesenheit configuration body — per-person Kontingente/Teilzeit + household Kita —
+ * shared by the calendar's gear sheet [SettingsSheet] and the central-settings subpage
+ * (#101, ui/settings). Pendant of the web's reused `AbwSettings` panel. Stays in this file
+ * so it can reach the private field helpers (SelectField, AbwDateField, NumberField, …);
+ * `internal` so SettingsScreen can call it. The [year] is supplied by the caller (the central
+ * page brings its own year stepper since Kontingent/Übertrag are annual).
+ */
+@Composable
+internal fun ColumnScope.AbwSettingsPanel(
+    ctx: AbsCtx,
+    data: AbsenceStateDto,
+    userIds: List<String>,
+    year: Int,
+    vm: AbsenceViewModel,
+) {
+    userIds.forEach { uid ->
+        SettingsPerson(ctx, data, uid, year, vm)
+        HbDivider()
+    }
+    KitaSettings(data, year, vm)
 }
 
 @Composable

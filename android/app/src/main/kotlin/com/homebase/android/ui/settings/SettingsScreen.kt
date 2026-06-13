@@ -31,21 +31,29 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
+import com.homebase.android.ui.abwesenheit.AbsenceViewModel
+import com.homebase.android.ui.abwesenheit.AbwSettingsPanel
+import com.homebase.android.ui.abwesenheit.buildContext
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCard
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbField
 import com.homebase.android.ui.components.HbIcon
+import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbRadiusSm
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.time.TargetsSheet
 import com.homebase.android.ui.time.TimeViewModel
+import java.time.LocalDate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -53,20 +61,22 @@ import kotlinx.coroutines.launch
  * Zentrale Einstellungen (#101) — the Android pendant of the web settings hub
  * (web/src/components/settings). A dedicated screen reached from the drawer's account-corner
  * gear, split into per-domain subpages reached from a list (a phone-friendly take on the web's
- * left nav rail). Haushalt, Konto und Benachrichtigungen sind umgesetzt; die Zeiterfassungs-
- * Verlagerung und (sobald die Web-Hälfte landet) Abwesenheit folgen. The list is built to grow.
+ * left nav rail). Mirrors the web subpages: Haushalt · Konto (mit Logout, #141) ·
+ * Benachrichtigungen · Zeiterfassung · Abwesenheit. The list is built to grow.
  */
 
-private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, ZEITERFASSUNG }
+private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, ZEITERFASSUNG, ABWESENHEIT }
 
 @Composable
 fun SettingsScreen(
     configRepository: ConfigRepository,
     authRepository: AuthRepository,
     timeViewModel: TimeViewModel,
+    absenceViewModel: AbsenceViewModel,
     currentUser: String?,
     householdName: String,
     onHouseholdRenamed: (String) -> Unit,
+    onLoggedOut: () -> Unit,
     onClose: () -> Unit,
 ) {
     var sub by rememberSaveable { mutableStateOf<SettingsSub?>(null) }
@@ -83,6 +93,7 @@ fun SettingsScreen(
         SettingsSub.KONTO -> KontoPage(
             authRepository = authRepository,
             currentUser = currentUser,
+            onLoggedOut = onLoggedOut,
             onBack = { sub = null },
         )
         SettingsSub.NOTIFICATIONS -> NotificationsPage(
@@ -91,6 +102,10 @@ fun SettingsScreen(
         )
         SettingsSub.ZEITERFASSUNG -> ZeiterfassungPage(
             timeViewModel = timeViewModel,
+            onBack = { sub = null },
+        )
+        SettingsSub.ABWESENHEIT -> AbwesenheitPage(
+            absenceViewModel = absenceViewModel,
             onBack = { sub = null },
         )
     }
@@ -134,6 +149,12 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
                 title = "Zeiterfassung",
                 subtitle = "Wochensoll",
                 onClick = { onPick(SettingsSub.ZEITERFASSUNG) },
+            )
+            SettingsNavRow(
+                icon = HbIcons.calendar,
+                title = "Abwesenheit",
+                subtitle = "Kontingente, Teilzeit, Feier- & Schließtage",
+                onClick = { onPick(SettingsSub.ABWESENHEIT) },
             )
         }
     }
@@ -239,7 +260,12 @@ private fun HouseholdPage(
 }
 
 @Composable
-private fun KontoPage(authRepository: AuthRepository, currentUser: String?, onBack: () -> Unit) {
+private fun KontoPage(
+    authRepository: AuthRepository,
+    currentUser: String?,
+    onLoggedOut: () -> Unit,
+    onBack: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var current by remember { mutableStateOf("") }
     var next by remember { mutableStateOf("") }
@@ -247,6 +273,7 @@ private fun KontoPage(authRepository: AuthRepository, currentUser: String?, onBa
     var saving by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmLogout by remember { mutableStateOf(false) }
 
     LaunchedEffect(done) { if (done) { delay(3000); done = false } }
 
@@ -312,7 +339,47 @@ private fun KontoPage(authRepository: AuthRepository, currentUser: String?, onBa
                     if (error != null) ErrorText(error!!)
                 }
             }
+            // Abmelden (#141): the only UI caller of AuthRepository.logout(). Confirm first
+            // (an accidental tap shouldn't sign you out), then clear the encrypted JWT and let
+            // the auth-state observer in MainActivity route back to the login screen.
+            HbCard {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "Abmelden",
+                            style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                            color = Hb.ink,
+                        )
+                        Text(
+                            "Beendet die Sitzung auf diesem Gerät. Du musst dich danach erneut anmelden.",
+                            style = HbType.small.copy(fontSize = 12.5.sp),
+                            color = Hb.ink3,
+                        )
+                    }
+                    HbButton(
+                        "Abmelden",
+                        onClick = { confirmLogout = true },
+                        icon = HbIcons.logout,
+                        variant = HbButtonVariant.Danger,
+                    )
+                }
+            }
         }
+    }
+
+    if (confirmLogout) {
+        HbConfirmDialog(
+            message = "Du wirst abgemeldet und musst dich danach erneut anmelden.",
+            confirmLabel = "Abmelden",
+            onConfirm = {
+                confirmLogout = false
+                scope.launch {
+                    authRepository.logout()
+                    onLoggedOut()
+                }
+            },
+            onDismiss = { confirmLogout = false },
+        )
     }
 }
 
@@ -515,6 +582,85 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                 onSave = { changes -> timeViewModel.saveTargets(changes); showTargets = false },
                 onDismiss = { showTargets = false },
             )
+        }
+    }
+}
+
+// The Abwesenheit window the settings PUT accepts — so the year stepper can never produce a
+// year the backend would reject (mirrors web AbwesenheitSettings' YEAR_MIN/MAX, #99).
+private const val ABS_YEAR_MIN = 2000
+private const val ABS_YEAR_MAX = 2200
+
+/**
+ * Einstellungen → Abwesenheit (#101). The Familienkalender configuration relocated into the
+ * central hub — pendant of the web's `AbwesenheitSettings`. Reuses the shared [AbwSettingsPanel]
+ * (the same body the calendar's gear sheet shows) and brings its own year stepper, since the
+ * per-person Kontingente/Übertrag are annual. The calendar screen keeps its gear too, so this
+ * is an additional, discoverable entry point rather than a move.
+ */
+@Composable
+private fun AbwesenheitPage(absenceViewModel: AbsenceViewModel, onBack: () -> Unit) {
+    val state by absenceViewModel.uiState.collectAsStateWithLifecycle()
+    val data = state.data
+    val userIds = data.users
+    var year by rememberSaveable { mutableStateOf(LocalDate.now().year) }
+
+    // Honour per-user avatar-hue overrides like the calendar, so any colour cue stays consistent.
+    val avatarHues = LocalAvatarHues.current
+    val ctx = remember(data, year, userIds, avatarHues) { buildContext(data, year, userIds, avatarHues) }
+
+    HbScreenScaffold(
+        appBar = {
+            HbAppBar(
+                eyebrow = "Einstellungen",
+                title = "Abwesenheit",
+                leftIcon = HbIcons.chevronLeft,
+                onLeft = onBack,
+                bordered = true,
+            )
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Spacer(Modifier.size(10.dp))
+            HbCard {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                "Kontingente & Kalender",
+                                style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                                color = Hb.ink,
+                            )
+                            Text(
+                                "Urlaubskontingent, Übertrag, Bundesland und Teilzeit pro Person; dazu " +
+                                    "haushaltsweite Kita-Schließtage. Kontingent und Übertrag gelten pro Jahr.",
+                                style = HbType.small.copy(fontSize = 12.5.sp),
+                                color = Hb.ink3,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            HbIconButton(
+                                HbIcons.chevronLeft,
+                                { year = (year - 1).coerceIn(ABS_YEAR_MIN, ABS_YEAR_MAX) },
+                                iconSize = 18.dp,
+                            )
+                            Text("$year", style = HbType.mono(16.0, FontWeight.SemiBold), color = Hb.ink)
+                            HbIconButton(
+                                HbIcons.chevronRight,
+                                { year = (year + 1).coerceIn(ABS_YEAR_MIN, ABS_YEAR_MAX) },
+                                iconSize = 18.dp,
+                            )
+                        }
+                    }
+                    when {
+                        state.isLoading && userIds.isEmpty() ->
+                            Text("Lädt …", style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+                        userIds.isEmpty() ->
+                            Text("Kalender konnte nicht geladen werden.", style = HbType.small.copy(fontSize = 12.5.sp), color = Hb.ink3)
+                        else -> AbwSettingsPanel(ctx, data, userIds, year, absenceViewModel)
+                    }
+                }
+            }
         }
     }
 }
