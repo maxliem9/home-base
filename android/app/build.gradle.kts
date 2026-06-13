@@ -45,6 +45,16 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the merged manifest + Android resources on the unit-test classpath
+            // (it boots a sandboxed Android runtime). Required by LogoutTeardownComposeTest, which
+            // drives the real MainActivity auth-state→ViewModelStore.clear() effect over a Compose
+            // composition without an emulator.
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -76,4 +86,10 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Robolectric + Compose UI test: run a real composition (createComposeRule) under a sandboxed
+    // Android runtime as a plain JVM unit test, no emulator — drives MainActivity's logout-teardown
+    // effect (issue #192). ui-test-manifest supplies the ComponentActivity host the rule needs.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

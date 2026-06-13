@@ -14,6 +14,7 @@ coil = "2.7.0"
 junit = "4.13.2"
 mockk = "1.13.10"
 coroutinesTest = "1.9.0"
+robolectric = "4.14.1"
 securityCrypto = "1.1.0-alpha06"
 navigationCompose = "2.8.5"
 
@@ -46,6 +47,10 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+# Compose UI test harness (createComposeRule). Version comes from the Compose BOM.
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
