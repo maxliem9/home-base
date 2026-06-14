@@ -160,7 +160,7 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     val items = grouped[group] ?: return@forEach
                     if (items.isEmpty()) return@forEach
 
-                    GroupLabel(group.label, items.size)
+                    GroupLabel(stringResource(group.labelRes), items.size)
                     Column(Modifier.padding(horizontal = 18.dp)) {
                         items.forEach { todo ->
                             TaskRow(

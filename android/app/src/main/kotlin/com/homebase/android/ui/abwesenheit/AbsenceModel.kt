@@ -1,6 +1,8 @@
 package com.homebase.android.ui.abwesenheit
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
+import com.homebase.android.R
 import com.homebase.android.data.model.AbsSettingsDto
 import com.homebase.android.data.model.AbsenceDto
 import com.homebase.android.data.model.AbsenceStateDto
@@ -17,17 +19,23 @@ import java.util.Locale
  * mobile build is light-theme only, so the palette drops the dark variants.
  */
 
-/** Stored, user-set day types (Feiertag + Teilzeit are derived, never stored). */
+/**
+ * Stored, user-set day types (Feiertag + Teilzeit are derived, never stored). These are stable
+ * backend codes only; their user-facing labels live in string resources (`absence_type_*`, DE+EN)
+ * and are resolved at the (composable) call sites — the model carries no hardcoded German (#204).
+ */
 object AbsTypes {
     const val URLAUB = "URLAUB"
     const val KRANK = "KRANK"
     const val KIND_KRANK = "KIND_KRANK"
 
-    fun label(type: String): String = when (type) {
-        URLAUB -> "Urlaub"
-        KRANK -> "Krank"
-        KIND_KRANK -> "Kind-krank"
-        else -> type
+    /** Maps a stored absence type to its label string-resource id (resolve via `stringResource`). */
+    @StringRes
+    fun labelRes(type: String): Int = when (type) {
+        URLAUB -> R.string.absence_type_urlaub
+        KRANK -> R.string.absence_type_krank
+        KIND_KRANK -> R.string.absence_type_kind
+        else -> R.string.absence_type_work
     }
 }
 
@@ -281,11 +289,3 @@ fun isWorkdayFor(state: AbsenceStateDto, userId: String, ds: String): Boolean {
     return true
 }
 
-/** German label for a resolved day-state (used in the day-editor person note). */
-fun statusLabel(st: DayState): String = when {
-    st.type != null -> AbsTypes.label(st.type)
-    st.holiday != null -> "Feiertag"
-    st.ptOff -> "Teilzeit frei"
-    st.weekend -> "Wochenende"
-    else -> "Arbeitstag"
-}

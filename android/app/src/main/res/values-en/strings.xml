@@ -93,6 +93,12 @@
     <string name="todo_plan">Plan</string>
     <string name="todo_add_subtask">Add subtask …</string>
     <string name="todo_done_section">Done</string>
+    <!-- Due-date group headers (Format.DueGroup) -->
+    <string name="due_group_overdue">Overdue</string>
+    <string name="due_group_today">Today</string>
+    <string name="due_group_soon">Soon</string>
+    <string name="due_group_later">Later</string>
+    <string name="due_group_no_date">No date</string>
     <string name="todo_edit_title">Edit task</string>
     <string name="todo_new_title">New task</string>
     <string name="todo_field_list">List</string>
@@ -242,6 +248,9 @@
     <string name="time_split_at">Split time</string>
     <string name="time_split_break">Break in minutes (optional)</string>
     <string name="time_split_preview">Part 1: %1$s–%2$s · Part 2: %3$s–%4$s</string>
+    <string name="time_split_err_range">The split time must lie between start and end</string>
+    <string name="time_split_err_break">Enter the break in minutes (e.g. 30)</string>
+    <string name="time_split_err_break_overrun">The break must end before the entry ends</string>
     <string name="time_detail_active_project">Active project</string>
     <string name="time_detail_project">Project</string>
     <string name="time_fact_total">Total</string>

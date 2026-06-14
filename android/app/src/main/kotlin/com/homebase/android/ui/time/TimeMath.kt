@@ -1,5 +1,7 @@
 package com.homebase.android.ui.time
 
+import androidx.annotation.StringRes
+import com.homebase.android.R
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.ui.util.Format
@@ -18,7 +20,7 @@ import kotlin.math.roundToInt
 // validation/preview (#66). Mirrors web/src/components/TimeView.tsx.
 // ---------------------------------------------------------------------------
 
-private val DE = Locale.GERMAN
+private fun isEn(loc: Locale): Boolean = loc.language == Locale.ENGLISH.language
 
 /**
  * Seconds a running timer has accumulated since the forecast snapshot at
@@ -53,13 +55,13 @@ fun UserForecastDto.withLiveExtra(extraSeconds: Long, liveProjectId: String?): U
 // Project-card day/week saldo (#64) — web reference: projectStats memo
 // ---------------------------------------------------------------------------
 
-/** Day + week saldo of one project card, incl. the German fallback labels. */
+/** Day + week saldo of one project card, incl. the locale-aware fallback labels. */
 data class ProjectCardStats(
     val daySeconds: Long,
-    /** "Heute" / "Gestern" / "Vorgestern" / weekday / "3. Juni" */
+    /** "Heute"/"Today" · "Gestern"/"Yesterday" · "Vorgestern"/"2 days ago" · weekday · date */
     val dayLabel: String,
     val weekSeconds: Long,
-    /** "Diese Woche" / "Letzte Woche" / "12.–18. Mai" */
+    /** "Diese Woche"/"This week" · "Letzte Woche"/"Last week" · date range */
     val weekLabel: String,
 )
 
@@ -73,6 +75,7 @@ fun projectCardStats(
     entries: List<TimeEntryDto>,
     now: Instant = Instant.now(),
     zone: ZoneId = ZoneId.systemDefault(),
+    locale: Locale = Locale.getDefault(),
 ): ProjectCardStats {
     val today = now.atZone(zone).toLocalDate()
     val thisWeekStart = today.with(DayOfWeek.MONDAY)
@@ -93,33 +96,42 @@ fun projectCardStats(
         else weeks.keys.filter { it.isBefore(thisWeekStart) }.maxOrNull()
     return ProjectCardStats(
         daySeconds = dayKey?.let(days::getValue) ?: 0L,
-        dayLabel = if (dayKey == null) "Heute" else statDayLabel(dayKey, today),
+        dayLabel = if (dayKey == null) (if (isEn(locale)) "Today" else "Heute") else statDayLabel(dayKey, today, locale),
         weekSeconds = weekKey?.let(weeks::getValue) ?: 0L,
-        weekLabel = if (weekKey == null) "Diese Woche" else statWeekLabel(weekKey, today),
+        weekLabel = if (weekKey == null) (if (isEn(locale)) "This week" else "Diese Woche") else statWeekLabel(weekKey, today, locale),
     )
 }
 
-/** Compact day label like the web's dayGroupLabel: Heute/Gestern/Vorgestern/Wochentag/"3. Juni". */
-internal fun statDayLabel(date: LocalDate, today: LocalDate): String =
-    when (ChronoUnit.DAYS.between(date, today)) {
-        0L -> "Heute"
-        1L -> "Gestern"
-        2L -> "Vorgestern"
-        in 3L..6L -> date.dayOfWeek.getDisplayName(TextStyle.FULL, DE)
-        else -> "${date.dayOfMonth}. ${date.month.getDisplayName(TextStyle.FULL, DE)}"
+/** Compact day label like the web's dayGroupLabel: Heute/Gestern/Vorgestern/Wochentag/date — in [locale]. */
+internal fun statDayLabel(date: LocalDate, today: LocalDate, locale: Locale = Locale.getDefault()): String {
+    val en = isEn(locale)
+    return when (ChronoUnit.DAYS.between(date, today)) {
+        0L -> if (en) "Today" else "Heute"
+        1L -> if (en) "Yesterday" else "Gestern"
+        2L -> if (en) "2 days ago" else "Vorgestern"
+        in 3L..6L -> date.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
+        else -> {
+            val month = date.month.getDisplayName(TextStyle.FULL, locale)
+            if (en) "${date.dayOfMonth} $month" else "${date.dayOfMonth}. $month"
+        }
     }
+}
 
-/** Week label like the web's weekLabel: "Diese Woche" / "Letzte Woche" / "12.–18. Mai". */
-internal fun statWeekLabel(weekStart: LocalDate, today: LocalDate): String {
+/** Week label like the web's weekLabel: "Diese Woche" / "This week" / date range — in [locale]. */
+internal fun statWeekLabel(weekStart: LocalDate, today: LocalDate, locale: Locale = Locale.getDefault()): String {
+    val en = isEn(locale)
     val currentStart = today.with(DayOfWeek.MONDAY)
-    if (weekStart == currentStart) return "Diese Woche"
-    if (weekStart == currentStart.minusWeeks(1)) return "Letzte Woche"
+    if (weekStart == currentStart) return if (en) "This week" else "Diese Woche"
+    if (weekStart == currentStart.minusWeeks(1)) return if (en) "Last week" else "Letzte Woche"
     val end = weekStart.plusDays(6)
-    val endMonth = end.month.getDisplayName(TextStyle.FULL, DE)
+    val endMonth = end.month.getDisplayName(TextStyle.FULL, locale)
     return if (weekStart.month == end.month) {
-        "${weekStart.dayOfMonth}.–${end.dayOfMonth}. $endMonth"
+        if (en) "${weekStart.dayOfMonth}–${end.dayOfMonth} $endMonth"
+        else "${weekStart.dayOfMonth}.–${end.dayOfMonth}. $endMonth"
     } else {
-        "${weekStart.dayOfMonth}. ${weekStart.month.getDisplayName(TextStyle.FULL, DE)} – ${end.dayOfMonth}. $endMonth"
+        val startMonth = weekStart.month.getDisplayName(TextStyle.FULL, locale)
+        if (en) "${weekStart.dayOfMonth} $startMonth – ${end.dayOfMonth} $endMonth"
+        else "${weekStart.dayOfMonth}. $startMonth – ${end.dayOfMonth}. $endMonth"
     }
 }
 
@@ -135,11 +147,12 @@ fun defaultSplitAt(startedAtIso: String, stoppedAtIso: String?): Instant? {
     return Instant.ofEpochMilli(midMs / 60_000 * 60_000)
 }
 
-/** Result of validating a split draft — either both planned parts or a German message. */
+/** Result of validating a split draft — either both planned parts or a localized message resource. */
 sealed interface SplitCheck {
     /** [breakMinutes] already rounded to whole minutes; [secondStart] = splitAt + break. */
     data class Valid(val splitAt: Instant, val breakMinutes: Int, val secondStart: Instant) : SplitCheck
-    data class Invalid(val message: String) : SplitCheck
+    /** [messageRes] resolves the localized error via `stringResource` (#204). */
+    data class Invalid(@StringRes val messageRes: Int) : SplitCheck
 }
 
 /**
@@ -151,17 +164,17 @@ fun checkSplit(startedAtIso: String, stoppedAtIso: String?, splitAt: Instant, br
     val start = Format.parseInstant(startedAtIso)
     val stop = Format.parseInstant(stoppedAtIso)
     if (start == null || stop == null || !splitAt.isAfter(start) || !stop.isAfter(splitAt)) {
-        return SplitCheck.Invalid("Die Trennzeit muss zwischen Start und Ende liegen")
+        return SplitCheck.Invalid(R.string.time_split_err_range)
     }
     val raw = breakText.trim()
     val parsed = if (raw.isEmpty()) 0.0 else raw.replace(',', '.').toDoubleOrNull()
     val breakMinutes = parsed?.takeIf { it.isFinite() }?.roundToInt()
     if (breakMinutes == null || breakMinutes < 0) {
-        return SplitCheck.Invalid("Pause in Minuten angeben (z. B. 30)")
+        return SplitCheck.Invalid(R.string.time_split_err_break)
     }
     val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
     if (!stop.isAfter(secondStart)) {
-        return SplitCheck.Invalid("Die Pause muss vor dem Ende des Eintrags enden")
+        return SplitCheck.Invalid(R.string.time_split_err_break_overrun)
     }
     return SplitCheck.Valid(splitAt, breakMinutes, secondStart)
 }

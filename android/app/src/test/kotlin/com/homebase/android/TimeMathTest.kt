@@ -1,5 +1,6 @@
 package com.homebase.android
 
+import com.homebase.android.R
 import com.homebase.android.data.model.ProjectForecastDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
@@ -16,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.ZoneId
+import java.util.Locale
 
 /**
  * Unit tests for the pure Zeiterfassung math (#64/#66): live ticking of the
@@ -112,6 +114,7 @@ class TimeMathTest {
             ),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals(7_200L, stats.daySeconds)
         assertEquals("Heute", stats.dayLabel)
@@ -128,6 +131,7 @@ class TimeMathTest {
             ),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         // only the latest active day counts, labelled relative to today (Sunday)
         assertEquals(14_400L, stats.daySeconds)
@@ -144,6 +148,7 @@ class TimeMathTest {
             listOf(entry("2026-06-03T06:00:00Z", "2026-06-03T07:00:00Z", 3_600)),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals("Mittwoch", wednesday.dayLabel)
 
@@ -152,6 +157,7 @@ class TimeMathTest {
             listOf(entry("2026-05-27T06:00:00Z", "2026-05-27T07:00:00Z", 3_600)),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals("27. Mai", older.dayLabel)
         assertEquals(3_600L, older.weekSeconds)
@@ -165,6 +171,7 @@ class TimeMathTest {
             listOf(entry("2026-05-06T06:00:00Z", "2026-05-06T07:00:00Z", 3_600)),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals("4.–10. Mai", sameMonth.weekLabel)
 
@@ -173,8 +180,32 @@ class TimeMathTest {
             listOf(entry("2026-04-28T06:00:00Z", "2026-04-28T07:00:00Z", 3_600)),
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals("27. April – 3. Mai", crossMonth.weekLabel)
+    }
+
+    @Test
+    fun `card stats localize day and week labels under an English locale`() {
+        // Same fixtures as the German cases above, but under en → English month/weekday names.
+        val wednesday = projectCardStats(
+            listOf(entry("2026-06-03T06:00:00Z", "2026-06-03T07:00:00Z", 3_600)), // Wed, this week
+            now = sundayNoon,
+            zone = zone,
+            locale = Locale.ENGLISH,
+        )
+        assertEquals("Wednesday", wednesday.dayLabel)
+        assertEquals("This week", wednesday.weekLabel)
+
+        // older entry → date label + cross-month week range, all in English
+        val crossMonth = projectCardStats(
+            listOf(entry("2026-04-28T06:00:00Z", "2026-04-28T07:00:00Z", 3_600)),
+            now = sundayNoon,
+            zone = zone,
+            locale = Locale.ENGLISH,
+        )
+        assertEquals("28 April", crossMonth.dayLabel)
+        assertEquals("27 April – 3 May", crossMonth.weekLabel)
     }
 
     @Test
@@ -183,6 +214,7 @@ class TimeMathTest {
             listOf(entry("2026-06-07T09:00:00Z")), // running since 1h
             now = sundayNoon,
             zone = zone,
+            locale = Locale.GERMAN,
         )
         assertEquals(3_600L, stats.daySeconds)
         assertEquals("Heute", stats.dayLabel)
@@ -191,7 +223,7 @@ class TimeMathTest {
 
     @Test
     fun `card stats without entries show zeros with the default labels`() {
-        val stats = projectCardStats(emptyList(), now = sundayNoon, zone = zone)
+        val stats = projectCardStats(emptyList(), now = sundayNoon, zone = zone, locale = Locale.GERMAN)
         assertEquals(0L, stats.daySeconds)
         assertEquals("Heute", stats.dayLabel)
         assertEquals(0L, stats.weekSeconds)
@@ -235,41 +267,39 @@ class TimeMathTest {
 
     @Test
     fun `checkSplit rejects a cut outside the entry`() {
-        val message = "Die Trennzeit muss zwischen Start und Ende liegen"
+        // The message is now a @StringRes id (localized on render); assert the id, not the text.
+        val res = R.string.time_split_err_range
         // exactly on the boundaries is invalid too (strictly between)
-        assertEquals(message, (checkSplit(start, stop, Instant.parse(start), "") as SplitCheck.Invalid).message)
-        assertEquals(message, (checkSplit(start, stop, Instant.parse(stop), "") as SplitCheck.Invalid).message)
+        assertEquals(res, (checkSplit(start, stop, Instant.parse(start), "") as SplitCheck.Invalid).messageRes)
+        assertEquals(res, (checkSplit(start, stop, Instant.parse(stop), "") as SplitCheck.Invalid).messageRes)
         assertEquals(
-            message,
-            (checkSplit(start, stop, Instant.parse("2026-06-03T20:00:00Z"), "") as SplitCheck.Invalid).message,
+            res,
+            (checkSplit(start, stop, Instant.parse("2026-06-03T20:00:00Z"), "") as SplitCheck.Invalid).messageRes,
         )
     }
 
     @Test
     fun `checkSplit rejects an unparseable or negative break`() {
         val cut = Instant.parse("2026-06-03T15:33:00Z")
-        val message = "Pause in Minuten angeben (z. B. 30)"
-        assertEquals(message, (checkSplit(start, stop, cut, "abc") as SplitCheck.Invalid).message)
-        assertEquals(message, (checkSplit(start, stop, cut, "-5") as SplitCheck.Invalid).message)
+        val res = R.string.time_split_err_break
+        assertEquals(res, (checkSplit(start, stop, cut, "abc") as SplitCheck.Invalid).messageRes)
+        assertEquals(res, (checkSplit(start, stop, cut, "-5") as SplitCheck.Invalid).messageRes)
     }
 
     @Test
     fun `checkSplit rejects a break that ends at or after the entry's end`() {
         val cut = Instant.parse("2026-06-03T18:33:00Z")
-        val message = "Die Pause muss vor dem Ende des Eintrags enden"
+        val res = R.string.time_split_err_break_overrun
         // 30 min break would end exactly at stoppedAt → part two would be empty
-        assertEquals(message, (checkSplit(start, stop, cut, "30") as SplitCheck.Invalid).message)
-        assertEquals(message, (checkSplit(start, stop, cut, "45") as SplitCheck.Invalid).message)
+        assertEquals(res, (checkSplit(start, stop, cut, "30") as SplitCheck.Invalid).messageRes)
+        assertEquals(res, (checkSplit(start, stop, cut, "45") as SplitCheck.Invalid).messageRes)
         assertTrue(checkSplit(start, stop, cut, "29") is SplitCheck.Valid)
     }
 
     @Test
     fun `checkSplit treats a running entry as an invalid range`() {
         val check = checkSplit(start, null, Instant.parse("2026-06-03T15:33:00Z"), "")
-        assertEquals(
-            "Die Trennzeit muss zwischen Start und Ende liegen",
-            (check as SplitCheck.Invalid).message,
-        )
+        assertEquals(R.string.time_split_err_range, (check as SplitCheck.Invalid).messageRes)
     }
 
     @Test
@@ -279,9 +309,6 @@ class TimeMathTest {
         // (cutValid first, breakParses second, breakValid third).
         val cutBeforeStart = Instant.parse("2026-06-03T11:00:00Z") // before start
         val check = checkSplit(start, stop, cutBeforeStart, "abc")
-        assertEquals(
-            "Die Trennzeit muss zwischen Start und Ende liegen",
-            (check as SplitCheck.Invalid).message,
-        )
+        assertEquals(R.string.time_split_err_range, (check as SplitCheck.Invalid).messageRes)
     }
 }

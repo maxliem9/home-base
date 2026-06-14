@@ -10,8 +10,11 @@ import com.homebase.android.ui.abwesenheit.wouldWork
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 
 /**
  * Custom-holiday rendering + work-credit semantics (#52, the Android pendant of #51).
@@ -23,6 +26,22 @@ import org.junit.Test
 class AbsenceCustomHolidayTest {
 
     private val user = "alice"
+
+    // Holiday names are locale-dependent now (#204); these tests assert the German names,
+    // so pin the default locale to German. CI's default is en-US, which would otherwise yield
+    // "New Year's Day" instead of "Neujahr" and fail.
+    private var savedLocale: Locale = Locale.getDefault()
+
+    @Before
+    fun pinGermanLocale() {
+        savedLocale = Locale.getDefault()
+        Locale.setDefault(Locale.GERMAN)
+    }
+
+    @After
+    fun restoreLocale() {
+        Locale.setDefault(savedLocale)
+    }
 
     private fun state(vararg holidays: CustomHolidayDto) = AbsenceStateDto(
         users = listOf(user),
