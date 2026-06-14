@@ -121,8 +121,10 @@ Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine
 Recipe mit eingebetteten Ingredients + RecipeSteps (1:n, werden
 immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
 - Recipe: id, title, description?, servings, prep_time_minutes?,
-  cook_time_minutes?, category (BREAKFAST|LUNCH|DINNER|SNACK|DESSERT|DRINK),
+  cook_time_minutes?, category (BREAKFAST|DINNER|SNACK|DESSERT|DRINK),
   created_by, created_at, updated_at
+  (LUNCH gibt es nicht mehr: per `V17__recipes_drop_lunch_category` nach DINNER gefaltet;
+  `RecipeRoutes.VALID_CATEGORIES` lehnt es beim Schreiben ab. Nicht wieder hinzufügen.)
 - Ingredient: id, recipe_id, name, amount?, unit?, sort_order
 - RecipeStep: id, recipe_id, step_number, description
 - Endpunkte unter /api/v1/recipes (Liste filterbar via ?category=)
