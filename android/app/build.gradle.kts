@@ -19,6 +19,9 @@ val localProperties = Properties().apply {
 val backendBaseUrl: String = (localProperties.getProperty("homebase.baseUrl")
     ?: System.getenv("HOMEBASE_BASE_URL")
     ?: "https://your-dyndns-domain.example.com/api/v1/").trim()
+// Escape backslash and double-quote so the value embeds safely as a Java string literal
+// in the generated BuildConfig — a fat-fingered URL can't silently break compilation.
+val backendBaseUrlLiteral: String = backendBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.homebase.android"
@@ -36,7 +39,7 @@ android {
         // Default — also the value the release/phone build inherits: the real backend from
         // local.properties / HOMEBASE_BASE_URL, else the example placeholder. Debug overrides
         // it to the emulator loopback below.
-        buildConfigField("String", "BASE_URL", "\"$backendBaseUrl\"")
+        buildConfigField("String", "BASE_URL", "\"$backendBaseUrlLiteral\"")
     }
 
     buildTypes {
