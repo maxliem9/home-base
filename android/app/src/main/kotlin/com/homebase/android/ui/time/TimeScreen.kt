@@ -1500,7 +1500,8 @@ private fun SplitEntrySheet(
     var cutDate by remember(entry.id) { mutableStateOf(initialCut.toLocalDate()) }
     var cutTime by remember(entry.id) { mutableStateOf(initialCut.toLocalTime().withSecond(0).withNano(0)) }
     var breakText by remember(entry.id) { mutableStateOf("") }
-    var error by remember(entry.id) { mutableStateOf<String?>(null) }
+    // Holds a @StringRes id of the validation error (localized on render), or null.
+    var errorRes by remember(entry.id) { mutableStateOf<Int?>(null) }
 
     val check = checkSplit(
         startedAtIso = entry.startedAt,
@@ -1523,7 +1524,7 @@ private fun SplitEntrySheet(
                 stringResource(R.string.action_save),
                 onClick = {
                     when (check) {
-                        is SplitCheck.Invalid -> error = check.message
+                        is SplitCheck.Invalid -> errorRes = check.messageRes
                         is SplitCheck.Valid ->
                             onSave(check.splitAt.toString(), check.breakMinutes.takeIf { it > 0 })
                     }
@@ -1567,7 +1568,7 @@ private fun SplitEntrySheet(
                 color = Hb.ink3,
             )
         }
-        error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
+        errorRes?.let { Text(stringResource(it), style = HbType.meta, color = Hb.clay) }
     }
 }
 

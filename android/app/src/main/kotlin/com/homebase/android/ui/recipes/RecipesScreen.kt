@@ -97,9 +97,24 @@ import com.homebase.android.ui.util.Format
 // Constants
 // ---------------------------------------------------------------------------
 
-private val CATEGORIES = listOf("Alle", "Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
+// Recipe categories carried as their stable backend enum (#207) so the chips/filter are
+// language-independent; the display label is resolved separately from string resources. DINNER
+// is the canonical "Hauptgerichte"/"Mains"; LUNCH is intentionally omitted from the offered set
+// (collapsed into DINNER by backend migration V17) but still labels correctly if a legacy row has
+// it. The filter row prepends an "all" pseudo-category (null code).
+private val CATEGORY_CODES = listOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
 
 private fun totalTime(r: RecipeDto): Int = (r.prepTimeMinutes ?: 0) + (r.cookTimeMinutes ?: 0)
+
+/** Canonical offered code for a recipe's category — folds the legacy LUNCH alias into DINNER so a
+ *  not-yet-migrated row still matches the DINNER chip (parity with the old label-based filter). */
+private fun canonicalCategory(code: String): String =
+    code.uppercase().let { if (it == "LUNCH") "DINNER" else it }
+
+/** Localized label for a recipe category code, resolved from resources (raw code as last resort). */
+@Composable
+private fun categoryLabel(code: String): String =
+    Format.recipeCategoryLabelRes(code)?.let { stringResource(it) } ?: code
 
 /**
  * Group ingredients into consecutive runs sharing the same section label (issue #123).
@@ -167,16 +182,6 @@ internal fun sectionsToIngredients(sections: List<SectionDraft>): List<Ingredien
 /** Serialise stored steps back into the free-text editor format — one step per line. */
 internal fun stepsToText(steps: List<RecipeStepDto>): String =
     steps.joinToString("\n") { it.description }
-
-/** Map a German category chip label back to the backend enum value. */
-private fun categoryLabelToEnum(label: String): String = when (label) {
-    "Frühstück" -> "BREAKFAST"
-    "Hauptgerichte" -> "DINNER"
-    "Snack" -> "SNACK"
-    "Dessert" -> "DESSERT"
-    "Getränk" -> "DRINK"
-    else -> "DINNER"
-}
 
 // ---------------------------------------------------------------------------
 // Striped placeholder band ("Foto folgt")
@@ -252,14 +257,13 @@ private fun RecipeListPage(
     onSave: (CreateRecipeRequest) -> Unit,
     imageUrl: (RecipeImageDto) -> String,
 ) {
-    var selectedCat by remember { mutableStateOf("Alle") }
+    // null = "all"; otherwise the selected backend enum code (language-independent filter, #207).
+    var selectedCode by remember { mutableStateOf<String?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
 
-    val recipes = if (selectedCat == "Alle") {
-        state.recipes
-    } else {
-        state.recipes.filter { Format.recipeCategoryLabel(it.category) == selectedCat }
-    }
+    val recipes = selectedCode?.let { code ->
+        state.recipes.filter { canonicalCategory(it.category) == code }
+    } ?: state.recipes
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
@@ -282,11 +286,17 @@ private fun RecipeListPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spacer(Modifier.width(18.dp))
-                CATEGORIES.forEach { cat ->
+                // "All" pseudo-chip (null code) first, then one chip per category code.
+                HbTagChip(
+                    text = stringResource(R.string.recipe_cat_all),
+                    active = selectedCode == null,
+                    onClick = { selectedCode = null },
+                )
+                CATEGORY_CODES.forEach { code ->
                     HbTagChip(
-                        text = cat,
-                        active = selectedCat == cat,
-                        onClick = { selectedCat = cat },
+                        text = categoryLabel(code),
+                        active = selectedCode == code,
+                        onClick = { selectedCode = code },
                     )
                 }
                 Spacer(Modifier.width(18.dp))
@@ -298,11 +308,8 @@ private fun RecipeListPage(
                 HbEmpty(
                     HbIcons.chef,
                     stringResource(R.string.recipe_empty_title),
-                    if (selectedCat == "Alle") {
-                        stringResource(R.string.recipe_empty_all)
-                    } else {
-                        stringResource(R.string.recipe_empty_category, selectedCat)
-                    },
+                    selectedCode?.let { stringResource(R.string.recipe_empty_category, categoryLabel(it)) }
+                        ?: stringResource(R.string.recipe_empty_all),
                 )
             } else {
                 RecipeGrid(recipes = recipes, onOpen = onOpen, imageUrl = imageUrl)
@@ -384,7 +391,7 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                 }
                 Box(
                     Modifier.align(Alignment.TopStart).padding(9.dp),
-                ) { HbBadge(Format.recipeCategoryLabel(recipe.category), tone = HbTone.Neutral) }
+                ) { HbBadge(categoryLabel(recipe.category), tone = HbTone.Neutral) }
             }
             // Body
             Column(
@@ -558,7 +565,7 @@ private fun RecipeDetailPage(
                 }
             }
             Box(Modifier.align(Alignment.TopStart).padding(12.dp)) {
-                HbBadge(Format.recipeCategoryLabel(recipe.category), tone = HbTone.Neutral)
+                HbBadge(categoryLabel(recipe.category), tone = HbTone.Neutral)
             }
         }
 
@@ -1017,13 +1024,15 @@ private fun RecipeFormSheet(
     onDismiss: () -> Unit,
     onSave: (CreateRecipeRequest) -> Unit,
 ) {
-    val catChips = listOf("Frühstück", "Hauptgerichte", "Snack", "Dessert", "Getränk")
-
     var title by remember { mutableStateOf(existing?.title ?: "") }
-    var categoryLabel by remember {
+    // Carry the stable backend enum code (#207); the chip labels are localized on render. An
+    // existing recipe's code is normalized into the offered set (legacy LUNCH → DINNER), default DINNER.
+    var categoryCode by remember {
         mutableStateOf(
-            existing?.let { Format.recipeCategoryLabel(it.category) }?.takeIf { it in catChips }
-                ?: "Hauptgerichte",
+            existing?.category
+                ?.let { canonicalCategory(it) }
+                ?.takeIf { it in CATEGORY_CODES }
+                ?: "DINNER",
         )
     }
     var servings by remember { mutableStateOf(existing?.servings?.toString() ?: "") }
@@ -1069,7 +1078,7 @@ private fun RecipeFormSheet(
                             servings = servings.toIntOrNull(),
                             prepTimeMinutes = prep.toIntOrNull(),
                             cookTimeMinutes = cook.toIntOrNull(),
-                            category = categoryLabelToEnum(categoryLabel),
+                            category = categoryCode,
                             ingredients = sectionsToIngredients(sections),
                             steps = parseSteps(stepsText),
                         ),
@@ -1089,11 +1098,11 @@ private fun RecipeFormSheet(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                catChips.forEach { label ->
+                CATEGORY_CODES.forEach { code ->
                     HbPickText(
-                        text = label,
-                        active = categoryLabel == label,
-                        onClick = { categoryLabel = label },
+                        text = categoryLabel(code),
+                        active = categoryCode == code,
+                        onClick = { categoryCode = code },
                     )
                 }
             }

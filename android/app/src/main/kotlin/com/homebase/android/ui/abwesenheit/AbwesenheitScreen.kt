@@ -95,8 +95,6 @@ import java.time.ZoneOffset
 // (day editor, Zeitraum, Einstellungen). Logic lives in AbsenceModel/Holidays.
 // ---------------------------------------------------------------------------
 
-private val WD_LONG = listOf("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
-
 @Composable
 fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -332,14 +330,14 @@ private fun MonthGrid(
         ) {
             HbIconButton(HbIcons.chevronLeft, { onMonth(month - 1) }, iconSize = 20.dp)
             Row {
-                Text("${AbwCal.MON_FULL[month]} ", style = HbType.sheetTitle.copy(fontSize = 19.sp), color = Hb.ink)
+                Text("${AbwCal.monFull()[month]} ", style = HbType.sheetTitle.copy(fontSize = 19.sp), color = Hb.ink)
                 Text("$year", style = HbType.sheetTitle.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold), color = Hb.ink3)
             }
             HbIconButton(HbIcons.chevronRight, { onMonth(month + 1) }, iconSize = 20.dp)
         }
         // weekday header
         Row(Modifier.fillMaxWidth().padding(bottom = 5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            AbwCal.WD_MIN.forEach { w ->
+            AbwCal.wdMin().forEach { w ->
                 Text(
                     w, modifier = Modifier.weight(1f), textAlign = TextAlign.Center,
                     style = HbType.small.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold), color = Hb.ink3,
@@ -478,11 +476,12 @@ private fun YearGrid(
                 }
             }
             // 12 month rows
+            val monAbbr = AbwCal.monAbbr()
             for (m in 0 until 12) {
                 val dim = AbwCal.daysInMonth(year, m)
                 Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
                     Box(Modifier.width(26.dp).height(16.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
-                        Text(AbwCal.MON_ABBR[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2)
+                        Text(monAbbr[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2)
                     }
                     for (d in 1..31) {
                         if (d > dim) {
@@ -581,9 +580,9 @@ private fun EditorPerson(ctx: AbsCtx, uid: String, ds: String, vm: AbsenceViewMo
     }
     val typeOpts: List<Pair<String, String?>> = listOf(
         stringResource(R.string.absence_type_work) to null,
-        stringResource(R.string.absence_type_urlaub) to AbsTypes.URLAUB,
-        stringResource(R.string.absence_type_krank) to AbsTypes.KRANK,
-        stringResource(R.string.absence_type_kind) to AbsTypes.KIND_KRANK,
+        stringResource(AbsTypes.labelRes(AbsTypes.URLAUB)) to AbsTypes.URLAUB,
+        stringResource(AbsTypes.labelRes(AbsTypes.KRANK)) to AbsTypes.KRANK,
+        stringResource(AbsTypes.labelRes(AbsTypes.KIND_KRANK)) to AbsTypes.KIND_KRANK,
     )
     Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -697,9 +696,9 @@ private fun RangeSheet(
     var bis by remember { mutableStateOf(prefill?.second ?: todayStr) }
 
     val typeOpts: List<Pair<String, String?>> = listOf(
-        stringResource(R.string.absence_type_urlaub) to AbsTypes.URLAUB,
-        stringResource(R.string.absence_type_krank) to AbsTypes.KRANK,
-        stringResource(R.string.absence_type_kind) to AbsTypes.KIND_KRANK,
+        stringResource(AbsTypes.labelRes(AbsTypes.URLAUB)) to AbsTypes.URLAUB,
+        stringResource(AbsTypes.labelRes(AbsTypes.KRANK)) to AbsTypes.KRANK,
+        stringResource(AbsTypes.labelRes(AbsTypes.KIND_KRANK)) to AbsTypes.KIND_KRANK,
         stringResource(R.string.absence_type_delete) to null,
     )
     val firstTarget = targets.firstOrNull()
@@ -856,11 +855,12 @@ private fun PartTimeRow(r: com.homebase.android.data.model.PartTimeRuleDto, vm: 
         Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface2).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        val wdLong = AbwCal.wdLong()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
                 SelectField(
-                    value = "${WD_LONG[r.weekday - 1]} frei",
-                    options = (1..5).map { "${WD_LONG[it - 1]} frei" to it.toString() },
+                    value = stringResource(R.string.absence_parttime_day_free, wdLong[r.weekday - 1]),
+                    options = (1..5).map { stringResource(R.string.absence_parttime_day_free, wdLong[it - 1]) to it.toString() },
                     onSelect = { vm.updatePartTime(r.id, weekday = it.toInt()) },
                 )
             }

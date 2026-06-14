@@ -99,6 +99,12 @@
     <string name="todo_plan">Planen</string>
     <string name="todo_add_subtask">Unteraufgabe hinzufügen …</string>
     <string name="todo_done_section">Erledigt</string>
+    <!-- Due-date group headers (Format.DueGroup) -->
+    <string name="due_group_overdue">Überfällig</string>
+    <string name="due_group_today">Heute</string>
+    <string name="due_group_soon">Demnächst</string>
+    <string name="due_group_later">Später</string>
+    <string name="due_group_no_date">Ohne Datum</string>
     <string name="todo_edit_title">Aufgabe bearbeiten</string>
     <string name="todo_new_title">Neue Aufgabe</string>
     <string name="todo_field_list">Liste</string>
@@ -248,6 +254,9 @@
     <string name="time_split_at">Trennzeit</string>
     <string name="time_split_break">Pause in Minuten (optional)</string>
     <string name="time_split_preview">Teil 1: %1$s–%2$s · Teil 2: %3$s–%4$s</string>
+    <string name="time_split_err_range">Die Trennzeit muss zwischen Start und Ende liegen</string>
+    <string name="time_split_err_break">Pause in Minuten angeben (z. B. 30)</string>
+    <string name="time_split_err_break_overrun">Die Pause muss vor dem Ende des Eintrags enden</string>
     <string name="time_detail_active_project">Aktives Projekt</string>
     <string name="time_detail_project">Projekt</string>
     <string name="time_fact_total">Gesamt</string>

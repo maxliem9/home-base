@@ -1,6 +1,8 @@
 package com.homebase.android.ui.util
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
+import com.homebase.android.R
 import com.homebase.android.ui.components.HbTone
 import java.time.Instant
 import java.time.LocalDate
@@ -15,14 +17,23 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
- * Shared, locale-aware (German) formatting helpers used across the mobile screens.
- * Centralised so date/duration/relative-time rendering is consistent everywhere and
- * mirrors the desktop copy described in docs/android/README.md.
+ * Shared, locale-aware formatting helpers used across the mobile screens. Centralised so
+ * date/duration/relative-time rendering is consistent everywhere and mirrors the desktop copy
+ * described in docs/android/README.md.
+ *
+ * These are Compose-free utilities (called from both composables and unit tests), so they take
+ * the active [Locale] rather than a `Context`/`stringResource`. It defaults to
+ * [Locale.getDefault], which AppCompat's per-app locale switch keeps in sync with the in-app
+ * de/en toggle (`AppCompatDelegate.setApplicationLocales` updates both the resource Configuration
+ * and the default JVM locale) — so absolute month/weekday names and the fixed vocabulary below
+ * follow the chosen language. Tests pass an explicit locale to pin the expected output (#204).
  */
 object Format {
 
-    private val DE = Locale.GERMAN
     private val zone: ZoneId get() = ZoneId.systemDefault()
+
+    /** True when [loc] is English; drives the fixed-vocabulary strings (everything not a date name). */
+    private fun isEn(loc: Locale): Boolean = loc.language == Locale.ENGLISH.language
 
     // -----------------------------------------------------------------------
     // Parsing
@@ -48,17 +59,18 @@ object Format {
     // Absolute date formatting
     // -----------------------------------------------------------------------
 
-    /** "Mittwoch, 3. Juni" — the dashboard eyebrow for [date] (defaults to today). */
-    fun longWeekdayDate(date: LocalDate = LocalDate.now()): String {
-        val weekday = date.dayOfWeek.getDisplayName(TextStyle.FULL, DE)
-        val month = date.month.getDisplayName(TextStyle.FULL, DE)
-        return "$weekday, ${date.dayOfMonth}. $month"
+    /** "Mittwoch, 3. Juni" / "Wednesday, 3 June" — the dashboard eyebrow for [date]. */
+    fun longWeekdayDate(date: LocalDate = LocalDate.now(), locale: Locale = Locale.getDefault()): String {
+        val weekday = date.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
+        val month = date.month.getDisplayName(TextStyle.FULL, locale)
+        return if (isEn(locale)) "$weekday, ${date.dayOfMonth} $month"
+        else "$weekday, ${date.dayOfMonth}. $month"
     }
 
-    /** "3. Juni" (current year) or "3. Juni 2025" (other years). */
-    fun shortDate(date: LocalDate): String {
-        val month = date.month.getDisplayName(TextStyle.FULL, DE)
-        val base = "${date.dayOfMonth}. $month"
+    /** "3. Juni" / "3 June" (current year) or with the year appended (other years). */
+    fun shortDate(date: LocalDate, locale: Locale = Locale.getDefault()): String {
+        val month = date.month.getDisplayName(TextStyle.FULL, locale)
+        val base = if (isEn(locale)) "${date.dayOfMonth} $month" else "${date.dayOfMonth}. $month"
         return if (date.year == LocalDate.now().year) base else "$base ${date.year}"
     }
 
@@ -74,20 +86,21 @@ object Format {
     // Relative time ("vor 4 Std")
     // -----------------------------------------------------------------------
 
-    fun relativeTime(iso: String?, now: Instant = Instant.now()): String {
+    fun relativeTime(iso: String?, now: Instant = Instant.now(), locale: Locale = Locale.getDefault()): String {
         val then = parseInstant(iso) ?: return ""
         val secs = ChronoUnit.SECONDS.between(then, now)
-        if (secs < 0) return "gerade eben"
+        val en = isEn(locale)
+        if (secs < 0) return if (en) "just now" else "gerade eben"
         val mins = secs / 60
         val hours = mins / 60
         val days = ChronoUnit.DAYS.between(then.atZone(zone).toLocalDate(), now.atZone(zone).toLocalDate())
         return when {
-            secs < 60 -> "gerade eben"
-            mins < 60 -> "vor $mins Min"
-            hours < 24 && days == 0L -> "vor $hours Std"
-            days == 1L -> "gestern"
-            days < 7 -> "vor $days Tagen"
-            else -> shortDate(then.atZone(zone).toLocalDate())
+            secs < 60 -> if (en) "just now" else "gerade eben"
+            mins < 60 -> if (en) "${mins}m ago" else "vor $mins Min"
+            hours < 24 && days == 0L -> if (en) "${hours}h ago" else "vor $hours Std"
+            days == 1L -> if (en) "yesterday" else "gestern"
+            days < 7 -> if (en) "${days}d ago" else "vor $days Tagen"
+            else -> shortDate(then.atZone(zone).toLocalDate(), locale)
         }
     }
 
@@ -95,11 +108,14 @@ object Format {
     // Greeting (time-of-day aware)
     // -----------------------------------------------------------------------
 
-    /** "Guten Morgen" / "Guten Tag" / "Guten Abend" based on the local hour. */
-    fun greeting(now: LocalTime = LocalTime.now()): String = when (now.hour) {
-        in 5..10 -> "Guten Morgen"
-        in 11..17 -> "Guten Tag"
-        else -> "Guten Abend"
+    /** "Guten Morgen" / "Good morning" … based on the local hour. */
+    fun greeting(now: LocalTime = LocalTime.now(), locale: Locale = Locale.getDefault()): String {
+        val en = isEn(locale)
+        return when (now.hour) {
+            in 5..10 -> if (en) "Good morning" else "Guten Morgen"
+            in 11..17 -> if (en) "Good afternoon" else "Guten Tag"
+            else -> if (en) "Good evening" else "Guten Abend"
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -112,16 +128,17 @@ object Format {
         return "%02d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
     }
 
-    /** "2 Std 45 Min" / "45 Min" / "12 Sek" — human duration. */
-    fun durationLong(totalSeconds: Long): String {
+    /** "2 Std 45 Min" / "2h 45m" … — human duration. */
+    fun durationLong(totalSeconds: Long, locale: Locale = Locale.getDefault()): String {
         val s = totalSeconds.coerceAtLeast(0)
         val h = s / 3600
         val m = (s % 3600) / 60
+        val en = isEn(locale)
         return when {
-            h > 0 && m > 0 -> "$h Std $m Min"
-            h > 0 -> "$h Std"
-            m > 0 -> "$m Min"
-            else -> "${s} Sek"
+            h > 0 && m > 0 -> if (en) "${h}h ${m}m" else "$h Std $m Min"
+            h > 0 -> if (en) "${h}h" else "$h Std"
+            m > 0 -> if (en) "${m}m" else "$m Min"
+            else -> if (en) "${s}s" else "${s} Sek"
         }
     }
 
@@ -138,9 +155,11 @@ object Format {
      * Compact forecast suffix at a running timer (#31/#55): "bis ca. 16:32", or
      * "Soll erreicht" once the projected end has passed. Null without a forecast.
      */
-    fun etaShortLabel(expectedEndAt: String?, now: Instant = Instant.now()): String? {
+    fun etaShortLabel(expectedEndAt: String?, now: Instant = Instant.now(), locale: Locale = Locale.getDefault()): String? {
         val end = parseInstant(expectedEndAt) ?: return null
-        return if (end.isAfter(now)) "bis ca. ${clockOfDay(expectedEndAt)}" else "Soll erreicht"
+        val en = isEn(locale)
+        return if (end.isAfter(now)) (if (en) "until ~${clockOfDay(expectedEndAt)}" else "bis ca. ${clockOfDay(expectedEndAt)}")
+        else (if (en) "Target reached" else "Soll erreicht")
     }
 
     /** Live elapsed seconds since [startedAtIso]. */
@@ -167,13 +186,14 @@ object Format {
         startInstant.toString() to stopInstant.toString()
     }.getOrNull()
 
-    /** Day bucket label for grouping entries: "Heute" / "Gestern" / "Mittwoch, 3. Juni". */
-    fun dayGroupLabel(iso: String?): String {
-        val date = parseInstant(iso)?.atZone(zone)?.toLocalDate() ?: return "Ohne Datum"
+    /** Day bucket label for grouping entries: "Heute" / "Today" / weekday-date. */
+    fun dayGroupLabel(iso: String?, locale: Locale = Locale.getDefault()): String {
+        val en = isEn(locale)
+        val date = parseInstant(iso)?.atZone(zone)?.toLocalDate() ?: return if (en) "No date" else "Ohne Datum"
         return when (ChronoUnit.DAYS.between(date, LocalDate.now())) {
-            0L -> "Heute"
-            1L -> "Gestern"
-            else -> longWeekdayDate(date)
+            0L -> if (en) "Today" else "Heute"
+            1L -> if (en) "Yesterday" else "Gestern"
+            else -> longWeekdayDate(date, locale)
         }
     }
 
@@ -181,12 +201,13 @@ object Format {
     // Due dates (tasks)
     // -----------------------------------------------------------------------
 
-    enum class DueGroup(val label: String, val order: Int) {
-        UEBERFAELLIG("Überfällig", 0),
-        HEUTE("Heute", 1),
-        DEMNAECHST("Demnächst", 2),
-        SPAETER("Später", 3),
-        OHNE_DATUM("Ohne Datum", 4),
+    /** A task due-date bucket. [labelRes] resolves the localized header via `stringResource`. */
+    enum class DueGroup(@StringRes val labelRes: Int, val order: Int) {
+        UEBERFAELLIG(R.string.due_group_overdue, 0),
+        HEUTE(R.string.due_group_today, 1),
+        DEMNAECHST(R.string.due_group_soon, 2),
+        SPAETER(R.string.due_group_later, 3),
+        OHNE_DATUM(R.string.due_group_no_date, 4),
     }
 
     fun dueGroup(dueDate: String?, today: LocalDate = LocalDate.now()): DueGroup {
@@ -202,25 +223,26 @@ object Format {
 
     data class DueBadge(val label: String, val tone: HbTone)
 
-    /** A short due-date badge ("Heute", "Morgen", "Freitag", "vor 2 Tagen", "3. Juni"). */
-    fun dueBadge(dueDate: String?, today: LocalDate = LocalDate.now()): DueBadge? {
+    /** A short due-date badge ("Heute"/"Today", "Morgen"/"Tomorrow", weekday, "vor 2 Tagen", date). */
+    fun dueBadge(dueDate: String?, today: LocalDate = LocalDate.now(), locale: Locale = Locale.getDefault()): DueBadge? {
         val d = parseLocalDate(dueDate) ?: return null
         val diff = ChronoUnit.DAYS.between(today, d)
+        val en = isEn(locale)
         return when {
-            diff < -1 -> DueBadge("vor ${abs(diff)} Tagen", HbTone.Over)
-            diff == -1L -> DueBadge("Gestern", HbTone.Over)
-            diff == 0L -> DueBadge("Heute", HbTone.Today)
-            diff == 1L -> DueBadge("Morgen", HbTone.Soon)
-            diff < 7 -> DueBadge(d.dayOfWeek.getDisplayName(TextStyle.FULL, DE), HbTone.Soon)
-            else -> DueBadge(shortDate(d), HbTone.Far)
+            diff < -1 -> DueBadge(if (en) "${abs(diff)}d ago" else "vor ${abs(diff)} Tagen", HbTone.Over)
+            diff == -1L -> DueBadge(if (en) "Yesterday" else "Gestern", HbTone.Over)
+            diff == 0L -> DueBadge(if (en) "Today" else "Heute", HbTone.Today)
+            diff == 1L -> DueBadge(if (en) "Tomorrow" else "Morgen", HbTone.Soon)
+            diff < 7 -> DueBadge(d.dayOfWeek.getDisplayName(TextStyle.FULL, locale), HbTone.Soon)
+            else -> DueBadge(shortDate(d, locale), HbTone.Far)
         }
     }
 
-    /** "Heute · 3. Juni" used in the task edit sheet's due field. */
-    fun dueFieldLabel(dueDate: String?): String? {
+    /** "Heute · 3. Juni" / "Today · 3 June" used in the task edit sheet's due field. */
+    fun dueFieldLabel(dueDate: String?, locale: Locale = Locale.getDefault()): String? {
         val d = parseLocalDate(dueDate) ?: return null
-        val badge = dueBadge(dueDate) ?: return shortDate(d)
-        return "${badge.label} · ${shortDate(d)}"
+        val badge = dueBadge(dueDate, locale = locale) ?: return shortDate(d, locale)
+        return "${badge.label} · ${shortDate(d, locale)}"
     }
 
     // -----------------------------------------------------------------------
@@ -242,17 +264,20 @@ object Format {
     fun recipeHue(id: String): Double = 20.0 + (abs(id.hashCode().toLong()) % 76L).toDouble()
 
     /**
-     * German category labels. DINNER shows as "Hauptgerichte"; LUNCH is kept only as a tolerant
-     * alias so any legacy row not yet collapsed by backend migration V17 still reads nicely instead
-     * of showing the raw enum — it is no longer an offered category.
+     * Stable backend enum → localized-label resource (#207), or null for an unknown code. The label
+     * is resolved separately from the enum so the category chips/filter stay language-independent:
+     * the UI filters on the enum and renders `stringResource(recipeCategoryLabelRes(cat) ?: …)`,
+     * falling back to the raw code. DINNER and the legacy LUNCH alias both show as "Hauptgerichte"/
+     * "Mains" so a row not yet collapsed by backend migration V17 still reads nicely.
      */
-    fun recipeCategoryLabel(category: String): String = when (category.uppercase()) {
-        "BREAKFAST" -> "Frühstück"
-        "LUNCH", "DINNER" -> "Hauptgerichte"
-        "SNACK" -> "Snack"
-        "DESSERT" -> "Dessert"
-        "DRINK" -> "Getränk"
-        else -> category
+    @StringRes
+    fun recipeCategoryLabelRes(category: String): Int? = when (category.uppercase()) {
+        "BREAKFAST" -> R.string.recipe_cat_breakfast
+        "LUNCH", "DINNER" -> R.string.recipe_cat_main
+        "SNACK" -> R.string.recipe_cat_snack
+        "DESSERT" -> R.string.recipe_cat_dessert
+        "DRINK" -> R.string.recipe_cat_drink
+        else -> null
     }
 
     // -----------------------------------------------------------------------
