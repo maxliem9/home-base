@@ -48,11 +48,14 @@ void i18next.use(initReactI18next).init({
 // Keep the document's lang attribute in sync with the active language so screen
 // readers / browser tooling announce the right language (issue #208). i18next is
 // bootstrapped synchronously above, so reading the language here is safe; the
-// listener then follows every later switch.
-document.documentElement.lang = i18next.resolvedLanguage ?? initialLang()
-i18next.on('languageChanged', (lng) => {
-  document.documentElement.lang = lng
-})
+// listener then follows every later switch. Guarded for non-DOM environments —
+// vitest unit tests run in node (no `document`), and this module is imported there.
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = i18next.resolvedLanguage ?? initialLang()
+  i18next.on('languageChanged', (lng) => {
+    document.documentElement.lang = lng
+  })
+}
 
 /** Change the active language and persist the choice. Consumers re-render. */
 export function setLang(lang: Lang): void {
