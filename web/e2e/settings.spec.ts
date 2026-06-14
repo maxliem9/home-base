@@ -200,11 +200,15 @@ test.describe('Settings — Konto (#100)', () => {
     // German is the default: the card and the sidebar read German.
     await expect(body.getByRole('heading', { name: 'Sprache' })).toBeVisible()
     await expect(page.locator('.hb-sidebar').getByRole('button', { name: 'Aufgaben' })).toBeVisible()
+    // The document lang attribute reflects the active language (#208).
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de')
 
     // Switching to "Englisch" re-renders every consumer live (no reload).
     await body.getByRole('tab', { name: 'Englisch', exact: true }).click()
     await expect(body.getByRole('heading', { name: 'Language' })).toBeVisible()
     await expect(page.locator('.hb-sidebar').getByRole('button', { name: 'Tasks' })).toBeVisible()
+    // …and the lang attribute follows the switch (#208).
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
 
     // The choice is persisted for the next load.
     expect(await page.evaluate(() => localStorage.getItem('homebase_lang'))).toBe('en')

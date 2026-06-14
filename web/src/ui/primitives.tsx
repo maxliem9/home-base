@@ -284,6 +284,7 @@ export function Modal({
   footer?: ReactNode
   width?: number
 }) {
+  const { t } = useTranslation()
   useTopmostEscape(open, onClose)
   if (!open) return null
   return (
@@ -291,7 +292,7 @@ export function Modal({
       <div className="hb-modal" style={{ width }} onClick={(e) => e.stopPropagation()}>
         <div className="hb-modal__head">
           <h3>{title}</h3>
-          <IconButton icon="x" onClick={onClose} label="Schließen" />
+          <IconButton icon="x" onClick={onClose} label={t('common.close')} />
         </div>
         <div className="hb-modal__body">{children}</div>
         {footer && <div className="hb-modal__foot">{footer}</div>}
@@ -321,6 +322,7 @@ export function Sheet({
   footer?: ReactNode
   width?: number
 }) {
+  const { t } = useTranslation()
   useTopmostEscape(open, onClose)
   if (!open) return null
   return (
@@ -334,7 +336,7 @@ export function Sheet({
       >
         <div className="hb-sheet__head">
           <h3>{title}</h3>
-          <IconButton icon="x" onClick={onClose} label="Schließen" />
+          <IconButton icon="x" onClick={onClose} label={t('common.close')} />
         </div>
         <div className="hb-sheet__body">{children}</div>
         {footer && <div className="hb-sheet__foot">{footer}</div>}

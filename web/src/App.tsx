@@ -246,7 +246,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
       {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
           navigation. Same tab state, badges and running-timer dot as the sidebar. */}
-      <nav className="hb-tabbar" aria-label="Hauptnavigation">
+      <nav className="hb-tabbar" aria-label={t('nav.main')}>
         {NAV.map((n) => (
           <button
             key={n.id}

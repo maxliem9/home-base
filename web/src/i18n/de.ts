@@ -88,6 +88,7 @@ export const de = {
     recipes: 'Rezepte',
     abwesenheit: 'Kalender',
     settings: 'Einstellungen',
+    main: 'Hauptnavigation', // aria-label for the main (bottom/side) nav landmark
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
       dashboard: 'Start',
