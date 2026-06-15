@@ -481,6 +481,41 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-runwidget__pdot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 .hb-runwidget__clock { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
 
+/* HB-01 — "Wer ist da?" presence strip (read-only weekly absence overview) */
+.hb-presence { margin-bottom: var(--gap); }
+.hb-presence__grid { display: grid; gap: 5px; align-items: stretch; }
+.hb-presence__corner { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; align-items: flex-end; padding-bottom: 4px; }
+.hb-presence__dh { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 0 5px; border-radius: var(--radius-sm); }
+.hb-presence__dh.is-today { background: var(--accent-soft); }
+.hb-presence__wd { font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; }
+.hb-presence__dh.is-today .hb-presence__wd { color: var(--accent-ink); }
+.hb-presence__date { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.hb-presence__dh.is-today .hb-presence__date { color: var(--accent-ink); }
+.hb-presence__kita { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: oklch(0.55 0.13 25); background: oklch(0.55 0.13 25 / 0.12); border-radius: 999px; padding: 0 5px; line-height: 1.5; }
+.hb-presence__name { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0; }
+.hb-presence__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-presence__cell { min-height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); display: grid; place-items: center; }
+.hb-presence__cell.is-absent { border-color: transparent; }
+.hb-presence__cell.is-today { box-shadow: 0 0 0 2px var(--accent) inset; }
+.hb-presence__short { font-size: 12px; font-weight: 700; letter-spacing: -0.01em; }
+.hb-presence__legend { display: flex; flex-wrap: wrap; gap: 6px 15px; margin-top: 13px; }
+.hb-presence__leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.hb-presence__leg > i { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+.hb-presence__leg--kita > i { background: oklch(0.55 0.13 25 / 0.18); border: 1px solid oklch(0.55 0.13 25 / 0.4); }
+
+/* HB-10 — recurrence indicator on a dashboard task row */
+.hb-recur { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+
+/* HB-10 — compact weekly work-target progress peek */
+.hb-worktarget__top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.hb-worktarget__val { font-size: 15px; font-weight: 600; color: var(--ink); }
+.hb-worktarget__val b { font-family: var(--font-mono); }
+.hb-worktarget__target { color: var(--ink-3); font-weight: 500; }
+.hb-worktarget__pct { font-size: 13px; font-weight: 700; font-family: var(--font-mono); color: var(--accent-ink); }
+.hb-worktarget__bar { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.hb-worktarget__fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.3s; }
+.hb-worktarget__sub { font-size: 13px; color: var(--ink-3); margin-top: 9px; }
+
 /* ---------- Einkauf ---------- */
 .hb-shop-add { display: flex; gap: 12px; align-items: stretch; margin-bottom: 26px; flex-wrap: wrap; }
 .hb-shop-add .hb-quickadd { flex: 1; min-width: 240px; }

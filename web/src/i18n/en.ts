@@ -154,6 +154,17 @@ export const en: Messages = {
     digestDone: 'Done today',
     digestInbox: 'New in the Inbox',
     digestTomorrow: 'Due tomorrow',
+    // HB-01 presence strip ("Who's around?")
+    presenceTitle: "Who's around?",
+    presenceOpen: 'Calendar',
+    presenceWeek: 'This week',
+    presenceKita: 'Daycare closed',
+    // HB-10 recurring tasks + weekly work-target peek
+    recurring: 'Recurring',
+    worktargetTitle: 'Weekly target',
+    worktargetHours: 'h', // unit after the weekly target hours
+    worktargetTodayReached: "Today's goal reached",
+    worktargetTodayLeft: '{time} left today',
   },
   todos: {
     headerTitle: 'HomeBase — Tasks',

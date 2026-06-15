@@ -151,6 +151,17 @@ export const de = {
     digestDone: 'Heute erledigt',
     digestInbox: 'Neu in der Inbox',
     digestTomorrow: 'Morgen fällig',
+    // HB-01 presence strip ("Wer ist da?")
+    presenceTitle: 'Wer ist da?',
+    presenceOpen: 'Kalender',
+    presenceWeek: 'Diese Woche',
+    presenceKita: 'Kita zu',
+    // HB-10 recurring tasks + weekly work-target peek
+    recurring: 'Wiederkehrend',
+    worktargetTitle: 'Wochensoll',
+    worktargetHours: 'Std', // unit after the weekly target hours
+    worktargetTodayReached: 'Heute-Ziel erreicht',
+    worktargetTodayLeft: 'Heute noch {time}',
   },
   todos: {
     headerTitle: 'HomeBase — Aufgaben',
