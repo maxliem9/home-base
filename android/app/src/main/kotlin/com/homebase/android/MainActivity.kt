@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -84,6 +86,16 @@ class MainActivity : AppCompatActivity() {
                 ThemePref.LIGHT -> false
                 ThemePref.DARK -> true
                 ThemePref.SYSTEM -> isSystemInDarkTheme()
+            }
+            // Keep the system-bar icon contrast in sync with the *resolved* theme, not just the OS
+            // setting: enableEdgeToEdge() derives icon appearance from the OS, so forcing a theme
+            // opposite the system (e.g. Dark while the OS is Light) would otherwise leave the status-
+            // and navigation-bar icons low-contrast. Re-applied whenever `dark` changes. (#244 review.)
+            DisposableEffect(dark) {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
+                onDispose { }
             }
             HomeBaseTheme(dark = dark) {
                 val authState by container.authRepository.state.collectAsStateWithLifecycle()
