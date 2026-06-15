@@ -120,6 +120,6 @@ test.describe('Wochenplan', () => {
     await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
 
     // 4 distinct ingredient lines across the two dishes → "4 hinzugefügt"
-    await expect(page.locator('.hb-toast')).toContainText('hinzugefügt')
+    await expect(page.locator('.hb-toast')).toContainText('4 hinzugefügt')
   })
 })

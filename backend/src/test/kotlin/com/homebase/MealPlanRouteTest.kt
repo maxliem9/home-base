@@ -57,6 +57,15 @@ class MealPlanRouteTest {
     }
 
     @Test
+    fun `GET with an oversized range returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // > MAX_RANGE_DAYS (370): ~two years is well over the cap.
+        val res = client.get("/api/v1/meal-plan?from=2026-01-01&to=2027-12-31") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
     fun `PUT sets an entry and GET returns it with recipe title and category`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
@@ -150,6 +159,9 @@ class MealPlanRouteTest {
         val del = client.delete("/api/v1/meal-plan/2026-06-15/DINNER") { bearerAuth(token) }
         assertEquals(HttpStatusCode.NoContent, del.status)
         assertTrue(range(token, "2026-06-15", "2026-06-21").isEmpty())
+
+        // Idempotent: deleting an already-empty slot still answers 204.
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/meal-plan/2026-06-15/DINNER") { bearerAuth(token) }.status)
     }
 
     @Test
