@@ -277,6 +277,18 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             // sniffed/validated to be a real image. Tell the browser not to MIME-sniff so a
             // crafted file (e.g. HTML mislabelled image/png) can never be reinterpreted as markup.
             call.response.headers.append("X-Content-Type-Options", "nosniff")
+            // Hand the browser the original upload name so a download is saved as e.g. "Urlaub.jpg"
+            // instead of the browser's generic fallback ("unbekannt.jpg"). Use *inline* (not
+            // attachment) so Android Coil keeps rendering the image in place. Ktor encodes the
+            // value (umlauts → RFC 5987), we only sanitize it.
+            val downloadName = safeImageFilename(
+                row[NoteImagesTable.originalName],
+                row[NoteImagesTable.contentType],
+            )
+            call.response.header(
+                HttpHeaders.ContentDisposition,
+                ContentDisposition.Inline.withParameter(ContentDisposition.Parameters.FileName, downloadName).toString(),
+            )
             // Stream the file straight from disk (LocalFileContent) instead of reading the whole
             // image into the heap; it also adds Content-Length and supports range requests.
             call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[NoteImagesTable.contentType])))
@@ -366,6 +378,19 @@ private fun normalizeFolder(folder: String?): String? =
 
 private fun decodeTags(raw: String): List<String> =
     raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * The filename offered to the browser on download (Content-Disposition). Strips CR/LF and stray
+ * double-quotes so the value can't break out of the header, and falls back to "bild.<ext>" (ext
+ * derived from the stored content-type) when the original name is null/blank. Ktor handles the
+ * RFC-compliant quoting/encoding of umlauts; this only sanitizes the raw input.
+ */
+private fun safeImageFilename(originalName: String?, contentType: String): String {
+    val cleaned = originalName?.replace(Regex("[\\r\\n\"]"), "")?.trim().orEmpty()
+    if (cleaned.isNotEmpty()) return cleaned
+    val ext = ALLOWED_IMAGE_TYPES[contentType.lowercase()]
+    return if (ext != null) "bild.$ext" else "bild"
+}
 
 // --- Image persistence helpers (must be called inside a transaction) ----------
 
