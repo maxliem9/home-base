@@ -42,6 +42,11 @@ interface HomeBaseApi {
     @PUT("users/me/password")
     suspend fun changePassword(@Body request: ChangePasswordRequest)
 
+    // Set the signed-in user's own avatar hue (#242); 204 No Content, the new colour shows on the
+    // next GET /users (the household-visible roster the app reads hues from).
+    @PUT("users/me/avatar-color")
+    suspend fun setAvatarColor(@Body request: SetAvatarColorRequest)
+
     // --- Per-user preferences (#244) ---
 
     // The caller's prefs as a flat { key: value } map (empty when none). New keys surface here
@@ -296,6 +301,15 @@ interface HomeBaseApi {
 
     @DELETE("absence/kita/{id}")
     suspend fun deleteKita(@Path("id") id: String)
+
+    @POST("absence/holidays")
+    suspend fun createCustomHoliday(@Body request: CreateCustomHolidayRequest): CustomHolidayDto
+
+    @PUT("absence/holidays/{id}")
+    suspend fun updateCustomHoliday(@Path("id") id: String, @Body request: UpdateCustomHolidayRequest): CustomHolidayDto
+
+    @DELETE("absence/holidays/{id}")
+    suspend fun deleteCustomHoliday(@Path("id") id: String)
 
     @PUT("absence/settings/{userId}/{year}")
     suspend fun updateAbsSettings(

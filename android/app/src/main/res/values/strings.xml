@@ -426,6 +426,14 @@
     <string name="absence_kita_single">Einzeltag</string>
     <string name="absence_kita_range_label">Zeitraum (Wochenenden übersprungen)</string>
     <string name="absence_kita_add_range">Zeitraum hinzufügen</string>
+    <string name="absence_holiday_label">Eigene Feiertage</string>
+    <string name="absence_holiday_hint">Gelten für die ganze Familie und wiederholen sich jedes Jahr (z. B. Heiligabend, Silvester). Halbtags = ein halber freier Tag.</string>
+    <string name="absence_holiday_none">Noch keine eigenen Feiertage erfasst.</string>
+    <string name="absence_holiday_date">Datum (jährlich)</string>
+    <string name="absence_holiday_default_label">Feiertag</string>
+    <string name="absence_holiday_recur_hint">Das Jahr im Datum wird ignoriert — nur Tag und Monat zählen und gelten jedes Jahr.</string>
+    <string name="absence_holiday_full_day">Ganzer Tag</string>
+    <string name="absence_holiday_half_day">Halbtags</string>
     <string name="absence_date_open">offen</string>
 
     <!-- ===== Settings (Einstellungen) ===== -->
@@ -471,6 +479,11 @@
     <string name="settings_logout">Abmelden</string>
     <string name="settings_logout_hint">Beendet die Sitzung auf diesem Gerät. Du musst dich danach erneut anmelden.</string>
     <string name="settings_logout_confirm">Du wirst abgemeldet und musst dich danach erneut anmelden.</string>
+
+    <string name="settings_avatar_title">Avatar-Farbe</string>
+    <string name="settings_avatar_hint">Deine Farbe für Avatare – auch für deinen Partner sichtbar. Sofort wirksam.</string>
+    <string name="settings_avatar_label">Farbe</string>
+    <string name="settings_avatar_auto">Automatisch</string>
 
     <string name="settings_morning_digest">Morgen-Digest</string>
     <string name="settings_morning_digest_hint">Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.</string>

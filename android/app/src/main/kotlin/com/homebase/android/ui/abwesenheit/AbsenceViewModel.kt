@@ -99,6 +99,17 @@ class AbsenceViewModel(
     fun updateKita(id: String, date: String? = null, label: String? = null) = mutate { repository.updateKita(id, date, label) }
     fun removeKita(id: String) = mutate { repository.removeKita(id) }
 
+    // --- custom holidays (#243, year-agnostic month+day) ---------------------
+
+    fun addCustomHoliday(month: Int, day: Int, half: Boolean, label: String) =
+        mutate { repository.addCustomHoliday(month, day, half, label) }
+
+    /** Update a holiday from a partial patch; unset fields stay unchanged on the backend. */
+    fun updateCustomHoliday(id: String, month: Int? = null, day: Int? = null, half: Boolean? = null, label: String? = null) =
+        mutate { repository.updateCustomHoliday(id, month, day, half, label) }
+
+    fun removeCustomHoliday(id: String) = mutate { repository.removeCustomHoliday(id) }
+
     // --- settings & part-time ----------------------------------------------
 
     fun updateSettings(userId: String, year: Int, patch: UpdateAbsSettingsRequest) =

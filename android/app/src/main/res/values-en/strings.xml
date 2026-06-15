@@ -420,6 +420,14 @@
     <string name="absence_kita_single">Single day</string>
     <string name="absence_kita_range_label">Period (weekends skipped)</string>
     <string name="absence_kita_add_range">Add period</string>
+    <string name="absence_holiday_label">Custom holidays</string>
+    <string name="absence_holiday_hint">Apply to the whole family and recur every year (e.g. Christmas Eve, New Year’s Eve). Half day = half a day off.</string>
+    <string name="absence_holiday_none">No custom holidays recorded yet.</string>
+    <string name="absence_holiday_date">Date (yearly)</string>
+    <string name="absence_holiday_default_label">Holiday</string>
+    <string name="absence_holiday_recur_hint">The year in the date is ignored — only day and month count and apply every year.</string>
+    <string name="absence_holiday_full_day">Whole day</string>
+    <string name="absence_holiday_half_day">Half day</string>
     <string name="absence_date_open">open</string>
 
     <!-- ===== Settings ===== -->
@@ -465,6 +473,11 @@
     <string name="settings_logout">Sign out</string>
     <string name="settings_logout_hint">Ends the session on this device. You will need to sign in again.</string>
     <string name="settings_logout_confirm">You will be signed out and must sign in again afterwards.</string>
+
+    <string name="settings_avatar_title">Avatar colour</string>
+    <string name="settings_avatar_hint">Your colour for avatars – also visible to your partner. Applies instantly.</string>
+    <string name="settings_avatar_label">Colour</string>
+    <string name="settings_avatar_auto">Automatic</string>
 
     <string name="settings_morning_digest">Morning digest</string>
     <string name="settings_morning_digest_hint">Morning overview: due today, overdue, inbox, absences and daycare closing days.</string>

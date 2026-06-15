@@ -190,10 +190,13 @@ class MainActivity : AppCompatActivity() {
         // Per-user avatar-hue overrides (Teil von #100), from the household-visible roster.
         // Provided app-wide via LocalAvatarHues so every HbAvatar shows the colours members
         // picked on web. Empty until GET /users resolves → everyone "automatic" (derived).
-        // Display-only on Android; the picker is deferred to the settings mirror (#101).
-        val avatarHues by produceState(initialValue = emptyMap<String, Int>(), token) {
-            container.configRepository.getAvatarHues().onSuccess { value = it }
+        // Held in mutable state (not produceState) + a reload lambda so the Konto colour picker
+        // (#242) can refresh it after a successful PUT and every avatar recolours without a restart.
+        var avatarHues by remember(token) { mutableStateOf(emptyMap<String, Int>()) }
+        val reloadAvatarHues: suspend () -> Unit = {
+            container.configRepository.getAvatarHues().onSuccess { avatarHues = it }
         }
+        LaunchedEffect(token) { reloadAvatarHues() }
 
         val todoState by todoVm.uiState.collectAsState()
         val shoppingState by shoppingVm.uiState.collectAsState()
@@ -296,6 +299,9 @@ class MainActivity : AppCompatActivity() {
                     currentUser = currentUser,
                     householdName = household,
                     onHouseholdRenamed = { household = it },
+                    // Lets the Konto avatar-colour picker (#242) refresh the shared hue map after a
+                    // successful PUT, so the caller's avatar recolours app-wide without a restart.
+                    onAvatarColorChanged = reloadAvatarHues,
                     // Logout (#141): close the overlay; AuthRepository.logout() flips auth state to
                     // LoggedOut, so the top-level `when` swaps MainScaffold → LoginGate on its own.
                     onLoggedOut = { settingsOpen = false },

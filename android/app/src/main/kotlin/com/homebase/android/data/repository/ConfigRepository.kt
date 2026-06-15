@@ -3,6 +3,7 @@ package com.homebase.android.data.repository
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.RecurringConfigResponse
+import com.homebase.android.data.model.SetAvatarColorRequest
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
 import retrofit2.HttpException
@@ -29,13 +30,24 @@ class ConfigRepository(private val api: HomeBaseApi) {
     /**
      * Per-user avatar-hue overrides (Teil von #100): username → chosen hue (0..359), from the
      * household-visible roster (GET /users avatarHue). Only members who picked a colour appear;
-     * everyone else stays "automatic" (derived from the username hash). Display-only on Android —
-     * the picker lives with the Android settings mirror (#101). Falls back gracefully.
+     * everyone else stays "automatic" (derived from the username hash). The own-colour picker
+     * (Konto-Einstellungen, #242) writes via [setMyAvatarColor]. Falls back gracefully.
      */
     suspend fun getAvatarHues(): Result<Map<String, Int>> =
         apiCatching {
             api.getUsers().mapNotNull { u -> u.avatarHue?.let { u.username to it } }.toMap()
         }
+
+    /**
+     * Set the signed-in user's own avatar hue (PUT /users/me/avatar-color, #242). [hue] 0..359 sets
+     * the override, null clears it back to automatic. The only 400 the UI can trigger is a hue out
+     * of range (the picker only ever sends palette values or null), mapped to German; the caller
+     * re-reads the roster via [getAvatarHues] afterwards so the shared hue map stays in sync.
+     */
+    suspend fun setMyAvatarColor(hue: Int?): Result<Unit> =
+        apiCatching(mapHttpError = {
+            if (it.code() == 400) "Ungültige Farbe." else "Farbe konnte nicht gespeichert werden."
+        }) { api.setAvatarColor(SetAvatarColorRequest(hue)) }
 
     /**
      * Evening-recap config — send time, in-app on/off, whether Telegram is configured, and the
