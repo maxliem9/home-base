@@ -148,6 +148,27 @@
         <item quantity="one">Syncing 1 check-off …</item>
         <item quantity="other">Syncing %1$d check-offs …</item>
     </plurals>
+    <!-- Shopping templates (#215) -->
+    <string name="shopping_templates_title">Templates</string>
+    <string name="shopping_templates_subtitle">Saved standard lists to add to your cart.</string>
+    <string name="shopping_templates_empty_title">No templates yet</string>
+    <string name="shopping_templates_empty_hint">Save recurring shops as a template.</string>
+    <string name="shopping_template_new">New template</string>
+    <string name="shopping_template_new_title">New template</string>
+    <string name="shopping_template_edit_title">Edit template</string>
+    <string name="shopping_template_name">Name</string>
+    <string name="shopping_template_name_placeholder">e.g. Weekly shop</string>
+    <string name="shopping_template_items">Items</string>
+    <string name="shopping_template_item_placeholder">Item</string>
+    <string name="shopping_template_add_item">+ Item</string>
+    <string name="shopping_template_no_items">No items</string>
+    <plurals name="shopping_template_item_count">
+        <item quantity="one">1 item</item>
+        <item quantity="other">%1$d items</item>
+    </plurals>
+    <string name="shopping_template_apply_title">Add template</string>
+    <string name="shopping_template_apply_empty">This template has no items.</string>
+    <string name="shopping_template_delete_confirm">Delete template “%1$s”?</string>
 
     <!-- ===== Notes ===== -->
     <string name="notes_eyebrow">Notes</string>

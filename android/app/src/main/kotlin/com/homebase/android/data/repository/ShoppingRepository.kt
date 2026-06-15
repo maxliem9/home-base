@@ -5,13 +5,19 @@ import com.homebase.android.data.model.BatchAddShoppingRequest
 import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.CreateShoppingItemRequest
 import com.homebase.android.data.model.CreateShoppingListRequest
+import com.homebase.android.data.model.CreateShoppingTemplateRequest
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingTemplateDto
+import com.homebase.android.data.model.TemplateItemInput
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateShoppingListRequest
+import com.homebase.android.data.model.UpdateShoppingTemplateRequest
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import kotlinx.coroutines.flow.Flow
+import org.json.JSONObject
+import retrofit2.HttpException
 
 class ShoppingRepository(
     private val api: HomeBaseApi,
@@ -46,6 +52,40 @@ class ShoppingRepository(
         apiCatching { api.updateShoppingList(id, request) }
 
     suspend fun deleteList(id: String): Result<Unit> = apiCatching { api.deleteShoppingList(id) }
+
+    // --- Templates (named standard lists, #215) ---
+
+    suspend fun getTemplates(): Result<List<ShoppingTemplateDto>> = apiCatching { api.getShoppingTemplates() }
+
+    suspend fun createTemplate(name: String, itemNames: List<String>): Result<ShoppingTemplateDto> =
+        apiCatching(mapHttpError = ::germanTemplateError) {
+            api.createShoppingTemplate(CreateShoppingTemplateRequest(name.trim(), itemNames.toInputs()))
+        }
+
+    /** Rename and replace the item set wholesale (web/recipe parity); both fields always sent. */
+    suspend fun updateTemplate(id: String, name: String, itemNames: List<String>): Result<ShoppingTemplateDto> =
+        apiCatching(mapHttpError = ::germanTemplateError) {
+            api.updateShoppingTemplate(id, UpdateShoppingTemplateRequest(name.trim(), itemNames.toInputs()))
+        }
+
+    suspend fun deleteTemplate(id: String): Result<Unit> =
+        apiCatching(mapHttpError = ::germanTemplateError) { api.deleteShoppingTemplate(id) }
+
+    /** Drop blank names (a template item is just a name; an empty one is meaningless — backend does the same). */
+    private fun List<String>.toInputs(): List<TemplateItemInput> =
+        mapNotNull { it.trim().ifBlank { null } }.map { TemplateItemInput(it) }
+
+    /** Map a failed template create/update/delete to German text via its ErrorResponse.code. */
+    private fun germanTemplateError(e: HttpException): String = when (errorCodeOf(e)) {
+        "INVALID_TEMPLATE" -> "Der Name darf nicht leer sein."
+        "NOT_FOUND" -> "Vorlage nicht gefunden – bitte neu laden."
+        else -> "Vorlage konnte nicht gespeichert werden."
+    }
+
+    private fun errorCodeOf(e: HttpException): String? = runCatching {
+        e.response()?.errorBody()?.string()
+            ?.let { JSONObject(it).optString("code").ifBlank { null } }
+    }.getOrNull()
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

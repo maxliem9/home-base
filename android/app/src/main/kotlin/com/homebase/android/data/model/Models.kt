@@ -239,6 +239,44 @@ data class BatchAddShoppingResponse(
 @JsonClass(generateAdapter = true)
 data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
+// --- Shopping templates (named standard lists, #215) ---------------------------------------
+// A template is just a name + a list of item names; applying one reuses the existing batch-add,
+// so there is no amount/unit here. `items` is OMITTED by the backend when empty (encodeDefaults
+// = false), hence `= emptyList()` so a missing key parses to an empty list (#46).
+
+@JsonClass(generateAdapter = true)
+data class ShoppingTemplateItemDto(
+    val id: String,
+    val name: String,
+    val sortOrder: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class ShoppingTemplateDto(
+    val id: String,
+    val name: String,
+    val items: List<ShoppingTemplateItemDto> = emptyList(),
+    val createdBy: String,
+    val createdAt: String,
+)
+
+/** One item name for a template create/update request — names only, no amount/unit. */
+@JsonClass(generateAdapter = true)
+data class TemplateItemInput(val name: String)
+
+@JsonClass(generateAdapter = true)
+data class CreateShoppingTemplateRequest(
+    val name: String,
+    val items: List<TemplateItemInput> = emptyList(),
+)
+
+/** Update: name and/or items. `items == null` leaves them unchanged; `[]` clears; else full replace. */
+@JsonClass(generateAdapter = true)
+data class UpdateShoppingTemplateRequest(
+    val name: String? = null,
+    val items: List<TemplateItemInput>? = null,
+)
+
 // ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------
