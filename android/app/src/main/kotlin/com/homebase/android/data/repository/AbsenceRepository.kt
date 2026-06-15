@@ -3,11 +3,13 @@ package com.homebase.android.data.repository
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.model.BatchAbsenceRequest
+import com.homebase.android.data.model.CreateCustomHolidayRequest
 import com.homebase.android.data.model.CreateKitaRangeRequest
 import com.homebase.android.data.model.CreateKitaRequest
 import com.homebase.android.data.model.CreatePartTimeRequest
 import com.homebase.android.data.model.SetAbsenceRequest
 import com.homebase.android.data.model.UpdateAbsSettingsRequest
+import com.homebase.android.data.model.UpdateCustomHolidayRequest
 import com.homebase.android.data.model.UpdateKitaRequest
 import com.homebase.android.data.model.UpdatePartTimeRequest
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
@@ -56,6 +58,15 @@ class AbsenceRepository(
 
     suspend fun removeKita(id: String): Result<Unit> =
         apiCatching { api.deleteKita(id) }
+
+    suspend fun addCustomHoliday(month: Int, day: Int, half: Boolean, label: String?): Result<Unit> =
+        apiCatching { api.createCustomHoliday(CreateCustomHolidayRequest(month, day, half, label)) }
+
+    suspend fun updateCustomHoliday(id: String, month: Int?, day: Int?, half: Boolean?, label: String?): Result<Unit> =
+        apiCatching { api.updateCustomHoliday(id, UpdateCustomHolidayRequest(month, day, half, label)) }
+
+    suspend fun removeCustomHoliday(id: String): Result<Unit> =
+        apiCatching { api.deleteCustomHoliday(id) }
 
     suspend fun updateSettings(userId: String, year: Int, request: UpdateAbsSettingsRequest): Result<Unit> =
         apiCatching { api.updateAbsSettings(userId, year, request) }
