@@ -29,6 +29,9 @@ interface Props {
 
 export function PresenceStrip({ token, onLogout, onOpen }: Props) {
   const { t } = useTranslation()
+  // Read-only view: we deliberately ignore the hook's `api`/`errorToast` (no mutations
+  // here). Transport failures still surface via the shared global toast (the hook calls
+  // notifyTransportError on a failed snapshot read).
   const { data, loading } = useAbsenceData(token, onLogout)
   const theme = currentTheme()
   const pal = useMemo(() => palette(theme), [theme])
