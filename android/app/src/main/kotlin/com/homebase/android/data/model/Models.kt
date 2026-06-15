@@ -32,6 +32,14 @@ data class ChangePasswordRequest(val currentPassword: String, val newPassword: S
 data class SetAvatarColorRequest(val hue: Int?)
 
 /**
+ * Body for PUT /user-prefs/{key} (#244). Generic per-user key/value preference; the only consumer
+ * so far is the UI theme (key `theme`, value light|dark|system). GET /user-prefs returns a flat
+ * `Map<String, String>` (no DTO needed). See backend UserPrefsRoutes.
+ */
+@JsonClass(generateAdapter = true)
+data class UpdateUserPrefRequest(val value: String)
+
+/**
  * GET/PUT /config/digest + /config/morning-digest (#101/#189). Each digest exposes its send
  * [time], an in-app on/off [enabled] flag (independent of Telegram), the read-only
  * [telegramConfigured] flag (whether anything actually sends — drives only the inactive hint),

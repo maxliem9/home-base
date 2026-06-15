@@ -508,20 +508,25 @@ private fun YearGrid(
 
 @Composable
 private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHoliday: Boolean, isToday: Boolean, kita: Boolean, onClick: () -> Unit) {
+    // Resolve theme tokens in the composable scope; the drawBehind lambda is a (non-composable)
+    // DrawScope, so it can't read the Hb.* getters directly (#244).
+    val surface = Hb.surface
+    val kitaColor = Hb.clay
+    val todayColor = Hb.accent
     Box(
         modifier
             .height(16.dp)
-            .background(Hb.surface)
+            .background(surface)
             .clickable { onClick() }
             .drawBehind {
                 drawSplit(colorA, colorB)
                 if (kita) {
                     val sw = 1.5.dp.toPx()
-                    drawRect(Hb.clay, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
+                    drawRect(kitaColor, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
                 }
                 if (isToday) {
                     val sw = 1.5.dp.toPx()
-                    drawRect(Hb.accent, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
+                    drawRect(todayColor, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
                 }
             },
         contentAlignment = Alignment.Center,

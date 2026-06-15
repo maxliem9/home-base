@@ -792,12 +792,14 @@ private val MdBodyStyle = HbType.body.copy(fontSize = 15.sp, lineHeight = 24.sp)
 @Composable
 private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { null }) {
     val blocks = remember(md) { parseMarkdown(md) }
+    // Theme tokens resolved here and threaded into the non-composable inlineSpans builder (#244).
+    val inlineColors = MdInlineColors(codeBg = Hb.surface2, ink = Hb.ink, link = Hb.accent)
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         blocks.forEach { block ->
             when (block) {
-                is MdBlock.Heading2 -> Text(inlineSpans(block.text), style = MdHeading2, color = Hb.ink)
-                is MdBlock.Heading3 -> Text(inlineSpans(block.text), style = MdHeading3, color = Hb.ink2)
-                is MdBlock.Paragraph -> Text(inlineSpans(block.text), style = MdBodyStyle, color = Hb.ink)
+                is MdBlock.Heading2 -> Text(inlineSpans(block.text, inlineColors), style = MdHeading2, color = Hb.ink)
+                is MdBlock.Heading3 -> Text(inlineSpans(block.text, inlineColors), style = MdHeading3, color = Hb.ink2)
+                is MdBlock.Paragraph -> Text(inlineSpans(block.text, inlineColors), style = MdBodyStyle, color = Hb.ink)
                 is MdBlock.Image -> {
                     val url = resolveImageUrl(block.src)
                     if (url != null) {
@@ -815,7 +817,7 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
                         )
                     } else if (block.alt.isNotBlank()) {
                         // unresolved / disallowed src → show the alt text, never a broken or unsafe image
-                        Text(inlineSpans(block.alt), style = MdBodyStyle, color = Hb.ink)
+                        Text(inlineSpans(block.alt, inlineColors), style = MdBodyStyle, color = Hb.ink)
                     }
                 }
                 is MdBlock.Quote -> Row(
@@ -827,7 +829,7 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
                 ) {
                     Box(Modifier.width(3.dp).fillMaxHeight().background(Hb.accent))
                     Text(
-                        inlineSpans(block.text),
+                        inlineSpans(block.text, inlineColors),
                         style = MdBodyStyle,
                         color = Hb.ink2,
                         modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
@@ -837,7 +839,7 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
                     block.items.forEach { item ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("•", style = MdBodyStyle, color = Hb.ink2)
-                            Text(inlineSpans(item), style = MdBodyStyle, color = Hb.ink, modifier = Modifier.weight(1f))
+                            Text(inlineSpans(item, inlineColors), style = MdBodyStyle, color = Hb.ink, modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -845,7 +847,7 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
                     block.items.forEachIndexed { i, item ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${i + 1}.", style = MdBodyStyle, color = Hb.ink2)
-                            Text(inlineSpans(item), style = MdBodyStyle, color = Hb.ink, modifier = Modifier.weight(1f))
+                            Text(inlineSpans(item, inlineColors), style = MdBodyStyle, color = Hb.ink, modifier = Modifier.weight(1f))
                         }
                     }
                 }
@@ -859,8 +861,15 @@ private fun MarkdownText(md: String, resolveImageUrl: (String) -> String? = { nu
 
 private val MonoFamily = FontFamily.Monospace
 
-/** Build an [AnnotatedString] with **bold**, *italic*, and `code` inline spans. */
-private fun inlineSpans(text: String): AnnotatedString = buildAnnotatedString {
+/**
+ * Theme tokens the inline markdown spans need (#244). Resolved once in the composable
+ * ([MarkdownText]) and threaded into [inlineSpans], which is plain (non-composable) code and so
+ * can't read the `Hb.*` getters itself.
+ */
+private data class MdInlineColors(val codeBg: Color, val ink: Color, val link: Color)
+
+/** Build an [AnnotatedString] with **bold**, *italic*, `code` and link inline spans. */
+private fun inlineSpans(text: String, colors: MdInlineColors): AnnotatedString = buildAnnotatedString {
     var i = 0
     val n = text.length
     while (i < n) {
@@ -874,8 +883,8 @@ private fun inlineSpans(text: String): AnnotatedString = buildAnnotatedString {
                         SpanStyle(
                             fontFamily = MonoFamily,
                             fontSize = 13.5.sp,
-                            background = Hb.surface2,
-                            color = Hb.ink,
+                            background = colors.codeBg,
+                            color = colors.ink,
                         ),
                     ) { append(text.substring(i + 1, end)) }
                     i = end + 1
@@ -916,7 +925,7 @@ private fun inlineSpans(text: String): AnnotatedString = buildAnnotatedString {
                         withLink(
                             LinkAnnotation.Url(
                                 href,
-                                TextLinkStyles(SpanStyle(color = Hb.accent, textDecoration = TextDecoration.Underline)),
+                                TextLinkStyles(SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline)),
                             ),
                         ) { append(label) }
                     } else {

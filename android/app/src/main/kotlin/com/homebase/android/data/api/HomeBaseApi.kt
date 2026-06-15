@@ -47,6 +47,17 @@ interface HomeBaseApi {
     @PUT("users/me/avatar-color")
     suspend fun setAvatarColor(@Body request: SetAvatarColorRequest)
 
+    // --- Per-user preferences (#244) ---
+
+    // The caller's prefs as a flat { key: value } map (empty when none). New keys surface here
+    // without a model change. Used by the UI-theme picker (key `theme`).
+    @GET("user-prefs")
+    suspend fun getUserPrefs(): Map<String, String>
+
+    // Upsert one pref ({ value }); returns the full updated map.
+    @PUT("user-prefs/{key}")
+    suspend fun updateUserPref(@Path("key") key: String, @Body request: UpdateUserPrefRequest): Map<String, String>
+
     // --- Todos ---
 
     @GET("todos")
