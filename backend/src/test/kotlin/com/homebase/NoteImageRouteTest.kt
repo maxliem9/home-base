@@ -96,6 +96,32 @@ class NoteImageRouteTest {
         // bytes are served with the declared (un-sniffed) content type, so the browser must
         // not be allowed to MIME-sniff a crafted file into markup
         assertEquals("nosniff", response.headers["X-Content-Type-Options"])
+        // the original upload name is offered for download (inline, so Coil still renders in
+        // place) — otherwise the browser saves it under a generic fallback name
+        val disposition = response.headers[HttpHeaders.ContentDisposition]
+        assertTrue(disposition?.startsWith("inline") == true, "expected inline disposition, got $disposition")
+        assertTrue(disposition?.contains("filename=pic.png") == true, "missing original filename in $disposition")
+    }
+
+    @Test
+    fun `served image disposition keeps a name with umlauts and never an attachment`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val noteId = createNote(token, """{"title":"Mit Bild"}""")
+        val imageId = Json.parseToJsonElement(
+            uploadImage(token, noteId, pngBytes, filename = "Sommerurlaub Österreich.png").bodyAsText()
+        ).jsonObject["images"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.get("/api/v1/notes/$noteId/images/$imageId") { bearerAuth(token) }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val disposition = response.headers[HttpHeaders.ContentDisposition]
+        // never attachment (would break Coil's inline rendering); Ktor encodes the umlaut per RFC 5987
+        assertTrue(disposition?.startsWith("inline") == true, "expected inline disposition, got $disposition")
+        assertTrue(
+            disposition?.contains("Sommerurlaub") == true,
+            "expected original name to survive in $disposition",
+        )
     }
 
     @Test
