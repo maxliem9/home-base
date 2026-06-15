@@ -1,0 +1,8 @@
+# Machine-local Gradle config. Copy the relevant line(s) into android/local.properties
+# (that file is gitignored, so nothing here leaks into the repo). Android Studio writes
+# `sdk.dir` into local.properties automatically — you usually only need to add the line below.
+#
+# Point the installed (release/phone) app at your real backend instead of the committed
+# example placeholder. Give the FULL base URL including /api/v1/ and a trailing slash.
+# Alternatively, export HOMEBASE_BASE_URL in the build environment instead of setting this.
+homebase.baseUrl=https://your-dyndns-domain.example.com/api/v1/

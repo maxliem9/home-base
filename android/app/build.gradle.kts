@@ -1,9 +1,27 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+// Machine-local, gitignored config (android/local.properties — the same file Android
+// Studio writes sdk.dir into). Keeps the real backend domain out of the (public) repo:
+// the phone/release build reads its BASE_URL from `homebase.baseUrl` here, or the
+// HOMEBASE_BASE_URL env var, falling back to the example placeholder. See
+// local.properties.example.
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val backendBaseUrl: String = (localProperties.getProperty("homebase.baseUrl")
+    ?: System.getenv("HOMEBASE_BASE_URL")
+    ?: "https://your-dyndns-domain.example.com/api/v1/").trim()
+// Escape backslash and double-quote so the value embeds safely as a Java string literal
+// in the generated BuildConfig — a fat-fingered URL can't silently break compilation.
+val backendBaseUrlLiteral: String = backendBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.homebase.android"
@@ -18,7 +36,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "BASE_URL", "\"https://your-dyndns-domain.example.com/api/v1/\"")
+        // Default — also the value the release/phone build inherits: the real backend from
+        // local.properties / HOMEBASE_BASE_URL, else the example placeholder. Debug overrides
+        // it to the emulator loopback below.
+        buildConfigField("String", "BASE_URL", "\"$backendBaseUrlLiteral\"")
     }
 
     buildTypes {
@@ -28,7 +49,13 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "BASE_URL", "\"https://your-dyndns-domain.example.com/api/v1/\"")
+            // Debug-sign the release so the sideloaded APK is actually installable on a phone
+            // — an unsigned release APK fails with "couldn't be installed … issue with the app".
+            // Sufficient for a private, hand-distributed 2-person app; a dedicated upload
+            // keystore would be the upgrade if these ever need a stable cross-machine signing
+            // identity or store distribution.
+            signingConfig = signingConfigs.getByName("debug")
+            // BASE_URL inherited from defaultConfig (backendBaseUrl) — the real domain.
         }
     }
 
