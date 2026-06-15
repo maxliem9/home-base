@@ -112,6 +112,21 @@ export const en: Messages = {
     submit: 'Sign in',
     failed: 'Login failed',
   },
+  // HB-03 — global search / command palette (⌘K)
+  palette: {
+    title: 'Search',
+    open: 'Search',
+    placeholder: 'Search or jump to …',
+    actions: 'Actions',
+    groupTodos: 'Tasks',
+    groupNotes: 'Notes',
+    groupRecipes: 'Recipes',
+    groupProjects: 'Projects',
+    groupShopping: 'Shopping',
+    noResults: 'No matches',
+    footNavigate: 'Navigate',
+    footOpen: 'Open',
+  },
   dashboard: {
     headerTitle: 'HomeBase — Today',
     // greeting head — thresholds mirror the mock (views_heute.jsx)

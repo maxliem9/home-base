@@ -18,6 +18,8 @@ import { TimeView } from './components/TimeView'
 import { RecipesView } from './components/RecipesView'
 import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 import { SettingsView, type SettingsTab } from './components/settings/SettingsView'
+import { CommandPalette, type PaletteAction } from './components/CommandPalette'
+import { KIND_TAB, type SearchItem } from './search'
 
 type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
 
@@ -143,6 +145,28 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   // subpage (e.g. the tracker's Wochensoll card → 'time').
   const openSettings = (tab: SettingsTab = 'household') => setSettings(tab)
 
+  // ⌘K / Ctrl-K command palette (HB-03) — global search + quick navigation.
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const openTab = useCallback((next: Tab) => { setSettings(null); setTab(next) }, [setTab])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const paletteActions: PaletteAction[] = useMemo(
+    () => [
+      ...NAV.map((n) => ({ id: `nav:${n.id}`, label: n.label, icon: n.icon, run: () => openTab(n.id) })),
+      { id: 'settings', label: t('nav.settings'), icon: 'settings', run: () => openSettings() },
+    ],
+    [NAV, openTab, t],
+  )
+  const onOpenResult = useCallback((item: SearchItem) => openTab(KIND_TAB[item.kind]), [openTab])
+
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
   }, [token])
@@ -200,6 +224,14 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             </div>
           </div>
           <div className="hb-topbar__actions">
+            <button
+              className="hb-iconbtn hb-topbar__search"
+              onClick={() => setPaletteOpen(true)}
+              aria-label={t('palette.open')}
+              title={t('palette.open')}
+            >
+              <Icon name="search" size={20} stroke={2} />
+            </button>
             <button
               className={`hb-iconbtn hb-topbar__gear${settings ? ' is-active' : ''}`}
               onClick={() => openSettings()}
@@ -265,6 +297,15 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
           </button>
         ))}
       </nav>
+
+      {/* Global ⌘K command palette (HB-03). */}
+      <CommandPalette
+        token={token}
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        actions={paletteActions}
+        onOpenResult={onOpenResult}
+      />
 
       {/* Single global toast for background GET/read transport failures (issue #93). */}
       <TransportErrorToast />
