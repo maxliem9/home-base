@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, TOKEN, TOKEN_MAX, project, shoppingItem, timeEntry, todo, workTarget } from './helpers/mockApi'
+import { MockApi, TOKEN, TOKEN_MAX, list, project, shoppingItem, timeEntry, todo, workTarget } from './helpers/mockApi'
 
 /**
  * Dashboard ("Heute") view — the app's default tab (#131). Date-bucket tests
@@ -252,5 +252,40 @@ test.describe('Dashboard (Heute)', () => {
   test('greets the logged-in user by name', async ({ page }) => {
     await openDashboard(page, new MockApi(), undefined, TOKEN_MAX)
     await expect(page.locator('.hb-pagehead h1')).toHaveText(/(Guten Morgen|Hallo|Guten Abend|Gute Nacht), Max\.$/)
+  })
+
+  // The stat tiles deep-link into the matching cross-list todos view (#255/#256).
+  // A list is seeded so the todos view's default tab is that list — clicking a
+  // tile must therefore override the default and land on its own tab. The Inbox
+  // tile is the original bug (#255): it used to land on the first list.
+  test('stat tiles deep-link into the matching todos view (#255/#256)', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        todo({ id: 'd1', title: 'Heute-Task', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-10' }),
+        todo({ id: 'd2', title: 'Morgen-Task', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-11' }),
+        todo({ id: 'd3', title: 'Inbox-Idee', status: 'INBOX' }),
+        todo({ id: 'd4', title: 'Erledigt-Task', status: 'DONE', listId: 'l1', doneAt: '2026-06-10T07:00:00Z' }),
+      ],
+      [list({ id: 'l1', name: 'Haushalt' })],
+    )
+    await openDashboard(page, mock, PINNED)
+
+    const back = () => page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+
+    // #255 — the Inbox tile must open the Inbox tab, not the default list tab.
+    await page.locator('.hb-stat', { hasText: 'In der Inbox' }).click()
+    await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveClass(/is-active/)
+
+    await back()
+    await page.locator('.hb-stat', { hasText: 'Heute fällig' }).click()
+    await expect(page.getByRole('tab', { name: 'Heute' })).toHaveClass(/is-active/)
+
+    await back()
+    await page.locator('.hb-stat', { hasText: 'Morgen fällig' }).click()
+    await expect(page.getByRole('tab', { name: 'Morgen' })).toHaveClass(/is-active/)
+
+    await back()
+    await page.locator('.hb-stat', { hasText: 'Heute erledigt' }).click()
+    await expect(page.getByRole('tab', { name: 'Erledigt' })).toHaveClass(/is-active/)
   })
 })

@@ -11,7 +11,7 @@ import { TransportErrorToast } from './ui/TransportErrorToast'
 import { Avatar, Button, Card, Field, Modal, Sheet, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
 import { DashboardView } from './components/DashboardView'
-import { TodosView } from './components/TodosView'
+import { TodosView, type TodosFocus } from './components/TodosView'
 import { NotesView } from './components/NotesView'
 import { ShoppingView } from './components/ShoppingView'
 import { TimeView } from './components/TimeView'
@@ -157,7 +157,11 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   // ⌘K / Ctrl-K command palette (HB-03) — global search + quick navigation.
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
-  const openTab = useCallback((next: Tab) => { setSettings(null); setTab(next) }, [setTab])
+  // Deep-link focus the todos view should open on (dashboard stat tiles → #255/#256).
+  // Plain navigation clears it (lands on the default tab); the tiles set it via goTodos.
+  const [todosFocus, setTodosFocus] = useState<TodosFocus | null>(null)
+  const go = useCallback((next: Tab) => { setSettings(null); setMoreOpen(false); setTodosFocus(null); setTab(next) }, [setTab])
+  const goTodos = useCallback((focus: TodosFocus) => { setSettings(null); setMoreOpen(false); setTodosFocus(focus); setTab('todos') }, [setTab])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
@@ -170,12 +174,12 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
   }, [])
   const paletteActions: PaletteAction[] = useMemo(
     () => [
-      ...NAV.map((n) => ({ id: `nav:${n.id}`, label: n.label, icon: n.icon, run: () => openTab(n.id) })),
+      ...NAV.map((n) => ({ id: `nav:${n.id}`, label: n.label, icon: n.icon, run: () => go(n.id) })),
       { id: 'settings', label: t('nav.settings'), icon: 'settings', run: () => openSettings() },
     ],
-    [NAV, openTab, t],
+    [NAV, go, t],
   )
-  const onOpenResult = useCallback((item: SearchItem) => openTab(KIND_TAB[item.kind]), [openTab])
+  const onOpenResult = useCallback((item: SearchItem) => go(KIND_TAB[item.kind]), [go])
 
   useEffect(() => {
     fetchHouseholdName(token).then(setHousehold)
@@ -195,7 +199,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
         <nav className="hb-nav">
           {NAV.map((n) => (
-            <button key={n.id} className={`hb-navitem${!settings && tab === n.id ? ' is-active' : ''}`} onClick={() => { setSettings(null); setTab(n.id) }}>
+            <button key={n.id} className={`hb-navitem${!settings && tab === n.id ? ' is-active' : ''}`} onClick={() => go(n.id)}>
               <Icon name={n.icon} size={20} stroke={2} />
               <span>{n.label}</span>
               {n.id === 'time' && badges.timerRunning && (
@@ -275,8 +279,8 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
           />
         ) : (
           <>
-            {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={setTab} />}
-            {tab === 'todos' && <TodosView token={token} onLogout={onLogout} />}
+            {tab === 'heute' && <DashboardView token={token} onLogout={onLogout} onNavigate={go} onOpenTodos={goTodos} />}
+            {tab === 'todos' && <TodosView token={token} onLogout={onLogout} initialFocus={todosFocus} />}
             {tab === 'shopping' && <ShoppingView token={token} onLogout={onLogout} />}
             {tab === 'notes' && <NotesView token={token} onLogout={onLogout} />}
             {tab === 'time' && <TimeView token={token} onLogout={onLogout} onOpenSettings={() => openSettings('time')} />}
@@ -294,7 +298,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
           <button
             key={n.id}
             className={`hb-tabbar__item${!settings && tab === n.id ? ' is-active' : ''}`}
-            onClick={() => { setSettings(null); setMoreOpen(false); setTab(n.id) }}
+            onClick={() => go(n.id)}
             aria-current={!settings && tab === n.id ? 'page' : undefined}
           >
             <span className="hb-tabbar__icon">
@@ -331,7 +335,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
               <button
                 key={n.id}
                 className={`hb-morenav__item${!settings && tab === n.id ? ' is-active' : ''}`}
-                onClick={() => { setSettings(null); setTab(n.id); setMoreOpen(false) }}
+                onClick={() => go(n.id)}
                 aria-current={!settings && tab === n.id ? 'page' : undefined}
               >
                 <Icon name={n.icon} size={20} stroke={2} />

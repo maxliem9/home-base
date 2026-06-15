@@ -8,8 +8,9 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
 import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
-import { clockTime, dueLabel, fmtClock, fmtDurationShort, todayLabel, userMeta, usernameFromToken } from '../ui/format'
+import { clockTime, dueLabel, fmtClock, fmtDurationShort, localDateIso, todayLabel, userMeta, usernameFromToken } from '../ui/format'
 import { PresenceStrip } from './PresenceStrip'
+import type { TodosFocus } from './TodosView'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const wsUrl = (channel: string) => `${WS_SCHEME}://${window.location.host}/api/v1/ws/${channel}`
@@ -22,6 +23,8 @@ interface DashboardViewProps {
   token: string
   onLogout: () => void
   onNavigate: (tab: NavTarget) => void
+  // Stat tiles deep-link into the matching cross-list todos view (#255/#256).
+  onOpenTodos: (focus: TodosFocus) => void
 }
 
 // time-of-day greeting — thresholds mirror the mock (docs/web/src/views_heute.jsx)
@@ -31,13 +34,6 @@ function greeting(t: TFunction, hour = new Date().getHours()): string {
   if (hour < 17) return t('dashboard.greetingDay')
   if (hour < 22) return t('dashboard.greetingEvening')
   return t('dashboard.greetingNight')
-}
-
-const pad2 = (n: number) => String(n).padStart(2, '0')
-// local YYYY-MM-DD for a Date — todos carry local calendar dates, and "done
-// today" must be judged in the user's timezone, not UTC.
-function localIso(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
 function StatTile({ value, label, icon, onClick }: { value: number; label: string; icon: string; onClick: () => void }) {
@@ -50,7 +46,7 @@ function StatTile({ value, label, icon, onClick }: { value: number; label: strin
   )
 }
 
-export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProps) {
+export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: DashboardViewProps) {
   const { t } = useTranslation()
   const me = usernameFromToken(token)
   const meName = userMeta(me)?.name ?? me ?? 'HomeBase'
@@ -232,8 +228,8 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   // --- derived ---
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
-  const tomorrowIso = localIso(tomorrow)
-  const todayIso = localIso(new Date())
+  const tomorrowIso = localDateIso(tomorrow)
+  const todayIso = localDateIso()
 
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
@@ -241,8 +237,8 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   // Digest preview only (#76): the Telegram digest counts INBOX todos *created
   // today* (DigestService keys createdAt to the local day) — the stat tile and
   // the Inbox tab badge intentionally keep showing the whole inbox (#71).
-  const inboxNewToday = todos.filter((x) => x.status === 'INBOX' && localIso(new Date(x.createdAt)) === todayIso).length
-  const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localIso(new Date(x.doneAt)) === todayIso)
+  const inboxNewToday = todos.filter((x) => x.status === 'INBOX' && localDateIso(new Date(x.createdAt)) === todayIso).length
+  const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
   // own timer first, then the partner's
   const runningSorted = [...running].sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : 0))
@@ -276,10 +272,10 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
       ) : (
         <>
           <div className="hb-stats">
-            <StatTile value={dueToday.length} label={t('dashboard.statDueToday')} icon="calendar" onClick={() => onNavigate('todos')} />
-            <StatTile value={inboxCount} label={t('dashboard.statInbox')} icon="inbox" onClick={() => onNavigate('todos')} />
-            <StatTile value={dueTomorrow.length} label={t('dashboard.statDueTomorrow')} icon="clock" onClick={() => onNavigate('todos')} />
-            <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onNavigate('todos')} />
+            <StatTile value={dueToday.length} label={t('dashboard.statDueToday')} icon="calendar" onClick={() => onOpenTodos('today')} />
+            <StatTile value={inboxCount} label={t('dashboard.statInbox')} icon="inbox" onClick={() => onOpenTodos('inbox')} />
+            <StatTile value={dueTomorrow.length} label={t('dashboard.statDueTomorrow')} icon="clock" onClick={() => onOpenTodos('tomorrow')} />
+            <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onOpenTodos('done')} />
           </div>
 
           {/* HB-01 — weekly presence overview, above "Heute dran" */}
@@ -291,7 +287,7 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
               <Card className="hb-card--pad">
                 <div className="hb-cardhead">
                   <h3>{t('dashboard.todayTitle')}</h3>
-                  <button className="hb-link" onClick={() => onNavigate('todos')}>
+                  <button className="hb-link" onClick={() => onOpenTodos('all')}>
                     {t('dashboard.allTasks')} <Icon name="chevronRight" size={15} stroke={2.2} />
                   </button>
                 </div>

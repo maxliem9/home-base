@@ -1,16 +1,27 @@
 import { test, expect, type Page } from '@playwright/test'
 import { MockApi, todo, list, subtask, TOKEN } from './helpers/mockApi'
 
-/** Logs in by seeding the token, then installs the given mock backend. */
-async function openApp(page: Page, mock: MockApi, token: string = TOKEN) {
+/** Logs in by seeding the token, then installs the given mock backend.
+ *  `fixedTime` pins the browser clock so the date-driven smart views
+ *  (Heute/Morgen/Erledigt, #256) bucket deterministically — no real-clock
+ *  midnight-rollover window. (The earlier flakiness here was the nav badge, not
+ *  the clock; the sidebar-scoped selector below is the actual fix.) */
+async function openApp(page: Page, mock: MockApi, token: string = TOKEN, fixedTime?: Date) {
   await mock.install(page)
+  if (fixedTime) await page.clock.setFixedTime(fixedTime)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
   // the app opens on the Dashboard tab; switch to the Aufgaben (todos) view.
-  // exact: the Dashboard also has an "Alle Aufgaben" button that 'Aufgaben' would match.
-  await page.getByRole('button', { name: 'Aufgaben', exact: true }).click()
+  // Scope to the sidebar: the nav item carries an inbox-due badge ("Aufgaben 3")
+  // so an exact-name match races the badge fetch, and the Dashboard's "Alle
+  // Aufgaben" link (in the main area) would otherwise also match 'Aufgaben'.
+  await page.locator('.hb-sidebar').getByRole('button', { name: 'Aufgaben' }).click()
   await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
+
+// Wed 2026-06-10, 12:00 UTC — local calendar day is 2026-06-10 in UTC and
+// Europe/Berlin alike, so every seeded instant below buckets identically.
+const PINNED = new Date('2026-06-10T12:00:00Z')
 
 // A JWT whose middle segment base64-decodes to {"username":"alice"}, matching the mock's createdBy.
 // The default TOKEN is not a real JWT, so `usernameFromToken` yields null; tests that depend on the
@@ -444,5 +455,80 @@ test.describe('Navigation', () => {
 
     await page.getByRole('button', { name: 'Aufgaben' }).click()
     await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
+  })
+})
+
+// Cross-list "smart" tabs (#256): Alle / Heute / Morgen / Erledigt span every
+// list, sit between the Inbox and the list tabs, and mirror the dashboard tiles.
+test.describe('Smart views', () => {
+  const SMART_LISTS = [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })]
+  const smartTodos = () => [
+    todo({ id: 's1', title: 'Müll rausbringen', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-10' }), // heute
+    todo({ id: 's2', title: 'Standup', status: 'PLANNED', listId: 'l2', dueDate: '2026-06-10' }), // heute
+    todo({ id: 's3', title: 'Einkaufen', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-11' }), // morgen
+    todo({ id: 's4', title: 'Rechnung zahlen', status: 'PLANNED', listId: 'l2', dueDate: '2026-06-08' }), // überfällig
+    todo({ id: 's5', title: 'Notiz-Idee', status: 'INBOX' }),
+    todo({ id: 's6', title: 'Lampe reparieren', status: 'INBOX', listId: 'l1' }),
+    todo({ id: 's7', title: 'Mails beantworten', status: 'DONE', listId: 'l2', doneAt: '2026-06-10T07:00:00Z' }), // heute erledigt
+    todo({ id: 's8', title: 'Steuererklärung', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-20' }), // später
+  ]
+  const tabCount = (page: Page, name: string) => page.getByRole('tab', { name }).locator('.hb-tab__count')
+
+  test('shows the cross-list tabs with counts that mirror the dashboard tiles', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+
+    // order: Inbox, Alle, Heute, Morgen, Erledigt, then the list tabs
+    await expect(tabCount(page, 'Inbox')).toHaveText('2') // status INBOX (s5, s6)
+    await expect(tabCount(page, 'Alle')).toHaveText('7') // every open todo
+    await expect(tabCount(page, 'Heute')).toHaveText('2') // s1, s2
+    await expect(tabCount(page, 'Morgen')).toHaveText('1') // s3
+    await expect(tabCount(page, 'Erledigt')).toHaveText('1') // s7
+    // a real list stays the default tab; quick-add is offered there
+    await expect(page.getByRole('tab', { name: 'Haushalt' })).toHaveClass(/is-active/)
+  })
+
+  test('Heute lists only today\'s open todos across lists, with origin-list meta and no quick-add', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Heute' }).click()
+
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Standup' })).toBeVisible()
+    // scoped to rows: getByText('Einkaufen') would also match the "Einkaufsliste" nav item
+    await expect(page.locator('.hb-row', { hasText: 'Einkaufen' })).toHaveCount(0) // tomorrow
+    await expect(page.locator('.hb-row', { hasText: 'Rechnung zahlen' })).toHaveCount(0) // overdue
+    // cross-list rows carry their origin list as meta
+    await expect(page.locator('.hb-row', { hasText: 'Standup' })).toContainText('Arbeit')
+    // smart views are read/triage only — no quick-add input
+    await expect(page.locator('.hb-quickadd')).toHaveCount(0)
+  })
+
+  test('Morgen lists only tomorrow\'s todos', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Morgen' }).click()
+
+    await expect(page.locator('.hb-row', { hasText: 'Einkaufen' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toHaveCount(0)
+  })
+
+  test('Erledigt lists today\'s completed todos directly (no collapse)', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Erledigt' }).click()
+
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toHaveCount(0)
+  })
+
+  test('Alle buckets every list\'s open todos and keeps a collapsible done section', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Alle' }).click()
+
+    // open todos from both lists, grouped by due bucket
+    await expect(page.locator('.hb-row', { hasText: 'Rechnung zahlen' })).toBeVisible() // Überfällig
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toBeVisible() // Heute
+    await expect(page.locator('.hb-row', { hasText: 'Notiz-Idee' })).toBeVisible() // Ohne Datum
+    // done is hidden behind the collapsible section, not shown inline
+    await expect(page.locator('.hb-row', { hasText: 'Mails beantworten' })).toHaveCount(0)
+    await page.locator('.hb-donehead').click()
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
   })
 })

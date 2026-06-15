@@ -22,7 +22,7 @@ import {
   Select,
   TextInput,
 } from '../ui/primitives'
-import { dueLabel, relTime, userMeta, usernameFromToken } from '../ui/format'
+import { dueLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
 import { useHouseholdUsers } from '../hooks/useHouseholdUsers'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -32,6 +32,25 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? `${WS_SCHEME}://${window.location.
 // listId (Dashboard quick-add and the Android FAB create those — issue #69).
 // Real list ids are UUIDs, so this can never collide.
 const INBOX_ID = '__inbox__'
+// Cross-list "smart" tabs (#255/#256): like the Inbox they span every list and
+// are reachable from the dashboard stat tiles. Sentinel ids never collide with
+// the UUID list ids.
+const ALL_ID = '__all__'
+const TODAY_ID = '__today__'
+const TOMORROW_ID = '__tomorrow__'
+const DONE_ID = '__done__'
+const SMART_IDS = [ALL_ID, TODAY_ID, TOMORROW_ID, DONE_ID]
+const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id && SMART_IDS.includes(id))
+
+// Deep-link target the dashboard can ask the todos view to open (stat tiles).
+export type TodosFocus = 'inbox' | 'all' | 'today' | 'tomorrow' | 'done'
+const FOCUS_TO_ID: Record<TodosFocus, string> = {
+  inbox: INBOX_ID,
+  all: ALL_ID,
+  today: TODAY_ID,
+  tomorrow: TOMORROW_ID,
+  done: DONE_ID,
+}
 
 // open todos are grouped into these due-date buckets, in this order. Built with the
 // reactive `t` inside the view so the labels follow a language switch.
@@ -66,16 +85,19 @@ function recurrenceBadge(t: TFunction, rec: { freq: RecurrenceFreq; interval?: n
 interface TodosViewProps {
   token: string
   onLogout: () => void
+  // Deep-link from the dashboard stat tiles (#255/#256). The view remounts per
+  // visit, so this is read on mount; an effect also re-applies it if it changes.
+  initialFocus?: TodosFocus | null
 }
 
-export function TodosView({ token, onLogout }: TodosViewProps) {
+export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const { t } = useTranslation()
   const me = usernameFromToken(token)
   const householdUsers = useHouseholdUsers(token)
   const [todos, setTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(initialFocus ? FOCUS_TO_ID[initialFocus] : null)
   const [newTitle, setNewTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
@@ -120,13 +142,19 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   // overridden. Gated on `loading` so the initial empty `lists` state doesn't
   // park the view on the Inbox before the first fetch lands.
   useEffect(() => {
-    if (loading || activeId === INBOX_ID) return
+    if (loading || isVirtualTab(activeId)) return
     if (lists.length === 0) {
       setActiveId(INBOX_ID)
     } else if (!activeId || !lists.some((l) => l.id === activeId)) {
       setActiveId(lists[0].id)
     }
   }, [lists, activeId, loading])
+
+  // Apply a dashboard deep-link (stat tiles → #255/#256). Runs on mount and if
+  // the requested focus changes while mounted; plain nav passes null (no-op).
+  useEffect(() => {
+    if (initialFocus) setActiveId(FOCUS_TO_ID[initialFocus])
+  }, [initialFocus])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
@@ -400,8 +428,24 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   }
 
   const inboxActive = activeId === INBOX_ID
-  const active = inboxActive ? null : lists.find((l) => l.id === activeId) ?? null
+  const allActive = activeId === ALL_ID
+  const todayActive = activeId === TODAY_ID
+  const tomorrowActive = activeId === TOMORROW_ID
+  const doneActive = activeId === DONE_ID
+  // Cross-list views (inbox + smart tabs) span every list, so their rows show the
+  // origin list as meta and they offer no single quick-add target.
+  const crossList = inboxActive || allActive || todayActive || tomorrowActive || doneActive
+  const active = crossList ? null : lists.find((l) => l.id === activeId) ?? null
   const openCount = (id: string) => todos.filter((x) => x.listId === id && x.status !== 'DONE').length
+
+  const todayIso = localDateIso()
+  const tomorrowDate = new Date()
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrowIso = localDateIso(tomorrowDate)
+  const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
+  const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso
+  const isDoneToday = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso
+
   // Inbox = alles Unverplante: Status INBOX zählt auch dann, wenn das Todo schon
   // in einer Liste liegt (Entscheidung #71 — gleiche Semantik wie die
   // Dashboard-Kachel). Listen-lose Todos bleiben unabhängig vom Status drin,
@@ -410,12 +454,44 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   const inboxTodos = todos.filter((x) => x.status === 'INBOX' || !x.listId)
   // badge counts unplanned todos — the exact rule of the dashboard's inbox tile
   const inboxOpenCount = todos.filter((x) => x.status === 'INBOX').length
+  // smart-tab counts — mirror the dashboard stat tiles exactly (#256)
+  const allOpenCount = todos.filter((x) => x.status !== 'DONE').length
+  const todayCount = todos.filter(isDueToday).length
+  const tomorrowCount = todos.filter(isDueTomorrow).length
+  const doneTodayCount = todos.filter(isDoneToday).length
 
-  const listTodos = inboxActive ? inboxTodos : active ? todos.filter((x) => x.listId === active.id) : []
-  const openTodos = listTodos.filter((x) => x.status !== 'DONE')
-  const done = listTodos
+  // todos shown in the active view
+  const viewTodos = inboxActive
+    ? inboxTodos
+    : allActive
+      ? todos
+      : todayActive
+        ? todos.filter(isDueToday)
+        : tomorrowActive
+          ? todos.filter(isDueTomorrow)
+          : doneActive
+            ? todos.filter(isDoneToday)
+            : active
+              ? todos.filter((x) => x.listId === active.id)
+              : []
+  const openTodos = viewTodos.filter((x) => x.status !== 'DONE')
+  const done = viewTodos
     .filter((x) => x.status === 'DONE')
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
+
+  // view-shape flags
+  const showQuickAdd = inboxActive || !!active // only where the add target is unambiguous
+  const useBuckets = inboxActive || allActive || !!active // group open todos by due bucket
+  const hasDoneSection = (inboxActive || allActive || !!active) && done.length > 0
+  // suppress the "empty" card when a cross-list view has only done todos (the
+  // done section carries them); list views keep the existing "Alles erledigt".
+  const showOpenEmpty = openTodos.length === 0 && !((inboxActive || allActive) && done.length > 0)
+  const smartTabs = [
+    { id: ALL_ID, label: t('todos.tabAll'), icon: 'archive', count: allOpenCount },
+    { id: TODAY_ID, label: t('todos.tabToday'), icon: 'calendar', count: todayCount },
+    { id: TOMORROW_ID, label: t('todos.tabTomorrow'), icon: 'clock', count: tomorrowCount },
+    { id: DONE_ID, label: t('todos.tabDone'), icon: 'checkCircle', count: doneTodayCount },
+  ]
 
   // bucket open todos by due tone, each bucket sorted by date
   const buckets: Record<string, Todo[]> = { over: [], today: [], soon: [], far: [], none: [] }
@@ -431,6 +507,27 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
   // the todo currently in the plan modal — inbox todos (no listId) additionally
   // get a list picker there, so planning can file them into a list (#69)
   const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
+
+  // One row renderer for every section (buckets, flat smart lists, done) so the
+  // long prop wiring lives in a single place. Cross-list views tag each row with
+  // its origin list (#71/#256).
+  const renderRow = (todo: Todo) => (
+    <TodoRow
+      key={todo.id}
+      todo={todo}
+      open={expanded.has(todo.id)}
+      draft={subDrafts[todo.id] ?? ''}
+      listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
+      onToggleDone={() => toggleDone(todo)}
+      onToggleExpand={() => toggleExpand(todo.id)}
+      onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onDelete={() => deleteTodo(todo.id)}
+      onToggleSub={(s) => toggleSubtask(todo.id, s)}
+      onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
+      onDraft={(v) => setSubDrafts((d) => ({ ...d, [todo.id]: v }))}
+      onAddSub={() => addSubtask(todo.id)}
+    />
+  )
 
   return (
     <div className="hb-page">
@@ -448,6 +545,19 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
           {t('inbox.tab')}
           {inboxOpenCount > 0 && <span className="hb-tab__count">{inboxOpenCount}</span>}
         </button>
+        {smartTabs.map((s) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={activeId === s.id}
+            className={`hb-tab${activeId === s.id ? ' is-active' : ''}`}
+            onClick={() => setActiveId(s.id)}
+          >
+            <Icon name={s.icon} size={14} stroke={2} />
+            {s.label}
+            {s.count > 0 && <span className="hb-tab__count">{s.count}</span>}
+          </button>
+        ))}
         {lists.map((l) => (
           <button
             key={l.id}
@@ -469,62 +579,70 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
 
       {loading ? (
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
-      ) : !active && !inboxActive ? null : ( // the effect above always selects a tab right after loading
+      ) : !active && !crossList ? null : ( // the effect above always selects a tab right after loading
         <>
-          <div className="hb-quickadd" style={{ marginBottom: 24 }}>
-            <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
-            <input
-              value={newTitle}
-              placeholder={active ? `${t('todos.quickAddPlaceholder').replace(' …', '')} in „${active.name}" …` : t('inbox.quickAddPlaceholder')}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-            />
-            <Button size="sm" icon="plus" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>
-              {t('todos.addTask')}
-            </Button>
-          </div>
+          {showQuickAdd && (
+            <div className="hb-quickadd" style={{ marginBottom: 24 }}>
+              <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
+              <input
+                value={newTitle}
+                placeholder={active ? `${t('todos.quickAddPlaceholder').replace(' …', '')} in „${active.name}" …` : t('inbox.quickAddPlaceholder')}
+                onChange={(e) => setNewTitle(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+              <Button size="sm" icon="plus" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>
+                {t('todos.addTask')}
+              </Button>
+            </div>
+          )}
 
-          {openTodos.length === 0 ? (
+          {doneActive ? (
+            // "Erledigt"-Tab: heute abgehakte Todos über alle Listen, flach + neueste zuerst
+            done.length === 0 ? (
+              <Card className="hb-card--pad">
+                <EmptyState icon="checkCircle" title={t('todos.doneViewEmpty')} hint={t('todos.doneViewEmptyHint')} />
+              </Card>
+            ) : (
+              <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                <div className="hb-list">{done.map(renderRow)}</div>
+              </Card>
+            )
+          ) : openTodos.length > 0 ? (
+            useBuckets ? (
+              groups.map((g) => (
+                <div key={g.key} style={{ marginBottom: 22 }}>
+                  <div className="hb-sectionlabel">
+                    {g.label}{' '}
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-3)', fontWeight: 500 }}>{buckets[g.key].length}</span>
+                  </div>
+                  <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                    <div className="hb-list">{buckets[g.key].map(renderRow)}</div>
+                  </Card>
+                </div>
+              ))
+            ) : (
+              // "Heute"/"Morgen": ein einziger Fälligkeits-Tag → flache Liste statt Buckets
+              <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                <div className="hb-list">{openTodos.map(renderRow)}</div>
+              </Card>
+            )
+          ) : showOpenEmpty ? (
             <Card className="hb-card--pad">
               {inboxActive ? (
                 <EmptyState icon="inbox" title={t('inbox.empty')} hint={t('inbox.emptyHint')} />
+              ) : allActive ? (
+                <EmptyState icon="checkCircle" title={t('todos.allEmpty')} hint={t('todos.allEmptyHint')} />
+              ) : todayActive ? (
+                <EmptyState icon="calendar" title={t('todos.todayEmpty')} hint={t('todos.todayEmptyHint')} />
+              ) : tomorrowActive ? (
+                <EmptyState icon="clock" title={t('todos.tomorrowEmpty')} hint={t('todos.tomorrowEmptyHint')} />
               ) : (
                 <EmptyState icon="checkCircle" title={t('todos.allDone')} hint={t('todos.allDoneHint')} />
               )}
             </Card>
-          ) : (
-            groups.map((g) => (
-              <div key={g.key} style={{ marginBottom: 22 }}>
-                <div className="hb-sectionlabel">
-                  {g.label}{' '}
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink-3)', fontWeight: 500 }}>{buckets[g.key].length}</span>
-                </div>
-                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-                  <div className="hb-list">
-                    {buckets[g.key].map((todo) => (
-                      <TodoRow
-                        key={todo.id}
-                        todo={todo}
-                        open={expanded.has(todo.id)}
-                        draft={subDrafts[todo.id] ?? ''}
-                        listName={inboxActive && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
-                        onToggleDone={() => toggleDone(todo)}
-                        onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
-                        onDelete={() => deleteTodo(todo.id)}
-                        onToggleSub={(s) => toggleSubtask(todo.id, s)}
-                        onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
-                        onDraft={(v) => setSubDrafts((d) => ({ ...d, [todo.id]: v }))}
-                        onAddSub={() => addSubtask(todo.id)}
-                      />
-                    ))}
-                  </div>
-                </Card>
-              </div>
-            ))
-          )}
+          ) : null}
 
-          {done.length > 0 && (
+          {hasDoneSection && (
             <div style={{ marginTop: 30 }}>
               <button className={`hb-donehead${doneOpen ? ' is-open' : ''}`} onClick={() => setDoneOpen((v) => !v)}>
                 <Icon name="chevronDown" size={16} stroke={2.4} className="hb-donehead__chev" />
@@ -533,25 +651,7 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
               </button>
               {doneOpen && (
                 <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6, marginTop: 12 }}>
-                  <div className="hb-list">
-                    {done.map((todo) => (
-                      <TodoRow
-                        key={todo.id}
-                        todo={todo}
-                        open={expanded.has(todo.id)}
-                        draft={subDrafts[todo.id] ?? ''}
-                        listName={inboxActive && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
-                        onToggleDone={() => toggleDone(todo)}
-                        onToggleExpand={() => toggleExpand(todo.id)}
-                        onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
-                        onDelete={() => deleteTodo(todo.id)}
-                        onToggleSub={(s) => toggleSubtask(todo.id, s)}
-                        onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
-                        onDraft={(v) => setSubDrafts((d) => ({ ...d, [todo.id]: v }))}
-                        onAddSub={() => addSubtask(todo.id)}
-                      />
-                    ))}
-                  </div>
+                  <div className="hb-list">{done.map(renderRow)}</div>
                 </Card>
               )}
             </div>
@@ -671,12 +771,12 @@ export function TodosView({ token, onLogout }: TodosViewProps) {
       >
         {active && (
           <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
-            {listTodos.length === 0 ? (
+            {viewTodos.length === 0 ? (
               <>Die leere Liste „<strong>{active.name}</strong>" wird gelöscht.</>
             ) : (
               <>
                 „<strong>{active.name}</strong>" und{' '}
-                <strong>{listTodos.length} {listTodos.length === 1 ? t('todos.taskOne') : t('todos.taskMany')}</strong>{' '}
+                <strong>{viewTodos.length} {viewTodos.length === 1 ? t('todos.taskOne') : t('todos.taskMany')}</strong>{' '}
                 darin werden gelöscht. {t('todos.deleteListWarn')}
               </>
             )}
