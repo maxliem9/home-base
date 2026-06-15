@@ -13,15 +13,29 @@ export type Messages = typeof de
 export const LANG_STORAGE_KEY = 'homebase_lang'
 const SUPPORTED = ['de', 'en'] as const
 export type Lang = (typeof SUPPORTED)[number]
+// What the user picks in settings: a fixed language or "system" (follow the browser).
+export type LangPref = Lang | 'system'
 
-function initialLang(): Lang {
+/** Resolve a stored preference to a concrete catalog language. */
+function resolveLang(pref: LangPref): Lang {
+  if (pref !== 'system') return pref
+  const nav = (typeof navigator !== 'undefined' && navigator.language) || 'de'
+  return nav.toLowerCase().startsWith('de') ? 'de' : 'en'
+}
+
+/** The stored language preference (de / en / system). German default keeps the existing UI + e2e green. */
+export function langPref(): LangPref {
   try {
     const saved = localStorage.getItem(LANG_STORAGE_KEY)
-    if (saved === 'de' || saved === 'en') return saved
+    if (saved === 'de' || saved === 'en' || saved === 'system') return saved
   } catch {
     // localStorage unavailable (private mode / SSR-ish) — fall back to default.
   }
   return 'de'
+}
+
+function initialLang(): Lang {
+  return resolveLang(langPref())
 }
 
 // One i18next instance for the whole app. The catalogs keep their nested object
@@ -57,14 +71,15 @@ if (typeof document !== 'undefined') {
   })
 }
 
-/** Change the active language and persist the choice. Consumers re-render. */
-export function setLang(lang: Lang): void {
+/** Set + persist the language preference (de / en / system) and apply the resolved
+ *  language. react-i18next re-renders every consumer; 'system' follows the browser. */
+export function setLangPref(pref: LangPref): void {
   try {
-    localStorage.setItem(LANG_STORAGE_KEY, lang)
+    localStorage.setItem(LANG_STORAGE_KEY, pref)
   } catch {
     // best-effort persistence; the in-memory switch still applies this session.
   }
-  void i18next.changeLanguage(lang)
+  void i18next.changeLanguage(resolveLang(pref))
 }
 
 /** The currently active language. */

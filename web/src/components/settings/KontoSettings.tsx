@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, safeFetch } from '../../api'
-import { errorText, setLang, currentLang, type Lang } from '../../i18n'
+import { errorText, setLangPref, langPref, type LangPref } from '../../i18n'
 import { AVATAR_HUE_SWATCHES, usernameFromToken } from '../../ui/format'
 import { useAvatarHues } from '../../hooks/useAvatarHues'
 import type { Theme } from '../../ui/theme'
@@ -147,7 +147,7 @@ export function KontoSettings({ token, onLogout, theme, themeLoaded, onChangeThe
 // react-i18next consumers — including this card, so the segments reflect the live language.
 function LanguageCard() {
   const { t } = useTranslation()
-  const lang = currentLang()
+  const pref = langPref()
   return (
     <Card className="hb-card--pad">
       <div className="hb-cardhead">
@@ -159,12 +159,13 @@ function LanguageCard() {
       <div style={{ marginTop: 14 }}>
         {/* A plain label span, NOT a <Field> — see the theme card note above. */}
         <div className="hb-field__label" style={{ marginBottom: 6 }}>{t('settings.languageLabel')}</div>
-        <SegmentedControl<Lang>
-          value={lang}
-          onChange={(next) => { if (next !== lang) setLang(next) }}
+        <SegmentedControl<LangPref>
+          value={pref}
+          onChange={(next) => { if (next !== pref) setLangPref(next) }}
           options={[
             { value: 'de', label: t('settings.languageGerman') },
             { value: 'en', label: t('settings.languageEnglish') },
+            { value: 'system', label: t('settings.languageSystem') },
           ]}
         />
       </div>

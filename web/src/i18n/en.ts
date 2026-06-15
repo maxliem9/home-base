@@ -20,6 +20,25 @@ export const en: Messages = {
     descriptionOptional: 'Description (optional)…',
     networkError: 'No connection – please try again later.',
   },
+  // HB-07 — locale-aware date/relative-time wording used by ui/format.ts.
+  fmt: {
+    today: 'Today',
+    tomorrow: 'Tomorrow',
+    yesterday: 'Yesterday',
+    yesterdayRel: 'yesterday',
+    dayBeforeYesterday: 'Day before yesterday',
+    overdueDays: '{n} days overdue',
+    inDays: 'In {n} days',
+    justNow: 'just now',
+    minAgo: '{n} min ago',
+    hrsAgo: '{n} h ago',
+    daysAgo: '{n} days ago',
+    weeksAgo: '{n} wk ago',
+    durMin: '{m} min',
+    durHourMin: '{h} h {m} min',
+    thisWeek: 'This week',
+    lastWeek: 'Last week',
+  },
   // Backend ErrorResponse codes → English text. Shared across views so write
   // failures read consistently; falls back to a per-action default when a code
   // is missing/unknown (see i18n `errorText` and issue #84).
@@ -522,6 +541,7 @@ export const en: Messages = {
     languageLabel: 'Display language',
     languageGerman: 'German',
     languageEnglish: 'English',
+    languageSystem: 'System', // follow the browser language
     // Darstellung / Theme (#100): pro Person gespeichert (user_prefs), gilt app-weit.
     themeTitle: 'Appearance',
     themeHint: 'Light, dark or follow the system. Only for you, applies instantly.',

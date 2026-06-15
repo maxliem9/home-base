@@ -17,6 +17,25 @@ export const de = {
     descriptionOptional: 'Beschreibung (optional)…',
     networkError: 'Keine Verbindung – bitte später erneut versuchen.',
   },
+  // HB-07 — locale-aware date/relative-time wording used by ui/format.ts.
+  fmt: {
+    today: 'Heute',
+    tomorrow: 'Morgen',
+    yesterday: 'Gestern',
+    yesterdayRel: 'gestern', // lowercase relative-time form ("… / gestern")
+    dayBeforeYesterday: 'Vorgestern',
+    overdueDays: '{n} Tage überfällig',
+    inDays: 'In {n} Tagen',
+    justNow: 'gerade eben',
+    minAgo: 'vor {n} Min.',
+    hrsAgo: 'vor {n} Std.',
+    daysAgo: 'vor {n} Tagen',
+    weeksAgo: 'vor {n} Wo.',
+    durMin: '{m} Min',
+    durHourMin: '{h} Std {m} Min',
+    thisWeek: 'Diese Woche',
+    lastWeek: 'Letzte Woche',
+  },
   // Backend ErrorResponse codes → German text. Shared across views so write
   // failures read consistently; falls back to a per-action default when a code
   // is missing/unknown (see i18n `errorText` and issue #84).
@@ -518,6 +537,7 @@ export const de = {
     languageLabel: 'Anzeigesprache',
     languageGerman: 'Deutsch',
     languageEnglish: 'Englisch',
+    languageSystem: 'System', // follow the browser language
     // Darstellung / Theme (#100): pro Person gespeichert (user_prefs), gilt app-weit.
     themeTitle: 'Darstellung',
     themeHint: 'Hell, dunkel oder dem System folgen. Nur für dich, sofort wirksam.',
