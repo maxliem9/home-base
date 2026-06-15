@@ -8,14 +8,15 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
 import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
-import { clockTime, dueLabel, fmtClock, todayLabel, userMeta, usernameFromToken } from '../ui/format'
+import { clockTime, dueLabel, fmtClock, fmtDurationShort, todayLabel, userMeta, usernameFromToken } from '../ui/format'
+import { PresenceStrip } from './PresenceStrip'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const wsUrl = (channel: string) => `${WS_SCHEME}://${window.location.host}/api/v1/ws/${channel}`
 
 // Tabs the dashboard tiles/cards can jump to. A subset of App's Tab union — the
 // `onNavigate` prop is satisfied by App's `setTab` (it accepts the wider type).
-type NavTarget = 'todos' | 'shopping' | 'time'
+type NavTarget = 'todos' | 'shopping' | 'time' | 'abwesenheit'
 
 interface DashboardViewProps {
   token: string
@@ -246,6 +247,14 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
   // own timer first, then the partner's
   const runningSorted = [...running].sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : 0))
 
+  // HB-10 — my weekly work-target peek; only shown when a Wochensoll is configured (#31).
+  const myForecast = (forecast?.users ?? []).find((u) => u.userId === me && u.weekTargetSeconds > 0)
+  // While my own timer(s) run, tick the recorded totals up live (#59) so the peek tracks the
+  // running clock instead of freezing at the last forecast snapshot.
+  const myLiveSeconds = running
+    .filter((e) => e.userId === me)
+    .reduce((sum, e) => sum + Math.max(0, Math.floor((nowMs - new Date(e.startedAt).getTime()) / 1000)), 0)
+
   return (
     <div className="hb-page">
       <PageHead eyebrow={todayLabel()} title={`${greeting(t)}, ${meName}.`} />
@@ -273,6 +282,9 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
             <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onNavigate('todos')} />
           </div>
 
+          {/* HB-01 — weekly presence overview, above "Heute dran" */}
+          <PresenceStrip token={token} onLogout={onLogout} onOpen={() => onNavigate('abwesenheit')} />
+
           <div className="hb-heute-grid">
             <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
               {/* Today's tasks */}
@@ -292,8 +304,15 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                         <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
                         <div className="hb-row__main">
                           <div className="hb-row__title">{todo.title}</div>
-                          {todo.priority && (
-                            <div className="hb-row__meta"><PriorityDot priority={todo.priority} withLabel /></div>
+                          {(todo.priority || todo.recurrence) && (
+                            <div className="hb-row__meta">
+                              {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
+                              {todo.recurrence && (
+                                <span className="hb-recur" title={t('dashboard.recurring')}>
+                                  <Icon name="repeat" size={13} stroke={2} />{t('dashboard.recurring')}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
@@ -372,6 +391,39 @@ export function DashboardView({ token, onLogout, onNavigate }: DashboardViewProp
                   <EmptyState icon="timer" title={t('dashboard.noTimer')} hint={t('dashboard.noTimerHint')} />
                 )}
               </Card>
+
+              {/* HB-10 — weekly work-target peek; only when a Wochensoll is configured (#31) */}
+              {myForecast && (() => {
+                const weekDone = myForecast.weekRecordedSeconds + myForecast.weekCreditedSeconds + myLiveSeconds
+                const pct = Math.min(100, Math.round((weekDone / myForecast.weekTargetSeconds) * 100))
+                const todayLeft = myForecast.todayTargetSeconds - (myForecast.todayRecordedSeconds + myLiveSeconds)
+                return (
+                  <Card className="hb-card--pad hb-worktarget">
+                    <div className="hb-cardhead">
+                      <h3>
+                        <Icon name="timer" size={17} stroke={2} style={{ verticalAlign: '-3px', marginRight: 7, color: 'var(--accent)' }} />
+                        {t('dashboard.worktargetTitle')}
+                      </h3>
+                      <button className="hb-link" onClick={() => onNavigate('time')}>
+                        {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
+                      </button>
+                    </div>
+                    <div className="hb-worktarget__top">
+                      <span className="hb-worktarget__val">
+                        <b>{fmtDurationShort(weekDone)}</b>{' '}
+                        <span className="hb-worktarget__target">/ {myForecast.weeklyTargetHours} {t('dashboard.worktargetHours')}</span>
+                      </span>
+                      <span className="hb-worktarget__pct">{pct}%</span>
+                    </div>
+                    <div className="hb-worktarget__bar"><span className="hb-worktarget__fill" style={{ width: `${pct}%` }} /></div>
+                    <div className="hb-worktarget__sub">
+                      {todayLeft <= 0
+                        ? t('dashboard.worktargetTodayReached')
+                        : t('dashboard.worktargetTodayLeft', { time: fmtDurationShort(todayLeft) })}
+                    </div>
+                  </Card>
+                )
+              })()}
 
               {/* Shopping peek */}
               <Card className="hb-card--pad">
