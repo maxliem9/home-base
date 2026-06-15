@@ -22,6 +22,9 @@ data class NotesUiState(
     val error: String? = null,
 )
 
+/** One picked image to upload to a note: its bytes + the original filename and MIME type. */
+data class NoteImageUpload(val bytes: ByteArray, val filename: String, val contentType: String)
+
 class NotesViewModel(
     private val repository: NotesRepository,
     private val token: String,
@@ -106,6 +109,25 @@ class NotesViewModel(
             repository.uploadImage(noteId, bytes, filename, contentType)
                 .onSuccess { note -> upsert(note) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Upload several picked images to a note in one go (#266). Each file is its own request
+     * (the backend appends with the right sort_order, so sequential uploads keep order); we
+     * upsert the returned note after each so thumbnails appear as they land. The first failure
+     * is surfaced as the error (partial success is fine — the successful ones stay attached).
+     */
+    fun uploadImages(noteId: String, items: List<NoteImageUpload>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            var firstError: String? = null
+            for (item in items) {
+                repository.uploadImage(noteId, item.bytes, item.filename, item.contentType)
+                    .onSuccess { note -> upsert(note) }
+                    .onFailure { e -> if (firstError == null) firstError = e.message }
+            }
+            firstError?.let { msg -> _uiState.update { it.copy(error = msg) } }
         }
     }
 

@@ -6,6 +6,7 @@ import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
+import com.homebase.android.ui.notes.NoteImageUpload
 import com.homebase.android.ui.notes.NotesViewModel
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -258,6 +259,72 @@ class NotesViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.notes[0].images.isEmpty())
+    }
+
+    @Test
+    fun `uploadImages uploads each file and upserts every returned note`() = runTest {
+        val original = note(id = "1")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(original))
+        // each upload returns the note with one more image; the latest call's note wins in state
+        coEvery { repository.uploadImage(eq("1"), any(), any(), any()) } returnsMany listOf(
+            Result.success(original.copy(images = listOf(image(id = "a")))),
+            Result.success(original.copy(images = listOf(image(id = "a"), image(id = "b")))),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.uploadImages(
+            "1",
+            listOf(
+                NoteImageUpload(byteArrayOf(1), "a.png", "image/png"),
+                NoteImageUpload(byteArrayOf(2), "b.png", "image/png"),
+            ),
+        )
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { repository.uploadImage(eq("1"), any(), any(), any()) }
+        assertEquals(2, vm.uiState.value.notes[0].images.size)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `uploadImages surfaces the first failure but keeps the successful uploads`() = runTest {
+        val original = note(id = "1")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(original))
+        coEvery { repository.uploadImage(eq("1"), any(), any(), any()) } returnsMany listOf(
+            Result.failure(RuntimeException("image must be JPEG, PNG, WebP or GIF")),
+            Result.success(original.copy(images = listOf(image(id = "ok")))),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.uploadImages(
+            "1",
+            listOf(
+                NoteImageUpload(byteArrayOf(1), "bad.tiff", "image/tiff"),
+                NoteImageUpload(byteArrayOf(2), "ok.png", "image/png"),
+            ),
+        )
+        advanceUntilIdle()
+
+        // the good file still landed, and the first failure is reported
+        assertEquals(1, vm.uiState.value.notes[0].images.size)
+        assertEquals("image must be JPEG, PNG, WebP or GIF", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `uploadImages with no items does nothing`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.uploadImages("1", emptyList())
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.uploadImage(any(), any(), any(), any()) }
     }
 
     @Test

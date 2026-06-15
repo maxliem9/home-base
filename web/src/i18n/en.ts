@@ -399,12 +399,14 @@ export const en: Messages = {
     insertImage: 'Insert into text',
     insertImageLabel: 'Insert image into the text',
     uploading: 'Uploading…',
+    uploadingMany: 'Uploading {done}/{total}…',
     imageUploadingInline: 'Image is uploading…',
     // shown when trying to paste/drop an image into a not-yet-saved draft
     imageSaveFirst: 'Save the note first, then insert images.',
     imageTooLarge: 'Image is too large (max. 10 MB).',
     imageBadType: 'Only JPEG, PNG, WebP or GIF allowed.',
     imageUploadFailed: 'Upload failed.',
+    imagesSomeFailed: '{count} image(s) could not be uploaded.',
     // write-error fallbacks (issue #96)
     saveFailed: 'Note could not be saved.',
     deleteFailed: 'Note could not be deleted.',

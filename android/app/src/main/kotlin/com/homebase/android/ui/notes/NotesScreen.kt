@@ -148,9 +148,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
                     else -> null
                 }
             },
-            onAddImage = { bytes, filename, contentType ->
-                viewModel.uploadImage(openNote.id, bytes, filename, contentType)
-            },
+            onAddImages = { items -> viewModel.uploadImages(openNote.id, items) },
             onRemoveImage = { imageId -> viewModel.removeImage(openNote.id, imageId) },
         )
     } else {
@@ -442,7 +440,7 @@ private fun NoteDetail(
     onEdit: () -> Unit,
     imageUrl: (NoteImageDto) -> String,
     resolveContentImageUrl: (String) -> String?,
-    onAddImage: (bytes: ByteArray, filename: String, contentType: String) -> Unit,
+    onAddImages: (items: List<NoteImageUpload>) -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -450,15 +448,20 @@ private fun NoteDetail(
     val context = LocalContext.current
     var lightbox by remember { mutableStateOf<String?>(null) }
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
+    // Multi-select photo picker (#266): read every chosen image and hand the batch up to the
+    // ViewModel, which uploads them one after another (each its own request, correct sort_order).
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
             val resolver = context.contentResolver
-            val type = resolver.getType(uri) ?: "image/jpeg"
-            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
-            } ?: "image"
-            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-            if (bytes != null) onAddImage(bytes, name, type)
+            val items = uris.mapNotNull { uri ->
+                val type = resolver.getType(uri) ?: "image/jpeg"
+                val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: "image"
+                resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?.let { bytes -> NoteImageUpload(bytes, name, type) }
+            }
+            if (items.isNotEmpty()) onAddImages(items)
         }
     }
 
