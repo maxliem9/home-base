@@ -144,9 +144,10 @@ fun MealPlanScreen(
 @Composable
 private fun WeekNavRow(weekStart: LocalDate, onPrev: () -> Unit, onNext: () -> Unit, onToday: () -> Unit) {
     val thisMonday = LocalDate.now().with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
-    val rel = when (weekStart) {
-        thisMonday -> stringResource(R.string.meal_plan_this_week)
-        thisMonday.minusWeeks(1) -> stringResource(R.string.meal_plan_last_week)
+    // .isEqual() (not ==) on java.time.LocalDate — Kotlin 2.2 warns on == for value types.
+    val rel = when {
+        weekStart.isEqual(thisMonday) -> stringResource(R.string.meal_plan_this_week)
+        weekStart.isEqual(thisMonday.minusWeeks(1)) -> stringResource(R.string.meal_plan_last_week)
         else -> null
     }
     val range = "${Format.shortDate(weekStart)} – ${Format.shortDate(weekStart.plusDays(6))}"
@@ -172,7 +173,7 @@ private fun DayCard(
     onPick: (String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
-    val today = day == LocalDate.now()
+    val today = day.isEqual(LocalDate.now())
     HbCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(

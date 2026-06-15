@@ -115,6 +115,46 @@ class MealPlanViewModelTest {
     }
 
     @Test
+    fun `clearSlot reloads from the server when the delete fails`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.success(listOf(entry("2026-06-15", "DINNER", "r1", "Lasagne")))
+        coEvery { repository.deleteMealSlot(any(), any()) } returns Result.failure(RuntimeException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.entries.size)
+
+        vm.clearSlot("2026-06-15", "DINNER")
+        advanceUntilIdle()
+
+        // optimistic removal is reconciled back from the server reload, and an error surfaces
+        assertEquals(1, vm.uiState.value.entries.size)
+        assertTrue(vm.uiState.value.error != null)
+    }
+
+    @Test
+    fun `meal-plan WS event reloads the visible week`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+
+        mealPlanEvents.emit(MealPlanWebSocketClient.WsEvent.Changed)
+        advanceUntilIdle()
+
+        coVerify(atLeast = 2) { repository.getMealPlan(any(), any()) }
+    }
+
+    @Test
+    fun `recipe WS event reloads recipes and the week (catches cascade deletes)`() = runTest {
+        val vm = createVm()
+        advanceUntilIdle()
+
+        recipeEvents.emit(RecipeWebSocketClient.WsEvent.RecipeDeleted(recipe("r1", "Lasagne", emptyList())))
+        advanceUntilIdle()
+
+        coVerify(atLeast = 2) { repository.getRecipes() }
+        coVerify(atLeast = 2) { repository.getMealPlan(any(), any()) }
+    }
+
+    @Test
     fun `addWeekToShopping aggregates planned-recipe ingredients in 1x portions`() = runTest {
         val r = recipe("r1", "Lasagne", listOf(ingredient("Nudelplatten", 250.0, "g", 0), ingredient("Hackfleisch", 500.0, "g", 1)))
         coEvery { repository.getRecipes() } returns Result.success(listOf(r))

@@ -83,7 +83,7 @@ class MealPlanViewModel(
 
     fun goToday() {
         val monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-        if (monday != _uiState.value.weekStart) {
+        if (!monday.isEqual(_uiState.value.weekStart)) {
             _uiState.update { it.copy(weekStart = monday) }
             loadEntries()
         }
@@ -102,12 +102,21 @@ class MealPlanViewModel(
     }
 
     fun clearSlot(date: String, slot: String) {
-        // optimistic remove; reconcile from the server if the delete actually failed
+        val removed = _uiState.value.entryFor(date, slot)
+        // optimistic remove
         _uiState.update { s -> s.copy(entries = s.entries.filterNot { it.date == date && it.slot == slot }) }
         viewModelScope.launch {
             repository.deleteMealSlot(date, slot).onFailure { e ->
-                _uiState.update { it.copy(error = e.message) }
-                loadEntries()
+                // Put the entry back and surface the error in one update — a loadEntries() reload here
+                // would reset error to null first, so the user would never see it. The next WS push /
+                // week reload reconciles the true server state anyway.
+                _uiState.update { s ->
+                    val stillGone = s.entries.none { it.date == date && it.slot == slot }
+                    s.copy(
+                        entries = if (removed != null && stillGone) s.entries + removed else s.entries,
+                        error = e.message,
+                    )
+                }
             }
         }
     }
