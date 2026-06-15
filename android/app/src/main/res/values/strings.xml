@@ -426,6 +426,14 @@
     <string name="absence_kita_single">Einzeltag</string>
     <string name="absence_kita_range_label">Zeitraum (Wochenenden übersprungen)</string>
     <string name="absence_kita_add_range">Zeitraum hinzufügen</string>
+    <string name="absence_holiday_label">Eigene Feiertage</string>
+    <string name="absence_holiday_hint">Gelten für die ganze Familie und wiederholen sich jedes Jahr (z. B. Heiligabend, Silvester). Halbtags = ein halber freier Tag.</string>
+    <string name="absence_holiday_none">Noch keine eigenen Feiertage erfasst.</string>
+    <string name="absence_holiday_date">Datum (jährlich)</string>
+    <string name="absence_holiday_default_label">Feiertag</string>
+    <string name="absence_holiday_recur_hint">Das Jahr im Datum wird ignoriert — nur Tag und Monat zählen und gelten jedes Jahr.</string>
+    <string name="absence_holiday_full_day">Ganzer Tag</string>
+    <string name="absence_holiday_half_day">Halbtags</string>
     <string name="absence_date_open">offen</string>
 
     <!-- ===== Settings (Einstellungen) ===== -->
