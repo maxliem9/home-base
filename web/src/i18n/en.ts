@@ -387,6 +387,7 @@ export const en: Messages = {
     recentEntries: 'Recent entries',
     noDescription: 'no description',
     viewDetails: 'View details',
+    open: 'Open', // labelled "open detail" button on the project card (#220)
     backToOverview: 'Back',
     detailTotal: 'Total',
     detailEntries: 'Entries',

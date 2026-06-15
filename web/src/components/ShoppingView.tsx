@@ -439,7 +439,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       {loading ? (
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : !active ? (
-        <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.noLists')} hint={t('shopping.noListsHint')} /></Card>
+        <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.noLists')} hint={t('shopping.noListsHint')} action={<Button size="sm" icon="plus" onClick={() => setNewListOpen(true)}>{t('shopping.newList')}</Button>} /></Card>
       ) : (
         <>
           <div className="hb-shop-add">

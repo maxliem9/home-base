@@ -58,7 +58,7 @@ test.describe('Recipes', () => {
   test('creates a recipe via the editor page', async ({ page }) => {
     await openRecipes(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neues Rezept' }).click()
     // the editor is its own full page now (issue #123), not a modal
     await expect(page.locator('.hb-modal')).toHaveCount(0)
     const form = page.locator('.hb-recipe-form')
@@ -75,7 +75,7 @@ test.describe('Recipes', () => {
   test('groups ingredients into named sections', async ({ page }) => {
     await openRecipes(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neues Rezept' }).click()
     const form = page.locator('.hb-recipe-form')
     await form.getByPlaceholder('Titel…').fill('Käsekuchen')
 
@@ -102,7 +102,7 @@ test.describe('Recipes', () => {
   test('section-name field sticks after removing back to a single section', async ({ page }) => {
     await openRecipes(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neues Rezept' }).click()
     const form = page.locator('.hb-recipe-form')
     await form.getByPlaceholder('Titel…').fill('Test')
 
@@ -235,7 +235,7 @@ test.describe('Recipes', () => {
   test('bulk-adds ingredients via the free-text paste mode', async ({ page }) => {
     await openRecipes(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neues Rezept' }).click()
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neues Rezept' }).click()
     const form = page.locator('.hb-recipe-form')
     await form.getByPlaceholder('Titel…').fill('Suppe')
 

@@ -2,11 +2,14 @@
 // to TypeScript/React. Pure presentational components over the design tokens.
 import {
   useEffect,
+  useId,
+  useLayoutEffect,
   useRef,
   Fragment,
   type CSSProperties,
   type ReactNode,
   type KeyboardEvent,
+  type RefObject,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from './Icon'
@@ -227,12 +230,16 @@ export function Checkbox({ checked, onChange, hue }: { checked: boolean; onChang
 
 // --- Empty state -----------------------------------------------------------
 
-export function EmptyState({ icon, title, hint }: { icon: string; title: string; hint?: string }) {
+// `action` (HB-12 / #228) is an optional primary action rendered under the hint —
+// e.g. a "New recipe" button on a first-run empty list. Omit it for terminal/positive
+// empty states ("all done", "everything bought") where there is nothing to prompt.
+export function EmptyState({ icon, title, hint, action }: { icon: string; title: string; hint?: string; action?: ReactNode }) {
   return (
     <div className="hb-empty">
       <div className="hb-empty__icon"><Icon name={icon} size={26} stroke={1.6} /></div>
       <div className="hb-empty__title">{title}</div>
       {hint && <div className="hb-empty__hint">{hint}</div>}
+      {action && <div className="hb-empty__action">{action}</div>}
     </div>
   )
 }
@@ -269,6 +276,47 @@ function useTopmostEscape(open: boolean, onClose: () => void) {
   }, [open])
 }
 
+// Focus management for an open overlay (HB-11 / #227): on open move focus into the
+// dialog, keep Tab / Shift+Tab cycling within it, and return focus to the element that
+// opened it on close. Pairs with useTopmostEscape (Esc) and the dialog roles below for
+// keyboard-complete modals/sheets. A child with autoFocus wins — child effects run before
+// this parent effect, so we only seed focus when nothing inside is focused yet.
+function useFocusTrap(open: boolean, ref: RefObject<HTMLElement>) {
+  const openerRef = useRef<HTMLElement | null>(null)
+  // Capture the element that had focus *before* the dialog opened, in a LAYOUT effect so it
+  // runs during commit — ahead of a child's passive autoFocus effect. A passive effect here
+  // would instead capture the autofocused field and "return" focus to a now-unmounted node
+  // (i.e. to <body>) on close.
+  useLayoutEffect(() => {
+    if (open) openerRef.current = document.activeElement as HTMLElement | null
+  }, [open])
+  useEffect(() => {
+    const container = ref.current
+    if (!open || !container) return
+    const SEL = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    const focusables = () => Array.from(container.querySelectorAll<HTMLElement>(SEL)).filter((el) => el.offsetParent !== null)
+    // Seed focus only if a child autoFocus hasn't already placed it inside the dialog.
+    if (!container.contains(document.activeElement)) (focusables()[0] ?? container).focus()
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      const els = focusables()
+      if (els.length === 0) { e.preventDefault(); container.focus(); return }
+      const first = els[0]
+      const last = els[els.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === container)) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+    }
+    container.addEventListener('keydown', onKey)
+    return () => {
+      container.removeEventListener('keydown', onKey)
+      // Return focus to the opener, but only if it's still in the document.
+      const opener = openerRef.current
+      if (opener && document.contains(opener)) opener.focus()
+    }
+  }, [open, ref])
+}
+
 export function Modal({
   open,
   onClose,
@@ -285,13 +333,25 @@ export function Modal({
   width?: number
 }) {
   const { t } = useTranslation()
+  const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   useTopmostEscape(open, onClose)
+  useFocusTrap(open, ref)
   if (!open) return null
   return (
     <div className="hb-modal-scrim" onClick={onClose}>
-      <div className="hb-modal" style={{ width }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="hb-modal"
+        style={{ width }}
+        onClick={(e) => e.stopPropagation()}
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="hb-modal__head">
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <IconButton icon="x" onClick={onClose} label={t('common.close')} />
         </div>
         <div className="hb-modal__body">{children}</div>
@@ -323,7 +383,10 @@ export function Sheet({
   width?: number
 }) {
   const { t } = useTranslation()
+  const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   useTopmostEscape(open, onClose)
+  useFocusTrap(open, ref)
   if (!open) return null
   return (
     <div className="hb-sheet-scrim" onClick={onClose}>
@@ -331,11 +394,14 @@ export function Sheet({
         className="hb-sheet"
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
+        ref={ref}
       >
         <div className="hb-sheet__head">
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <IconButton icon="x" onClick={onClose} label={t('common.close')} />
         </div>
         <div className="hb-sheet__body">{children}</div>

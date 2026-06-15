@@ -424,7 +424,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
             <p className="hb-muted" style={{ padding: 8 }}>{t('common.loading')}</p>
           ) : listed.length === 0 ? (
             <Card className="hb-card--pad">
-              <EmptyState icon="note" title={query.trim() ? t('notes.noResults') : t('notes.empty')} hint={query.trim() ? undefined : t('notes.emptyHint')} />
+              <EmptyState
+                icon="note"
+                title={query.trim() ? t('notes.noResults') : t('notes.empty')}
+                hint={query.trim() ? undefined : t('notes.emptyHint')}
+                action={query.trim() ? undefined : <Button size="sm" icon="plus" onClick={() => { setDraft(emptyDraft()); setSelectedId(null) }}>{t('notes.newNote')}</Button>}
+              />
             </Card>
           ) : (
             <div className="hb-notes-items">
