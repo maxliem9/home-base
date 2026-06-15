@@ -51,6 +51,7 @@ export const de = {
     INVALID_VISIBILITY: 'Ungültige Sichtbarkeit.',
     // Shopping
     INVALID_SHOPPING_ITEM: 'Name darf nicht leer sein.',
+    INVALID_TEMPLATE: 'Vorlagenname darf nicht leer sein.',
     // Notes
     INVALID_NOTE: 'Titel darf nicht leer sein.',
     VISIBILITY_FORBIDDEN: 'Nur der Ersteller darf die Sichtbarkeit ändern.',
@@ -264,6 +265,46 @@ export const de = {
     clearFailed: 'Abgehakte konnten nicht entfernt werden.',
     listCreateFailed: 'Liste konnte nicht erstellt werden.',
     listDeleteFailed: 'Liste konnte nicht gelöscht werden.',
+    // Benannte Standard-/Vorlagen-Listen (#215): gespeicherte Item-Namen für den
+    // wiederkehrenden Wocheneinkauf, die per Auswahl auf eine echte Liste übernommen werden.
+    templates: {
+      open: 'Vorlagen', // Button-Beschriftung am Listenbereich
+      manageTitle: 'Vorlagen', // Verwaltungs-Sheet-Titel
+      manageHint: 'Speichere wiederkehrende Einkäufe als Vorlage und füge sie mit einem Klick zur Liste hinzu.',
+      empty: 'Noch keine Vorlagen',
+      emptyHint: 'Lege deine erste Standard-Liste an.',
+      itemCount: 'Produkte', // gerendert als "{n} Produkte"
+      itemCountOne: 'Produkt', // gerendert als "1 Produkt"
+      newTemplate: 'Neue Vorlage',
+      editTemplate: 'Vorlage bearbeiten',
+      nameLabel: 'Name',
+      namePlaceholder: 'z. B. Wocheneinkauf',
+      items: 'Produkte',
+      itemPlaceholder: 'Produkt …',
+      addItem: '+ Produkt',
+      removeItem: 'Produkt entfernen',
+      noItemsYet: 'Noch keine Produkte – oben hinzufügen.',
+      create: 'Erstellen',
+      apply: 'Zur Liste hinzufügen',
+      applyTitle: 'Vorlage zur Liste hinzufügen',
+      applyToList: 'Liste',
+      applyNoList: 'Lege zuerst eine Einkaufsliste an.',
+      selected: 'ausgewählt', // gerendert als "{n} von {total} ausgewählt"
+      all: 'Alle',
+      none: 'Keine',
+      applyAdd: 'hinzufügen', // gerendert als "{n} hinzufügen"
+      deleteTitle: 'Vorlage löschen?',
+      deleteConfirm: 'Die Vorlage „{name}" wird gelöscht. Das kann nicht rückgängig gemacht werden.',
+      deleteBtn: 'Endgültig löschen',
+      // Schreibfehler-Fallbacks
+      saveFailed: 'Vorlage konnte nicht gespeichert werden.',
+      deleteFailed: 'Vorlage konnte nicht gelöscht werden.',
+      applyFailed: 'Vorlage konnte nicht zur Liste hinzugefügt werden.',
+      loadFailed: 'Vorlagen konnten nicht geladen werden.',
+      added: 'hinzugefügt', // Toast: "{n} hinzugefügt"
+      merged: 'zusammengeführt', // Toast: "{n} zusammengeführt"
+      nothingToAdd: 'Keine neuen Produkte',
+    },
   },
   notes: {
     headerTitle: 'HomeBase — Notizen',

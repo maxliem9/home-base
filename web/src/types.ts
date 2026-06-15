@@ -58,6 +58,23 @@ export interface ShoppingItem {
   checkedAt?: string
 }
 
+// Named "standard/template shopping list" (#215): a saved set of item names the
+// household re-adds for the recurring weekly shop. `items` is omitted by the
+// backend when empty (encodeDefaults=false) — normalize with ?? [] on the way in.
+export interface ShoppingTemplateItem {
+  id: string
+  name: string
+  sortOrder: number
+}
+
+export interface ShoppingTemplate {
+  id: string
+  name: string
+  items: ShoppingTemplateItem[]
+  createdBy: string
+  createdAt: string
+}
+
 export interface Project {
   id: string
   name: string

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, shoppingList, shoppingItem, TOKEN } from './helpers/mockApi'
+import { MockApi, shoppingList, shoppingItem, shoppingTemplate, TOKEN } from './helpers/mockApi'
 
 /** Logs in, installs the mock backend, and navigates to the shopping view. */
 async function openShopping(page: Page, mock: MockApi) {
@@ -204,5 +204,86 @@ test.describe('Shopping lists', () => {
     await putPromise
 
     await expect(page.locator('.hb-syncbar')).toHaveCount(0)
+  })
+})
+
+// Named "standard/template lists" (#215): save several named templates (item names)
+// and re-add a chosen subset to a real list via the existing batch-add.
+test.describe('Shopping templates', () => {
+  test('creates a template, then adds selected items to the active list', async ({ page }) => {
+    await openShopping(page, new MockApi([], [], [WOCHE], []))
+
+    // open the template management slide-over and create a new template
+    await page.locator('.hb-tabs').getByRole('button', { name: 'Vorlagen' }).click()
+    const manage = page.locator('.hb-sheet')
+    await expect(manage).toBeVisible()
+    await expect(manage.getByText('Noch keine Vorlagen')).toBeVisible()
+    await manage.getByRole('button', { name: 'Neue Vorlage' }).click()
+
+    // editor (in-place): name + two item rows
+    const editor = page.locator('.hb-sheet')
+    await editor.getByPlaceholder('z. B. Wocheneinkauf').fill('Wocheneinkauf')
+    await editor.getByRole('button', { name: '+ Produkt' }).click()
+    await editor.getByRole('button', { name: '+ Produkt' }).click()
+    const itemInputs = editor.locator('.hb-tpl-item .hb-input')
+    await itemInputs.nth(0).fill('Milch')
+    await itemInputs.nth(1).fill('Brot')
+    await editor.getByRole('button', { name: 'Speichern' }).click()
+
+    // back on the list, the saved template shows with its item count
+    await expect(manage.getByText('Wocheneinkauf')).toBeVisible()
+    await expect(manage.getByText('2 Produkte')).toBeVisible()
+
+    // "Zur Liste hinzufügen" opens the selection sheet (both items preselected)
+    await manage.getByRole('button', { name: 'Zur Liste hinzufügen' }).click()
+    const pick = page.locator('.hb-sheet')
+    await expect(pick.getByText('2 / 2 ausgewählt')).toBeVisible()
+    await pick.getByRole('button', { name: /hinzufügen/ }).click()
+
+    // toast confirms, and both items appear on the active list
+    await expect(page.getByText(/hinzugefügt/)).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Milch' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Brot' })).toBeVisible()
+  })
+
+  test('adds only the selected subset of a template', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], []).seedShoppingTemplates([
+      shoppingTemplate({ id: 'tpl1', name: 'Grundausstattung', items: ['Mehl', 'Zucker', 'Salz'] }),
+    ])
+    await openShopping(page, mock)
+
+    await page.locator('.hb-tabs').getByRole('button', { name: 'Vorlagen' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Zur Liste hinzufügen' }).click()
+
+    const pick = page.locator('.hb-sheet')
+    // deselect everything, then pick only "Zucker"
+    await pick.getByRole('button', { name: 'Keine' }).click()
+    await expect(pick.getByText('0 / 3 ausgewählt')).toBeVisible()
+    await pick.locator('.hb-ingpick', { hasText: 'Zucker' }).click()
+    await pick.getByRole('button', { name: '1 hinzufügen' }).click()
+
+    // only Zucker lands; the unticked items stay off the list
+    await expect(page.locator('.hb-row', { hasText: 'Zucker' })).toBeVisible()
+    await expect(page.getByText('Mehl')).toHaveCount(0)
+    await expect(page.getByText('Salz')).toHaveCount(0)
+  })
+
+  test('deletes a template via the confirm dialog', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], []).seedShoppingTemplates([
+      shoppingTemplate({ id: 'tpl1', name: 'Altlast', items: ['X'] }),
+    ])
+    await openShopping(page, mock)
+
+    await page.locator('.hb-tabs').getByRole('button', { name: 'Vorlagen' }).click()
+    const manage = page.locator('.hb-sheet')
+    await expect(manage.getByText('Altlast')).toBeVisible()
+
+    // trash → a custom confirm dialog must appear before the delete (no window.confirm)
+    await manage.getByRole('button', { name: 'Löschen' }).click()
+    await expect(page.getByRole('heading', { name: 'Vorlage löschen?' })).toBeVisible()
+    await page.locator('.hb-modal').getByRole('button', { name: 'Endgültig löschen' }).click()
+
+    await expect(page.getByText('Altlast')).toHaveCount(0)
+    await expect(page.getByText('Noch keine Vorlagen')).toBeVisible()
   })
 })
