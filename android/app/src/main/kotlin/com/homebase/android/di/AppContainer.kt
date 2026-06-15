@@ -10,6 +10,7 @@ import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
+import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.shopping.ConnectivityObserver
@@ -61,6 +62,9 @@ class AppContainer(context: Context) {
     val authRepository = AuthRepository(context, api) { token -> currentToken = token }
 
     val configRepository = ConfigRepository(api)
+
+    /** Per-user UI-theme preference (#244): light/dark/system, persisted in user_prefs. */
+    val themeRepository = ThemeRepository(api)
 
     val todoRepository = TodoRepository(
         api = api,

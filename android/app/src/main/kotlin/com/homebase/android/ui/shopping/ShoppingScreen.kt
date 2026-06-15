@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -333,7 +334,7 @@ private fun ListTab(label: String, count: Int, active: Boolean, onClick: () -> U
     Row(
         Modifier
             .clickable { onClick() }
-            .then(if (active) Modifier.accentUnderline() else Modifier)
+            .then(if (active) Modifier.accentUnderline(Hb.accent) else Modifier)
             .padding(horizontal = 13.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -374,11 +375,15 @@ private fun NewListTab(onClick: () -> Unit) {
     }
 }
 
-/** 2dp accent underline drawn at the bottom edge (overlapping the strip's hairline). */
-private fun Modifier.accentUnderline(): Modifier = drawBehind {
+/**
+ * 2dp accent underline drawn at the bottom edge (overlapping the strip's hairline). [color] is
+ * passed in (resolved by the composable caller) since drawBehind is a non-composable DrawScope and
+ * the `Hb.*` tokens are now @Composable getters (#244).
+ */
+private fun Modifier.accentUnderline(color: Color): Modifier = drawBehind {
     val w = 2.dp.toPx()
     val y = size.height - w / 2f
-    drawLine(Hb.accent, Offset(0f, y), Offset(size.width, y), w)
+    drawLine(color, Offset(0f, y), Offset(size.width, y), w)
 }
 
 // ---------------------------------------------------------------------------

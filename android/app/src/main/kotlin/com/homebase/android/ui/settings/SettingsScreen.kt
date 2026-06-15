@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +50,7 @@ import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
+import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
 import com.homebase.android.ui.abwesenheit.AbwSettingsPanel
 import com.homebase.android.ui.abwesenheit.buildContext
@@ -73,6 +75,7 @@ import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.theme.ThemePref
 import com.homebase.android.ui.time.TargetsSheet
 import com.homebase.android.ui.time.TimeViewModel
 import com.homebase.android.ui.util.FileShare
@@ -99,6 +102,7 @@ private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, ZEITERFASSUNG,
 fun SettingsScreen(
     configRepository: ConfigRepository,
     authRepository: AuthRepository,
+    themeRepository: ThemeRepository,
     timeViewModel: TimeViewModel,
     absenceViewModel: AbsenceViewModel,
     currentUser: String?,
@@ -120,6 +124,7 @@ fun SettingsScreen(
         )
         SettingsSub.KONTO -> KontoPage(
             authRepository = authRepository,
+            themeRepository = themeRepository,
             currentUser = currentUser,
             onLoggedOut = onLoggedOut,
             onBack = { sub = null },
@@ -356,6 +361,7 @@ private fun HouseholdPage(
 @Composable
 private fun KontoPage(
     authRepository: AuthRepository,
+    themeRepository: ThemeRepository,
     currentUser: String?,
     onLoggedOut: () -> Unit,
     onBack: () -> Unit,
@@ -402,8 +408,10 @@ private fun KontoPage(
             HbAppBar(eyebrow = stringResource(R.string.settings_eyebrow), title = stringResource(R.string.settings_account), leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
         },
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Spacer(Modifier.size(10.dp))
+            // Erscheinungsbild / theme picker (#244) — first card, mirroring the web Konto tab.
+            ThemeCard(themeRepository)
             HbCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -477,6 +485,74 @@ private fun KontoPage(
                 }
             },
             onDismiss = { confirmLogout = false },
+        )
+    }
+}
+
+/**
+ * Erscheinungsbild / theme picker (#244) — the Android pendant of the web Konto tab's theme
+ * SegmentedControl. A 3-way Hell/Dunkel/System control wired to [ThemeRepository]: selecting a
+ * value applies it instantly app-wide (the repository's StateFlow drives HomeBaseTheme) and
+ * persists it as a user_pref. Persistence is optimistic — on a failed PUT the choice still shows
+ * and a non-blocking "couldn't save" hint appears (matching web). `System` follows the OS.
+ */
+@Composable
+private fun ThemeCard(themeRepository: ThemeRepository) {
+    val scope = rememberCoroutineScope()
+    val current by themeRepository.theme.collectAsStateWithLifecycle()
+    var saveFailed by remember { mutableStateOf(false) }
+
+    val pick = { next: ThemePref ->
+        if (next != current) {
+            saveFailed = false
+            scope.launch { saveFailed = !themeRepository.setTheme(next) }
+        }
+        Unit
+    }
+
+    HbCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    stringResource(R.string.settings_theme_title),
+                    style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink,
+                )
+                Text(
+                    stringResource(R.string.settings_theme_hint),
+                    style = HbType.small.copy(fontSize = 12.5.sp),
+                    color = Hb.ink3,
+                )
+            }
+            Row(
+                Modifier.clip(HbPill).background(Hb.surface2, HbPill).padding(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ThemeChip(stringResource(R.string.settings_theme_light), current == ThemePref.LIGHT) { pick(ThemePref.LIGHT) }
+                ThemeChip(stringResource(R.string.settings_theme_dark), current == ThemePref.DARK) { pick(ThemePref.DARK) }
+                ThemeChip(stringResource(R.string.settings_theme_system), current == ThemePref.SYSTEM) { pick(ThemePref.SYSTEM) }
+            }
+            if (saveFailed) ErrorText(stringResource(R.string.settings_theme_save_failed))
+        }
+    }
+}
+
+/** One segment of the theme picker — same pill styling as [LanguageChip], sized to share a row of 3. */
+@Composable
+private fun RowScope.ThemeChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .weight(1f)
+            .clip(HbPill)
+            .background(if (active) Hb.accent else Color.Transparent, HbPill)
+            .clickable { onClick() }
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = HbType.label.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+            color = if (active) Hb.onAccent else Hb.ink2,
         )
     }
 }

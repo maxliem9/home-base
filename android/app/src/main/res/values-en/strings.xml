@@ -440,6 +440,14 @@
     <string name="settings_language_de">Deutsch</string>
     <string name="settings_language_en">English</string>
 
+    <!-- Theme / Appearance (#244) — wording mirrors web settings.theme* -->
+    <string name="settings_theme_title">Appearance</string>
+    <string name="settings_theme_hint">Light, dark or follow the system. Only for you, applies instantly.</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_save_failed">Setting could not be saved.</string>
+
     <string name="settings_saved">Saved</string>
     <string name="settings_household_name">Household name</string>
     <string name="settings_household_name_hint">Shown in the sidebar. Both can change it.</string>

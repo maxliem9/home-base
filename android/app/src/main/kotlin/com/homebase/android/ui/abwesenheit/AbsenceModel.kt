@@ -39,7 +39,15 @@ object AbsTypes {
     }
 }
 
-/** Light-only fill palette; urlaub/teilzeit take the person hue, the rest are fixed hues. */
+/**
+ * Light-only fill palette; urlaub/teilzeit take the person hue, the rest are fixed hues.
+ *
+ * TODO(#244): the Abwesenheit calendar fills are deliberately a single light palette (chips
+ * designed to read on a light grid) and are NOT yet dark-mode-aware — in dark mode the grid keeps
+ * these light fills. A proper dark variant needs its own design pass. Kept as plain `oklch(...)`
+ * literals (not `Hb.*`) so it stays usable from non-composable code, now that the `Hb.*` colour
+ * tokens are `@Composable` getters.
+ */
 object AbwPalette {
     fun urlaub(hue: Double): Color = oklch(0.70, 0.108, hue)
     val krank: Color = oklch(0.71, 0.13, 27.0)
@@ -47,7 +55,9 @@ object AbwPalette {
     val feiertag: Color = oklch(0.82, 0.05, 288.0)
     fun teilzeit(hue: Double): Color = oklch(0.91, 0.034, hue)
     val weekend: Color = oklch(0.925, 0.006, 130.0)
-    val workday: Color = Hb.surface
+    // Same value the light `Hb.surface` resolves to (was `Hb.surface`; inlined as a literal because
+    // that token is now a @Composable getter and this object initialises outside any composition).
+    val workday: Color = oklch(0.988, 0.008, 128.0)
 
     /** Dark ink used for chip glyphs/labels printed on the light fills. */
     val onFill: Color = oklch(0.26, 0.03, 150.0)
