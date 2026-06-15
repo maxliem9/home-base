@@ -88,12 +88,14 @@ fun MealPlanScreen(
         },
         overlay = {
             picking?.let { (date, slot) ->
+                val current = state.entryFor(date, slot)
                 RecipePickerSheet(
                     recipes = state.recipes,
-                    currentRecipeId = state.entryFor(date, slot)?.recipeId,
+                    currentRecipeId = current?.recipeId,
+                    currentServings = current?.servings,
                     dateLabel = Format.longWeekdayDate(LocalDate.parse(date)),
                     slotLabel = stringResource(slotLabelRes(slot)),
-                    onPick = { recipeId -> viewModel.setSlot(date, slot, recipeId); picking = null },
+                    onConfirm = { recipeId, servings -> viewModel.setSlot(date, slot, recipeId, servings); picking = null },
                     onRemove = { viewModel.clearSlot(date, slot); picking = null },
                     onDismiss = { picking = null },
                 )
@@ -199,6 +201,7 @@ private fun DayCard(
                                 .clickable { onPick(slot) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 entry.recipeTitle,
@@ -208,6 +211,15 @@ private fun DayCard(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
+                            // chosen portions, only when set to a non-default count (#261)
+                            entry.servings?.let {
+                                Text(
+                                    stringResource(R.string.meal_plan_servings_short, it),
+                                    style = HbType.small,
+                                    color = Hb.accentInk,
+                                    maxLines = 1,
+                                )
+                            }
                         }
                         HbIconButton(HbIcons.x, { onRemove(slot) }, iconSize = 18.dp)
                     } else {
@@ -235,43 +247,77 @@ private fun DayCard(
 private fun RecipePickerSheet(
     recipes: List<RecipeDto>,
     currentRecipeId: String?,
+    currentServings: Int?,
     dateLabel: String,
     slotLabel: String,
-    onPick: (String) -> Unit,
+    // servings is the chosen portions, or null to keep the recipe's own servings (1× as authored)
+    onConfirm: (recipeId: String, servings: Int?) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    var selectedId by remember { mutableStateOf(currentRecipeId) }
+    val currentRecipe = recipes.firstOrNull { it.id == currentRecipeId }
+    var servings by remember { mutableStateOf((currentServings ?: currentRecipe?.servings ?: 1).coerceAtLeast(1)) }
+    val selectedRecipe = recipes.firstOrNull { it.id == selectedId }
+
     val needle = query.trim().lowercase()
     val filtered = if (needle.isEmpty()) recipes else recipes.filter { it.title.lowercase().contains(needle) }
+
+    // Selecting a recipe seeds the stepper: the entry's chosen portions if it's the planned recipe,
+    // otherwise that recipe's own authored servings.
+    fun select(r: RecipeDto) {
+        selectedId = r.id
+        servings = (if (r.id == currentRecipeId && currentServings != null) currentServings else r.servings).coerceAtLeast(1)
+    }
 
     HbBottomSheet(
         onDismiss = onDismiss,
         title = "$dateLabel · $slotLabel",
-        footer = if (currentRecipeId != null) {
-            {
-                HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary, modifier = Modifier.weight(1f))
-                HbButton(stringResource(R.string.meal_plan_remove), onRemove, variant = HbButtonVariant.Danger, icon = HbIcons.trash, modifier = Modifier.weight(1f))
+        footer = {
+            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary, size = HbButtonSize.Sm, modifier = Modifier.weight(1f))
+            if (currentRecipeId != null) {
+                HbButton(stringResource(R.string.meal_plan_remove), onRemove, variant = HbButtonVariant.Danger, size = HbButtonSize.Sm, modifier = Modifier.weight(1f))
             }
-        } else null,
+            HbButton(
+                stringResource(R.string.meal_plan_pick_confirm),
+                onClick = {
+                    // only persist a non-default portion count (keeps the common 1× case as null)
+                    selectedRecipe?.let { r -> onConfirm(r.id, if (servings != r.servings) servings else null) }
+                },
+                variant = HbButtonVariant.Primary,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.check,
+                enabled = selectedId != null,
+                modifier = Modifier.weight(1f),
+            )
+        },
     ) {
         if (recipes.isEmpty()) {
             Text(stringResource(R.string.meal_plan_pick_empty), style = HbType.body, color = Hb.ink2)
         } else {
             HbTextField(value = query, onValueChange = { query = it }, placeholder = stringResource(R.string.meal_plan_pick_search))
+            if (selectedId != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.meal_plan_servings), style = HbType.meta, color = Hb.ink2, modifier = Modifier.weight(1f))
+                    HbIconButton(HbIcons.minus, { servings = (servings - 1).coerceAtLeast(1) }, iconSize = 18.dp)
+                    Text("$servings", style = HbType.body.copy(fontWeight = FontWeight.Bold), color = Hb.ink, modifier = Modifier.width(28.dp), maxLines = 1)
+                    HbIconButton(HbIcons.plus, { servings += 1 }, iconSize = 18.dp)
+                }
+            }
             if (filtered.isEmpty()) {
                 Text(stringResource(R.string.meal_plan_pick_no_match), style = HbType.body, color = Hb.ink2)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { r ->
-                        val selected = r.id == currentRecipeId
+                        val selected = r.id == selectedId
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(HbRadiusSm)
                                 .background(if (selected) Hb.accentSoft else Hb.surface, HbRadiusSm)
                                 .border(1.dp, if (selected) Hb.accent else Hb.lineSoft, HbRadiusSm)
-                                .clickable { onPick(r.id) }
+                                .clickable { select(r) }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),

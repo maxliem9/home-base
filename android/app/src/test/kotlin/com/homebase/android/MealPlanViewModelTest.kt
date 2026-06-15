@@ -47,9 +47,9 @@ class MealPlanViewModelTest {
         createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
-    private fun entry(date: String, slot: String, recipeId: String, title: String) = MealPlanEntryDto(
+    private fun entry(date: String, slot: String, recipeId: String, title: String, servings: Int? = null) = MealPlanEntryDto(
         id = "m-$date-$slot", date = date, slot = slot, recipeId = recipeId,
-        recipeTitle = title, recipeCategory = "DINNER", createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+        recipeTitle = title, recipeCategory = "DINNER", servings = servings, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
     @Before
@@ -89,11 +89,11 @@ class MealPlanViewModelTest {
     @Test
     fun `setSlot upserts the returned entry into state`() = runTest {
         val planned = entry("2026-06-16", "DINNER", "r1", "Lasagne")
-        coEvery { repository.setMealSlot("2026-06-16", "DINNER", "r1") } returns Result.success(planned)
+        coEvery { repository.setMealSlot("2026-06-16", "DINNER", "r1", null) } returns Result.success(planned)
 
         val vm = createVm()
         advanceUntilIdle()
-        vm.setSlot("2026-06-16", "DINNER", "r1")
+        vm.setSlot("2026-06-16", "DINNER", "r1", null)
         advanceUntilIdle()
 
         assertEquals("Lasagne", vm.uiState.value.entryFor("2026-06-16", "DINNER")?.recipeTitle)
@@ -173,5 +173,23 @@ class MealPlanViewModelTest {
         assertEquals(listOf("Nudelplatten", "Hackfleisch"), lines.captured.map { it.name })
         assertEquals(250.0, lines.captured.first().amount!!, 0.001)
         assertEquals(2 to 0, reported)
+    }
+
+    @Test
+    fun `addWeekToShopping scales ingredient amounts by the chosen portions`() = runTest {
+        // recipe authored for 2 servings; entry plans 4 → ×2
+        val r = recipe("r1", "Lasagne", listOf(ingredient("Nudelplatten", 250.0, "g", 0), ingredient("Hackfleisch", 500.0, "g", 1)))
+        coEvery { repository.getRecipes() } returns Result.success(listOf(r))
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.success(listOf(entry("2026-06-15", "DINNER", "r1", "Lasagne", servings = 4)))
+        val lines: CapturingSlot<List<ShoppingLineInput>> = slot()
+        coEvery { repository.addToShopping(any(), capture(lines)) } returns Result.success(BatchAddShoppingResponse(added = 2, merged = 0, skipped = 0))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.addWeekToShopping("sl1") { _, _ -> }
+        advanceUntilIdle()
+
+        assertEquals(500.0, lines.captured.first { it.name == "Nudelplatten" }.amount!!, 0.001)
+        assertEquals(1000.0, lines.captured.first { it.name == "Hackfleisch" }.amount!!, 0.001)
     }
 }

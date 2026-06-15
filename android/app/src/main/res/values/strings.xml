@@ -63,6 +63,9 @@
     <string name="meal_plan_pick_search">Rezept suchen…</string>
     <string name="meal_plan_pick_empty">Lege zuerst ein Rezept an.</string>
     <string name="meal_plan_pick_no_match">Kein passendes Rezept.</string>
+    <string name="meal_plan_pick_confirm">Übernehmen</string>
+    <string name="meal_plan_servings">Portionen</string>
+    <string name="meal_plan_servings_short">%1$d Port.</string>
     <string name="meal_plan_add_to_shopping">In Einkaufsliste</string>
     <string name="meal_plan_add_to_shopping_title">Zutaten der Woche zur Einkaufsliste</string>
     <string name="meal_plan_add_confirm">Hinzufügen</string>

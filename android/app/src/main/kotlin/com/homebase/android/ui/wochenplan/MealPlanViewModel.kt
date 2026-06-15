@@ -89,9 +89,9 @@ class MealPlanViewModel(
         }
     }
 
-    fun setSlot(date: String, slot: String, recipeId: String) {
+    fun setSlot(date: String, slot: String, recipeId: String, servings: Int?) {
         viewModelScope.launch {
-            repository.setMealSlot(date, slot, recipeId)
+            repository.setMealSlot(date, slot, recipeId, servings)
                 .onSuccess { entry ->
                     _uiState.update { s ->
                         s.copy(entries = s.entries.filterNot { it.date == entry.date && it.slot == entry.slot } + entry)
@@ -122,15 +122,21 @@ class MealPlanViewModel(
     }
 
     /**
-     * Aggregate the week's planned-recipe ingredients in 1× recipe portions (the batch endpoint sums
-     * by name+unit) and add them to [listId]; reports (added, merged) to [onResult] for the toast.
+     * Aggregate the week's planned-recipe ingredients, scaled to each entry's chosen portions (#261;
+     * the batch endpoint sums by name+unit), and add them to [listId]; reports (added, merged) to
+     * [onResult] for the toast. An entry without an explicit servings keeps the recipe's own servings
+     * (factor 1, 1× as authored).
      */
     fun addWeekToShopping(listId: String, onResult: (added: Int, merged: Int) -> Unit) {
         val state = _uiState.value
         val byId = state.recipes.associateBy { it.id }
         val lines = state.entries.flatMap { e ->
-            (byId[e.recipeId]?.ingredients ?: emptyList()).map { ing ->
-                ShoppingLineInput(name = ing.name, amount = ing.amount, unit = ing.unit)
+            val recipe = byId[e.recipeId] ?: return@flatMap emptyList()
+            val base = if (recipe.servings > 0) recipe.servings else 1
+            val factor = (e.servings ?: base).toDouble() / base
+            recipe.ingredients.map { ing ->
+                val amount = ing.amount?.let { Math.round(it * factor * 1000.0) / 1000.0 }
+                ShoppingLineInput(name = ing.name, amount = amount, unit = ing.unit)
             }
         }
         if (lines.isEmpty()) return

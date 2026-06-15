@@ -611,13 +611,15 @@ data class MealPlanEntryDto(
     val recipeId: String,
     val recipeTitle: String,
     val recipeCategory: String,
+    // portions to cook (#261); null = use the recipe's own servings (1× as authored)
+    val servings: Int? = null,
     val createdBy: String,
     val createdAt: String,
 )
 
 /** Set/replace the recipe in a (date, slot) — PUT /meal-plan/{date}/{slot}. */
 @JsonClass(generateAdapter = true)
-data class SetMealPlanRequest(val recipeId: String)
+data class SetMealPlanRequest(val recipeId: String, val servings: Int? = null)
 
 // ---------------------------------------------------------------------------
 // Abwesenheit / Familienkalender

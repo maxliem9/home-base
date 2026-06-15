@@ -57,6 +57,9 @@
     <string name="meal_plan_pick_search">Search recipe…</string>
     <string name="meal_plan_pick_empty">Create a recipe first.</string>
     <string name="meal_plan_pick_no_match">No matching recipe.</string>
+    <string name="meal_plan_pick_confirm">Apply</string>
+    <string name="meal_plan_servings">Servings</string>
+    <string name="meal_plan_servings_short">%1$d srv.</string>
     <string name="meal_plan_add_to_shopping">Add to shopping list</string>
     <string name="meal_plan_add_to_shopping_title">Add this week\'s ingredients to a list</string>
     <string name="meal_plan_add_confirm">Add</string>
