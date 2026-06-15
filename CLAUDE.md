@@ -136,6 +136,40 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   Web: Download-Button in der Detailansicht; Android: System-Share-Sheet (FileProvider).
 - WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
 
+## Wochenplan-Domänenmodell (Essensplaner)
+Verbindet Rezepte → Woche → Einkauf (HB-02, #218; Web+Backend, Android #250). Plant pro
+Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein Eigentümer-Check).
+- MealPlanEntry: id, date, slot (BREAKFAST|LUNCH|DINNER), recipe_id (FK recipes ON DELETE
+  CASCADE), servings?, created_by, created_at. DB-Tabelle `meal_plan_entries` mit **Unique(date,
+  slot)** — ein Rezept pro Slot; ein erneutes Setzen ersetzt den Eintrag.
+- **Slots ≠ Rezept-Kategorien:** die drei Raster-Mahlzeiten (Frühstück/Mittag/Abend) sind
+  bewusst unabhängig von den Rezept-Kategorien (dort kein LUNCH seit V17) — jedes Rezept passt
+  in jeden Slot.
+- **Portionen pro Eintrag (`servings`, #251/#261):** wie viele Portionen gekocht werden;
+  NULL = Rezept-Default (1× wie erfasst). „In Einkaufsliste" skaliert die Zutaten je Eintrag
+  (Faktor servings / recipe.servings). Clients persistieren `servings` nur, wenn ≠ Rezept-Default
+  (Default bleibt null → saubere Kacheln). DB-Spalte via `V27__meal_plan_servings.sql`
+  (nullable, CHECK ≥ 1).
+- DTO `MealPlanEntryDto(id, date, slot, recipeId, recipeTitle, recipeCategory, servings?,
+  createdBy, createdAt)` — Rezept-Titel/Kategorie sind eingejoint, damit das Raster ohne 2. Fetch
+  rendert. Entries werden über (MealPlanEntriesTable innerJoin RecipesTable) geladen.
+- Endpunkte unter /api/v1/meal-plan (Vorbild AbsenceRoutes): GET /?from=&to= (inklusiver Range,
+  Bound MAX_RANGE_DAYS=370), PUT /{date}/{slot} `{recipeId, servings?}` (setzen/ersetzen, 200),
+  DELETE /{date}/{slot} (idempotent, 204). WS /api/v1/ws/meal-plan: jede Mutation sendet
+  {type:"MEAL_PLAN_CHANGED"}; Clients laden den sichtbaren Range neu (kein Payload).
+- **„In Einkaufsliste" hat keinen eigenen Endpunkt:** der Client sammelt die (skalierten) Zutaten
+  aller geplanten Rezepte der Woche und postet sie an das bestehende `POST /api/v1/shopping/batch`
+  (summiert nach Name+Einheit). Ein doppelt geplantes Gericht zählt doppelt.
+- Web (`components/Wochenplan/WochenplanView.tsx`): Mo-basierte Wochen-Navigation, Desktop-7×3-
+  Matrix + mobile vertikale Tagesliste (≤860px), Klick-Picker (Auswahl→Übernehmen, Portionen-
+  Stepper). Live über `useWebSocket` auf `meal-plan` **und** `recipes` (ein Recipe-Delete
+  cascadet die Plan-Einträge serverseitig, broadcastet aber nur auf dem recipes-Channel — beide
+  Kanäle lösen einen Reload aus).
+- Android (`ui/wochenplan/`): Spiegelung (Tagesliste, Rezept-Picker-BottomSheet, „In
+  Einkaufsliste"). `MealPlanRepository` hält einen eigenen meal-plan- **und** einen dedizierten
+  recipe-WebSocket (eigene Instanz, damit der Lifecycle nicht mit der Rezepte-Ansicht kollidiert)
+  — selbe Cascade-Logik wie Web.
+
 ## Web-Konventionen
 - React 18 + TypeScript + Vite + Tailwind CSS
 - Startseite: Dashboard-/„Heute"-View (`components/DashboardView.tsx`, erster Nav-Eintrag,
