@@ -54,6 +54,7 @@ export const en: Messages = {
     INVALID_VISIBILITY: 'Invalid visibility.',
     // Shopping
     INVALID_SHOPPING_ITEM: 'Name must not be empty.',
+    INVALID_TEMPLATE: 'Template name must not be empty.',
     // Notes
     INVALID_NOTE: 'Title must not be empty.',
     VISIBILITY_FORBIDDEN: 'Only the creator may change the visibility.',
@@ -268,6 +269,46 @@ export const en: Messages = {
     clearFailed: 'Checked items could not be removed.',
     listCreateFailed: 'List could not be created.',
     listDeleteFailed: 'List could not be deleted.',
+    // Named standard/template lists (#215): saved item names for the recurring weekly
+    // shop, applied to a real list via a selection step.
+    templates: {
+      open: 'Templates',
+      manageTitle: 'Templates',
+      manageHint: 'Save recurring shops as a template and add them to a list with one click.',
+      empty: 'No templates yet',
+      emptyHint: 'Create your first standard list.',
+      itemCount: 'items', // rendered as "{n} items"
+      itemCountOne: 'item', // rendered as "1 item"
+      newTemplate: 'New template',
+      editTemplate: 'Edit template',
+      nameLabel: 'Name',
+      namePlaceholder: 'e.g. Weekly shop',
+      items: 'Items',
+      itemPlaceholder: 'Item …',
+      addItem: '+ Item',
+      removeItem: 'Remove item',
+      noItemsYet: 'No items yet — add some above.',
+      create: 'Create',
+      apply: 'Add to list',
+      applyTitle: 'Add template to list',
+      applyToList: 'List',
+      applyNoList: 'Create a shopping list first.',
+      selected: 'selected', // rendered as "{n} of {total} selected"
+      all: 'All',
+      none: 'None',
+      applyAdd: 'add', // rendered as "{n} add"
+      deleteTitle: 'Delete template?',
+      deleteConfirm: 'The template “{name}” will be deleted. This cannot be undone.',
+      deleteBtn: 'Delete permanently',
+      // write-error fallbacks
+      saveFailed: 'Template could not be saved.',
+      deleteFailed: 'Template could not be deleted.',
+      applyFailed: 'Template could not be added to the list.',
+      loadFailed: 'Templates could not be loaded.',
+      added: 'added', // toast: "{n} added"
+      merged: 'merged', // toast: "{n} merged"
+      nothingToAdd: 'No new items',
+    },
   },
   notes: {
     headerTitle: 'HomeBase — Notes',

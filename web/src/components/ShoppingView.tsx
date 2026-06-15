@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { ShoppingItem, ShoppingList } from '../types'
+import { ShoppingItem, ShoppingList, ShoppingTemplate } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
+import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
@@ -54,6 +55,12 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [submitting, setSubmitting] = useState(false)
   const [newListOpen, setNewListOpen] = useState(false)
   const [confirmDeleteList, setConfirmDeleteList] = useState(false)
+  // Named standard/template lists (#215). The management Sheet and the apply-selection
+  // Sheet read this; refetched on the template WS broadcasts (same shopping channel).
+  const [templates, setTemplates] = useState<ShoppingTemplate[]>([])
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [applyingTemplate, setApplyingTemplate] = useState<ShoppingTemplate | null>(null)
+  const [templateToast, setTemplateToast] = useState<string | null>(null)
   // Durable queue of check-offs not yet acknowledged by the backend (offline-safe).
   const [pending, setPending] = useState<Record<string, PendingCheck>>(loadPending)
   const pendingRef = useRef(pending)
@@ -86,6 +93,21 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Load the named templates. `items` is omitted by the backend when empty
+  // (encodeDefaults=false) — normalize to [] so the UI can treat it as an array.
+  const fetchTemplates = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/shopping/templates`)
+    if (!result.ok) return notifyTransportError()
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (res.ok) {
+      const list = (await res.json()) as ShoppingTemplate[]
+      setTemplates(list.map((tpl) => ({ ...tpl, items: tpl.items ?? [] })))
+    }
+  }, [onLogout, token])
+
+  useEffect(() => { fetchTemplates() }, [fetchTemplates])
 
   const dequeue = useCallback((id: string) => {
     setPending((prev) => {
@@ -203,6 +225,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           setLists((prev) => prev.filter((l) => l.id !== goneList))
           break
         }
+        // Template mutations ride the same shopping channel (#215). Refetch the full
+        // set — they're few and rarely change, so a reload is simpler than reconciling.
+        case 'SHOPPING_TEMPLATE_CREATED':
+        case 'SHOPPING_TEMPLATE_UPDATED':
+        case 'SHOPPING_TEMPLATE_DELETED':
+          void fetchTemplates()
+          break
       }
     } catch {
       // ignore malformed frames
@@ -275,6 +304,41 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       await fetchAll()
       flashError(t('shopping.clearFailed'))
     }
+  }
+
+  // Apply a template: batch-add the chosen item names to the active list, reusing the
+  // same /shopping/batch endpoint the recipe→shopping flow uses (#215, no apply endpoint).
+  // Names only — no amount/unit. New items arrive via the batch REST response + WS echo.
+  const applyTemplate = async (listId: string, names: string[]) => {
+    setApplyingTemplate(null)
+    const lines = names.map((name) => ({ name }))
+    if (lines.length === 0) return
+    const result = await safeFetch(token, `${API_BASE}/shopping/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listId, items: lines }),
+    })
+    if (!result.ok) return flashError(errorText(null, t('shopping.templates.applyFailed')))
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) return flashError(errorText(await errorCode(res), t('shopping.templates.applyFailed')))
+    const summary = (await res.json()) as { added: number; merged: number; items: ShoppingItem[] }
+    // Reflect the change immediately (the batch response is authoritative; the WS echo
+    // can lag or be suppressed). Update items already present (merged quantities) in
+    // place and prepend the genuinely-new ones, keeping the existing newest-first order.
+    setItems((prev) => {
+      const returned = summary.items ?? []
+      const present = new Set(prev.map((i) => i.id))
+      const updatedById = new Map(returned.map((i) => [i.id, i]))
+      const merged = prev.map((i) => updatedById.get(i.id) ?? i)
+      const fresh = returned.filter((i) => !present.has(i.id))
+      return [...fresh, ...merged]
+    })
+    const parts: string[] = []
+    if (summary.added > 0) parts.push(`${summary.added} ${t('shopping.templates.added')}`)
+    if (summary.merged > 0) parts.push(`${summary.merged} ${t('shopping.templates.merged')}`)
+    setTemplateToast(parts.length ? parts.join(' · ') : t('shopping.templates.nothingToAdd'))
+    setTimeout(() => setTemplateToast(null), 2600)
   }
 
   // Modal-based create returns an error message (null on success) so the modal
@@ -365,6 +429,10 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         <button className="hb-tab hb-tab--add" onClick={() => setNewListOpen(true)}>
           <Icon name="plus" size={16} stroke={2.2} />
           {t('shopping.newList')}
+        </button>
+        <button className="hb-tab hb-tab--add" onClick={() => setTemplatesOpen(true)}>
+          <Icon name="cart" size={16} stroke={2.2} />
+          {t('shopping.templates.open')}
         </button>
       </div>
 
@@ -481,6 +549,34 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      {templatesOpen && (
+        <TemplatesSheet
+          token={token}
+          templates={templates}
+          onClose={() => setTemplatesOpen(false)}
+          onChanged={fetchTemplates}
+          onLogout={onLogout}
+          onApply={(tpl) => { setTemplatesOpen(false); setApplyingTemplate(tpl) }}
+        />
+      )}
+
+      {applyingTemplate && (
+        <ApplyTemplateSheet
+          template={applyingTemplate}
+          lists={lists}
+          activeListId={activeId}
+          onClose={() => setApplyingTemplate(null)}
+          onApply={applyTemplate}
+        />
+      )}
+
+      {templateToast && (
+        <div className="hb-toast">
+          <Icon name="check" size={18} stroke={2.4} style={{ color: 'var(--accent)' }} />
+          {templateToast}
+        </div>
+      )}
 
       {errorToast}
     </div>

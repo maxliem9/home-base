@@ -5,7 +5,7 @@ import type { Page, Route } from '@playwright/test'
 // `npm run typecheck:e2e` instead of failing at runtime. Re-exported so the spec
 // files can keep importing these names from this helper.
 import type {
-  Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
@@ -13,7 +13,7 @@ import type {
 } from '../../src/types'
 
 export type {
-  Subtask, TodoList, Todo, ShoppingList, ShoppingItem,
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
@@ -103,6 +103,7 @@ export class MockApi {
   private lists: TodoList[]
   private shoppingLists: ShoppingList[]
   private shoppingItems: ShoppingItem[]
+  private shoppingTemplates: ShoppingTemplate[] = []
   private recipes: Recipe[] = []
   private notes: Note[] = []
   private projects: Project[] = []
@@ -120,6 +121,8 @@ export class MockApi {
   private nextSubId = 100
   private nextShopId = 100
   private nextShopListId = 100
+  private nextShopTemplateId = 100
+  private nextShopTemplateItemId = 100
   private nextRecipeId = 100
   private nextNoteId = 100
   private nextNoteImageId = 100
@@ -150,6 +153,11 @@ export class MockApi {
 
   seedRecipes(recipes: Recipe[]): this {
     this.recipes = recipes.map((r) => ({ ...r }))
+    return this
+  }
+
+  seedShoppingTemplates(templates: ShoppingTemplate[]): this {
+    this.shoppingTemplates = templates.map((tpl) => ({ ...tpl, items: tpl.items.map((i) => ({ ...i })) }))
     return this
   }
 
@@ -371,6 +379,25 @@ export class MockApi {
       createdBy: prev?.createdBy ?? 'alice',
       createdAt: prev?.createdAt ?? ts,
       updatedAt: ts,
+    }
+  }
+
+  // Build a ShoppingTemplate from a create/update payload (#215): assign item ids +
+  // sortOrder by list position, drop blank names (backend does too), and preserve
+  // createdBy/createdAt on update — mirrors ShoppingTemplateRoutes.
+  private buildTemplate(id: string, name: string, items: Array<{ name?: string }> | undefined, prev?: ShoppingTemplate): ShoppingTemplate {
+    const lines = (items ?? []).map((i) => (i.name ?? '').trim()).filter(Boolean)
+    const built: ShoppingTemplateItem[] = lines.map((itemName, n) => ({
+      id: `shoptplitem-${this.nextShopTemplateItemId++}`,
+      name: itemName,
+      sortOrder: n,
+    }))
+    return {
+      id,
+      name,
+      items: built,
+      createdBy: prev?.createdBy ?? 'alice',
+      createdAt: prev?.createdAt ?? new Date().toISOString(),
     }
   }
 
@@ -778,6 +805,48 @@ export class MockApi {
         created.push(item)
       }
       return this.json(route, { added: created.length, merged: updated.length, skipped, items: [...created, ...updated] })
+    }
+
+    // ---- Shopping templates (#215) — named "standard lists" of item names.
+    // Matched BEFORE the generic /shopping/{id} item matcher, which would otherwise
+    // swallow GET/POST /shopping/templates as item id="templates". Broadcasts ride the
+    // same "shopping" WS channel as item/list mutations (single client subscription).
+    if (path.endsWith('/shopping/templates') && method === 'GET') {
+      return this.json(route, this.shoppingTemplates)
+    }
+    if (path.endsWith('/shopping/templates') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}') as { name?: string; items?: Array<{ name?: string }> }
+      if (!b.name || !b.name.trim()) return this.json(route, { code: 'INVALID_TEMPLATE', message: 'blank' }, 400)
+      const tpl = this.buildTemplate(`shoptpl-${this.nextShopTemplateId++}`, b.name.trim(), b.items)
+      this.shoppingTemplates.push(tpl)
+      return this.jsonWithFrames(route, tpl, 201, 'shopping', [{ type: 'SHOPPING_TEMPLATE_CREATED', payload: tpl }])
+    }
+
+    const shopTemplateMatch = path.match(/\/shopping\/templates\/([^/]+)$/)
+    if (shopTemplateMatch) {
+      const id = shopTemplateMatch[1]
+      const idx = this.shoppingTemplates.findIndex((t) => t.id === id)
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { code: 'NOT_FOUND', message: 'not found' }, 404)
+        const b = JSON.parse(req.postData() ?? '{}') as { name?: string; items?: Array<{ name?: string }> }
+        if (b.name != null && !b.name.trim()) return this.json(route, { code: 'INVALID_TEMPLATE', message: 'blank' }, 400)
+        const prev = this.shoppingTemplates[idx]
+        // name omitted = unchanged; items omitted = unchanged, else full replace (mirrors backend).
+        const tpl = this.buildTemplate(
+          id,
+          b.name != null ? b.name.trim() : prev.name,
+          b.items !== undefined ? b.items : prev.items.map((i) => ({ name: i.name })),
+          prev,
+        )
+        this.shoppingTemplates[idx] = tpl
+        return this.jsonWithFrames(route, tpl, 200, 'shopping', [{ type: 'SHOPPING_TEMPLATE_UPDATED', payload: tpl }])
+      }
+      if (method === 'DELETE') {
+        if (idx === -1) return this.json(route, { code: 'NOT_FOUND', message: 'not found' }, 404)
+        const removed = this.shoppingTemplates[idx]
+        this.shoppingTemplates.splice(idx, 1)
+        return this.jsonWithFrames(route, '', 204, 'shopping', [{ type: 'SHOPPING_TEMPLATE_DELETED', payload: removed }])
+      }
     }
 
     const shopItemMatch = path.match(/\/shopping\/([^/]+)$/)
@@ -1406,6 +1475,22 @@ export function shoppingItem(partial: Partial<ShoppingItem> & { id: string; name
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     ...partial,
+  }
+}
+
+// Seed builder for a named shopping template (#215). Pass item names as strings;
+// they get ids + sequential sortOrder so a seeded template matches the API shape.
+export function shoppingTemplate(
+  partial: Partial<Omit<ShoppingTemplate, 'items'>> & { id: string; name: string; items?: Array<string | ShoppingTemplateItem> },
+): ShoppingTemplate {
+  const items = (partial.items ?? []).map((it, n): ShoppingTemplateItem =>
+    typeof it === 'string' ? { id: `${partial.id}-i${n}`, name: it, sortOrder: n } : it,
+  )
+  return {
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+    items,
   }
 }
 
