@@ -466,6 +466,11 @@
     <string name="settings_logout_hint">Ends the session on this device. You will need to sign in again.</string>
     <string name="settings_logout_confirm">You will be signed out and must sign in again afterwards.</string>
 
+    <string name="settings_avatar_title">Avatar colour</string>
+    <string name="settings_avatar_hint">Your colour for avatars – also visible to your partner. Applies instantly.</string>
+    <string name="settings_avatar_label">Colour</string>
+    <string name="settings_avatar_auto">Automatic</string>
+
     <string name="settings_morning_digest">Morning digest</string>
     <string name="settings_morning_digest_hint">Morning overview: due today, overdue, inbox, absences and daycare closing days.</string>
     <string name="settings_evening_digest">Evening digest</string>
