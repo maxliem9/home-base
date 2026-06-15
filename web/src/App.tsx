@@ -26,7 +26,9 @@ type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'woch
 
 // HB-09 — the mobile bottom bar shows these core areas (in this order) plus a "Mehr"
 // button; everything else moves into the "Mehr" sheet so 8+ areas never overflow / clip.
-const CORE_TABS: Tab[] = ['heute', 'todos', 'shopping', 'abwesenheit']
+// #270 — "Zeit" (time tracker) sits in the bottom bar; "Kalender" (abwesenheit) lives
+// under "Mehr". (Desktop sidebar is unaffected — it lists every NAV entry.)
+const CORE_TABS: Tab[] = ['heute', 'todos', 'shopping', 'time']
 
 // Built inside Shell with the reactive `t` so the labels follow a language switch.
 const buildNav = (t: TFunction): { id: Tab; label: string; shortLabel: string; icon: string }[] => [
@@ -320,8 +322,8 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
         >
           <span className="hb-tabbar__icon">
             <Icon name="more" size={22} stroke={2} />
-            {/* a running timer lives under "Mehr" (Zeit is an overflow area) */}
-            {badges.timerRunning && <span className="hb-tabbar__dot" title={t('shell.timerRunning')} />}
+            {/* #270 — Zeit is now a core tab carrying its own running-timer dot, so
+                "Mehr" no longer needs one (its overflow areas have no timer). */}
           </span>
           <span className="hb-tabbar__label">{t('nav.short.more')}</span>
         </button>
