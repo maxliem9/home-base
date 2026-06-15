@@ -89,7 +89,7 @@ test.describe('Time tracking', () => {
   test('creates a project', async ({ page }) => {
     await openTime(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neues Projekt' }).click()
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neues Projekt' }).click()
     const modal = page.locator('.hb-modal')
     await modal.getByPlaceholder('Projektname…').fill('Garten')
     await modal.getByRole('button', { name: 'Anlegen' }).click()
