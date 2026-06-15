@@ -106,6 +106,7 @@ export const de = {
     notes: 'Notizen',
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
+    wochenplan: 'Wochenplan',
     abwesenheit: 'Kalender',
     settings: 'Einstellungen',
     more: 'Mehr', // bottom-tab "Mehr" overflow sheet (HB-09)
@@ -118,6 +119,7 @@ export const de = {
       notes: 'Notizen',
       time: 'Zeit',
       recipes: 'Rezepte',
+      wochenplan: 'Plan',
       abwesenheit: 'Kalender',
       more: 'Mehr',
     },
@@ -705,6 +707,41 @@ export const de = {
       DESSERT: 'Dessert',
       DRINK: 'Getränk',
     },
+  },
+  // HB-02 — Wochenplan / Essensplaner (#218)
+  wochenplan: {
+    eyebrow: 'Essensplaner',
+    title: 'Wochenplan',
+    weekNav: 'Wochen-Navigation',
+    prevWeek: 'Vorherige Woche',
+    nextWeek: 'Nächste Woche',
+    today: 'Diese Woche',
+    // grid meal slots (independent of the recipe categories)
+    slots: {
+      BREAKFAST: 'Frühstück',
+      LUNCH: 'Mittag',
+      DINNER: 'Abend',
+    },
+    addMeal: 'Rezept einplanen',
+    removeMeal: 'Aus dem Plan entfernen',
+    // recipe picker (set/replace a slot)
+    pickSearch: 'Rezept suchen…',
+    pickEmpty: 'Lege zuerst ein Rezept an.',
+    pickNoMatch: 'Kein passendes Rezept.',
+    remove: 'Entfernen',
+    saveFailed: 'Rezept konnte nicht eingeplant werden.',
+    removeFailed: 'Eintrag konnte nicht entfernt werden.',
+    // "in Einkaufsliste"
+    addToShopping: 'In Einkaufsliste',
+    addToShoppingTitle: 'Zutaten der Woche zur Einkaufsliste',
+    addToShoppingSummary: '{{items}} Zutaten aus {{dishes}} geplanten Gerichten',
+    addToShoppingFailed: 'Zutaten konnten nicht hinzugefügt werden.',
+    targetList: 'Liste',
+    noList: 'Lege zuerst eine Einkaufsliste an.',
+    addConfirm: 'Hinzufügen',
+    added: 'hinzugefügt', // toast: "{n} hinzugefügt"
+    merged: 'zusammengeführt', // toast: "{n} zusammengeführt"
+    nothingToAdd: 'Keine neuen Zutaten',
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Kalender',
