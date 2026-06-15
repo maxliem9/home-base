@@ -1,9 +1,14 @@
 import { test, expect, type Page } from '@playwright/test'
 import { MockApi, todo, list, subtask, TOKEN } from './helpers/mockApi'
 
-/** Logs in by seeding the token, then installs the given mock backend. */
-async function openApp(page: Page, mock: MockApi, token: string = TOKEN) {
+/** Logs in by seeding the token, then installs the given mock backend.
+ *  `fixedTime` pins the browser clock so the date-driven smart views
+ *  (Heute/Morgen/Erledigt, #256) bucket deterministically — no real-clock
+ *  midnight-rollover window. (The earlier flakiness here was the nav badge, not
+ *  the clock; the sidebar-scoped selector below is the actual fix.) */
+async function openApp(page: Page, mock: MockApi, token: string = TOKEN, fixedTime?: Date) {
   await mock.install(page)
+  if (fixedTime) await page.clock.setFixedTime(fixedTime)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), token)
   await page.goto('/')
   // the app opens on the Dashboard tab; switch to the Aufgaben (todos) view.
@@ -14,15 +19,9 @@ async function openApp(page: Page, mock: MockApi, token: string = TOKEN) {
   await expect(page.getByRole('heading', { name: 'Aufgaben' })).toBeVisible()
 }
 
-/** Local YYYY-MM-DD, `offset` days from now. The date-driven smart views run on
- *  the real clock, so fixtures are computed relative to "now" (no clock pinning,
- *  which raced the nav click in openApp). */
-function isoDaysFromNow(offset: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + offset)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
+// Wed 2026-06-10, 12:00 UTC — local calendar day is 2026-06-10 in UTC and
+// Europe/Berlin alike, so every seeded instant below buckets identically.
+const PINNED = new Date('2026-06-10T12:00:00Z')
 
 // A JWT whose middle segment base64-decodes to {"username":"alice"}, matching the mock's createdBy.
 // The default TOKEN is not a real JWT, so `usernameFromToken` yields null; tests that depend on the
@@ -464,19 +463,19 @@ test.describe('Navigation', () => {
 test.describe('Smart views', () => {
   const SMART_LISTS = [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })]
   const smartTodos = () => [
-    todo({ id: 's1', title: 'Müll rausbringen', status: 'PLANNED', listId: 'l1', dueDate: isoDaysFromNow(0) }),
-    todo({ id: 's2', title: 'Standup', status: 'PLANNED', listId: 'l2', dueDate: isoDaysFromNow(0) }),
-    todo({ id: 's3', title: 'Einkaufen', status: 'PLANNED', listId: 'l1', dueDate: isoDaysFromNow(1) }),
-    todo({ id: 's4', title: 'Rechnung zahlen', status: 'PLANNED', listId: 'l2', dueDate: isoDaysFromNow(-2) }),
+    todo({ id: 's1', title: 'Müll rausbringen', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-10' }), // heute
+    todo({ id: 's2', title: 'Standup', status: 'PLANNED', listId: 'l2', dueDate: '2026-06-10' }), // heute
+    todo({ id: 's3', title: 'Einkaufen', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-11' }), // morgen
+    todo({ id: 's4', title: 'Rechnung zahlen', status: 'PLANNED', listId: 'l2', dueDate: '2026-06-08' }), // überfällig
     todo({ id: 's5', title: 'Notiz-Idee', status: 'INBOX' }),
     todo({ id: 's6', title: 'Lampe reparieren', status: 'INBOX', listId: 'l1' }),
-    todo({ id: 's7', title: 'Mails beantworten', status: 'DONE', listId: 'l2', doneAt: new Date().toISOString() }),
-    todo({ id: 's8', title: 'Steuererklärung', status: 'PLANNED', listId: 'l1', dueDate: isoDaysFromNow(10) }),
+    todo({ id: 's7', title: 'Mails beantworten', status: 'DONE', listId: 'l2', doneAt: '2026-06-10T07:00:00Z' }), // heute erledigt
+    todo({ id: 's8', title: 'Steuererklärung', status: 'PLANNED', listId: 'l1', dueDate: '2026-06-20' }), // später
   ]
   const tabCount = (page: Page, name: string) => page.getByRole('tab', { name }).locator('.hb-tab__count')
 
   test('shows the cross-list tabs with counts that mirror the dashboard tiles', async ({ page }) => {
-    await openApp(page, new MockApi(smartTodos(), SMART_LISTS))
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
 
     // order: Inbox, Alle, Heute, Morgen, Erledigt, then the list tabs
     await expect(tabCount(page, 'Inbox')).toHaveText('2') // status INBOX (s5, s6)
@@ -489,7 +488,7 @@ test.describe('Smart views', () => {
   })
 
   test('Heute lists only today\'s open todos across lists, with origin-list meta and no quick-add', async ({ page }) => {
-    await openApp(page, new MockApi(smartTodos(), SMART_LISTS))
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Heute' }).click()
 
     await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toBeVisible()
@@ -504,7 +503,7 @@ test.describe('Smart views', () => {
   })
 
   test('Morgen lists only tomorrow\'s todos', async ({ page }) => {
-    await openApp(page, new MockApi(smartTodos(), SMART_LISTS))
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Morgen' }).click()
 
     await expect(page.locator('.hb-row', { hasText: 'Einkaufen' })).toBeVisible()
@@ -512,7 +511,7 @@ test.describe('Smart views', () => {
   })
 
   test('Erledigt lists today\'s completed todos directly (no collapse)', async ({ page }) => {
-    await openApp(page, new MockApi(smartTodos(), SMART_LISTS))
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Erledigt' }).click()
 
     await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
@@ -520,7 +519,7 @@ test.describe('Smart views', () => {
   })
 
   test('Alle buckets every list\'s open todos and keeps a collapsible done section', async ({ page }) => {
-    await openApp(page, new MockApi(smartTodos(), SMART_LISTS))
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Alle' }).click()
 
     // open todos from both lists, grouped by due bucket
