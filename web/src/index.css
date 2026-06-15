@@ -94,7 +94,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
    :where() so component styles can still override; :focus-visible keeps it keyboard-only
    (no ring on mouse click). Inputs/selects keep their own accent box-shadow (:focus above).
    The dialog containers (tabIndex -1) are excluded so the trap's container focus is silent. */
-:where(button, a[href], [role="button"], [role="tab"], [role="checkbox"], [role="switch"], [role="radio"], [tabindex]:not([tabindex="-1"])):focus-visible {
+:where(button, a[href], [role="button"], [role="tab"], [role="checkbox"], [role="switch"], [role="radio"], [role="option"], [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -729,6 +729,29 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-toast--error { border-color: oklch(0.55 0.16 32 / 0.5); color: oklch(0.5 0.16 32); }
 [data-theme="dark"] .hb-toast--error { color: oklch(0.82 0.12 32); }
 .hb-toast--error svg { color: oklch(0.55 0.16 32); }
+
+/* HB-03 — command palette (⌘K) */
+.hb-cmd-scrim { position: fixed; inset: 0; z-index: 100; background: oklch(0.2 0.02 150 / 0.45); backdrop-filter: blur(2px); display: flex; justify-content: center; align-items: flex-start; padding: 11vh 16px 16px; animation: hb-fade 0.16s ease; }
+.hb-cmd { width: 100%; max-width: 560px; max-height: 70vh; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); animation: hb-pop 0.18s ease; }
+.hb-cmd__search { display: flex; align-items: center; gap: 11px; padding: 15px 18px; border-bottom: 1px solid var(--line-soft); color: var(--ink-3); }
+.hb-cmd__input { flex: 1; min-width: 0; border: none; background: none; outline: none; font-family: inherit; font-size: 16px; color: var(--ink); }
+.hb-cmd__input::placeholder { color: var(--ink-3); }
+.hb-cmd__esc { font-size: 11px; font-family: var(--font-mono); color: var(--ink-3); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+.hb-cmd__list { overflow-y: auto; padding: 8px; }
+.hb-cmd__empty { padding: 30px; text-align: center; color: var(--ink-3); font-size: 14px; }
+.hb-cmd__group { margin-bottom: 4px; }
+.hb-cmd__grouphead { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); padding: 9px 10px 4px; }
+.hb-cmd__opt { width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; border: none; background: none; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 14.5px; color: var(--ink); text-align: left; }
+.hb-cmd__opt.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+.hb-cmd__opt > svg { color: var(--ink-3); flex-shrink: 0; }
+.hb-cmd__opt.is-active > svg { color: var(--accent-ink); }
+.hb-cmd__optlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-cmd__opthint { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42%; }
+.hb-cmd__opt.is-active .hb-cmd__opthint { color: var(--accent-ink); opacity: 0.78; }
+.hb-cmd__foot { display: flex; gap: 18px; padding: 10px 18px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--ink-3); }
+.hb-cmd__foot kbd, .hb-cmd__esc { line-height: 1.4; }
+.hb-cmd__foot kbd { font-family: var(--font-mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 2px; }
+@media (max-width: 640px) { .hb-cmd-scrim { padding-top: 7vh; } }
 /* inline write-error text inside a modal (keeps the modal open for retry) — issue #96 */
 .hb-modal-error { color: oklch(0.55 0.16 32); font-size: 13.5px; margin: 0; }
 [data-theme="dark"] .hb-modal-error { color: oklch(0.82 0.12 32); }

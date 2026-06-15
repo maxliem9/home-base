@@ -109,6 +109,21 @@ export const de = {
     submit: 'Anmelden',
     failed: 'Login fehlgeschlagen',
   },
+  // HB-03 — global search / command palette (⌘K)
+  palette: {
+    title: 'Suche',
+    open: 'Suchen',
+    placeholder: 'Suchen oder springen zu …',
+    actions: 'Aktionen',
+    groupTodos: 'Aufgaben',
+    groupNotes: 'Notizen',
+    groupRecipes: 'Rezepte',
+    groupProjects: 'Projekte',
+    groupShopping: 'Einkauf',
+    noResults: 'Keine Treffer',
+    footNavigate: 'Navigieren',
+    footOpen: 'Öffnen',
+  },
   dashboard: {
     headerTitle: 'HomeBase — Heute',
     // greeting head — thresholds mirror the mock (views_heute.jsx)
