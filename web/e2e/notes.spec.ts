@@ -305,7 +305,9 @@ test.describe('Notes', () => {
 
   test('a brand-new unsaved draft hints to save first instead of uploading', async ({ page }) => {
     await openNotes(page, new MockApi())
-    await page.getByRole('button', { name: 'Neue Notiz' }).click()
+    // With no notes, the empty state also renders a "Neue Notiz" action (#228); scope the click
+    // to the page header so the locator stays unambiguous (the empty-state button does the same).
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
 
     let uploaded = false

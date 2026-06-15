@@ -6,6 +6,7 @@ import com.homebase.db.AppSettingsTable
 import com.homebase.db.CustomHolidaysTable
 import com.homebase.db.IngredientsTable
 import com.homebase.db.KitaClosuresTable
+import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
 import com.homebase.db.PartTimeRulesTable
@@ -73,6 +74,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
                 NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
+                MealPlanEntriesTable,
                 AbsencesTable, PartTimeRulesTable, KitaClosuresTable, CustomHolidaysTable, AbsSettingsTable,
             )
             UsersTable.insert {

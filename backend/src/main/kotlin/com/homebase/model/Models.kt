@@ -605,6 +605,30 @@ data class UpdateRecipeRequest(
 @Serializable
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
+// ---------- Wochenplan / Essensplaner (#218) ----------
+// One recipe planned into a (date, slot) of the weekly grid. The recipe title/category ride
+// along so the grid renders without a second fetch; slot ∈ BREAKFAST|LUNCH|DINNER.
+
+@Serializable
+data class MealPlanEntryDto(
+    val id: String,
+    val date: String,
+    val slot: String,
+    val recipeId: String,
+    val recipeTitle: String,
+    val recipeCategory: String,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+/** Set/replace the recipe in a (date, slot) — PUT /meal-plan/{date}/{slot}. */
+@Serializable
+data class SetMealPlanRequest(val recipeId: String)
+
+/** Any meal-plan mutation broadcasts this; clients refetch the visible range (like absence). */
+@Serializable
+data class MealPlanWsMessage(val type: String)
+
 // ---------- Abwesenheit / Familienkalender ----------
 
 @Serializable

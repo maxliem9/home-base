@@ -10,10 +10,15 @@ const MON_DE = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 
 const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const WD_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']
 const WD_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const WD_SHORT_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
+const WD_SHORT_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const isEn = (): boolean => currentLang() === 'en'
 const mon = (m: number): string => (isEn() ? MON_EN : MON_DE)[m]
 const wdLong = (w: number): string => (isEn() ? WD_EN : WD_DE)[w]
+
+/** Short weekday name, locale-aware: "Mo" (de) / "Mon" (en) — for compact week-grid headers. */
+export const weekdayShort = (d: Date): string => (isEn() ? WD_SHORT_EN : WD_SHORT_DE)[d.getDay()]
 /** day + month, locale-ordered: "8. Juni" (de) / "Jun 8" (en). */
 const dayMonth = (d: Date): string => (isEn() ? `${mon(d.getMonth())} ${d.getDate()}` : `${d.getDate()}. ${mon(d.getMonth())}`)
 

@@ -296,6 +296,24 @@ object RecipeStepsTable : Table("recipe_steps") {
     override val primaryKey = PrimaryKey(id)
 }
 
+// Wochenplan / Essensplaner (#218): one recipe planned into a (date, slot) of the weekly grid.
+// Household-wide shared (no owner check). `slot` is one of the three grid meals
+// BREAKFAST|LUNCH|DINNER — intentionally independent of the recipe categories (no LUNCH since
+// V17): any recipe can be planned into any slot. recipe_id cascades on recipe delete.
+object MealPlanEntriesTable : Table("meal_plan_entries") {
+    val id = uuid("id")
+    val date = date("date")
+    val slot = varchar("slot", 20)
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+
+    // At most one recipe per (date, slot) — mirrors the unique index from V26 (setting a slot
+    // replaces the existing entry).
+    init { uniqueIndex("meal_plan_entries_date_slot_uniq", date, slot) }
+}
+
 // One optional cover image per recipe — recipe_id is UNIQUE, so a new upload replaces the row.
 object RecipeImagesTable : Table("recipe_images") {
     val id = uuid("id")

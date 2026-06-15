@@ -188,6 +188,25 @@ export interface Recipe {
   updatedAt: string
 }
 
+// --- Wochenplan / Essensplaner (#218) -------------------------------------
+
+// The three planner meal slots (grid rows). Deliberately independent of RecipeCategory
+// (which has no LUNCH since V17): any recipe can be planned into any slot.
+export type MealSlot = 'BREAKFAST' | 'LUNCH' | 'DINNER'
+
+// One recipe planned into a (date, slot). The recipe title/category ride along so the grid
+// renders without a second fetch.
+export interface MealPlanEntry {
+  id: string
+  date: string // YYYY-MM-DD
+  slot: MealSlot
+  recipeId: string
+  recipeTitle: string
+  recipeCategory: RecipeCategory
+  createdBy: string
+  createdAt: string
+}
+
 // --- Abwesenheit / Familienkalender ---------------------------------------
 
 export type AbsenceType = 'URLAUB' | 'KRANK' | 'KIND_KRANK'

@@ -109,6 +109,7 @@ export const en: Messages = {
     notes: 'Notes',
     time: 'Time tracking',
     recipes: 'Recipes',
+    wochenplan: 'Meal plan',
     abwesenheit: 'Calendar',
     settings: 'Settings',
     more: 'More', // bottom-tab "More" overflow sheet (HB-09)
@@ -121,6 +122,7 @@ export const en: Messages = {
       notes: 'Notes',
       time: 'Time',
       recipes: 'Recipes',
+      wochenplan: 'Plan',
       abwesenheit: 'Calendar',
       more: 'More',
     },
@@ -709,6 +711,41 @@ export const en: Messages = {
       DESSERT: 'Dessert',
       DRINK: 'Drink',
     },
+  },
+  // HB-02 — meal planner (#218)
+  wochenplan: {
+    eyebrow: 'Meal planner',
+    title: 'Meal plan',
+    weekNav: 'Week navigation',
+    prevWeek: 'Previous week',
+    nextWeek: 'Next week',
+    today: 'This week',
+    // grid meal slots (independent of the recipe categories)
+    slots: {
+      BREAKFAST: 'Breakfast',
+      LUNCH: 'Lunch',
+      DINNER: 'Dinner',
+    },
+    addMeal: 'Plan a recipe',
+    removeMeal: 'Remove from plan',
+    // recipe picker (set/replace a slot)
+    pickSearch: 'Search recipe…',
+    pickEmpty: 'Create a recipe first.',
+    pickNoMatch: 'No matching recipe.',
+    remove: 'Remove',
+    saveFailed: 'Could not plan the recipe.',
+    removeFailed: 'Could not remove the entry.',
+    // "add to shopping list"
+    addToShopping: 'Add to shopping list',
+    addToShoppingTitle: 'Add this week’s ingredients to a list',
+    addToShoppingSummary: '{{items}} ingredients from {{dishes}} planned dishes',
+    addToShoppingFailed: 'Could not add the ingredients.',
+    targetList: 'List',
+    noList: 'Create a shopping list first.',
+    addConfirm: 'Add',
+    added: 'added', // toast: "{n} added"
+    merged: 'merged', // toast: "{n} merged"
+    nothingToAdd: 'No new ingredients',
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Calendar',

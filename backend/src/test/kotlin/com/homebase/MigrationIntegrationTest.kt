@@ -1,7 +1,9 @@
 package com.homebase
 
 import com.homebase.db.DatabaseFactory
+import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.ProjectsTable
+import com.homebase.db.RecipesTable
 import com.homebase.db.ShoppingTemplateItemsTable
 import com.homebase.db.ShoppingTemplatesTable
 import com.homebase.db.TimeWorkTargetsTable
@@ -107,6 +109,11 @@ class MigrationIntegrationTest {
                     ShoppingTemplateItemsTable.deleteWhere { ShoppingTemplateItemsTable.templateId inList templateIds }
                 }
                 ShoppingTemplatesTable.deleteWhere { ShoppingTemplatesTable.createdBy inList createdUsers }
+
+                // recipes created by these users (their meal_plan_entries cascade with them);
+                // any stray meal_plan_entries authored by them but referencing another recipe go first.
+                MealPlanEntriesTable.deleteWhere { MealPlanEntriesTable.createdBy inList createdUsers }
+                RecipesTable.deleteWhere { RecipesTable.createdBy inList createdUsers }
 
                 UsersTable.deleteWhere { UsersTable.username inList createdUsers }
             }
@@ -452,6 +459,63 @@ class MigrationIntegrationTest {
                 0L,
                 ShoppingTemplateItemsTable.selectAll().where { ShoppingTemplateItemsTable.id eq itemUuid }.count(),
                 "template item should be cascade-deleted with its template",
+            )
+        }
+    }
+
+    /**
+     * Guards V26's `meal_plan_entries.recipe_id ... ON DELETE CASCADE` (#218). Deleting a recipe
+     * must take its planned meal-plan entries with it — only the real Postgres schema proves the
+     * migration applies and the FK cascade fires.
+     */
+    @Test
+    fun `V26 deleting a recipe cascades to its meal plan entries`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_meal_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
+        val recipeUuid = UUID.randomUUID()
+        val entryUuid = UUID.randomUUID()
+
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            RecipesTable.insert {
+                it[id] = recipeUuid
+                it[title] = "Lasagne"
+                it[servings] = 2
+                it[category] = "DINNER"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+                it[updatedAt] = Instant.now()
+            }
+            MealPlanEntriesTable.insert {
+                it[id] = entryUuid
+                it[date] = LocalDate.of(2026, 6, 15)
+                it[slot] = "DINNER"
+                it[recipeId] = recipeUuid
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+        }
+
+        transaction { RecipesTable.deleteWhere { RecipesTable.id eq recipeUuid } }
+
+        transaction {
+            assertEquals(
+                0L,
+                MealPlanEntriesTable.selectAll().where { MealPlanEntriesTable.id eq entryUuid }.count(),
+                "meal plan entry should be cascade-deleted with its recipe",
             )
         }
     }

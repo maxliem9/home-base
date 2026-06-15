@@ -7,6 +7,7 @@ import type { Page, Route } from '@playwright/test'
 import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
+  MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -15,6 +16,7 @@ import type {
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
+  MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -105,6 +107,7 @@ export class MockApi {
   private shoppingItems: ShoppingItem[]
   private shoppingTemplates: ShoppingTemplate[] = []
   private recipes: Recipe[] = []
+  private mealPlan: MealPlanEntry[] = []
   private notes: Note[] = []
   private projects: Project[] = []
   private entries: TimeEntry[] = []
@@ -124,6 +127,7 @@ export class MockApi {
   private nextShopTemplateId = 100
   private nextShopTemplateItemId = 100
   private nextRecipeId = 100
+  private nextMealPlanId = 100
   private nextNoteId = 100
   private nextNoteImageId = 100
   private nextRecipeImageId = 100
@@ -163,6 +167,11 @@ export class MockApi {
 
   seedNotes(notes: Note[]): this {
     this.notes = notes.map((n) => ({ ...n }))
+    return this
+  }
+
+  seedMealPlan(entries: MealPlanEntry[]): this {
+    this.mealPlan = entries.map((e) => ({ ...e }))
     return this
   }
 
@@ -987,6 +996,44 @@ export class MockApi {
       }
     }
 
+    // ---- Wochenplan / meal planner (#218) — mirrors MealPlanRoutes ----
+    // GET /meal-plan?from=&to= returns entries in the inclusive range (ISO strings sort
+    // lexicographically, so plain string compares work). PUT/DELETE on /{date}/{slot} upsert
+    // and clear; both broadcast MEAL_PLAN_CHANGED on the "meal-plan" channel.
+    if (path.endsWith('/meal-plan') && method === 'GET') {
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      const inRange = this.mealPlan.filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
+      return this.json(route, inRange)
+    }
+    const mealPlanSlotMatch = path.match(/\/meal-plan\/([^/]+)\/([^/]+)$/)
+    if (mealPlanSlotMatch) {
+      const date = mealPlanSlotMatch[1]
+      const slot = mealPlanSlotMatch[2].toUpperCase() as MealSlot
+      if (method === 'PUT') {
+        const { recipeId } = JSON.parse(req.postData() ?? '{}') as { recipeId?: string }
+        const recipe = this.recipes.find((r) => r.id === recipeId)
+        if (!recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
+        this.mealPlan = this.mealPlan.filter((e) => !(e.date === date && e.slot === slot))
+        const entry: MealPlanEntry = {
+          id: `meal-${this.nextMealPlanId++}`,
+          date,
+          slot,
+          recipeId: recipe.id,
+          recipeTitle: recipe.title,
+          recipeCategory: recipe.category,
+          createdBy: 'alice',
+          createdAt: new Date().toISOString(),
+        }
+        this.mealPlan.push(entry)
+        return this.jsonWithFrames(route, entry, 200, 'meal-plan', [{ type: 'MEAL_PLAN_CHANGED' }])
+      }
+      if (method === 'DELETE') {
+        this.mealPlan = this.mealPlan.filter((e) => !(e.date === date && e.slot === slot))
+        return this.jsonWithFrames(route, '', 204, 'meal-plan', [{ type: 'MEAL_PLAN_CHANGED' }])
+      }
+    }
+
     // ---- Notes ----
     if (path.endsWith('/notes') && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase()
@@ -1534,6 +1581,17 @@ export function recipeImage(partial: Partial<RecipeImage> & { id: string; recipe
     originalName: 'foto.png',
     contentType: 'image/png',
     sizeBytes: 95,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function mealPlanEntry(
+  partial: Partial<MealPlanEntry> & { id: string; date: string; slot: MealSlot; recipeId: string; recipeTitle: string },
+): MealPlanEntry {
+  return {
+    recipeCategory: 'DINNER',
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     ...partial,

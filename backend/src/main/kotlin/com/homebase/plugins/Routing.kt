@@ -6,6 +6,7 @@ import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
 import com.homebase.routes.configRoutes
 import com.homebase.routes.healthRoutes
+import com.homebase.routes.mealPlanRoutes
 import com.homebase.routes.noteRoutes
 import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
@@ -69,6 +70,7 @@ fun Application.configureRouting() {
                 noteRoutes(imageConfig)
                 timeRoutes()
                 recipeRoutes(imageConfig)
+                mealPlanRoutes()
                 absenceRoutes()
             }
         }
