@@ -732,13 +732,19 @@ export const en: Messages = {
     pickSearch: 'Search recipe…',
     pickEmpty: 'Create a recipe first.',
     pickNoMatch: 'No matching recipe.',
+    pickConfirm: 'Apply',
     remove: 'Remove',
+    // per-entry portions (#251) — picker stepper + cell badge
+    servings: 'Servings',
+    servingsShort: '{n} srv.', // cell badge, e.g. "4 srv."
+    lessServings: 'Fewer servings',
+    moreServings: 'More servings',
     saveFailed: 'Could not plan the recipe.',
     removeFailed: 'Could not remove the entry.',
     // "add to shopping list"
     addToShopping: 'Add to shopping list',
     addToShoppingTitle: 'Add this week’s ingredients to a list',
-    addToShoppingSummary: '{{items}} ingredients from {{dishes}} planned dishes',
+    addToShoppingSummary: '{items} ingredients from {dishes} planned dishes',
     addToShoppingFailed: 'Could not add the ingredients.',
     targetList: 'List',
     noList: 'Create a shopping list first.',

@@ -850,6 +850,14 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-mealpick__item > svg:first-child { color: var(--accent); flex-shrink: 0; }
 .hb-mealpick__title { flex: 1; min-width: 0; font-weight: 500; }
 
+/* Per-entry portions (#251): chip badge + picker footer stepper. */
+.hb-mealcell__servings { font-size: 11px; font-weight: 600; color: var(--ink-3); }
+.hb-mealpick__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; flex-wrap: wrap; }
+.hb-mealpick__servings { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.hb-mealpick__actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.hb-stepper { display: inline-flex; align-items: center; gap: 2px; }
+.hb-stepper__val { min-width: 26px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+
 @media (max-width: 860px) {
   /* Swap the sidebar for the mobile top bar + bottom tab bar (#138). */
   .hb-sidebar { display: none; }

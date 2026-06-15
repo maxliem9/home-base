@@ -88,6 +88,41 @@ class MealPlanRouteTest {
     }
 
     @Test
+    fun `PUT stores servings and GET returns them, omitted servings stays null`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token, "Lasagne")
+
+        client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId","servings":4}""")
+        }
+        val withServings = range(token, "2026-06-15", "2026-06-21")[0].jsonObject
+        assertEquals(4, withServings["servings"]?.jsonPrimitive?.int)
+
+        // Omitted servings → null, which encodeDefaults=false drops from the payload.
+        client.put("/api/v1/meal-plan/2026-06-16/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId"}""")
+        }
+        val noServings = range(token, "2026-06-15", "2026-06-21").map { it.jsonObject }
+            .first { it["date"]?.jsonPrimitive?.content == "2026-06-16" }
+        assertTrue(noServings["servings"].let { it == null || it is JsonNull })
+    }
+
+    @Test
+    fun `PUT with servings below 1 returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token, "Lasagne")
+        val res = client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId","servings":0}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
     fun `PUT on an occupied slot replaces the recipe`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

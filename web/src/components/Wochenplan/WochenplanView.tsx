@@ -111,16 +111,20 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   }, [entries])
   const entryFor = (date: string, slot: MealSlot) => byKey.get(`${date}-${slot}`)
 
-  // Ingredients of every dish planned this week, in 1× recipe portions; the batch endpoint
-  // sums them by name+unit. A dish planned twice contributes its ingredients twice (= 2 portions).
+  // Ingredients of every dish planned this week, scaled to each entry's chosen portions (#251);
+  // the batch endpoint sums them by name+unit. A dish planned twice contributes twice. An entry
+  // without an explicit servings falls back to the recipe's own servings (factor 1, 1× as authored).
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id, r])), [recipes])
   const plannedItems = useMemo(() => {
     const items: { name: string; amount?: number; unit?: string }[] = []
     for (const e of entries) {
       const r = recipeById.get(e.recipeId)
       if (!r) continue
+      const base = r.servings > 0 ? r.servings : 1
+      const factor = (e.servings ?? base) / base
       for (const ing of r.ingredients ?? []) {
-        items.push({ name: ing.name, amount: ing.amount ?? undefined, unit: ing.unit ?? undefined })
+        const amount = ing.amount != null ? Math.round(ing.amount * factor * 1000) / 1000 : undefined
+        items.push({ name: ing.name, amount, unit: ing.unit ?? undefined })
       }
     }
     return items
@@ -129,12 +133,12 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   const shiftWeek = (delta: number) => setWeekStartIso(ymd(addDays(parseIso(weekStartIso), delta * 7)))
   const goToday = () => setWeekStartIso(ymd(mondayOf(new Date())))
 
-  const setSlot = async (date: string, slot: MealSlot, recipeId: string) => {
+  const setSlot = async (date: string, slot: MealSlot, recipeId: string, servings: number | null) => {
     setPicking(null)
     const result = await safeFetch(token, `${API_BASE}/meal-plan/${date}/${slot}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipeId }),
+      body: JSON.stringify({ recipeId, servings }),
     })
     if (!result.ok) return flashError(errorText(null, t('wochenplan.saveFailed')))
     const { res } = result
@@ -275,7 +279,7 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
           dateLabel={todayLabel(parseIso(picking.date))}
           slotLabel={t(`wochenplan.slots.${picking.slot}`)}
           onClose={() => setPicking(null)}
-          onPick={(recipeId) => setSlot(picking.date, picking.slot, recipeId)}
+          onConfirm={(recipeId, servings) => setSlot(picking.date, picking.slot, recipeId, servings)}
           onRemove={() => clearSlot(picking.date, picking.slot)}
         />
       )}
@@ -337,6 +341,9 @@ function SlotCell({
       <button type="button" className="hb-mealcell__body" onClick={onPick} title={entry.recipeTitle}>
         <Icon name={CATEGORY_ICON[entry.recipeCategory] ?? 'utensils'} size={14} stroke={2} />
         <span className="hb-mealcell__title">{entry.recipeTitle}</span>
+        {entry.servings != null && (
+          <span className="hb-mealcell__servings">{t('wochenplan.servingsShort', { n: entry.servings })}</span>
+        )}
       </button>
       <button type="button" className="hb-mealcell__remove" onClick={onRemove} aria-label={t('wochenplan.removeMeal')}>
         <Icon name="x" size={13} stroke={2} />
@@ -351,7 +358,7 @@ function MealRecipePicker({
   dateLabel,
   slotLabel,
   onClose,
-  onPick,
+  onConfirm,
   onRemove,
 }: {
   recipes: Recipe[]
@@ -359,13 +366,35 @@ function MealRecipePicker({
   dateLabel: string
   slotLabel: string
   onClose: () => void
-  onPick: (recipeId: string) => void
+  // servings is the chosen portions, or null to keep the recipe's own servings (1× as authored)
+  onConfirm: (recipeId: string, servings: number | null) => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
   const [q, setQ] = useState('')
+  const currentRecipe = current ? recipes.find((r) => r.id === current.recipeId) : undefined
+  // Pre-select the planned recipe (when editing) with its chosen or default portions.
+  const [selectedId, setSelectedId] = useState<string | null>(current?.recipeId ?? null)
+  const [servings, setServings] = useState<number>(current?.servings ?? currentRecipe?.servings ?? 1)
+
   const needle = q.trim().toLowerCase()
   const filtered = needle ? recipes.filter((r) => r.title.toLowerCase().includes(needle)) : recipes
+  const selectedRecipe = recipes.find((r) => r.id === selectedId)
+
+  // Selecting a recipe seeds the stepper: the entry's chosen portions if it's the planned recipe,
+  // otherwise that recipe's own authored servings.
+  const select = (r: Recipe) => {
+    setSelectedId(r.id)
+    setServings(current && current.recipeId === r.id && current.servings != null ? current.servings : Math.max(1, r.servings))
+  }
+
+  const confirm = () => {
+    if (!selectedId || !selectedRecipe) return
+    // Only persist servings when it differs from the recipe default — keeps chips clean and the
+    // common 1×-as-authored case stored as null.
+    const chosen = servings !== selectedRecipe.servings ? servings : null
+    onConfirm(selectedId, chosen)
+  }
 
   return (
     <Sheet
@@ -374,14 +403,23 @@ function MealRecipePicker({
       title={`${dateLabel} · ${slotLabel}`}
       width={460}
       footer={
-        current ? (
-          <>
+        <div className="hb-mealpick__foot">
+          {selectedId && (
+            <div className="hb-mealpick__servings">
+              <span className="hb-muted">{t('wochenplan.servings')}</span>
+              <div className="hb-stepper">
+                <IconButton icon="minus" size={15} label={t('wochenplan.lessServings')} onClick={() => setServings((s) => Math.max(1, s - 1))} />
+                <span className="hb-stepper__val">{servings}</span>
+                <IconButton icon="plus" size={15} label={t('wochenplan.moreServings')} onClick={() => setServings((s) => s + 1)} />
+              </div>
+            </div>
+          )}
+          <div className="hb-mealpick__actions">
             <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-            <Button variant="danger" icon="trash" onClick={onRemove}>{t('wochenplan.remove')}</Button>
-          </>
-        ) : (
-          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-        )
+            {current && <Button variant="danger" icon="trash" onClick={onRemove}>{t('wochenplan.remove')}</Button>}
+            <Button variant="primary" icon="check" disabled={!selectedId} onClick={confirm}>{t('wochenplan.pickConfirm')}</Button>
+          </div>
+        </div>
       }
     >
       {recipes.length === 0 ? (
@@ -399,12 +437,12 @@ function MealRecipePicker({
                 <button
                   key={r.id}
                   type="button"
-                  className={`hb-mealpick__item${current?.recipeId === r.id ? ' is-current' : ''}`}
-                  onClick={() => onPick(r.id)}
+                  className={`hb-mealpick__item${selectedId === r.id ? ' is-current' : ''}`}
+                  onClick={() => select(r)}
                 >
                   <Icon name={CATEGORY_ICON[r.category] ?? 'utensils'} size={16} stroke={2} />
                   <span className="hb-mealpick__title">{r.title}</span>
-                  {current?.recipeId === r.id && <Icon name="check" size={15} stroke={2.4} />}
+                  {selectedId === r.id && <Icon name="check" size={15} stroke={2.4} />}
                 </button>
               ))}
             </div>
