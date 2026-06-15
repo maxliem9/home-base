@@ -24,6 +24,14 @@ data class UpdateConfigRequest(val householdName: String)
 data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
 
 /**
+ * Body for PUT /users/me/avatar-color (#242). [hue] 0..359 sets the override, null clears it back to
+ * automatic (derived from the username hash). The backend treats an absent key the same as null, so
+ * Moshi omitting a serialized-null field is fine; we send it explicitly anyway via the Retrofit body.
+ */
+@JsonClass(generateAdapter = true)
+data class SetAvatarColorRequest(val hue: Int?)
+
+/**
  * GET/PUT /config/digest + /config/morning-digest (#101/#189). Each digest exposes its send
  * [time], an in-app on/off [enabled] flag (independent of Telegram), the read-only
  * [telegramConfigured] flag (whether anything actually sends — drives only the inactive hint),

@@ -464,6 +464,11 @@
     <string name="settings_logout_hint">Beendet die Sitzung auf diesem Gerät. Du musst dich danach erneut anmelden.</string>
     <string name="settings_logout_confirm">Du wirst abgemeldet und musst dich danach erneut anmelden.</string>
 
+    <string name="settings_avatar_title">Avatar-Farbe</string>
+    <string name="settings_avatar_hint">Deine Farbe für Avatare – auch für deinen Partner sichtbar. Sofort wirksam.</string>
+    <string name="settings_avatar_label">Farbe</string>
+    <string name="settings_avatar_auto">Automatisch</string>
+
     <string name="settings_morning_digest">Morgen-Digest</string>
     <string name="settings_morning_digest_hint">Morgendliche Übersicht: heute fällig, überfällig, Inbox, Abwesenheiten und Kita-Schließtage.</string>
     <string name="settings_evening_digest">Abend-Digest</string>

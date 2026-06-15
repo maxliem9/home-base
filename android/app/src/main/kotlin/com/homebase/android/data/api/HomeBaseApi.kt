@@ -42,6 +42,11 @@ interface HomeBaseApi {
     @PUT("users/me/password")
     suspend fun changePassword(@Body request: ChangePasswordRequest)
 
+    // Set the signed-in user's own avatar hue (#242); 204 No Content, the new colour shows on the
+    // next GET /users (the household-visible roster the app reads hues from).
+    @PUT("users/me/avatar-color")
+    suspend fun setAvatarColor(@Body request: SetAvatarColorRequest)
+
     // --- Todos ---
 
     @GET("todos")

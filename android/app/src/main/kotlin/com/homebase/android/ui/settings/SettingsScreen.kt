@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +107,8 @@ fun SettingsScreen(
     currentUser: String?,
     householdName: String,
     onHouseholdRenamed: (String) -> Unit,
+    // Refresh the app-wide avatar-hue map after the Konto colour picker saves (#242).
+    onAvatarColorChanged: suspend () -> Unit,
     onLoggedOut: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -120,7 +125,9 @@ fun SettingsScreen(
         )
         SettingsSub.KONTO -> KontoPage(
             authRepository = authRepository,
+            configRepository = configRepository,
             currentUser = currentUser,
+            onAvatarColorChanged = onAvatarColorChanged,
             onLoggedOut = onLoggedOut,
             onBack = { sub = null },
         )
@@ -356,7 +363,9 @@ private fun HouseholdPage(
 @Composable
 private fun KontoPage(
     authRepository: AuthRepository,
+    configRepository: ConfigRepository,
     currentUser: String?,
+    onAvatarColorChanged: suspend () -> Unit,
     onLoggedOut: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -437,6 +446,15 @@ private fun KontoPage(
                     if (error != null) ErrorText(error!!)
                 }
             }
+            // Avatar-Farbe (#242): own-colour picker, gated on a known username (the avatar map
+            // is keyed by it). Mirrors the web AvatarColorCard.
+            if (currentUser != null) {
+                AvatarColorCard(
+                    currentUser = currentUser,
+                    configRepository = configRepository,
+                    onAvatarColorChanged = onAvatarColorChanged,
+                )
+            }
             // Abmelden (#141): the only UI caller of AuthRepository.logout(). Confirm first
             // (an accidental tap shouldn't sign you out), then clear the encrypted JWT and let
             // the auth-state observer in MainActivity route back to the login screen.
@@ -477,6 +495,138 @@ private fun KontoPage(
                 }
             },
             onDismiss = { confirmLogout = false },
+        )
+    }
+}
+
+// The avatar-hue palette offered in the picker, mirroring web's AVATAR_HUE_SWATCHES (#242):
+// 12 evenly-spaced points on the OKLCH hue wheel. Each renders as the real avatar circle
+// (Hb.userColor → oklch(0.62, 0.09, h)), so a swatch matches the avatar it produces.
+private val AVATAR_HUE_SWATCHES = listOf(0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330)
+
+/**
+ * Avatar-colour picker (#242) — the Android pendant of the web's AvatarColorCard. A live preview of
+ * the caller's own avatar plus a row: an "Automatisch" option (null → derived from the username hash)
+ * and one swatch per [AVATAR_HUE_SWATCHES] hue. Selecting persists via PUT /users/me/avatar-color and
+ * then refreshes the shared [LocalAvatarHues] map through [onAvatarColorChanged], so every avatar —
+ * here and across the app — recolours without a restart; the partner sees it on their next roster
+ * fetch. The current selection is read from the shared map (keyed by username), so it reflects that
+ * app-wide state and updates after the refresh.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AvatarColorCard(
+    currentUser: String,
+    configRepository: ConfigRepository,
+    onAvatarColorChanged: suspend () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val current = LocalAvatarHues.current[currentUser] // Int = override, null = automatic/derived
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val pick = { hue: Int? ->
+        if (!saving && hue != current) {
+            saving = true
+            error = null
+            scope.launch {
+                configRepository.setMyAvatarColor(hue)
+                    .onSuccess { onAvatarColorChanged() }
+                    .onFailure { e -> error = e.message }
+                saving = false
+            }
+        }
+        Unit
+    }
+
+    HbCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        stringResource(R.string.settings_avatar_title),
+                        style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink,
+                    )
+                    Text(
+                        stringResource(R.string.settings_avatar_hint),
+                        style = HbType.small.copy(fontSize = 12.5.sp),
+                        color = Hb.ink3,
+                    )
+                }
+                // Live preview of the caller's own avatar in the chosen colour (reads the shared map).
+                HbAvatar(currentUser, size = 34.dp)
+            }
+            Text(
+                stringResource(R.string.settings_avatar_label),
+                style = HbType.small.copy(fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold),
+                color = Hb.ink2,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Automatisch (derived) — the actual derived avatar so it's obvious which colour
+                // "automatic" yields; selected when no override is set.
+                AutoSwatch(
+                    currentUser = currentUser,
+                    active = current == null,
+                    onClick = { pick(null) },
+                )
+                AVATAR_HUE_SWATCHES.forEach { hue ->
+                    HueSwatch(
+                        // Reuse the avatar colour mapping so the swatch equals the avatar it produces.
+                        color = Hb.userColor(currentUser, hue),
+                        active = current == hue,
+                        onClick = { pick(hue) },
+                    )
+                }
+            }
+            if (error != null) ErrorText(error!!)
+        }
+    }
+}
+
+/** One colour swatch in the avatar picker; a ring marks the active selection. */
+@Composable
+private fun HueSwatch(color: Color, active: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(HbPill)
+            .background(color, HbPill)
+            .then(
+                if (active) {
+                    Modifier
+                        .border(2.dp, Hb.surface, HbPill)
+                        .border(4.dp, Hb.ink2, HbPill)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable { onClick() },
+    )
+}
+
+/** The "Automatisch" option — the derived avatar (no override) plus a label, ring when active. */
+@Composable
+private fun AutoSwatch(currentUser: String, active: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(HbPill)
+            .background(Hb.surface2, HbPill)
+            .then(if (active) Modifier.border(2.dp, Hb.ink2, HbPill) else Modifier)
+            .clickable { onClick() }
+            .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        // Force the derived hue regardless of the user's current override (CompositionLocal wins
+        // inside HbAvatar, so we provide an empty override map for just this preview).
+        CompositionLocalProvider(LocalAvatarHues provides emptyMap()) {
+            HbAvatar(currentUser, size = 28.dp)
+        }
+        Text(
+            stringResource(R.string.settings_avatar_auto),
+            style = HbType.small.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+            color = Hb.ink2,
         )
     }
 }
