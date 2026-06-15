@@ -104,6 +104,15 @@ class TimeRepository(
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
 
+    /**
+     * Register a "socket (re)connected, server reachable" callback (#268). The ViewModel uses it to
+     * re-sync entries/forecast after a drop, so a timer stopped elsewhere while we were offline (and
+     * whose ENTRY_UPDATED we missed) clears instead of showing stale. Mirrors the shopping channel.
+     */
+    fun setWebSocketOnConnected(onConnected: (() -> Unit)?) {
+        wsClient.onConnected = onConnected
+    }
+
     /** Map a failed entry-update response to German text via its ErrorResponse.code. */
     private fun germanTimeError(e: HttpException): String = when (errorCodeOf(e)) {
         "PROJECT_ARCHIVED" -> "Das Projekt ist archiviert."

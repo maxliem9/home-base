@@ -286,8 +286,41 @@ class TimeViewModel(
         }
     }
 
+    /**
+     * Silent background re-sync of entries + forecast (#268). Fires on every WS (re)connect
+     * (`onConnected`) and on app/screen resume ([ensureConnected]). A timer stopped on the web
+     * or another device while our socket was dead (Doze / mobile-network change / backend restart)
+     * sends an ENTRY_UPDATED we never receive — without this refetch the stale "running" timer
+     * (derived from the open entry) would stay visibly on until the next logout/login. Refetching
+     * the entry list re-derives `running`/`othersRunning`, so a now-stopped entry clears itself.
+     *
+     * Unlike [load] this keeps `isLoading` false (no full-screen spinner for a background sync) and
+     * leaves existing state untouched on a transient failure — the next trigger retries.
+     */
+    private fun syncFromServer() {
+        viewModelScope.launch {
+            val entries = repository.getEntries()
+            val forecast = repository.getForecast()
+            _uiState.update { state ->
+                val nextEntries = entries.getOrDefault(state.entries)
+                state.copy(
+                    entries = nextEntries,
+                    running = findRunning(nextEntries),
+                    othersRunning = findOthersRunning(nextEntries),
+                    forecast = forecast.getOrNull() ?: state.forecast,
+                    forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
+                )
+            }
+        }
+    }
+
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
+        // Re-sync on every (re)connect — the "server reachable again" signal, the mobile analog
+        // of the web's WS onOpen (#268, mirrors the shopping offline-queue flush). The first connect
+        // also fires this; that one re-sync overlaps load()'s fetch (harmless — two cheap GETs at
+        // cold start), and in return every later reconnect reliably re-syncs without bespoke state.
+        repository.setWebSocketOnConnected { syncFromServer() }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
@@ -308,11 +341,20 @@ class TimeViewModel(
         }
     }
 
-    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
-    fun ensureConnected() = repository.ensureWebSocketConnected()
+    /**
+     * Called from the UI when the app returns to the foreground. Reconnects the channel if it dropped
+     * **and** re-syncs from the server (#268): a reconnect fires `onConnected` → [syncFromServer], but
+     * if the socket survived the background no callback fires, so we also refetch here. Either way the
+     * running timer matches the server — a stop done elsewhere while we were backgrounded clears.
+     */
+    fun ensureConnected() {
+        repository.ensureWebSocketConnected()
+        syncFromServer()
+    }
 
     override fun onCleared() {
         super.onCleared()
+        repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
 }

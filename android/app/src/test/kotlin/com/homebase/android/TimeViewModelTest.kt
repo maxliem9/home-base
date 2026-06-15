@@ -16,6 +16,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +32,10 @@ class TimeViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: TimeRepository
     private val wsEvents = MutableSharedFlow<TimeWebSocketClient.WsEvent>()
+
+    /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#268). */
+    private val onConnectedSlot = slot<() -> Unit>()
+    private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
 
     private fun project(id: String = "p1", name: String = "Arbeit", archived: Boolean = false) =
         ProjectDto(id = id, name = name, color = "#4F46E5", archived = archived, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z")
@@ -74,6 +79,7 @@ class TimeViewModelTest {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         every { repository.incomingEvents } returns wsEvents
+        every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
         coEvery { repository.getProjects() } returns Result.success(emptyList())
         coEvery { repository.getEntries() } returns Result.success(emptyList())
         // load() also fetches users; stub it so the relaxed mock doesn't
@@ -484,6 +490,62 @@ class TimeViewModelTest {
 
         // once in load(), once after the stop succeeded
         coVerify(exactly = 2) { repository.getForecast() }
+    }
+
+    // --- #268: re-sync the running timer on WS reconnect / app resume ---
+
+    @Test
+    fun `WS reconnect re-syncs and clears a timer stopped elsewhere`() = runTest {
+        // The socket was dead when the web/another device stopped the timer, so the
+        // ENTRY_UPDATED never arrived. load() still shows it running.
+        val open = entry(id = "open", stoppedAt = null, durationSeconds = null)
+        coEvery { repository.getEntries() } returns Result.success(listOf(open))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals("open", vm.uiState.value.running?.id)
+
+        // Meanwhile the server now reports it stopped; on reconnect we refetch entries.
+        coEvery { repository.getEntries() } returns
+            Result.success(listOf(open.copy(stoppedAt = "2026-06-03T09:00:00Z", durationSeconds = 3600)))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.running)
+    }
+
+    @Test
+    fun `WS reconnect refetches entries`() = runTest {
+        // load() fetches entries once; each onConnected (re)sync refetches them again, so the
+        // running timer always re-derives from the server's view (#268).
+        val vm = createVm()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.getEntries() }
+
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { repository.getEntries() }
+    }
+
+    @Test
+    fun `ensureConnected re-syncs and clears a timer stopped while backgrounded`() = runTest {
+        // Socket survived the background (so no reconnect/onConnected), but a stop happened
+        // elsewhere. Resume must refetch regardless and clear the stale running timer.
+        val open = entry(id = "open", stoppedAt = null, durationSeconds = null)
+        coEvery { repository.getEntries() } returns Result.success(listOf(open))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals("open", vm.uiState.value.running?.id)
+
+        coEvery { repository.getEntries() } returns
+            Result.success(listOf(open.copy(stoppedAt = "2026-06-03T09:00:00Z", durationSeconds = 3600)))
+        vm.ensureConnected()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.running)
+        coVerify { repository.ensureWebSocketConnected() }
     }
 
     @Test
