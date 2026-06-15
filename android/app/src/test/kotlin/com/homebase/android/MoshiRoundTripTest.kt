@@ -1,6 +1,7 @@
 package com.homebase.android
 
 import com.homebase.android.data.model.DigestConfigResponse
+import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TodoDto
@@ -183,5 +184,29 @@ class MoshiRoundTripTest {
         assertEquals("einräumen", todo.subtasks[0].title)
         assertTrue(todo.subtasks[1].done)
         assertEquals("max", todo.assignee)
+    }
+
+    @Test
+    fun `MealPlanEntryDto parses from the backend payload`() {
+        // Every field is always sent for a meal-plan entry (recipe title/category joined in).
+        val json = """
+            {
+              "id": "22222222-2222-2222-2222-222222222222",
+              "date": "2026-06-15",
+              "slot": "DINNER",
+              "recipeId": "33333333-3333-3333-3333-333333333333",
+              "recipeTitle": "Lasagne",
+              "recipeCategory": "DINNER",
+              "createdBy": "max",
+              "createdAt": "2026-06-13T08:00:00Z"
+            }
+        """.trimIndent()
+
+        val entry = moshi.adapter(MealPlanEntryDto::class.java).fromJson(json)
+
+        requireNotNull(entry)
+        assertEquals("DINNER", entry.slot)
+        assertEquals("Lasagne", entry.recipeTitle)
+        assertEquals("33333333-3333-3333-3333-333333333333", entry.recipeId)
     }
 }

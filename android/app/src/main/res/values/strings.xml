@@ -47,6 +47,30 @@
     <string name="nav_time">Zeiterfassung</string>
     <string name="nav_calendar">Kalender</string>
     <string name="nav_recipes">Rezepte</string>
+    <string name="nav_meal_plan">Wochenplan</string>
+
+    <!-- ===== Wochenplan / Essensplaner (#250) ===== -->
+    <string name="meal_plan_title">Wochenplan</string>
+    <string name="meal_plan_eyebrow">Essensplaner</string>
+    <string name="meal_plan_this_week">Diese Woche</string>
+    <string name="meal_plan_last_week">Letzte Woche</string>
+    <string name="meal_plan_today">Heute</string>
+    <string name="meal_plan_slot_breakfast">Frühstück</string>
+    <string name="meal_plan_slot_lunch">Mittag</string>
+    <string name="meal_plan_slot_dinner">Abend</string>
+    <string name="meal_plan_add_meal">Rezept einplanen</string>
+    <string name="meal_plan_remove">Entfernen</string>
+    <string name="meal_plan_pick_search">Rezept suchen…</string>
+    <string name="meal_plan_pick_empty">Lege zuerst ein Rezept an.</string>
+    <string name="meal_plan_pick_no_match">Kein passendes Rezept.</string>
+    <string name="meal_plan_add_to_shopping">In Einkaufsliste</string>
+    <string name="meal_plan_add_to_shopping_title">Zutaten der Woche zur Einkaufsliste</string>
+    <string name="meal_plan_add_confirm">Hinzufügen</string>
+    <string name="meal_plan_no_list">Lege zuerst eine Einkaufsliste an.</string>
+    <string name="meal_plan_shop_summary">%1$d Zutaten aus %2$d Gerichten</string>
+    <string name="meal_plan_added">%1$d hinzugefügt</string>
+    <string name="meal_plan_merged">%1$d zusammengeführt</string>
+    <string name="meal_plan_nothing_added">Keine neuen Zutaten</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Benutzername</string>
