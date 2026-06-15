@@ -626,12 +626,14 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 /* ---------- Rezepte ---------- */
 .hb-recipe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: var(--gap); }
 .hb-recipecard { overflow: hidden; display: flex; flex-direction: column; padding: 0; }
-.hb-recipecard__img { position: relative; height: 132px; display: grid; place-items: center; gap: 6px;
-  background: repeating-linear-gradient(135deg, oklch(0.93 0.04 var(--rh)) 0 11px, oklch(0.95 0.03 var(--rh)) 11px 22px);
-  color: oklch(0.55 0.07 var(--rh)); }
-[data-theme="dark"] .hb-recipecard__img { background: repeating-linear-gradient(135deg, oklch(0.34 0.04 var(--rh)) 0 11px, oklch(0.3 0.035 var(--rh)) 11px 22px); color: oklch(0.7 0.06 var(--rh)); }
+/* HB-05 — generated cover (warm title-derived gradient) for recipes without a photo. */
+.hb-recipecard__img { position: relative; height: 132px; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(145deg, oklch(0.94 0.05 var(--rh)) 0%, oklch(0.87 0.082 var(--rh)) 100%);
+  color: oklch(0.45 0.085 var(--rh)); }
+[data-theme="dark"] .hb-recipecard__img { background: linear-gradient(145deg, oklch(0.37 0.05 var(--rh)) 0%, oklch(0.29 0.045 var(--rh)) 100%); color: oklch(0.82 0.07 var(--rh)); }
 .hb-recipecard__img .hb-badge { position: absolute; top: 10px; right: 10px; }
-.hb-recipecard__ph { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.75; }
+.hb-recipecard__cover { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.hb-recipecard__covlabel { font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; }
 /* main (cover) image fills the card band; the category badge stays on top via source order */
 .hb-recipecard__photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .hb-recipecard__body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 6px; flex: 1; }

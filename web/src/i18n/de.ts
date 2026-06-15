@@ -575,7 +575,6 @@ export const de = {
     title: 'Rezepte',
     count: 'Rezepte', // rendered as "{n} Rezepte"
     filterAll: 'Alle',
-    photoSoon: 'Foto folgt',
     emptyAll: 'Noch keine Rezepte',
     emptyCategory: 'Keine Rezepte in dieser Kategorie',
     emptyHint: 'Erstelle ein Rezept',
