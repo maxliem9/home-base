@@ -108,6 +108,7 @@ export const de = {
     recipes: 'Rezepte',
     abwesenheit: 'Kalender',
     settings: 'Einstellungen',
+    more: 'Mehr', // bottom-tab "Mehr" overflow sheet (HB-09)
     main: 'Hauptnavigation', // aria-label for the main (bottom/side) nav landmark
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
@@ -118,6 +119,7 @@ export const de = {
       time: 'Zeit',
       recipes: 'Rezepte',
       abwesenheit: 'Kalender',
+      more: 'Mehr',
     },
   },
   login: {

@@ -47,6 +47,8 @@ const PATHS: Record<string, string> = {
   cookie: 'M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5Z M8.5 8.5h.01 M16 15.5h.01 M12 12h.01 M11 17h.01 M7 14h.01',
   cake: 'M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8 M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1 M2 21h20 M7 8v3 M12 8v3 M17 8v3 M7 4h.01 M12 4h.01 M17 4h.01',
   glass: 'M5 3h14l-1.2 17a1 1 0 0 1-1 1H7.2a1 1 0 0 1-1-1L5 3Z M6.4 9h11.2',
+  // "more" — horizontal three-dots for the mobile tab-bar overflow (HB-09)
+  more: 'M5 12h.01 M12 12h.01 M19 12h.01',
 }
 
 export type IconName = keyof typeof PATHS

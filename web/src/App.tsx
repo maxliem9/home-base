@@ -8,7 +8,7 @@ import { useTheme } from './hooks/useTheme'
 import { AvatarHuesProvider } from './hooks/useAvatarHues'
 import { Icon } from './ui/Icon'
 import { TransportErrorToast } from './ui/TransportErrorToast'
-import { Avatar, Button, Card, Field, Modal, TextInput } from './ui/primitives'
+import { Avatar, Button, Card, Field, Modal, Sheet, TextInput } from './ui/primitives'
 import { usernameFromToken } from './ui/format'
 import { DashboardView } from './components/DashboardView'
 import { TodosView } from './components/TodosView'
@@ -22,6 +22,10 @@ import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { KIND_TAB, type SearchItem } from './search'
 
 type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'abwesenheit'
+
+// HB-09 — the mobile bottom bar shows these core areas (in this order) plus a "Mehr"
+// button; everything else moves into the "Mehr" sheet so 8+ areas never overflow / clip.
+const CORE_TABS: Tab[] = ['heute', 'todos', 'shopping', 'abwesenheit']
 
 // Built inside Shell with the reactive `t` so the labels follow a language switch.
 const buildNav = (t: TFunction): { id: Tab; label: string; shortLabel: string; icon: string }[] => [
@@ -129,6 +133,9 @@ export default function App() {
 function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setTab: (t: Tab) => void; onLogout: () => void }) {
   const { t } = useTranslation()
   const NAV = useMemo(() => buildNav(t), [t])
+  // HB-09 — split the mobile bottom bar into core areas + a "Mehr" overflow sheet.
+  const coreNav = useMemo(() => NAV.filter((n) => CORE_TABS.includes(n.id)), [NAV])
+  const moreNav = useMemo(() => NAV.filter((n) => !CORE_TABS.includes(n.id)), [NAV])
   const badges = useNavBadges(token)
   // Per-user theme (#100): load + apply on mount, follow the OS live while 'system'.
   // Lifted here (always mounted when logged in) so it applies app-wide; the selector
@@ -147,6 +154,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
 
   // ⌘K / Ctrl-K command palette (HB-03) — global search + quick navigation.
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const openTab = useCallback((next: Tab) => { setSettings(null); setTab(next) }, [setTab])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -279,11 +287,11 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
       {/* Mobile bottom tab bar — only visible ≤860px (CSS), the sidebar's replacement
           navigation. Same tab state, badges and running-timer dot as the sidebar. */}
       <nav className="hb-tabbar" aria-label={t('nav.main')}>
-        {NAV.map((n) => (
+        {coreNav.map((n) => (
           <button
             key={n.id}
             className={`hb-tabbar__item${!settings && tab === n.id ? ' is-active' : ''}`}
-            onClick={() => { setSettings(null); setTab(n.id) }}
+            onClick={() => { setSettings(null); setMoreOpen(false); setTab(n.id) }}
             aria-current={!settings && tab === n.id ? 'page' : undefined}
           >
             <span className="hb-tabbar__icon">
@@ -296,7 +304,44 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             <span className="hb-tabbar__label">{n.shortLabel}</span>
           </button>
         ))}
+        {/* HB-09 — overflow areas live behind "Mehr"; it highlights while one of them is active. */}
+        <button
+          className={`hb-tabbar__item${!settings && moreNav.some((n) => n.id === tab) ? ' is-active' : ''}`}
+          onClick={() => setMoreOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+        >
+          <span className="hb-tabbar__icon">
+            <Icon name="more" size={22} stroke={2} />
+            {/* a running timer lives under "Mehr" (Zeit is an overflow area) */}
+            {badges.timerRunning && <span className="hb-tabbar__dot" title={t('shell.timerRunning')} />}
+          </span>
+          <span className="hb-tabbar__label">{t('nav.short.more')}</span>
+        </button>
       </nav>
+
+      {/* HB-09 — "Mehr" sheet listing the overflow nav areas. */}
+      {moreOpen && (
+        <Sheet open onClose={() => setMoreOpen(false)} title={t('nav.more')}>
+          <div className="hb-morenav">
+            {moreNav.map((n) => (
+              <button
+                key={n.id}
+                className={`hb-morenav__item${!settings && tab === n.id ? ' is-active' : ''}`}
+                onClick={() => { setSettings(null); setTab(n.id); setMoreOpen(false) }}
+                aria-current={!settings && tab === n.id ? 'page' : undefined}
+              >
+                <Icon name={n.icon} size={20} stroke={2} />
+                <span className="hb-morenav__label">{n.label}</span>
+                {n.id === 'time' && badges.timerRunning && (
+                  <span className="hb-syncdot" style={{ animation: 'none', background: 'var(--clay)' }} title={t('shell.timerRunning')} />
+                )}
+                {count[n.id] ? <span className="hb-navitem__badge">{count[n.id]}</span> : null}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
 
       {/* Global ⌘K command palette (HB-03). */}
       <CommandPalette
