@@ -9,6 +9,7 @@ import com.homebase.routes.healthRoutes
 import com.homebase.routes.noteRoutes
 import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
+import com.homebase.routes.shoppingTemplateRoutes
 import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
 import com.homebase.routes.userPrefsRoutes
@@ -60,6 +61,10 @@ fun Application.configureRouting() {
                 userRoutes()
                 userPrefsRoutes()
                 todoRoutes()
+                // Registered before shoppingRoutes so the static /shopping/templates segment is
+                // unambiguous against /shopping/{id} (Ktor prioritises constant over parameter
+                // segments regardless, but the explicit order documents the intent).
+                shoppingTemplateRoutes()
                 shoppingRoutes()
                 noteRoutes(imageConfig)
                 timeRoutes()

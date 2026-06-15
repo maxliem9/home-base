@@ -249,6 +249,50 @@ data class UpdateShoppingListRequest(val name: String? = null)
 @Serializable
 data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
+// ---------- Shopping templates (#215) ----------
+// A named "standard list": a saved set of item names the household re-adds for the recurring
+// shop. Items are embedded (always returned with the template, ordered by sortOrder), like a
+// recipe embeds its ingredients. Applying a template is a client concern (reuses /shopping/batch),
+// so there is no apply endpoint and no quantity/unit here — just names.
+
+@Serializable
+data class ShoppingTemplateItemDto(
+    val id: String,
+    val name: String,
+    val sortOrder: Int
+)
+
+@Serializable
+data class ShoppingTemplateDto(
+    val id: String,
+    val name: String,
+    // embedded children, ordered by sortOrder; emptyList() default omitted from the payload (#46)
+    val items: List<ShoppingTemplateItemDto> = emptyList(),
+    val createdBy: String,
+    val createdAt: String
+)
+
+/** One item name for a template create/update request — names only, no amount/unit. */
+@Serializable
+data class TemplateItemInput(val name: String)
+
+@Serializable
+data class CreateShoppingTemplateRequest(
+    val name: String,
+    val items: List<TemplateItemInput> = emptyList()
+)
+
+/** Update replaces the name and the full item set (wholesale, like a recipe update). */
+@Serializable
+data class UpdateShoppingTemplateRequest(
+    val name: String? = null,
+    // when provided, fully replaces the existing items
+    val items: List<TemplateItemInput>? = null
+)
+
+@Serializable
+data class ShoppingTemplateWsMessage(val type: String, val payload: ShoppingTemplateDto? = null)
+
 @Serializable
 data class NoteImageDto(
     val id: String,
