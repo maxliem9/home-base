@@ -622,7 +622,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
           <div>
             <div className="hb-sectionlabel">{t('time.projectsLabel')}</div>
             {activeProjects.length === 0 ? (
-              <Card className="hb-card--pad"><EmptyState icon="clock" title={t('time.noProjects')} hint={t('time.noProjectsHint')} /></Card>
+              <Card className="hb-card--pad"><EmptyState icon="clock" title={t('time.noProjects')} hint={t('time.noProjectsHint')} action={<Button size="sm" icon="plus" onClick={() => setProjectDraft({ name: '', color: COLOR_CHOICES[0] })}>{t('time.newProject')}</Button>} /></Card>
             ) : (
               <div className="hb-proj-grid">
                 {activeProjects.map((p) => {
@@ -633,19 +633,26 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
                         <span className="hb-pdot" style={{ background: p.color }} />
                         <button className="hb-projcard__name hb-projcard__namebtn" title={t('time.viewDetails')} onClick={() => setDetailProject(p)}>{p.name}</button>
                       </div>
-                      <button className="hb-projcard__statbtn" onClick={() => setDetailProject(p)}>
+                      {/* Dauer + Label sind eine nicht-umbrechende Baseline-Gruppe; das Öffnen
+                          ist ein beschrifteter Button statt eines freistehenden Pfeils (#220). */}
+                      <div className="hb-projcard__stats">
                         <span className="hb-projcard__stat hb-mono">
-                          {hm(projectStats[p.id]?.daySeconds ?? 0)}<span> {projectStats[p.id]?.dayLabel ?? t('time.today')} →</span>
+                          {hm(projectStats[p.id]?.daySeconds ?? 0)}<span>{projectStats[p.id]?.dayLabel ?? t('time.today')}</span>
                         </span>
                         <span className="hb-projcard__stat2 hb-mono">
-                          {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span> {projectStats[p.id]?.weekLabel ?? t('time.thisWeek')}</span>
+                          {hm(projectStats[p.id]?.weekSeconds ?? 0)}<span>{projectStats[p.id]?.weekLabel ?? t('time.thisWeek')}</span>
                         </span>
-                      </button>
-                      {isRunning ? (
-                        <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t('time.stop')}</Button>
-                      ) : (
-                        <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t('time.start')}</Button>
-                      )}
+                      </div>
+                      <div className="hb-projcard__foot">
+                        <button className="hb-projcard__open" title={t('time.viewDetails')} onClick={() => setDetailProject(p)}>
+                          {t('time.open')}<Icon name="chevronRight" size={15} stroke={2.2} />
+                        </button>
+                        {isRunning ? (
+                          <Button variant="secondary" size="sm" icon="stop" onClick={() => stopTimer()}>{t('time.stop')}</Button>
+                        ) : (
+                          <Button variant="soft" size="sm" icon="play" onClick={() => startTimer(p.id)}>{t('time.start')}</Button>
+                        )}
+                      </div>
                     </Card>
                   )
                 })}

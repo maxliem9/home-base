@@ -357,7 +357,12 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>
       ) : visible.length === 0 ? (
         <Card className="hb-card--pad">
-          <EmptyState icon="chef" title={filter === 'ALL' ? t('recipes.emptyAll') : t('recipes.emptyCategory')} hint={filter === 'ALL' ? t('recipes.emptyHint') : undefined} />
+          <EmptyState
+            icon="chef"
+            title={filter === 'ALL' ? t('recipes.emptyAll') : t('recipes.emptyCategory')}
+            hint={filter === 'ALL' ? t('recipes.emptyHint') : undefined}
+            action={filter === 'ALL' ? <Button size="sm" icon="plus" onClick={() => setDraft(emptyDraft())}>{t('recipes.newRecipe')}</Button> : undefined}
+          />
         </Card>
       ) : (
         <div className="hb-recipe-grid">

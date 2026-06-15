@@ -372,6 +372,7 @@ export const de = {
     recentEntries: 'Letzte Einträge',
     noDescription: 'ohne Beschreibung',
     viewDetails: 'Details ansehen',
+    open: 'Öffnen', // labelled "open detail" button on the project card (#220)
     backToOverview: 'Zurück',
     detailTotal: 'Gesamt',
     detailEntries: 'Einträge',
