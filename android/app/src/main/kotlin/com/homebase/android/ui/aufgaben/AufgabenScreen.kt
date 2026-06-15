@@ -22,7 +22,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +82,10 @@ import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
+import com.homebase.android.ui.components.HbRadiusSm
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 // ---------------------------------------------------------------------------
 // Sheet state
@@ -630,12 +639,13 @@ private fun EditSheet(
     var description by remember { mutableStateOf(todo?.description ?: "") }
     // assignee: null = "Niemand"/unset; otherwise a household username
     var assignee by remember { mutableStateOf(todo?.assignee) }
-    var dueText by remember { mutableStateOf(todo?.dueDate ?: "") }
+    // due date as a real LocalDate (null = no date); set via the Material date picker (#265)
+    var dueDate by remember { mutableStateOf(Format.parseLocalDate(todo?.dueDate)) }
     var priority by remember { mutableStateOf(todo?.priority) }
     // recurrence: null freq = no repetition; needs a due date as its anchor
     var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
     var intervalText by remember { mutableStateOf((todo?.recurrence?.interval ?: 1).toString()) }
-    val recurrenceNeedsDue = recurrenceFreq != null && dueText.isBlank()
+    val recurrenceNeedsDue = recurrenceFreq != null && dueDate == null
     // Listen-Auswahl beim Planen: nur für listen-lose Todos — Listen-Todos behalten ihre
     // Liste (#77, wie der Web-Plan-Dialog). Null = „Bleibt in der Inbox".
     val showListPicker = isEdit && todo?.listId == null && lists.isNotEmpty()
@@ -664,15 +674,17 @@ private fun EditSheet(
                 onClick = {
                     if (title.isNotBlank()) {
                         if (isEdit) {
+                            val dueIso = dueDate?.toString()
                             onSaveEdit(
                                 todo!!.id,
                                 UpdateTodoRequest(
                                     title = title.trim(),
                                     description = description.ifBlank { "" },
+                                    // "" clears the field on the backend, a value sets it (#265)
                                     assignee = assignee ?: "",
-                                    dueDate = dueText.ifBlank { null },
-                                    priority = priority,
-                                    status = if (assignee != null || dueText.isNotBlank()) "PLANNED" else "INBOX",
+                                    dueDate = dueIso ?: "",
+                                    priority = priority ?: "",
+                                    status = if (assignee != null || dueIso != null) "PLANNED" else "INBOX",
                                     // "NONE" clears any existing rule; otherwise set/replace it
                                     recurrence = recurrenceFreq
                                         ?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) }
@@ -754,17 +766,7 @@ private fun EditSheet(
             }
         }
         HbField(stringResource(R.string.todo_field_due)) {
-            HbTextField(
-                value = dueText,
-                onValueChange = { dueText = it },
-                placeholder = "2026-06-04",
-                mono = true,
-            )
-            Text(
-                stringResource(R.string.todo_due_hint, Format.dueFieldLabel("2026-06-04") ?: "2026-06-04"),
-                style = HbType.small,
-                color = Hb.ink3,
-            )
+            DueDateField(value = dueDate, onChange = { dueDate = it })
         }
         HbField(stringResource(R.string.todo_field_priority)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -804,7 +806,7 @@ private fun EditSheet(
                         color = Hb.ink2,
                     )
                 }
-                if (dueText.isBlank()) {
+                if (dueDate == null) {
                     Text(
                         stringResource(R.string.todo_recurrence_needs_due),
                         style = HbType.small,
@@ -832,6 +834,68 @@ private fun PriorityPick(
             style = HbType.label.copy(fontSize = 13.5.sp),
             color = if (active) Hb.accentInk else Hb.ink2,
         )
+    }
+}
+
+/**
+ * Optional due-date field (#265): a tappable row that shows the localized date label
+ * (e.g. "Heute · 3. Juni") or a "Datum wählen" placeholder, opening a Material date picker.
+ * A trailing ✕ clears the date. Mirrors the TimeScreen/Abwesenheit DatePicker pattern
+ * (UTC epoch millis ↔ LocalDate, so no timezone drift on the date-only value).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(HbRadiusSm)
+                .background(Hb.surface, HbRadiusSm)
+                .border(1.dp, Hb.line, HbRadiusSm)
+                .clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            HbIcon(HbIcons.calendar, size = 16.dp, tint = if (value == null) Hb.ink3 else Hb.accentInk)
+            Text(
+                text = value?.let { Format.dueFieldLabel(it.toString()) } ?: stringResource(R.string.todo_due_pick),
+                style = HbType.body.copy(fontSize = 14.5.sp),
+                color = if (value == null) Hb.ink3 else Hb.ink,
+            )
+        }
+        if (value != null) {
+            HbIconButton(
+                HbIcons.x,
+                onClick = { onChange(null) },
+                iconSize = 18.dp,
+                tint = Hb.ink3,
+            )
+        }
+    }
+    if (open) {
+        val initialMillis = (value ?: LocalDate.now()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { ms ->
+                        onChange(Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate())
+                    }
+                    open = false
+                }) { Text(stringResource(R.string.action_ok)) }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
+        ) {
+            DatePicker(state = pickerState)
+        }
     }
 }
 

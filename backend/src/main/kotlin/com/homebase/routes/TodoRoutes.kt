@@ -241,8 +241,11 @@ fun Route.todoRoutes() {
                 // capture the pre-update visibility so the broadcast can translate transitions
                 val wasShared = listIsShared(existing[TodosTable.listId])
                 val nextStatus = req.status ?: existing[TodosTable.status]
-                val nextAssignee = req.assignee ?: existing[TodosTable.assignee]
-                val nextDueDate = req.dueDate ?: existing[TodosTable.dueDate]?.toString()
+                // optional text fields follow the listId convention (#265): null = unchanged,
+                // "" = clear to null, else set. `if present, blank→null` captures all three.
+                val nextAssignee = if (req.assignee != null) req.assignee.ifBlank { null } else existing[TodosTable.assignee]
+                val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
+                val nextPriority = if (req.priority != null) req.priority.ifBlank { null } else existing[TodosTable.priority]
                 // merge the recurrence rule: absent = unchanged, freq "NONE" = clear, else set/replace
                 val (nextRecFreq, nextRecInterval) = when {
                     req.recurrence == null -> existing[TodosTable.recurrence] to existing[TodosTable.recurrenceInterval]
@@ -254,7 +257,7 @@ fun Route.todoRoutes() {
                     status = nextStatus,
                     assignee = nextAssignee,
                     dueDate = nextDueDate,
-                    priority = req.priority ?: existing[TodosTable.priority],
+                    priority = nextPriority,
                     recurrenceFreq = nextRecFreq,
                     recurrenceInterval = nextRecInterval,
                 )?.let { return@transaction it }
@@ -271,9 +274,10 @@ fun Route.todoRoutes() {
                 TodosTable.update({ TodosTable.id eq id }) {
                     req.title?.let { v -> it[title] = v }
                     req.description?.let { v -> it[description] = v }
-                    req.assignee?.let { v -> it[assignee] = v }
-                    req.dueDate?.let { v -> it[dueDate] = LocalDate.parse(v) }
-                    req.priority?.let { v -> it[priority] = v }
+                    // null = unchanged, "" = clear to null, else set (mirrors listId, #265)
+                    req.assignee?.let { _ -> it[assignee] = nextAssignee }
+                    req.dueDate?.let { _ -> it[dueDate] = nextDueDate?.let { d -> LocalDate.parse(d) } }
+                    req.priority?.let { _ -> it[priority] = nextPriority }
                     req.listId?.let { _ -> it[listId] = targetListId }
                     req.recurrence?.let { r ->
                         if (r.freq == Recurrence.CLEAR) { it[recurrence] = null; it[recurrenceInterval] = null }
@@ -291,7 +295,9 @@ fun Route.todoRoutes() {
                 var spawned: TodoDto? = null
                 var spawnedShared = false
                 if (spawnNext) {
-                    val anchor = req.dueDate?.let { LocalDate.parse(it) } ?: existing[TodosTable.dueDate]!!
+                    // a recurring todo always has a dueDate anchor (validation enforces it), so
+                    // nextDueDate is non-null here; parse the merged value rather than the raw request
+                    val anchor = LocalDate.parse(nextDueDate!!)
                     val successorDue = Recurrence.nextDueAfterCompletion(
                         anchor, nextRecFreq!!, nextRecInterval ?: 1, LocalDate.now(),
                     )
@@ -304,7 +310,7 @@ fun Route.todoRoutes() {
                         it[status] = "PLANNED" // always has a dueDate, so PLANNED is valid
                         it[assignee] = nextAssignee
                         it[dueDate] = successorDue
-                        it[priority] = req.priority ?: existing[TodosTable.priority]
+                        it[priority] = nextPriority
                         it[listId] = newListId
                         it[recurrence] = nextRecFreq
                         it[recurrenceInterval] = nextRecInterval ?: 1
