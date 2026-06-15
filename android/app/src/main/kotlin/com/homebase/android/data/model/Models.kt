@@ -598,6 +598,27 @@ data class UpdateRecipeRequest(
 @JsonClass(generateAdapter = true)
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
+// --- Wochenplan / Essensplaner (#218/#250) ---
+// One recipe planned into a (date, slot) of the weekly grid; the recipe title/category ride
+// along so the grid renders without a second fetch. slot ∈ BREAKFAST|LUNCH|DINNER (the planner's
+// own meal times, independent of the recipe categories).
+
+@JsonClass(generateAdapter = true)
+data class MealPlanEntryDto(
+    val id: String,
+    val date: String,
+    val slot: String,
+    val recipeId: String,
+    val recipeTitle: String,
+    val recipeCategory: String,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+/** Set/replace the recipe in a (date, slot) — PUT /meal-plan/{date}/{slot}. */
+@JsonClass(generateAdapter = true)
+data class SetMealPlanRequest(val recipeId: String)
+
 // ---------------------------------------------------------------------------
 // Abwesenheit / Familienkalender
 // ---------------------------------------------------------------------------

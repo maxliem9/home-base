@@ -38,6 +38,8 @@ object HbIcons {
     val note = stroke("M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M14 3v5h5")
     val clock = stroke("M12 7v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z")
     val chef = stroke("M7 21h10 M8 17h8v-2a4 4 0 1 0-2.5-7.4 3.5 3.5 0 0 0-7 0A4 4 0 1 0 8 15v2Z")
+    // meal planner (#250) — path copied from the web icon set (web/src/ui/Icon.tsx "utensils")
+    val utensils = stroke("M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2 M5 2v20 M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7")
     val play = stroke("M8 5.5v13l11-6.5-11-6.5Z")
     val stop = stroke("M7 7h10v10H7z")
     val search = stroke("M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z M21 21l-4.3-4.3")

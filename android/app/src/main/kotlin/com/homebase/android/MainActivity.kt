@@ -52,6 +52,8 @@ import com.homebase.android.ui.notes.NotesScreen
 import com.homebase.android.ui.notes.NotesViewModel
 import com.homebase.android.ui.recipes.RecipesScreen
 import com.homebase.android.ui.recipes.RecipesViewModel
+import com.homebase.android.ui.wochenplan.MealPlanScreen
+import com.homebase.android.ui.wochenplan.MealPlanViewModel
 import com.homebase.android.ui.settings.SettingsScreen
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
@@ -151,6 +153,7 @@ class MainActivity : AppCompatActivity() {
         val timeVm: TimeViewModel = viewModel(key = "time-$token", factory = timeFactory(token, currentUser))
         val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
         val absenceVm: AbsenceViewModel = viewModel(key = "absence-$token", factory = absenceFactory(token))
+        val mealPlanVm: MealPlanViewModel = viewModel(key = "mealplan-$token", factory = mealPlanFactory(token))
 
         // A socket can be silently killed while the app is backgrounded (Doze, mobile-network change,
         // backend restart). OkHttp does not reconnect on its own, so on every return to the foreground
@@ -162,6 +165,7 @@ class MainActivity : AppCompatActivity() {
             timeVm.ensureConnected()
             recipesVm.ensureConnected()
             absenceVm.ensureConnected()
+            mealPlanVm.ensureConnected()
         }
 
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
@@ -255,6 +259,10 @@ class MainActivity : AppCompatActivity() {
                 HbRoute.REZEPTE -> RecipesScreen(
                     viewModel = recipesVm,
                     shoppingViewModel = shoppingVm,
+                    onOpenDrawer = openDrawer,
+                )
+                HbRoute.WOCHENPLAN -> MealPlanScreen(
+                    viewModel = mealPlanVm,
                     onOpenDrawer = openDrawer,
                 )
             }
@@ -358,6 +366,13 @@ class MainActivity : AppCompatActivity() {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
             return AbsenceViewModel(container.absenceRepository, token) as T
+        }
+    }
+
+    private fun mealPlanFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return MealPlanViewModel(container.mealPlanRepository, token) as T
         }
     }
 

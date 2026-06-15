@@ -267,6 +267,24 @@ interface HomeBaseApi {
         @Query("servings") servings: Int? = null,
     ): ResponseBody
 
+    // --- Wochenplan / Essensplaner (#250) ---
+
+    @GET("meal-plan")
+    suspend fun getMealPlan(
+        @Query("from") from: String,
+        @Query("to") to: String,
+    ): List<MealPlanEntryDto>
+
+    @PUT("meal-plan/{date}/{slot}")
+    suspend fun setMealSlot(
+        @Path("date") date: String,
+        @Path("slot") slot: String,
+        @Body request: SetMealPlanRequest,
+    ): MealPlanEntryDto
+
+    @DELETE("meal-plan/{date}/{slot}")
+    suspend fun deleteMealSlot(@Path("date") date: String, @Path("slot") slot: String)
+
     // --- Abwesenheit / Familienkalender ---
 
     @GET("absence")

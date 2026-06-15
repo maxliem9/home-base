@@ -61,6 +61,7 @@ enum class HbRoute(@StringRes val labelRes: Int, val icon: ImageVector) {
     ZEIT(R.string.nav_time, HbIcons.clock),
     ABWESENHEIT(R.string.nav_calendar, HbIcons.calendar),
     REZEPTE(R.string.nav_recipes, HbIcons.chef),
+    WOCHENPLAN(R.string.nav_meal_plan, HbIcons.utensils),
 }
 
 // ---------------------------------------------------------------------------

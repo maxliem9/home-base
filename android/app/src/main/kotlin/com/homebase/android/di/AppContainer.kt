@@ -7,6 +7,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AbsenceRepository
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
+import com.homebase.android.data.repository.MealPlanRepository
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.repository.ShoppingRepository
@@ -17,6 +18,7 @@ import com.homebase.android.data.shopping.ConnectivityObserver
 import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingPendingStore
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
+import com.homebase.android.data.websocket.MealPlanWebSocketClient
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
 import com.homebase.android.data.websocket.RecipeWebSocketClient
@@ -100,5 +102,13 @@ class AppContainer(context: Context) {
     val absenceRepository = AbsenceRepository(
         api = api,
         wsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    // Wochenplan (#250): its own meal-plan socket + a dedicated recipe socket (a recipe delete
+    // cascades plan rows but only broadcasts on the recipes channel — the planner watches both).
+    val mealPlanRepository = MealPlanRepository(
+        api = api,
+        mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }
