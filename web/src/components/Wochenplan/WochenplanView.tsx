@@ -375,7 +375,7 @@ function MealRecipePicker({
   const currentRecipe = current ? recipes.find((r) => r.id === current.recipeId) : undefined
   // Pre-select the planned recipe (when editing) with its chosen or default portions.
   const [selectedId, setSelectedId] = useState<string | null>(current?.recipeId ?? null)
-  const [servings, setServings] = useState<number>(current?.servings ?? currentRecipe?.servings ?? 1)
+  const [servings, setServings] = useState<number>(Math.max(1, current?.servings ?? currentRecipe?.servings ?? 1))
 
   const needle = q.trim().toLowerCase()
   const filtered = needle ? recipes.filter((r) => r.title.toLowerCase().includes(needle)) : recipes

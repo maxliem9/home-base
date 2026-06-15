@@ -69,6 +69,8 @@ test.describe('Wochenplan', () => {
     await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click() // confirm
 
     await expect(cell(page, '2026-06-15', 'BREAKFAST')).toContainText('Pfannkuchen')
+    // default portions (not bumped) → servings stays null → no portions badge on the chip
+    await expect(cell(page, '2026-06-15', 'BREAKFAST')).not.toContainText('Port.')
   })
 
   test('replaces a planned recipe via the picker', async ({ page }) => {
