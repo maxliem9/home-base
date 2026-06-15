@@ -111,6 +111,7 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                 )
             },
             fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = stringResource(R.string.todo_fab)) },
+            onRefresh = { viewModel.refresh() },
         ) {
             // Inbox + list tabs — full-bleed scrollable strip with a bottom hairline.
             ListTabs(

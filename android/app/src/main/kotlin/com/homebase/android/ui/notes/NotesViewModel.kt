@@ -44,6 +44,32 @@ class NotesViewModel(
         }
     }
 
+    /**
+     * Pull-to-refresh entry point (#269). Suspends until the refetch completes so the UI's refresh
+     * indicator can spin for the duration; no full-screen spinner (the list stays visible) but it
+     * does surface a fetch error like load(), since it's user-triggered. Respects the active query.
+     */
+    suspend fun refresh() {
+        repository.getNotes(_uiState.value.query)
+            .onSuccess { notes -> _uiState.update { it.copy(notes = notes, error = null) } }
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+    }
+
+    /**
+     * Silent background re-sync of the notes list (#269). Fires on every WS (re)connect
+     * (`onConnected`) and on app/screen resume ([ensureConnected]). A note created/edited/deleted on
+     * the web or another device while our socket was dead (Doze / mobile-network change / backend
+     * restart) sends a NOTE_* frame we never receive — without this refetch the list would stay stale
+     * until logout/login. Unlike [load] this never flips `isLoading` and leaves existing notes +
+     * `error` untouched on a transient failure (the next trigger retries). Respects the active query.
+     */
+    private fun syncFromServer() {
+        viewModelScope.launch {
+            repository.getNotes(_uiState.value.query)
+                .onSuccess { notes -> _uiState.update { it.copy(notes = notes) } }
+        }
+    }
+
     fun onQueryChange(query: String) {
         _uiState.update { it.copy(query = query) }
         load()
@@ -143,6 +169,11 @@ class NotesViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
+        // Re-sync on every (re)connect — the "server reachable again" signal (#269, mirrors the time
+        // channel + shopping queue flush). The first connect also fires this; that one re-sync
+        // overlaps load()'s fetch (harmless — a cheap GET at cold start), and every later reconnect
+        // then reliably re-syncs without bespoke state.
+        repository.setWebSocketOnConnected { syncFromServer() }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
@@ -157,11 +188,20 @@ class NotesViewModel(
         }
     }
 
-    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
-    fun ensureConnected() = repository.ensureWebSocketConnected()
+    /**
+     * Called from the UI when the app returns to the foreground (#269). Reconnects the channel if it
+     * dropped **and** re-syncs from the server: a reconnect fires `onConnected` → [syncFromServer],
+     * but if the socket survived the background no callback fires, so we also refetch here. Either way
+     * the list matches the server after a backgrounded change elsewhere.
+     */
+    fun ensureConnected() {
+        repository.ensureWebSocketConnected()
+        syncFromServer()
+    }
 
     override fun onCleared() {
         super.onCleared()
+        repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
 }

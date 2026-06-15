@@ -39,6 +39,10 @@ class ShoppingViewModelTest {
     private lateinit var repository: ShoppingRepository
     private val wsEvents = MutableSharedFlow<ShoppingWebSocketClient.WsEvent>()
 
+    /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#269). */
+    private val onConnectedSlot = slot<() -> Unit>()
+    private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
+
     /** In-memory [ShoppingPendingStore] standing in for the SharedPreferences-backed one. */
     private class FakeStore(var data: MutableMap<String, PendingCheck> = mutableMapOf()) : ShoppingPendingStore {
         override suspend fun load(): Map<String, PendingCheck> = data.toMap()
@@ -70,6 +74,8 @@ class ShoppingViewModelTest {
         store = FakeStore()
         nowMs = 1_000L
         every { repository.incomingEvents } returns wsEvents
+        // Capture the reconnect callback the VM registers (#269) so tests can fire it.
+        every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
         // load() fetches both lists and items; default lists to empty unless a test overrides.
         coEvery { repository.getLists() } returns Result.success(emptyList())
         // init also loads templates (#215) — default to empty so existing tests are unaffected.
@@ -943,5 +949,89 @@ class ShoppingViewModelTest {
 
         assertEquals(listOf("t1"), vm.uiState.value.templates.map { it.id })
         coVerify(atLeast = 2) { repository.getTemplates() }
+    }
+
+    // --- #269: reconnect re-syncs the LIST (not just the offline queue) + pull-to-refresh ---
+
+    @Test
+    fun `WS reconnect refetches the item list so a partner's change appears`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        // Items carry their list so the list-less migration sweep finds nothing to adopt.
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "1", name = "Milch").copy(listId = "L1")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.items.size)
+
+        // While our socket was dead the partner added an item; on reconnect we refetch the list.
+        coEvery { repository.getItems() } returns Result.success(
+            listOf(
+                item(id = "1", name = "Milch").copy(listId = "L1"),
+                item(id = "2", name = "Brot").copy(listId = "L1"),
+            ),
+        )
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(setOf("1", "2"), vm.uiState.value.items.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `WS reconnect re-sync does not clobber a still-pending offline check`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        val original = item(id = "1", name = "Milch", checked = false).copy(listId = "L1")
+        coEvery { repository.getItems() } returns Result.success(listOf(original))
+        // The check-off PUT never lands (offline) so the intent stays queued.
+        coEvery { repository.updateItem(eq("1"), any()) } returns Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        runCurrent() // initial load + queue restore; do NOT advance the backstop timer
+
+        vm.toggleChecked(original) // optimistic check + enqueue; PUT fails, stays pending
+        runCurrent()
+        assertTrue(vm.uiState.value.isPending("1"))
+        assertTrue(vm.uiState.value.items.first { it.id == "1" }.checked)
+
+        // Reconnect re-sync: the server still reports it unchecked (our PUT never landed). The merge
+        // must let the pending local check win, not revert the checkbox under the user.
+        coEvery { repository.getItems() } returns Result.success(listOf(original.copy(checked = false)))
+        fireWsReconnect()
+        runCurrent()
+
+        assertTrue(vm.uiState.value.items.first { it.id == "1" }.checked)
+        assertTrue(vm.uiState.value.isPending("1"))
+    }
+
+    @Test
+    fun `WS reconnect re-sync keeps existing items on a transient failure`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "1", name = "Milch").copy(listId = "L1")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.items.size)
+
+        coEvery { repository.getItems() } returns Result.failure(RuntimeException("down"))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.items.size)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `refresh refetches lists and items`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "r", name = "Neu").copy(listId = "L1")))
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.items.size)
+        assertFalse(vm.uiState.value.isLoading)
     }
 }
