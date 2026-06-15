@@ -42,6 +42,13 @@ export function dueLabel(isoDate?: string): { text: string; tone: DueTone } | nu
   return { text: dayMonth(d), tone: 'far' }
 }
 
+/** Local calendar date as YYYY-MM-DD (not UTC). Todos carry local dates and
+ *  "today"/"due tomorrow"/"done today" must be judged in the user's timezone. */
+export function localDateIso(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 export function relTime(isoStr: string): string {
   const mins = Math.round((Date.now() - new Date(isoStr).getTime()) / 60000)
   if (mins < 1) return t('fmt.justNow')
