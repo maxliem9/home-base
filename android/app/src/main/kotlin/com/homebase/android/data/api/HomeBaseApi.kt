@@ -116,6 +116,20 @@ interface HomeBaseApi {
     @DELETE("shopping/lists/{id}")
     suspend fun deleteShoppingList(@Path("id") id: String)
 
+    // --- Shopping templates (named standard lists, #215) ---
+
+    @GET("shopping/templates")
+    suspend fun getShoppingTemplates(): List<ShoppingTemplateDto>
+
+    @POST("shopping/templates")
+    suspend fun createShoppingTemplate(@Body request: CreateShoppingTemplateRequest): ShoppingTemplateDto
+
+    @PUT("shopping/templates/{id}")
+    suspend fun updateShoppingTemplate(@Path("id") id: String, @Body request: UpdateShoppingTemplateRequest): ShoppingTemplateDto
+
+    @DELETE("shopping/templates/{id}")
+    suspend fun deleteShoppingTemplate(@Path("id") id: String)
+
     // --- Notes ---
 
     @GET("notes")

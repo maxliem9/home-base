@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,12 +39,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.components.HbCheck
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbEmpty
 import com.homebase.android.ui.components.HbField
 import com.homebase.android.ui.components.HbFab
@@ -50,10 +55,13 @@ import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbRadius
+import com.homebase.android.ui.components.HbRadiusSm
 import com.homebase.android.ui.components.HbQuickAdd
 import com.homebase.android.ui.components.HbRow
 import com.homebase.android.ui.components.HbScreenScaffold
+import com.homebase.android.ui.components.HbSectionLabel
 import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.components.bottomBorder
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
@@ -65,10 +73,18 @@ fun ShoppingScreen(
     onOpenDrawer: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var addItemText by remember { mutableStateOf("") }
     var showNewListSheet by remember { mutableStateOf(false) }
     var showAddItemSheet by remember { mutableStateOf(false) }
+    // Template flows (#215): the list/manage sheet, an in-flight create-or-edit form, an apply
+    // selection sheet (for a chosen template), a pending delete confirm, and the add-result toast.
+    var showTemplatesSheet by remember { mutableStateOf(false) }
+    var editingTemplate by remember { mutableStateOf<TemplateEdit?>(null) }
+    var applyingTemplate by remember { mutableStateOf<ShoppingTemplateDto?>(null) }
+    var deletingTemplate by remember { mutableStateOf<ShoppingTemplateDto?>(null) }
+    var toastMsg by remember { mutableStateOf<String?>(null) }
 
     val visible = state.visibleItems
     val openItems = visible.filter { !it.checked }
@@ -85,7 +101,8 @@ fun ShoppingScreen(
                     eyebrow = stringResource(R.string.shopping_eyebrow),
                     title = state.activeList?.name ?: stringResource(R.string.shopping_title_fallback),
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.more, {}) },
+                    // The "more" button opens the saved-templates manager (#215).
+                    actions = { HbIconButton(HbIcons.list, { showTemplatesSheet = true }) },
                 )
             },
             fab = { HbFab(onClick = { showAddItemSheet = true }, label = stringResource(R.string.shopping_fab)) },
@@ -191,7 +208,83 @@ fun ShoppingScreen(
                 },
             )
         }
+
+        // --- Templates (#215) ---
+
+        if (showTemplatesSheet) {
+            TemplatesSheet(
+                templates = state.templates,
+                onDismiss = { showTemplatesSheet = false },
+                onNew = { editingTemplate = TemplateEdit.New },
+                onApply = { applyingTemplate = it },
+                onEdit = { editingTemplate = TemplateEdit.Existing(it) },
+                onDelete = { deletingTemplate = it },
+            )
+        }
+
+        editingTemplate?.let { edit ->
+            TemplateFormSheet(
+                existing = (edit as? TemplateEdit.Existing)?.template,
+                onDismiss = { editingTemplate = null },
+                onSave = { name, itemNames ->
+                    when (edit) {
+                        is TemplateEdit.Existing ->
+                            viewModel.updateTemplate(edit.template.id, name, itemNames) { editingTemplate = null }
+                        TemplateEdit.New ->
+                            viewModel.createTemplate(name, itemNames) { editingTemplate = null }
+                    }
+                },
+            )
+        }
+
+        applyingTemplate?.let { template ->
+            ApplyTemplateSheet(
+                template = template,
+                onDismiss = { applyingTemplate = null },
+                onConfirm = { names ->
+                    applyingTemplate = null
+                    showTemplatesSheet = false
+                    viewModel.applyTemplate(names) { added, merged ->
+                        toastMsg = addToast(context, added, merged)
+                    }
+                },
+            )
+        }
+
+        deletingTemplate?.let { template ->
+            HbConfirmDialog(
+                message = stringResource(R.string.shopping_template_delete_confirm, template.name),
+                confirmLabel = stringResource(R.string.action_delete),
+                onConfirm = {
+                    viewModel.deleteTemplate(template.id)
+                    deletingTemplate = null
+                },
+                onDismiss = { deletingTemplate = null },
+            )
+        }
+
+        toastMsg?.let { msg -> HbToast(message = msg) }
+        LaunchedEffect(toastMsg) {
+            if (toastMsg != null) {
+                kotlinx.coroutines.delay(2600)
+                toastMsg = null
+            }
+        }
     }
+}
+
+/** What the template form is editing: a brand-new template, or an existing one to update. */
+private sealed interface TemplateEdit {
+    data object New : TemplateEdit
+    data class Existing(val template: ShoppingTemplateDto) : TemplateEdit
+}
+
+/** Add-result toast text (mirrors the recipe→shopping helper): N added / merged / nothing. */
+private fun addToast(context: android.content.Context, added: Int, merged: Int): String = when {
+    added == 0 && merged == 0 -> context.getString(R.string.recipe_toast_nothing)
+    merged == 0 -> context.resources.getQuantityString(R.plurals.recipe_toast_added, added, added)
+    added == 0 -> context.getString(R.string.recipe_toast_merged, merged)
+    else -> context.getString(R.string.recipe_toast_added_merged, added, merged)
 }
 
 // ---------------------------------------------------------------------------
@@ -448,6 +541,236 @@ private fun AddItemSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
                 onValueChange = { name = it },
                 placeholder = stringResource(R.string.shopping_item_name_placeholder),
             )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Template sheets (named standard lists, #215)
+// ---------------------------------------------------------------------------
+
+/** Manage saved templates: pick one to add, edit, or delete; or create a new one. */
+@Composable
+private fun TemplatesSheet(
+    templates: List<ShoppingTemplateDto>,
+    onDismiss: () -> Unit,
+    onNew: () -> Unit,
+    onApply: (ShoppingTemplateDto) -> Unit,
+    onEdit: (ShoppingTemplateDto) -> Unit,
+    onDelete: (ShoppingTemplateDto) -> Unit,
+) {
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.shopping_templates_title),
+        footer = {
+            HbButton(
+                stringResource(R.string.shopping_template_new),
+                onClick = onNew,
+                variant = HbButtonVariant.Primary,
+                icon = HbIcons.plus,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        if (templates.isEmpty()) {
+            HbEmpty(
+                HbIcons.list,
+                stringResource(R.string.shopping_templates_empty_title),
+                stringResource(R.string.shopping_templates_empty_hint),
+            )
+        } else {
+            Text(
+                stringResource(R.string.shopping_templates_subtitle),
+                style = HbType.small.copy(fontSize = 12.5.sp),
+                color = Hb.ink3,
+            )
+            templates.forEach { template ->
+                TemplateRow(
+                    template = template,
+                    onApply = { onApply(template) },
+                    onEdit = { onEdit(template) },
+                    onDelete = { onDelete(template) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemplateRow(
+    template: ShoppingTemplateDto,
+    onApply: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    HbRow {
+        // Tapping the name area = open the add-to-cart selection (the primary action); the cart
+        // button repeats it as an explicit affordance, with edit/delete alongside.
+        Column(
+            Modifier
+                .weight(1f)
+                .clip(HbRadiusSm)
+                .clickable { onApply() }
+                .padding(vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(template.name, style = HbType.rowTitle, color = Hb.ink)
+            Text(
+                if (template.items.isEmpty()) stringResource(R.string.shopping_template_no_items)
+                else pluralStringResource(R.plurals.shopping_template_item_count, template.items.size, template.items.size),
+                style = HbType.meta,
+                color = Hb.ink3,
+            )
+        }
+        HbIconButton(HbIcons.cart, onApply, iconSize = 20.dp, tint = Hb.accentInk)
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp)
+        HbIconButton(HbIcons.trash, onDelete, iconSize = 20.dp)
+    }
+}
+
+/** Create or edit a template: a name + an editable list of item-name fields. */
+@Composable
+private fun TemplateFormSheet(
+    existing: ShoppingTemplateDto?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, itemNames: List<String>) -> Unit,
+) {
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    // One trailing blank row so there's always an empty field to type the next item into.
+    val items = remember {
+        mutableStateListOf<String>().apply {
+            existing?.items?.forEach { add(it.name) }
+            add("")
+        }
+    }
+    var submitting by remember { mutableStateOf(false) }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(
+            if (existing == null) R.string.shopping_template_new_title else R.string.shopping_template_edit_title,
+        ),
+        full = true,
+        footer = {
+            HbButton(
+                stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                stringResource(R.string.action_save),
+                onClick = {
+                    if (submitting || name.isBlank()) return@HbButton
+                    submitting = true
+                    onSave(name.trim(), items.map { it.trim() }.filter { it.isNotBlank() })
+                },
+                variant = HbButtonVariant.Primary,
+                enabled = !submitting && name.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        HbField(stringResource(R.string.shopping_template_name)) {
+            HbTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = stringResource(R.string.shopping_template_name_placeholder),
+            )
+        }
+
+        HbSectionLabel(stringResource(R.string.shopping_template_items))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items.forEachIndexed { i, value ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    HbTextField(
+                        value = value,
+                        onValueChange = { items[i] = it },
+                        placeholder = stringResource(R.string.shopping_template_item_placeholder),
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Keep at least one (trailing) row; removing the last typed row is allowed.
+                    if (items.size > 1) {
+                        HbIconButton(HbIcons.x, { items.removeAt(i) }, iconSize = 18.dp)
+                    }
+                }
+            }
+        }
+        Text(
+            stringResource(R.string.shopping_template_add_item),
+            style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+            color = Hb.accentInk,
+            modifier = Modifier
+                .clip(HbPill)
+                .clickable { items.add("") }
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** Apply a template: checkbox per item (all on by default), add the chosen names to the active list. */
+@Composable
+private fun ApplyTemplateSheet(
+    template: ShoppingTemplateDto,
+    onDismiss: () -> Unit,
+    onConfirm: (names: List<String>) -> Unit,
+) {
+    var selected by remember { mutableStateOf(template.items.map { true }) }
+    val count = selected.count { it }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.shopping_template_apply_title),
+        footer = {
+            HbButton(
+                stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                if (count > 0) stringResource(R.string.recipe_add_n, count) else stringResource(R.string.action_add),
+                onClick = {
+                    val names = template.items
+                        .filterIndexed { i, _ -> selected.getOrElse(i) { false } }
+                        .map { it.name }
+                    if (names.isNotEmpty()) onConfirm(names)
+                },
+                variant = HbButtonVariant.Primary,
+                icon = HbIcons.cart,
+                enabled = count > 0,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        if (template.items.isEmpty()) {
+            Text(stringResource(R.string.shopping_template_apply_empty), style = HbType.body, color = Hb.ink3)
+        } else {
+            Text(template.name, style = HbType.cardTitle, color = Hb.ink2)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                template.items.forEachIndexed { i, item ->
+                    val toggle = { selected = selected.mapIndexed { j, v -> if (j == i) !v else v } }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { toggle() }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        HbCheck(checked = selected.getOrElse(i) { false }, onCheckedChange = toggle, size = 22.dp)
+                        Text(
+                            item.name,
+                            style = HbType.rowTitle,
+                            color = Hb.ink,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
     }
 }

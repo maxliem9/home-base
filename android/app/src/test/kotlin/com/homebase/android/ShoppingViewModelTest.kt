@@ -4,6 +4,8 @@ import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingTemplateDto
+import com.homebase.android.data.model.ShoppingTemplateItemDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import androidx.lifecycle.ViewModel
@@ -18,6 +20,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,6 +72,8 @@ class ShoppingViewModelTest {
         every { repository.incomingEvents } returns wsEvents
         // load() fetches both lists and items; default lists to empty unless a test overrides.
         coEvery { repository.getLists() } returns Result.success(emptyList())
+        // init also loads templates (#215) — default to empty so existing tests are unaffected.
+        coEvery { repository.getTemplates() } returns Result.success(emptyList())
     }
 
     // Owns each VM; clearing the store runs onCleared() → cancels viewModelScope (the backstop loop
@@ -804,5 +809,139 @@ class ShoppingViewModelTest {
         assertTrue("stale PUT success must not resurrect the deleted item", vm.uiState.value.items.none { it.id == "1" })
         assertFalse("no lingering pending marker", vm.uiState.value.isPending("1"))
         assertTrue("durable store is empty", store.data.isEmpty())
+    }
+
+    // --- Templates (named standard lists, #215) ------------------------------------------------
+
+    private fun template(
+        id: String = "t1",
+        name: String = "Wocheneinkauf",
+        items: List<String> = listOf("Milch", "Brot", "Eier"),
+    ) = ShoppingTemplateDto(
+        id = id, name = name,
+        items = items.mapIndexed { i, n -> ShoppingTemplateItemDto(id = "$id-$i", name = n, sortOrder = i) },
+        createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+    )
+
+    @Test
+    fun `init loads templates into state`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getTemplates() } returns Result.success(listOf(template()))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.templates.size)
+        assertEquals(listOf("Milch", "Brot", "Eier"), vm.uiState.value.templates[0].items.map { it.name })
+    }
+
+    @Test
+    fun `applyTemplate batch-adds the selected names to the active list`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        val lines = slot<List<ShoppingLineInput>>()
+        coEvery { repository.batchAdd(eq("L1"), capture(lines)) } returns Result.success(
+            BatchAddShoppingResponse(added = 2, merged = 0, skipped = 0, items = emptyList()),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var addedSeen = -1
+        // User unticked "Brot": only the two chosen names are applied.
+        vm.applyTemplate(listOf("Milch", "Eier")) { a, _ -> addedSeen = a }
+        advanceUntilIdle()
+
+        assertEquals(2, addedSeen)
+        coVerify { repository.batchAdd("L1", any()) }
+        // Names only, no amount/unit (templates carry just names).
+        assertEquals(listOf("Milch", "Eier"), lines.captured.map { it.name })
+        assertTrue(lines.captured.all { it.amount == null && it.unit == null })
+    }
+
+    @Test
+    fun `createTemplate upserts the returned template`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.createTemplate("Drogerie", listOf("Zahnpasta")) } returns
+            Result.success(template(id = "t9", name = "Drogerie", items = listOf("Zahnpasta")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        var done = false
+        vm.createTemplate("Drogerie", listOf("Zahnpasta")) { done = true }
+        advanceUntilIdle()
+
+        assertTrue(done)
+        coVerify { repository.createTemplate("Drogerie", listOf("Zahnpasta")) }
+        assertEquals(1, vm.uiState.value.templates.size)
+        assertEquals("Drogerie", vm.uiState.value.templates[0].name)
+    }
+
+    @Test
+    fun `createTemplate with a blank name no-ops`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.createTemplate("   ", listOf("X"))
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.createTemplate(any(), any()) }
+    }
+
+    @Test
+    fun `updateTemplate replaces the template in state`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getTemplates() } returns Result.success(listOf(template(id = "t1", name = "Alt")))
+        coEvery { repository.updateTemplate("t1", "Neu", listOf("Salz")) } returns
+            Result.success(template(id = "t1", name = "Neu", items = listOf("Salz")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.updateTemplate("t1", "Neu", listOf("Salz"))
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.templates.size)
+        assertEquals("Neu", vm.uiState.value.templates.first { it.id == "t1" }.name)
+        assertEquals(listOf("Salz"), vm.uiState.value.templates.first { it.id == "t1" }.items.map { it.name })
+    }
+
+    @Test
+    fun `deleteTemplate removes it from state`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getTemplates() } returns Result.success(listOf(template(id = "t1"), template(id = "t2")))
+        coEvery { repository.deleteTemplate("t1") } returns Result.success(Unit)
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.templates.size)
+
+        vm.deleteTemplate("t1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("t2"), vm.uiState.value.templates.map { it.id })
+    }
+
+    @Test
+    fun `a template WS event refetches the template list`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        // First load empty; after the WS event the refetch returns one template.
+        coEvery { repository.getTemplates() } returnsMany listOf(
+            Result.success(emptyList()),
+            Result.success(listOf(template(id = "t1"))),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.templates.isEmpty())
+
+        wsEvents.emit(ShoppingWebSocketClient.WsEvent.TemplateChanged(template(id = "t1")))
+        advanceUntilIdle()
+
+        assertEquals(listOf("t1"), vm.uiState.value.templates.map { it.id })
+        coVerify(atLeast = 2) { repository.getTemplates() }
     }
 }

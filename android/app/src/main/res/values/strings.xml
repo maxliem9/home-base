@@ -154,6 +154,27 @@
         <item quantity="one">1 Abhakung wird synchronisiert …</item>
         <item quantity="other">%1$d Abhakungen werden synchronisiert …</item>
     </plurals>
+    <!-- Shopping templates (Vorlagen, #215) -->
+    <string name="shopping_templates_title">Vorlagen</string>
+    <string name="shopping_templates_subtitle">Gespeicherte Standardlisten zum Übernehmen.</string>
+    <string name="shopping_templates_empty_title">Noch keine Vorlagen</string>
+    <string name="shopping_templates_empty_hint">Speichere wiederkehrende Einkäufe als Vorlage.</string>
+    <string name="shopping_template_new">Neue Vorlage</string>
+    <string name="shopping_template_new_title">Neue Vorlage</string>
+    <string name="shopping_template_edit_title">Vorlage bearbeiten</string>
+    <string name="shopping_template_name">Name</string>
+    <string name="shopping_template_name_placeholder">z. B. Wocheneinkauf</string>
+    <string name="shopping_template_items">Artikel</string>
+    <string name="shopping_template_item_placeholder">Artikel</string>
+    <string name="shopping_template_add_item">+ Artikel</string>
+    <string name="shopping_template_no_items">Keine Artikel</string>
+    <plurals name="shopping_template_item_count">
+        <item quantity="one">1 Artikel</item>
+        <item quantity="other">%1$d Artikel</item>
+    </plurals>
+    <string name="shopping_template_apply_title">Vorlage übernehmen</string>
+    <string name="shopping_template_apply_empty">Diese Vorlage hat keine Artikel.</string>
+    <string name="shopping_template_delete_confirm">Vorlage „%1$s" löschen?</string>
 
     <!-- ===== Notes (Notizen) ===== -->
     <string name="notes_eyebrow">Notizen</string>

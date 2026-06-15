@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.shopping.FlushDecision
@@ -34,6 +35,8 @@ data class ShoppingUiState(
     val error: String? = null,
     /** Item ids whose check-off has not yet been acknowledged by the backend (offline queue). */
     val pendingIds: Set<String> = emptySet(),
+    /** Saved named standard lists (#215); kept in sync via the shopping WS channel. */
+    val templates: List<ShoppingTemplateDto> = emptyList(),
 ) {
     val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
@@ -132,6 +135,7 @@ class ShoppingViewModel(
 
     init {
         load()
+        loadTemplates()
         observeWebSocket()
         observeConnectivity(networkAvailable)
         // Restore the previous session's queue off-main, then drain it. A toggle made before this
@@ -331,6 +335,79 @@ class ShoppingViewModel(
         }
     }
 
+    // --- Templates (named standard lists, #215) ------------------------------------------------
+
+    /** Refetch the saved templates into the UI state (init + every template WS event). */
+    fun loadTemplates() {
+        viewModelScope.launch {
+            repository.getTemplates().onSuccess { templates ->
+                _uiState.update { it.copy(templates = templates) }
+            }
+            // A templates fetch failure is non-fatal background data — don't clobber the item error.
+        }
+    }
+
+    /**
+     * Apply a template by batch-adding the chosen item names to the active list (or [listId]).
+     * Reuses the exact recipe→shopping path ([addIngredients] → `batchAdd`): each name becomes a
+     * [ShoppingLineInput] with no amount/unit, so quantities merge into matching existing items and
+     * the result counts (added/merged) come back the same way. [names] is the user's checkbox
+     * selection (default: all of the template's items).
+     */
+    fun applyTemplate(
+        names: List<String>,
+        listId: String? = null,
+        onResult: (added: Int, merged: Int) -> Unit = { _, _ -> },
+    ) = addIngredients(listId, names.map { ShoppingLineInput(name = it) }, onResult)
+
+    /** Create a new template. Blank name no-ops (the sheet also disables the button). */
+    fun createTemplate(name: String, itemNames: List<String>, onDone: () -> Unit = {}) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.createTemplate(name, itemNames)
+                .onSuccess { template ->
+                    upsertTemplate(template)
+                    onDone()
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /** Rename + replace the item set of an existing template. */
+    fun updateTemplate(id: String, name: String, itemNames: List<String>, onDone: () -> Unit = {}) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            repository.updateTemplate(id, name, itemNames)
+                .onSuccess { template ->
+                    upsertTemplate(template)
+                    onDone()
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun deleteTemplate(id: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.deleteTemplate(id)
+                .onSuccess {
+                    _uiState.update { s -> s.copy(templates = s.templates.filter { it.id != id }) }
+                    onDone()
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    private fun upsertTemplate(template: ShoppingTemplateDto) {
+        _uiState.update { s ->
+            val templates = if (s.templates.any { it.id == template.id }) {
+                s.templates.map { if (it.id == template.id) template else it }
+            } else {
+                s.templates + template
+            }
+            s.copy(templates = templates)
+        }
+    }
+
     /**
      * Create a user-named list. Guarded by [isCreatingList] single-flight so a double-tap on the
      * confirm (or two quick submits) creates only ONE list (#191) — the second concurrent call is
@@ -493,6 +570,8 @@ class ShoppingViewModel(
                         _uiState.update { s -> s.copy(lists = s.lists.filter { it.id != goneList }, items = s.items.filter { it.listId != goneList }) }
                         dequeueAll(orphanIds) // queued checks for items on a deleted list can't land
                     }
+                    // Any template create/update/delete → refetch the whole set (web parity, #215).
+                    is ShoppingWebSocketClient.WsEvent.TemplateChanged -> loadTemplates()
                 }
             }
         }

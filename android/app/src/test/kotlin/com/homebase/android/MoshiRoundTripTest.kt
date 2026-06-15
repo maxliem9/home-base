@@ -2,6 +2,7 @@ package com.homebase.android
 
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TodoDto
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -105,6 +106,27 @@ class MoshiRoundTripTest {
         assertNull(recipe.description)
         assertNull(recipe.prepTimeMinutes)
         assertNull(recipe.cookTimeMinutes)
+    }
+
+    @Test
+    fun `ShoppingTemplateDto parses from a payload with items omitted`() {
+        // An empty template serializes without the `items` key (encodeDefaults=false, #46/#215);
+        // the non-null `items` field must default to empty rather than throw on parse.
+        val json = """
+            {
+              "id": "33333333-3333-3333-3333-333333333333",
+              "name": "Wocheneinkauf",
+              "createdBy": "max",
+              "createdAt": "2026-06-15T08:00:00Z"
+            }
+        """.trimIndent()
+
+        val template = moshi.adapter(ShoppingTemplateDto::class.java).fromJson(json)
+
+        assertNotNull("minimal ShoppingTemplateDto payload must parse", template)
+        requireNotNull(template)
+        assertEquals("Wocheneinkauf", template.name)
+        assertEquals("omitted items must default to empty list", emptyList<Any>(), template.items)
     }
 
     @Test

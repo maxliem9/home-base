@@ -2,6 +2,7 @@ package com.homebase.android.data.websocket
 
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingTemplateDto
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -18,6 +19,8 @@ class ShoppingWebSocketClient(
         data class ListCreated(val list: ShoppingListDto) : WsEvent()
         data class ListUpdated(val list: ShoppingListDto) : WsEvent()
         data class ListDeleted(val list: ShoppingListDto) : WsEvent()
+        // Templates ride the same channel (#215). Create/update/delete all just trigger a refetch.
+        data class TemplateChanged(val template: ShoppingTemplateDto) : WsEvent()
     }
 
     override val path = "/ws/shopping"
@@ -33,6 +36,8 @@ class ShoppingWebSocketClient(
             "SHOPPING_LIST_CREATED" -> list(text)?.let { WsEvent.ListCreated(it) }
             "SHOPPING_LIST_UPDATED" -> list(text)?.let { WsEvent.ListUpdated(it) }
             "SHOPPING_LIST_DELETED" -> list(text)?.let { WsEvent.ListDeleted(it) }
+            "SHOPPING_TEMPLATE_CREATED", "SHOPPING_TEMPLATE_UPDATED", "SHOPPING_TEMPLATE_DELETED" ->
+                template(text)?.let { WsEvent.TemplateChanged(it) }
             else -> null
         }
     }
@@ -43,6 +48,9 @@ class ShoppingWebSocketClient(
     private fun list(text: String): ShoppingListDto? =
         moshi.adapter(ListEnvelope::class.java).fromJson(text)?.payload
 
+    private fun template(text: String): ShoppingTemplateDto? =
+        moshi.adapter(TemplateEnvelope::class.java).fromJson(text)?.payload
+
     @JsonClass(generateAdapter = true)
     internal data class TypeEnvelope(val type: String)
 
@@ -51,4 +59,7 @@ class ShoppingWebSocketClient(
 
     @JsonClass(generateAdapter = true)
     internal data class ListEnvelope(val type: String, val payload: ShoppingListDto? = null)
+
+    @JsonClass(generateAdapter = true)
+    internal data class TemplateEnvelope(val type: String, val payload: ShoppingTemplateDto? = null)
 }
