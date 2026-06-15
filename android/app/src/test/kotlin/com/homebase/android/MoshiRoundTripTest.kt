@@ -5,6 +5,7 @@ import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TodoDto
+import com.homebase.android.data.model.UpdateTodoRequest
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
@@ -208,5 +209,32 @@ class MoshiRoundTripTest {
         assertEquals("DINNER", entry.slot)
         assertEquals("Lasagne", entry.recipeTitle)
         assertEquals("33333333-3333-3333-3333-333333333333", entry.recipeId)
+    }
+
+    @Test
+    fun `UpdateTodoRequest serializes empty-string clears and omits null unchanged fields`() {
+        // Regression for #265: the edit sheet sends "" to CLEAR an optional field and null to
+        // leave it UNCHANGED. Moshi (no serializeNulls) drops null but keeps "", so the backend
+        // sees the clear sentinel for the fields the user emptied and nothing for the rest.
+        val json = moshi.adapter(UpdateTodoRequest::class.java).toJson(
+            UpdateTodoRequest(
+                title = "Zahnarzt",
+                dueDate = "",        // user cleared the date → must reach the backend as ""
+                priority = "",       // user cleared the priority → ""
+                assignee = "bob",    // set
+                status = "INBOX",
+                // description/listId/recurrence left null → must be omitted entirely
+            ),
+        )
+        val obj = moshi.adapter(Map::class.java).fromJson(json)!!
+        assertEquals("Zahnarzt", obj["title"])
+        assertEquals("", obj["dueDate"])
+        assertEquals("", obj["priority"])
+        assertEquals("bob", obj["assignee"])
+        assertEquals("INBOX", obj["status"])
+        // null fields are dropped (unchanged), never sent as JSON null
+        assertTrue("null description must be omitted", !obj.containsKey("description"))
+        assertTrue("null listId must be omitted", !obj.containsKey("listId"))
+        assertTrue("null recurrence must be omitted", !obj.containsKey("recurrence"))
     }
 }

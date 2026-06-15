@@ -133,7 +133,7 @@
     <string name="todo_field_assignee">Assignee</string>
     <string name="todo_assignee_nobody">Nobody</string>
     <string name="todo_field_due">Due</string>
-    <string name="todo_due_hint">Format: YYYY-MM-DD, e.g. %1$s</string>
+    <string name="todo_due_pick">Pick a date</string>
     <string name="todo_field_priority">Priority</string>
     <string name="todo_field_recurrence">Repeat</string>
     <string name="todo_recurrence_none">None</string>

@@ -139,7 +139,7 @@
     <string name="todo_field_assignee">Zuständig</string>
     <string name="todo_assignee_nobody">Niemand</string>
     <string name="todo_field_due">Fällig</string>
-    <string name="todo_due_hint">Format: JJJJ-MM-TT, z. B. %1$s</string>
+    <string name="todo_due_pick">Datum wählen</string>
     <string name="todo_field_priority">Priorität</string>
     <string name="todo_field_recurrence">Wiederholung</string>
     <string name="todo_recurrence_none">Keine</string>

@@ -497,6 +497,58 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `PUT todo can set and clear dueDate, priority and assignee`() = testApplication {
+        // Regression for #265: the Android edit sheet sends "" to clear an optional field and a
+        // value to set it. null (absent) must stay "unchanged"; "" must clear to null; a value sets.
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Zahnarzt"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        // set all three
+        val set = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"PLANNED","dueDate":"2026-07-01","priority":"HIGH","assignee":"bob"}""")
+        }
+        assertEquals(HttpStatusCode.OK, set.status)
+        Json.parseToJsonElement(set.bodyAsText()).jsonObject.let {
+            assertEquals("2026-07-01", it["dueDate"]?.jsonPrimitive?.content)
+            assertEquals("HIGH", it["priority"]?.jsonPrimitive?.content)
+            assertEquals("bob", it["assignee"]?.jsonPrimitive?.content)
+        }
+
+        // a partial update with the other fields ABSENT must not wipe them (the reported bug)
+        val partial = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"priority":"LOW"}""")
+        }
+        Json.parseToJsonElement(partial.bodyAsText()).jsonObject.let {
+            assertEquals("LOW", it["priority"]?.jsonPrimitive?.content)
+            assertEquals("2026-07-01", it["dueDate"]?.jsonPrimitive?.content) // untouched
+            assertEquals("bob", it["assignee"]?.jsonPrimitive?.content)       // untouched
+        }
+
+        // clear each via empty string; assignee/dueDate gone → fall back to INBOX
+        val cleared = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"status":"INBOX","dueDate":"","priority":"","assignee":""}""")
+        }
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        Json.parseToJsonElement(cleared.bodyAsText()).jsonObject.let {
+            assertTrue(it["dueDate"].isNullJson())
+            assertTrue(it["priority"].isNullJson())
+            assertTrue(it["assignee"].isNullJson())
+        }
+    }
+
+    @Test
     fun `DELETE list deletes its todos and their subtasks, leaving other lists untouched`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
@@ -952,6 +1004,38 @@ class TodoRouteTest {
         }
         assertEquals(HttpStatusCode.OK, cleared.status)
         assertTrue(Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["recurrence"].isNullJson())
+    }
+
+    @Test
+    fun `PUT clearing the dueDate of a recurring todo is rejected and keeps the anchor`() = testApplication {
+        // Regression for the recurrence invariant (DB CHECK todos_ln_due_chk + INVALID_RECURRENCE):
+        // the #265 "" = clear semantics must not be allowed to strip a recurring todo of its
+        // dueDate anchor. The request is rejected (400 INVALID_RECURRENCE) and the anchor stays.
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll","dueDate":"2999-01-01","recurrence":{"freq":"WEEKLY"}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"dueDate":""}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_RECURRENCE",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+
+        // the stored todo still has its anchor: the rejected clear left it untouched
+        val stored = todosOf(token).single { it.jsonObject["id"]?.jsonPrimitive?.content == id }.jsonObject
+        assertEquals("2999-01-01", stored["dueDate"]?.jsonPrimitive?.content)
+        assertEquals("WEEKLY", stored["recurrence"]?.jsonObject?.get("freq")?.jsonPrimitive?.content)
     }
 
     @Test

@@ -135,6 +135,7 @@ data class UpdateTodoRequest(
     val title: String? = null,
     val description: String? = null,
     val status: String? = null,
+    // null = unchanged; empty string = clear (set to null); otherwise the new value (#265)
     val assignee: String? = null,
     val dueDate: String? = null,
     val priority: String? = null,
