@@ -127,7 +127,7 @@ object ShoppingItemsTable : Table("shopping_items") {
 // mirroring how a recipe owns its ingredients.
 object ShoppingTemplatesTable : Table("shopping_templates") {
     val id = uuid("id")
-    val name = varchar("name", 255)
+    val name = text("name")
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
@@ -136,7 +136,7 @@ object ShoppingTemplatesTable : Table("shopping_templates") {
 object ShoppingTemplateItemsTable : Table("shopping_template_items") {
     val id = uuid("id")
     val templateId = reference("template_id", ShoppingTemplatesTable.id, onDelete = ReferenceOption.CASCADE)
-    val name = varchar("name", 255)
+    val name = text("name")
     val sortOrder = integer("sort_order")
     override val primaryKey = PrimaryKey(id)
 }

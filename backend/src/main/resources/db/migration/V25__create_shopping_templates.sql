@@ -5,7 +5,7 @@
 -- shopping lists themselves — both users manage all templates, no ownership check.
 CREATE TABLE shopping_templates (
     id          UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        VARCHAR(255)    NOT NULL,
+    name        TEXT            NOT NULL,
     created_by  VARCHAR(50)     NOT NULL REFERENCES users(username),
     created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -13,7 +13,7 @@ CREATE TABLE shopping_templates (
 CREATE TABLE shopping_template_items (
     id          UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
     template_id UUID            NOT NULL REFERENCES shopping_templates(id) ON DELETE CASCADE,
-    name        VARCHAR(255)    NOT NULL,
+    name        TEXT            NOT NULL,
     sort_order  INT             NOT NULL
 );
 
