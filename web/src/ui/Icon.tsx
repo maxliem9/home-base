@@ -41,6 +41,12 @@ const PATHS: Record<string, string> = {
   scissors: 'M6 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z M6 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z M20 4 8.1 15.9 M14.5 14.5 20 20 M8.1 8.1l3.4 3.4',
   repeat: 'M17 2l4 4-4 4 M21 6H7a4 4 0 0 0-4 4v1 M7 22l-4-4 4-4 M3 18h14a4 4 0 0 0 4-4v-1',
   folder: 'M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z',
+  // Food/category glyphs for generated recipe covers (HB-05)
+  coffee: 'M17 8h1a4 4 0 1 1 0 8h-1 M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z M6 2v2 M10 2v2 M14 2v2',
+  utensils: 'M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2 M5 2v20 M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7',
+  cookie: 'M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5Z M8.5 8.5h.01 M16 15.5h.01 M12 12h.01 M11 17h.01 M7 14h.01',
+  cake: 'M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8 M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1 M2 21h20 M7 8v3 M12 8v3 M17 8v3 M7 4h.01 M12 4h.01 M17 4h.01',
+  glass: 'M5 3h14l-1.2 17a1 1 0 0 1-1 1H7.2a1 1 0 0 1-1-1L5 3Z M6.4 9h11.2',
 }
 
 export type IconName = keyof typeof PATHS

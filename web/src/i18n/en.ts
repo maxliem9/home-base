@@ -590,7 +590,6 @@ export const en: Messages = {
     title: 'Recipes',
     count: 'recipes', // rendered as "{n} recipes"
     filterAll: 'All',
-    photoSoon: 'Photo coming',
     emptyAll: 'No recipes yet',
     emptyCategory: 'No recipes in this category',
     emptyHint: 'Create a recipe',

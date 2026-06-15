@@ -13,6 +13,7 @@ import {
   IngredientDraft, SectionDraft, emptyIngredient, emptySection,
   parseIngredientsText, serializeSections,
 } from './recipeIngredients'
+import { CATEGORY_ICON, coverHue } from '../lib/cover'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_RECIPES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/recipes`
@@ -39,13 +40,6 @@ const normalizeRecipe = (r: Recipe): Recipe => ({
   ingredients: r.ingredients ?? [],
   steps: r.steps ?? [],
 })
-
-// deterministic warm hue (≈20–80) per recipe for the photo placeholder band
-const recipeHue = (id: string) => {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 60
-  return h + 20
-}
 
 interface Draft {
   id?: string
@@ -363,21 +357,24 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
         <div className="hb-recipe-grid">
           {visible.map((recipe) => (
             <Card key={recipe.id} className="hb-recipecard hb-card--hover" onClick={() => setSelected(recipe)}>
-              <div className="hb-recipecard__img" style={{ ['--rh' as string]: recipeHue(recipe.id) }}>
+              <div className="hb-recipecard__img" style={{ ['--rh' as string]: coverHue(recipe.title) }}>
                 {recipe.image ? (
-                  <AuthedImage
-                    url={recipeImageUrl(recipe.id, recipe.image.id)}
-                    token={token}
-                    alt={recipe.title}
-                    className="hb-recipecard__photo"
-                  />
-                ) : (
                   <>
-                    <Icon name="chef" size={26} stroke={1.6} />
-                    <span className="hb-recipecard__ph">{t('recipes.photoSoon')}</span>
+                    <AuthedImage
+                      url={recipeImageUrl(recipe.id, recipe.image.id)}
+                      token={token}
+                      alt={recipe.title}
+                      className="hb-recipecard__photo"
+                    />
+                    <Badge tone="clay">{categoryLabel(t, recipe.category)}</Badge>
                   </>
+                ) : (
+                  // HB-05 — generated cover (warm title-derived gradient + category glyph + label)
+                  <div className="hb-recipecard__cover">
+                    <Icon name={CATEGORY_ICON[recipe.category]} size={30} stroke={1.7} />
+                    <span className="hb-recipecard__covlabel">{categoryLabel(t, recipe.category)}</span>
+                  </div>
                 )}
-                <Badge tone="clay">{categoryLabel(t, recipe.category)}</Badge>
               </div>
               <div className="hb-recipecard__body">
                 <div className="hb-recipecard__title">{recipe.title}</div>
