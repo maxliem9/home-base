@@ -157,6 +157,11 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   position: sticky; top: 0; z-index: 40;
 }
 .hb-topbar .hb-brand { padding: 0; min-width: 0; }
+/* The brand's inner text wrapper is itself a flex item (default min-width: auto),
+   so it won't shrink below its content and the title block overflows into the
+   action icons (search) on narrow phones. min-width: 0 lets the truncation on
+   __name/__sub below actually engage. */
+.hb-topbar .hb-brand > div { min-width: 0; }
 .hb-topbar .hb-brand__mark { width: 34px; height: 34px; border-radius: 11px; flex-shrink: 0; }
 .hb-topbar .hb-brand__name { font-size: 19px; }
 .hb-topbar .hb-brand__name, .hb-topbar .hb-brand__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
