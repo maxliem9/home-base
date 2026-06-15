@@ -1,8 +1,21 @@
-// HomeBase — German formatting helpers + per-user avatar metadata.
-// Ported/adapted from the design handoff (icons.jsx HBfmt + seed.jsx users).
+// HomeBase — locale-aware formatting helpers + per-user avatar metadata.
+// Date/relative-time wording follows the active UI language (#223 / HB-07): German is the
+// default; English applies when the language is switched. The relative words live in the i18n
+// catalogs (`fmt.*`); month/weekday names and day↔month ordering are per-locale below. German
+// output is intentionally byte-identical to the previous hard-coded strings.
+import { currentLang, t } from '../i18n'
 
 const DAY = 86_400_000
-const MON = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.']
+const MON_DE = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.']
+const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WD_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']
+const WD_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+const isEn = (): boolean => currentLang() === 'en'
+const mon = (m: number): string => (isEn() ? MON_EN : MON_DE)[m]
+const wdLong = (w: number): string => (isEn() ? WD_EN : WD_DE)[w]
+/** day + month, locale-ordered: "8. Juni" (de) / "Jun 8" (en). */
+const dayMonth = (d: Date): string => (isEn() ? `${mon(d.getMonth())} ${d.getDate()}` : `${d.getDate()}. ${mon(d.getMonth())}`)
 
 function startOfToday(): number {
   const d = new Date()
@@ -16,24 +29,24 @@ export function dueLabel(isoDate?: string): { text: string; tone: DueTone } | nu
   if (!isoDate) return null
   const d = new Date(isoDate + 'T00:00:00')
   const diff = Math.round((d.getTime() - startOfToday()) / DAY)
-  if (diff === 0) return { text: 'Heute', tone: 'today' }
-  if (diff === 1) return { text: 'Morgen', tone: 'soon' }
-  if (diff === -1) return { text: 'Gestern', tone: 'over' }
-  if (diff < 0) return { text: `${Math.abs(diff)} Tage überfällig`, tone: 'over' }
-  if (diff < 7) return { text: `In ${diff} Tagen`, tone: 'soon' }
-  return { text: `${d.getDate()}. ${MON[d.getMonth()]}`, tone: 'far' }
+  if (diff === 0) return { text: t('fmt.today'), tone: 'today' }
+  if (diff === 1) return { text: t('fmt.tomorrow'), tone: 'soon' }
+  if (diff === -1) return { text: t('fmt.yesterday'), tone: 'over' }
+  if (diff < 0) return { text: t('fmt.overdueDays', { n: Math.abs(diff) }), tone: 'over' }
+  if (diff < 7) return { text: t('fmt.inDays', { n: diff }), tone: 'soon' }
+  return { text: dayMonth(d), tone: 'far' }
 }
 
 export function relTime(isoStr: string): string {
   const mins = Math.round((Date.now() - new Date(isoStr).getTime()) / 60000)
-  if (mins < 1) return 'gerade eben'
-  if (mins < 60) return `vor ${mins} Min.`
+  if (mins < 1) return t('fmt.justNow')
+  if (mins < 60) return t('fmt.minAgo', { n: mins })
   const hrs = Math.round(mins / 60)
-  if (hrs < 24) return `vor ${hrs} Std.`
+  if (hrs < 24) return t('fmt.hrsAgo', { n: hrs })
   const days = Math.round(hrs / 24)
-  if (days === 1) return 'gestern'
-  if (days < 7) return `vor ${days} Tagen`
-  return `vor ${Math.round(days / 7)} Wo.`
+  if (days === 1) return t('fmt.yesterdayRel')
+  if (days < 7) return t('fmt.daysAgo', { n: days })
+  return t('fmt.weeksAgo', { n: Math.round(days / 7) })
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -44,13 +57,13 @@ export function fmtClock(seconds: number): string {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`
 }
 
-/** "2 Std 5 Min" / "12 Min" from a number of seconds. */
+/** "2 Std 5 Min" / "12 Min" (de) · "2 h 5 min" / "12 min" (en) from a number of seconds. */
 export function fmtDurationShort(seconds: number): string {
   const totalMin = Math.round(seconds / 60)
   const hh = Math.floor(totalMin / 60)
   const mm = totalMin % 60
-  if (hh === 0) return `${mm} Min`
-  return `${hh} Std ${mm} Min`
+  if (hh === 0) return t('fmt.durMin', { m: mm })
+  return t('fmt.durHourMin', { h: hh, m: mm })
 }
 
 export function clockTime(isoStr: string): string {
@@ -58,24 +71,22 @@ export function clockTime(isoStr: string): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const WD_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag']
-
-/** Separator label for a day in a chronological list: Heute / Gestern /
- *  Vorgestern / weekday name (within the last 7 days) / "D. Mon". */
+/** Separator label for a day in a chronological list: today / yesterday /
+ *  day-before-yesterday / weekday name (within the last 7 days) / "D. Mon". */
 export function dayGroupLabel(isoStr: string): string {
   const d = new Date(isoStr)
   const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const diff = Math.round((day - startOfToday()) / DAY)
-  if (diff === 0) return 'Heute'
-  if (diff === -1) return 'Gestern'
-  if (diff === -2) return 'Vorgestern'
-  if (diff < 0 && diff > -7) return WD_LONG[d.getDay()]
-  return `${d.getDate()}. ${MON[d.getMonth()]}`
+  if (diff === 0) return t('fmt.today')
+  if (diff === -1) return t('fmt.yesterday')
+  if (diff === -2) return t('fmt.dayBeforeYesterday')
+  if (diff < 0 && diff > -7) return wdLong(d.getDay())
+  return dayMonth(d)
 }
 
-/** "Sonntag, 8. Juni" — long weekday + day + month, for the dashboard eyebrow. */
+/** "Sonntag, 8. Juni" (de) / "Sunday, Jun 8" (en) — long weekday + day + month, dashboard eyebrow. */
 export function todayLabel(d: Date = new Date()): string {
-  return `${WD_LONG[d.getDay()]}, ${d.getDate()}. ${MON[d.getMonth()]}`
+  return `${wdLong(d.getDay())}, ${dayMonth(d)}`
 }
 
 /** Monday-based start of the week containing `date`. */
@@ -91,18 +102,22 @@ export function weekKey(isoStr: string): string {
 }
 
 /** { label, range } for a week — label is "Diese Woche"/"Letzte Woche"/null,
- *  range is e.g. "12.–18. Mai". */
+ *  range is e.g. "12.–18. Mai" (de) / "May 12–18" (en). */
 export function weekLabel(isoStr: string): { label: string | null; range: string } {
   const s = weekStart(new Date(isoStr))
   const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6)
   const diffWeeks = Math.round((s.getTime() - weekStart(new Date()).getTime()) / (7 * DAY))
   let label: string | null = null
-  if (diffWeeks === 0) label = 'Diese Woche'
-  else if (diffWeeks === -1) label = 'Letzte Woche'
-  const range =
-    s.getMonth() === e.getMonth()
-      ? `${s.getDate()}.–${e.getDate()}. ${MON[e.getMonth()]}`
-      : `${s.getDate()}. ${MON[s.getMonth()]} – ${e.getDate()}. ${MON[e.getMonth()]}`
+  if (diffWeeks === 0) label = t('fmt.thisWeek')
+  else if (diffWeeks === -1) label = t('fmt.lastWeek')
+  const sameMonth = s.getMonth() === e.getMonth()
+  const range = isEn()
+    ? sameMonth
+      ? `${mon(e.getMonth())} ${s.getDate()}–${e.getDate()}`
+      : `${mon(s.getMonth())} ${s.getDate()} – ${mon(e.getMonth())} ${e.getDate()}`
+    : sameMonth
+      ? `${s.getDate()}.–${e.getDate()}. ${mon(e.getMonth())}`
+      : `${s.getDate()}. ${mon(s.getMonth())} – ${e.getDate()}. ${mon(e.getMonth())}`
   return { label, range }
 }
 

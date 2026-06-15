@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import i18next from 'i18next'
 import {
   avatarColor,
   clockTime,
@@ -7,6 +8,7 @@ import {
   fmtClock,
   fmtDurationShort,
   relTime,
+  todayLabel,
   userMeta,
   usernameFromToken,
   weekKey,
@@ -239,5 +241,34 @@ describe('usernameFromToken', () => {
     expect(usernameFromToken('not-a-jwt')).toBeNull()
     expect(usernameFromToken('')).toBeNull()
     expect(usernameFromToken('a.!!!not-base64!!!.c')).toBeNull()
+  })
+})
+
+// HB-07 — the same date helpers must follow the active UI language. German is asserted
+// throughout above (default); here we flip to English and back so both paths are covered.
+describe('locale-aware output (English)', () => {
+  beforeAll(async () => {
+    await i18next.changeLanguage('en')
+  })
+  afterAll(async () => {
+    await i18next.changeLanguage('de')
+  })
+
+  it('dueLabel uses English wording and month-first ordering', () => {
+    expect(dueLabel('2026-06-15')).toEqual({ text: 'Today', tone: 'today' })
+    expect(dueLabel('2026-06-16')).toEqual({ text: 'Tomorrow', tone: 'soon' })
+    expect(dueLabel('2026-06-14')).toEqual({ text: 'Yesterday', tone: 'over' })
+    expect(dueLabel('2026-06-10')).toEqual({ text: '5 days overdue', tone: 'over' })
+    expect(dueLabel('2026-06-18')).toEqual({ text: 'In 3 days', tone: 'soon' })
+    expect(dueLabel('2026-07-20')).toEqual({ text: 'Jul 20', tone: 'far' })
+  })
+
+  it('relTime / duration / todayLabel / dayGroupLabel / weekLabel follow English', () => {
+    expect(relTime('2026-06-15T11:30:00Z')).toBe('30 min ago')
+    expect(fmtDurationShort(3900)).toBe('1 h 5 min')
+    expect(fmtDurationShort(720)).toBe('12 min')
+    expect(todayLabel(new Date('2026-06-15T12:00:00Z'))).toBe('Monday, Jun 15')
+    expect(dayGroupLabel('2026-06-15T08:00:00Z')).toBe('Today')
+    expect(weekLabel('2026-06-15T12:00:00Z').label).toBe('This week')
   })
 })
