@@ -256,9 +256,13 @@ private fun RecipePickerSheet(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    var selectedId by remember { mutableStateOf(currentRecipeId) }
     val currentRecipe = recipes.firstOrNull { it.id == currentRecipeId }
-    var servings by remember { mutableStateOf((currentServings ?: currentRecipe?.servings ?: 1).coerceAtLeast(1)) }
+    // Key the picker state to the slot's current entry so it re-seeds if this sheet is ever reused
+    // across slots without remounting (today it remounts per open — defensive).
+    var selectedId by remember(currentRecipeId) { mutableStateOf(currentRecipeId) }
+    var servings by remember(currentRecipeId, currentServings) {
+        mutableStateOf((currentServings ?: currentRecipe?.servings ?: 1).coerceAtLeast(1))
+    }
     val selectedRecipe = recipes.firstOrNull { it.id == selectedId }
 
     val needle = query.trim().lowercase()
