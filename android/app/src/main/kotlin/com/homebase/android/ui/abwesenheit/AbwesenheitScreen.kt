@@ -795,6 +795,8 @@ internal fun ColumnScope.AbwSettingsPanel(
         HbDivider()
     }
     KitaSettings(data, year, vm)
+    HbDivider()
+    CustomHolidaySettings(data, year, vm)
 }
 
 @Composable
@@ -910,6 +912,97 @@ private fun KitaSettings(data: AbsenceStateDto, year: Int, vm: AbsenceViewModel)
             }
             HbTextField(value = rLabel, onValueChange = { rLabel = it }, placeholder = stringResource(R.string.absence_kita_reason_short))
             HbButton(stringResource(R.string.absence_kita_add_range), onClick = { vm.addKitaRange(rVon, rBis, rLabel) }, variant = HbButtonVariant.Soft, size = HbButtonSize.Sm, icon = HbIcons.plus)
+        }
+    }
+}
+
+/**
+ * Eigene Feiertage (#51/#243): household-wide, year-agnostic (recurs every year on a fixed
+ * month+day, e.g. Heiligabend/Silvester). Mirrors the web `AbwSettings` holiday section and the
+ * kita editor's shape (list of rows + an add form). The date fields use [year] purely as a carrier
+ * — only month+day are read/written; a half holiday stays half a working day.
+ */
+@Composable
+private fun CustomHolidaySettings(data: AbsenceStateDto, year: Int, vm: AbsenceViewModel) {
+    val holidayDefaultLabel = stringResource(R.string.absence_holiday_default_label)
+    var hDate by remember { mutableStateOf("$year-12-24") }
+    var hHalf by remember { mutableStateOf(true) }
+    var hLabel by remember { mutableStateOf("") }
+    val holidays = data.customHolidays.sortedWith(compareBy({ it.month }, { it.day }))
+
+    // YYYY-MM-DD (the picker's value) ↔ (month, day); the year is just a carrier.
+    fun carrierDate(month: Int, day: Int): String = "$year-${AbwCal.pad(month)}-${AbwCal.pad(day)}"
+    fun monthDayOf(ds: String): Pair<Int, Int>? = runCatching {
+        val d = LocalDate.parse(ds)
+        d.monthValue to d.dayOfMonth
+    }.getOrNull()
+
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text(stringResource(R.string.absence_holiday_label), style = HbType.label, color = Hb.ink2)
+        Text(stringResource(R.string.absence_holiday_hint), style = HbType.small, color = Hb.ink3)
+        if (holidays.isEmpty()) Text(stringResource(R.string.absence_holiday_none), style = HbType.small, color = Hb.ink3)
+        holidays.forEach { h ->
+            Column(
+                Modifier.fillMaxWidth().clip(HbRadiusSm).background(Hb.surface2).padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        AbwDateField(carrierDate(h.month, h.day)) { ds ->
+                            monthDayOf(ds)?.let { (m, d) -> vm.updateCustomHoliday(h.id, month = m, day = d) }
+                        }
+                    }
+                    HbIconButton(HbIcons.trash, { vm.removeCustomHoliday(h.id) }, tint = Hb.ink3, iconSize = 18.dp)
+                }
+                HolidayHalfToggle(h.half) { vm.updateCustomHoliday(h.id, half = it) }
+                LocalCommitField("hol-${h.id}", h.label, placeholder = stringResource(R.string.absence_kita_reason_short)) {
+                    vm.updateCustomHoliday(h.id, label = it)
+                }
+            }
+        }
+        // add row
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.absence_holiday_date), style = HbType.small, color = Hb.ink3)
+            Box(Modifier.fillMaxWidth()) { AbwDateField(hDate) { hDate = it } }
+            HolidayHalfToggle(hHalf) { hHalf = it }
+            HbTextField(value = hLabel, onValueChange = { hLabel = it }, placeholder = stringResource(R.string.absence_kita_reason_short))
+            HbButton(
+                stringResource(R.string.action_add),
+                onClick = {
+                    monthDayOf(hDate)?.let { (m, d) ->
+                        vm.addCustomHoliday(m, d, hHalf, hLabel.trim().ifBlank { holidayDefaultLabel })
+                    }
+                },
+                variant = HbButtonVariant.Soft,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.plus,
+            )
+            Text(stringResource(R.string.absence_holiday_recur_hint), style = HbType.small, color = Hb.ink3)
+        }
+    }
+}
+
+/** Two-option segmented toggle for a custom holiday's whole/half-day flag (mirrors web `.abw-half`). */
+@Composable
+private fun HolidayHalfToggle(half: Boolean, onChange: (Boolean) -> Unit) {
+    val opts: List<Pair<String, Boolean>> = listOf(
+        stringResource(R.string.absence_holiday_full_day) to false,
+        stringResource(R.string.absence_holiday_half_day) to true,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        opts.forEach { (label, v) ->
+            val active = half == v
+            val shape = RoundedCornerShape(9.dp)
+            Box(
+                Modifier.weight(1f).clip(shape)
+                    .background(if (active) Hb.surface2 else Hb.surface, shape)
+                    .border(1.dp, if (active) Hb.accent else Hb.line, shape)
+                    .clickable { onChange(v) }
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = HbType.small.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), color = if (active) Hb.ink else Hb.ink2, textAlign = TextAlign.Center)
+            }
         }
     }
 }

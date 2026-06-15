@@ -622,8 +622,8 @@ data class KitaClosureDto(
 /**
  * A household-wide custom holiday (#51), recurring every year on a fixed [month]+[day].
  * [half] = true marks a half day (½ free; the other half stays a regular work/tracking day).
- * No user/Bundesland — it applies to everyone. Display-only on Android for now; managing them
- * lives in the absence settings, deferred to the Android settings screen (#101).
+ * No user/Bundesland — it applies to everyone. Rendered in the calendar and editable in the
+ * absence settings (#243, mirroring the web `AbwSettings` holiday section).
  */
 @JsonClass(generateAdapter = true)
 data class CustomHolidayDto(
@@ -706,6 +706,23 @@ data class CreateKitaRangeRequest(
 @JsonClass(generateAdapter = true)
 data class UpdateKitaRequest(
     val date: String? = null,
+    val label: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class CreateCustomHolidayRequest(
+    val month: Int,
+    val day: Int,
+    val half: Boolean = false,
+    val label: String? = null,
+)
+
+/** Full replace of a custom holiday's fields; null = leave that field unchanged. */
+@JsonClass(generateAdapter = true)
+data class UpdateCustomHolidayRequest(
+    val month: Int? = null,
+    val day: Int? = null,
+    val half: Boolean? = null,
     val label: String? = null,
 )
 
