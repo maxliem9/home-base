@@ -1,6 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 import { MockApi, note, noteImage, TOKEN } from './helpers/mockApi'
 
+// `Buffer` is a Node global present in the Playwright runtime; the e2e tsconfig has no
+// @types/node, so declare just the call we use for synthetic upload file bytes (#266).
+declare const Buffer: { from(input: number[]): Uint8Array }
+
 /** Logs in, installs the mock backend, and navigates to the notes view. */
 async function openNotes(page: Page, mock: MockApi) {
   await mock.install(page)
@@ -130,6 +134,50 @@ test.describe('Notes', () => {
     // clicking the backdrop (not the centered image) closes it
     await lightbox.click({ position: { x: 5, y: 5 } })
     await expect(lightbox).toHaveCount(0)
+  })
+
+  // ---- Read-view gallery: multi-select upload (#266) ----
+  // The "Bild hinzufügen" button opens a hidden <input multiple>; selecting several files
+  // uploads them one after another (one POST each) and the gallery shows all thumbnails.
+  test('uploads multiple selected files at once and shows every thumbnail', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+
+    const uploads: string[] = []
+    page.on('request', (r) => {
+      if (r.url().includes('/notes/n1/images') && r.method() === 'POST') uploads.push(r.url())
+    })
+
+    // set three files on the hidden multi-file input directly (no native picker in CI)
+    await page.locator('input[type="file"]').setInputFiles([
+      { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from([1, 2, 3]) },
+      { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from([4, 5, 6]) },
+      { name: 'c.png', mimeType: 'image/png', buffer: Buffer.from([7, 8, 9]) },
+    ])
+
+    // all three thumbnails render (each via the authed blob loader)
+    await expect(page.locator('.hb-note-thumb img')).toHaveCount(3)
+    expect(uploads.length).toBe(3) // one request per file (approach A)
+    // no error banner on the all-success path
+    await expect(page.locator('.hb-note-images__error')).toHaveCount(0)
+  })
+
+  test('reports an aggregated error when some of several uploads fail', async ({ page }) => {
+    // first upload fails (415), the remaining two succeed → "1 Bild(er) …" is NOT used
+    // for a single failure; here exactly one fails so the generic single-fail text shows.
+    await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
+    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+
+    await page.locator('input[type="file"]').setInputFiles([
+      { name: 'bad.tiff', mimeType: 'image/tiff', buffer: Buffer.from([1, 2, 3]) },
+      { name: 'ok1.png', mimeType: 'image/png', buffer: Buffer.from([4, 5, 6]) },
+      { name: 'ok2.png', mimeType: 'image/png', buffer: Buffer.from([7, 8, 9]) },
+    ])
+
+    // the two good files still landed
+    await expect(page.locator('.hb-note-thumb img')).toHaveCount(2)
+    // one failure → generic upload-failed text
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Upload fehlgeschlagen.')
   })
 
   // ---- Editor image upload: paste / drag&drop straight into the textarea (#146) ----

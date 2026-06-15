@@ -70,6 +70,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // null = all folders; '' = the "no folder" bucket; otherwise a specific folder name
   const [folderFilter, setFolderFilter] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
+  // progress of a multi-file gallery upload (null = no batch in flight); drives the button label
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -221,40 +223,80 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // clear a stale save error whenever the editor opens on a different note (or closes)
   useEffect(() => { setSaveError(null) }, [draft?.id, draft === null])
 
-  // Upload one image file to a saved note and refresh that note in state. Returns the
-  // newly-attached NoteImage on success (so the editor can insert a ref to it at the
-  // caret), or null on any failure — in which case the inline imageError is already set.
-  // Shared by the read-view gallery upload and the editor paste/drop upload. Error
-  // mapping mirrors the backend contract: 413 too large, 415 unsupported type (#146).
-  const uploadImageToNote = async (noteId: string, file: File): Promise<NoteImage | null> => {
-    setImageError(null)
-    setUploadingImage(true)
+  // Post a single image file to a saved note and refresh that note in state. Returns the
+  // newly-attached NoteImage on success, or an HTTP-status-tagged failure — the callers
+  // own how to surface it (inline message vs. aggregated batch count). Does NOT touch
+  // imageError/uploadingImage itself so it composes cleanly into the multi-file loop.
+  // The backend appends each image (correct sort_order); N sequential calls keep order.
+  const uploadOneImage = async (
+    noteId: string,
+    file: File,
+  ): Promise<{ ok: true; image: NoteImage | null } | { ok: false; status: number | null; code: string | null }> => {
     try {
       const fd = new FormData()
       fd.append('file', file)
       const res = await authFetch(token, `${API_BASE}/notes/${noteId}/images`, { method: 'POST', body: fd })
-      if (res.status === 401) { onLogout(); return null }
       if (res.ok) {
         const updated: Note = await res.json()
         setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
         // the upload returns the whole note; the newest attachment is the last image
-        return updated.images[updated.images.length - 1] ?? null
+        return { ok: true, image: updated.images[updated.images.length - 1] ?? null }
       }
-      if (res.status === 413) setImageError(t('notes.imageTooLarge'))
-      else if (res.status === 415) setImageError(t('notes.imageBadType'))
-      else setImageError(errorText(await errorCode(res), t('notes.imageUploadFailed')))
-      return null
+      return { ok: false, status: res.status, code: res.status >= 400 && res.status < 500 ? await errorCode(res) : null }
     } catch {
-      setImageError(t('notes.imageUploadFailed'))
+      return { ok: false, status: null, code: null }
+    }
+  }
+
+  // Map a single-file upload failure to its inline German message (413 too large, 415
+  // unsupported type, else the generic write-error fallback, #146).
+  const imageFailureText = (status: number | null, code: string | null): string => {
+    if (status === 413) return t('notes.imageTooLarge')
+    if (status === 415) return t('notes.imageBadType')
+    return errorText(code, t('notes.imageUploadFailed'))
+  }
+
+  // Upload one image to a saved note and refresh that note in state. Returns the
+  // newly-attached NoteImage on success (so the editor can insert a ref to it at the
+  // caret), or null on any failure — in which case the inline imageError is already set.
+  // Used by the editor paste/drop flow (one image at a time).
+  const uploadImageToNote = async (noteId: string, file: File): Promise<NoteImage | null> => {
+    setImageError(null)
+    setUploadingImage(true)
+    try {
+      const result = await uploadOneImage(noteId, file)
+      if (result.ok) return result.image
+      if (result.status === 401) { onLogout(); return null }
+      setImageError(imageFailureText(result.status, result.code))
       return null
     } finally {
       setUploadingImage(false)
     }
   }
 
-  const handleUploadImage = async (file: File) => {
-    if (!selected) return
-    await uploadImageToNote(selected.id, file)
+  // Gallery upload of one or more selected files (#266): upload sequentially so each lands
+  // with the right sort_order, show {done}/{total} progress, and report any failures as a
+  // single aggregated count rather than flashing one error per file. A 401 anywhere logs out.
+  const handleUploadImages = async (files: File[]) => {
+    if (!selected || files.length === 0) return
+    const noteId = selected.id
+    setImageError(null)
+    setUploadingImage(true)
+    setUploadProgress({ done: 0, total: files.length })
+    let failures = 0
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const result = await uploadOneImage(noteId, files[i])
+        if (!result.ok && result.status === 401) { onLogout(); return }
+        if (!result.ok) failures++
+        setUploadProgress({ done: i + 1, total: files.length })
+      }
+      if (failures === 1) setImageError(t('notes.imageUploadFailed'))
+      else if (failures > 1) setImageError(t('notes.imagesSomeFailed', { count: failures }))
+    } finally {
+      setUploadingImage(false)
+      setUploadProgress(null)
+    }
   }
 
   // Paste/drop an image directly into the editor: upload it to the (saved) note, then
@@ -591,7 +633,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploadingImage}
                   >
-                    {uploadingImage ? t('notes.uploading') : t('notes.addImage')}
+                    {uploadProgress
+                      ? t('notes.uploadingMany', { done: uploadProgress.done, total: uploadProgress.total })
+                      : uploadingImage
+                        ? t('notes.uploading')
+                        : t('notes.addImage')}
                   </Button>
                 </div>
                 {imageError && <p className="hb-note-images__error">{imageError}</p>}
@@ -621,12 +667,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept="image/jpeg,image/png,image/webp,image/gif"
                   style={{ display: 'none' }}
                   onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    if (f) handleUploadImage(f)
-                    e.target.value = '' // allow re-selecting the same file
+                    const files = Array.from(e.target.files ?? [])
+                    if (files.length > 0) handleUploadImages(files)
+                    e.target.value = '' // allow re-selecting the same file(s)
                   }}
                 />
               </div>

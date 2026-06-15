@@ -395,12 +395,16 @@ export const de = {
     insertImage: 'In Text einfügen',
     insertImageLabel: 'Bild in den Text einfügen',
     uploading: 'Wird hochgeladen…',
+    // shown while several selected images upload one after another ({done}/{total})
+    uploadingMany: 'Lade {done}/{total} hoch…',
     imageUploadingInline: 'Bild wird hochgeladen…',
     // shown when trying to paste/drop an image into a not-yet-saved draft
     imageSaveFirst: 'Notiz zuerst speichern, dann Bilder einfügen.',
     imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
     imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
     imageUploadFailed: 'Upload fehlgeschlagen.',
+    // shown when some images of a multi-select upload failed ({count} of them)
+    imagesSomeFailed: '{count} Bild(er) konnten nicht hochgeladen werden.',
     // write-error fallbacks (issue #96)
     saveFailed: 'Notiz konnte nicht gespeichert werden.',
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',
