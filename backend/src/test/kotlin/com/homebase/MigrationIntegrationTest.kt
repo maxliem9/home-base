@@ -2,6 +2,8 @@ package com.homebase
 
 import com.homebase.db.DatabaseFactory
 import com.homebase.db.ProjectsTable
+import com.homebase.db.ShoppingTemplateItemsTable
+import com.homebase.db.ShoppingTemplatesTable
 import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
@@ -95,6 +97,17 @@ class MigrationIntegrationTest {
                 }
                 TodosTable.deleteWhere { TodosTable.createdBy inList createdUsers }
                 TodoListsTable.deleteWhere { TodoListsTable.createdBy inList createdUsers }
+
+                // shopping_template_items reference shopping_templates (cascade); delete templates
+                // created by these users (their items go with them) before the users themselves.
+                val templateIds = ShoppingTemplatesTable.selectAll()
+                    .where { ShoppingTemplatesTable.createdBy inList createdUsers }
+                    .map { it[ShoppingTemplatesTable.id] }
+                if (templateIds.isNotEmpty()) {
+                    ShoppingTemplateItemsTable.deleteWhere { ShoppingTemplateItemsTable.templateId inList templateIds }
+                }
+                ShoppingTemplatesTable.deleteWhere { ShoppingTemplatesTable.createdBy inList createdUsers }
+
                 UsersTable.deleteWhere { UsersTable.username inList createdUsers }
             }
         }
@@ -389,5 +402,57 @@ class MigrationIntegrationTest {
             "Exception message must contain the index name 'time_work_targets_one_default' " +
                 "so isDefaultIndexConflict() can map it to 409. Actual message: ${sqlEx.message}",
         )
+    }
+
+    /**
+     * Guards V25's `shopping_template_items.template_id ... ON DELETE CASCADE` (#215). The H2 unit
+     * suite models the same reference, but only the real Postgres schema proves the migration
+     * applies and the FK cascade fires: deleting a template row must take its items with it.
+     */
+    @Test
+    fun `V25 deleting a shopping template cascades to its items`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_tmpl_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
+        val templateUuid = UUID.randomUUID()
+        val itemUuid = UUID.randomUUID()
+
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            ShoppingTemplatesTable.insert {
+                it[id] = templateUuid
+                it[name] = "Wocheneinkauf"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+            ShoppingTemplateItemsTable.insert {
+                it[id] = itemUuid
+                it[templateId] = templateUuid
+                it[name] = "Milch"
+                it[sortOrder] = 0
+            }
+        }
+
+        transaction { ShoppingTemplatesTable.deleteWhere { ShoppingTemplatesTable.id eq templateUuid } }
+
+        transaction {
+            assertEquals(
+                0L,
+                ShoppingTemplateItemsTable.selectAll().where { ShoppingTemplateItemsTable.id eq itemUuid }.count(),
+                "template item should be cascade-deleted with its template",
+            )
+        }
     }
 }

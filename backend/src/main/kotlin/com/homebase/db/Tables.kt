@@ -121,6 +121,26 @@ object ShoppingItemsTable : Table("shopping_items") {
     override val primaryKey = PrimaryKey(id)
 }
 
+// Named "standard/template shopping lists" (#215): a saved, reusable list of item names the
+// household re-adds for the recurring shop. Shared like the shopping lists themselves — both
+// users manage all templates. Items are embedded children (1:n), saved with the template,
+// mirroring how a recipe owns its ingredients.
+object ShoppingTemplatesTable : Table("shopping_templates") {
+    val id = uuid("id")
+    val name = varchar("name", 255)
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object ShoppingTemplateItemsTable : Table("shopping_template_items") {
+    val id = uuid("id")
+    val templateId = reference("template_id", ShoppingTemplatesTable.id, onDelete = ReferenceOption.CASCADE)
+    val name = varchar("name", 255)
+    val sortOrder = integer("sort_order")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object ProjectsTable : Table("projects") {
     val id = uuid("id")
     val name = text("name")
