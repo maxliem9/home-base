@@ -1011,8 +1011,8 @@ export class MockApi {
       const date = mealPlanSlotMatch[1]
       const slot = mealPlanSlotMatch[2].toUpperCase() as MealSlot
       if (method === 'PUT') {
-        const { recipeId } = JSON.parse(req.postData() ?? '{}') as { recipeId?: string }
-        const recipe = this.recipes.find((r) => r.id === recipeId)
+        const body = JSON.parse(req.postData() ?? '{}') as { recipeId?: string; servings?: number | null }
+        const recipe = this.recipes.find((r) => r.id === body.recipeId)
         if (!recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
         this.mealPlan = this.mealPlan.filter((e) => !(e.date === date && e.slot === slot))
         const entry: MealPlanEntry = {
@@ -1022,6 +1022,8 @@ export class MockApi {
           recipeId: recipe.id,
           recipeTitle: recipe.title,
           recipeCategory: recipe.category,
+          // mirror encodeDefaults=false: only carry servings when set
+          ...(body.servings != null ? { servings: body.servings } : {}),
           createdBy: 'alice',
           createdAt: new Date().toISOString(),
         }

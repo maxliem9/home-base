@@ -64,6 +64,9 @@ fun Route.mealPlanRoutes() {
             val req = call.receive<SetMealPlanRequest>()
             val recipeId = runCatching { UUID.fromString(req.recipeId) }.getOrNull()
                 ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "recipeId must be a valid UUID"))
+            if (req.servings != null && req.servings < 1) {
+                return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SERVINGS", "servings must be >= 1"))
+            }
 
             val dto = transaction {
                 if (RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.empty()) return@transaction null
@@ -74,6 +77,7 @@ fun Route.mealPlanRoutes() {
                     it[MealPlanEntriesTable.date] = day
                     it[MealPlanEntriesTable.slot] = slot
                     it[MealPlanEntriesTable.recipeId] = recipeId
+                    it[servings] = req.servings
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
@@ -119,6 +123,7 @@ private fun ResultRow.toMealPlanDto() = MealPlanEntryDto(
     recipeId = this[MealPlanEntriesTable.recipeId].toString(),
     recipeTitle = this[RecipesTable.title],
     recipeCategory = this[RecipesTable.category],
+    servings = this[MealPlanEntriesTable.servings],
     createdBy = this[MealPlanEntriesTable.createdBy],
     createdAt = this[MealPlanEntriesTable.createdAt].toString(),
 )

@@ -203,6 +203,8 @@ export interface MealPlanEntry {
   recipeId: string
   recipeTitle: string
   recipeCategory: RecipeCategory
+  // portions to cook (#251); omitted/undefined = use the recipe's own servings (1× as authored)
+  servings?: number
   createdBy: string
   createdAt: string
 }

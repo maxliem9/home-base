@@ -65,9 +65,12 @@ test.describe('Wochenplan', () => {
 
     await cell(page, '2026-06-15', 'BREAKFAST').click() // empty "+" cell
     await expect(page.locator('.hb-sheet')).toBeVisible()
-    await page.locator('.hb-mealpick__item', { hasText: 'Pfannkuchen' }).click()
+    await page.locator('.hb-mealpick__item', { hasText: 'Pfannkuchen' }).click() // select
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click() // confirm
 
     await expect(cell(page, '2026-06-15', 'BREAKFAST')).toContainText('Pfannkuchen')
+    // default portions (not bumped) → servings stays null → no portions badge on the chip
+    await expect(cell(page, '2026-06-15', 'BREAKFAST')).not.toContainText('Port.')
   })
 
   test('replaces a planned recipe via the picker', async ({ page }) => {
@@ -75,7 +78,8 @@ test.describe('Wochenplan', () => {
 
     await cell(page, '2026-06-17', 'DINNER').locator('.hb-mealcell__body').click()
     await expect(page.locator('.hb-sheet')).toBeVisible()
-    await page.locator('.hb-mealpick__item', { hasText: 'Pfannkuchen' }).click()
+    await page.locator('.hb-mealpick__item', { hasText: 'Pfannkuchen' }).click() // select
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click() // confirm
 
     await expect(cell(page, '2026-06-17', 'DINNER')).toContainText('Pfannkuchen')
     await expect(cell(page, '2026-06-17', 'DINNER')).not.toContainText('Lasagne')
@@ -117,9 +121,36 @@ test.describe('Wochenplan', () => {
 
     await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
     await expect(page.locator('.hb-sheet')).toBeVisible()
+    // summary interpolates the counts (4 ingredients across 2 dishes) — guards the {placeholder} format
+    await expect(page.locator('.hb-sheet')).toContainText('4 Zutaten aus 2')
     await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
 
     // 4 distinct ingredient lines across the two dishes → "4 hinzugefügt"
     await expect(page.locator('.hb-toast')).toContainText('4 hinzugefügt')
+  })
+
+  test('scales ingredient amounts by the chosen portions when adding to a list', async ({ page }) => {
+    const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
+      .seedRecipes([LASAGNE]) // servings 2, Nudelplatten 250 g + Hackfleisch 500 g
+      .seedMealPlan([])
+    await open(page, mock)
+
+    // plan Lasagne and bump portions 2 → 4 (×2)
+    await cell(page, '2026-06-15', 'DINNER').click()
+    await page.locator('.hb-mealpick__item', { hasText: 'Lasagne' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Mehr Portionen' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Mehr Portionen' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click()
+
+    // the chosen portions show on the chip
+    await expect(cell(page, '2026-06-15', 'DINNER')).toContainText('4 Port.')
+
+    // the batch payload carries the doubled amounts
+    const reqP = page.waitForRequest((r) => r.url().includes('/shopping/batch') && r.method() === 'POST')
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
+    const items = JSON.parse((await reqP).postData() || '{}').items as Array<{ name: string; amount: number; unit: string }>
+    expect(items.find((i) => i.name === 'Nudelplatten')?.amount).toBe(500)
+    expect(items.find((i) => i.name === 'Hackfleisch')?.amount).toBe(1000)
   })
 })

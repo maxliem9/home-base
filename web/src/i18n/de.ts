@@ -728,13 +728,19 @@ export const de = {
     pickSearch: 'Rezept suchen…',
     pickEmpty: 'Lege zuerst ein Rezept an.',
     pickNoMatch: 'Kein passendes Rezept.',
+    pickConfirm: 'Übernehmen',
     remove: 'Entfernen',
+    // Portionen pro Eintrag (#251) — Picker-Stepper + Kachel-Anzeige
+    servings: 'Portionen',
+    servingsShort: '{n} Port.', // Kachel-Badge, z. B. „4 Port."
+    lessServings: 'Weniger Portionen',
+    moreServings: 'Mehr Portionen',
     saveFailed: 'Rezept konnte nicht eingeplant werden.',
     removeFailed: 'Eintrag konnte nicht entfernt werden.',
     // "in Einkaufsliste"
     addToShopping: 'In Einkaufsliste',
     addToShoppingTitle: 'Zutaten der Woche zur Einkaufsliste',
-    addToShoppingSummary: '{{items}} Zutaten aus {{dishes}} geplanten Gerichten',
+    addToShoppingSummary: '{items} Zutaten aus {dishes} geplanten Gerichten',
     addToShoppingFailed: 'Zutaten konnten nicht hinzugefügt werden.',
     targetList: 'Liste',
     noList: 'Lege zuerst eine Einkaufsliste an.',

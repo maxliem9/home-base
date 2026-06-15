@@ -305,6 +305,8 @@ object MealPlanEntriesTable : Table("meal_plan_entries") {
     val date = date("date")
     val slot = varchar("slot", 20)
     val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
+    // Portions to cook (#251); NULL = use the recipe's own servings (1× as authored).
+    val servings = integer("servings").nullable()
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
