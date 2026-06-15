@@ -1007,6 +1007,38 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `PUT clearing the dueDate of a recurring todo is rejected and keeps the anchor`() = testApplication {
+        // Regression for the recurrence invariant (DB CHECK todos_ln_due_chk + INVALID_RECURRENCE):
+        // the #265 "" = clear semantics must not be allowed to strip a recurring todo of its
+        // dueDate anchor. The request is rejected (400 INVALID_RECURRENCE) and the anchor stays.
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll","dueDate":"2999-01-01","recurrence":{"freq":"WEEKLY"}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val res = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"dueDate":""}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_RECURRENCE",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+
+        // the stored todo still has its anchor: the rejected clear left it untouched
+        val stored = todosOf(token).single { it.jsonObject["id"]?.jsonPrimitive?.content == id }.jsonObject
+        assertEquals("2999-01-01", stored["dueDate"]?.jsonPrimitive?.content)
+        assertEquals("WEEKLY", stored["recurrence"]?.jsonObject?.get("freq")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `completing a non-recurring todo does not spawn anything`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
