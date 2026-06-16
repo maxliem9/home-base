@@ -93,9 +93,45 @@ test.describe('Wochenplan', () => {
 
     // the slot becomes an empty "+" cell again
     await expect(
-      page.locator('.hb-mealgrid button[data-date="2026-06-17"][data-slot="DINNER"][aria-label="Rezept einplanen"]'),
+      page.locator('.hb-mealgrid button[data-date="2026-06-17"][data-slot="DINNER"][aria-label="Gericht einplanen"]'),
     ).toBeVisible()
     await expect(cell(page, '2026-06-17', 'DINNER')).not.toContainText('Lasagne')
+  })
+
+  test('plans a free-text dish (no recipe) into an empty slot (#293)', async ({ page }) => {
+    await open(page, seeded())
+
+    await cell(page, '2026-06-15', 'DINNER').click() // empty "+" cell
+    await expect(page.locator('.hb-sheet')).toBeVisible()
+    // type a free-text dish name and confirm — no recipe selected
+    await page.locator('.hb-sheet').getByPlaceholder('z. B. Reste, Pizza bestellt…').fill('Pizza bestellt')
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click()
+
+    // the free-text name renders in the slot like a recipe tile, no portions badge
+    await expect(cell(page, '2026-06-15', 'DINNER')).toContainText('Pizza bestellt')
+    await expect(cell(page, '2026-06-15', 'DINNER')).not.toContainText('Port.')
+  })
+
+  test('free-text dishes are skipped when adding the week to a shopping list (#293)', async ({ page }) => {
+    const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
+      .seedRecipes([LASAGNE]) // servings 2: Nudelplatten 250 g + Hackfleisch 500 g (2 lines)
+      .seedMealPlan([mealPlanEntry({ id: 'm1', date: '2026-06-17', slot: 'DINNER', recipeId: 'r1', recipeTitle: 'Lasagne' })])
+    await open(page, mock)
+
+    // add a free-text dish alongside the recipe entry
+    await cell(page, '2026-06-15', 'LUNCH').click()
+    await page.locator('.hb-sheet').getByPlaceholder('z. B. Reste, Pizza bestellt…').fill('Reste')
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Übernehmen' }).click()
+    await expect(cell(page, '2026-06-15', 'LUNCH')).toContainText('Reste')
+
+    // only the recipe's 2 ingredients are collected; the free-text dish contributes none
+    const reqP = page.waitForRequest((r) => r.url().includes('/shopping/batch') && r.method() === 'POST')
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
+    // summary counts only the recipe dish (free-text has no ingredients): "2 Zutaten aus 1"
+    await expect(page.locator('.hb-sheet')).toContainText('2 Zutaten aus 1')
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
+    const items = JSON.parse((await reqP).postData() || '{}').items as Array<{ name: string }>
+    expect(items.map((i) => i.name).sort()).toEqual(['Hackfleisch', 'Nudelplatten'])
   })
 
   test('navigates between weeks', async ({ page }) => {

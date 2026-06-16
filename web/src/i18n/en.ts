@@ -733,11 +733,14 @@ export const en: Messages = {
       LUNCH: 'Lunch',
       DINNER: 'Dinner',
     },
-    addMeal: 'Plan a recipe',
+    addMeal: 'Plan a dish',
     removeMeal: 'Remove from plan',
-    // recipe picker (set/replace a slot)
+    // dish picker (set/replace a slot): free text (#293) or a recipe
+    freeTextLabel: 'Own dish',
+    freeTextPlaceholder: 'e.g. Leftovers, ordered pizza…',
+    orRecipe: 'or pick a recipe',
     pickSearch: 'Search recipe…',
-    pickEmpty: 'Create a recipe first.',
+    pickEmptyFree: 'No recipes yet — enter your own dish above.',
     pickNoMatch: 'No matching recipe.',
     pickConfirm: 'Apply',
     remove: 'Remove',

@@ -731,11 +731,14 @@ export const de = {
       LUNCH: 'Mittag',
       DINNER: 'Abend',
     },
-    addMeal: 'Rezept einplanen',
+    addMeal: 'Gericht einplanen',
     removeMeal: 'Aus dem Plan entfernen',
-    // recipe picker (set/replace a slot)
+    // dish picker (set/replace a slot): free text (#293) or a recipe
+    freeTextLabel: 'Eigenes Gericht',
+    freeTextPlaceholder: 'z. B. Reste, Pizza bestellt…',
+    orRecipe: 'oder Rezept wählen',
     pickSearch: 'Rezept suchen…',
-    pickEmpty: 'Lege zuerst ein Rezept an.',
+    pickEmptyFree: 'Noch keine Rezepte – trag oben ein eigenes Gericht ein.',
     pickNoMatch: 'Kein passendes Rezept.',
     pickConfirm: 'Übernehmen',
     remove: 'Entfernen',

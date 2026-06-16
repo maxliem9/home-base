@@ -1011,18 +1011,24 @@ export class MockApi {
       const date = mealPlanSlotMatch[1]
       const slot = mealPlanSlotMatch[2].toUpperCase() as MealSlot
       if (method === 'PUT') {
-        const body = JSON.parse(req.postData() ?? '{}') as { recipeId?: string; servings?: number | null }
-        const recipe = this.recipes.find((r) => r.id === body.recipeId)
-        if (!recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
+        const body = JSON.parse(req.postData() ?? '{}') as { recipeId?: string; title?: string; servings?: number | null }
+        const hasRecipe = !!body.recipeId && body.recipeId.length > 0
+        const freeText = body.title?.trim()
+        const hasTitle = !!freeText && freeText.length > 0
+        // xor (#293): exactly one of recipeId / title — mirror the backend's INVALID_ENTRY 400.
+        if (hasRecipe === hasTitle) {
+          return this.json(route, { code: 'INVALID_ENTRY', message: 'exactly one of recipeId or title must be set' }, 400)
+        }
+        const recipe = hasRecipe ? this.recipes.find((r) => r.id === body.recipeId) : undefined
+        if (hasRecipe && !recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
         this.mealPlan = this.mealPlan.filter((e) => !(e.date === date && e.slot === slot))
         const entry: MealPlanEntry = {
           id: `meal-${this.nextMealPlanId++}`,
           date,
           slot,
-          recipeId: recipe.id,
-          recipeTitle: recipe.title,
-          recipeCategory: recipe.category,
-          // mirror encodeDefaults=false: only carry servings when set
+          // recipe entry carries the joined recipe fields; free-text entry carries only `title`
+          // (mirror encodeDefaults=false: omit the fields that don't apply).
+          ...(recipe ? { recipeId: recipe.id, recipeTitle: recipe.title, recipeCategory: recipe.category } : { title: freeText }),
           ...(body.servings != null ? { servings: body.servings } : {}),
           createdBy: 'alice',
           createdAt: new Date().toISOString(),

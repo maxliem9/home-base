@@ -194,15 +194,18 @@ export interface Recipe {
 // (which has no LUNCH since V17): any recipe can be planned into any slot.
 export type MealSlot = 'BREAKFAST' | 'LUNCH' | 'DINNER'
 
-// One recipe planned into a (date, slot). The recipe title/category ride along so the grid
-// renders without a second fetch.
+// One dish planned into a (date, slot): either a recipe (title/category ride along so the grid
+// renders without a second fetch) OR a free-text name (#293). Exactly one of recipeId / title is
+// set; the recipe fields are omitted for free-text entries (encodeDefaults=false on the backend).
 export interface MealPlanEntry {
   id: string
   date: string // YYYY-MM-DD
   slot: MealSlot
-  recipeId: string
-  recipeTitle: string
-  recipeCategory: RecipeCategory
+  recipeId?: string
+  recipeTitle?: string
+  recipeCategory?: RecipeCategory
+  // free-text dish name (#293), set instead of a recipe (e.g. "Reste", "Pizza bestellt")
+  title?: string
   // portions to cook (#251); omitted/undefined = use the recipe's own servings (1× as authored)
   servings?: number
   createdBy: string

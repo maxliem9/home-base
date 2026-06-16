@@ -607,26 +607,33 @@ data class UpdateRecipeRequest(
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
 // ---------- Wochenplan / Essensplaner (#218) ----------
-// One recipe planned into a (date, slot) of the weekly grid. The recipe title/category ride
-// along so the grid renders without a second fetch; slot ∈ BREAKFAST|LUNCH|DINNER.
+// One dish planned into a (date, slot) of the weekly grid: either a recipe (with title/category
+// joined in so the grid renders without a second fetch) OR a free-text name (#293). Exactly one of
+// recipeId / title is set; recipeTitle/recipeCategory are null for free-text entries.
+// slot ∈ BREAKFAST|LUNCH|DINNER. encodeDefaults=false drops the null fields from the payload.
 
 @Serializable
 data class MealPlanEntryDto(
     val id: String,
     val date: String,
     val slot: String,
-    val recipeId: String,
-    val recipeTitle: String,
-    val recipeCategory: String,
+    val recipeId: String? = null,
+    val recipeTitle: String? = null,
+    val recipeCategory: String? = null,
+    // free-text dish name (#293), set instead of a recipe; null when a recipe is referenced
+    val title: String? = null,
     // portions to cook (#251); null = use the recipe's own servings (1× as authored)
     val servings: Int? = null,
     val createdBy: String,
     val createdAt: String,
 )
 
-/** Set/replace the recipe in a (date, slot) — PUT /meal-plan/{date}/{slot}. */
+/**
+ * Set/replace the dish in a (date, slot) — PUT /meal-plan/{date}/{slot}. Exactly one of recipeId /
+ * title must be present (free-text dishes carry only a title, #293); the route rejects both/neither.
+ */
 @Serializable
-data class SetMealPlanRequest(val recipeId: String, val servings: Int? = null)
+data class SetMealPlanRequest(val recipeId: String? = null, val title: String? = null, val servings: Int? = null)
 
 /** Any meal-plan mutation broadcasts this; clients refetch the visible range (like absence). */
 @Serializable

@@ -156,6 +156,83 @@ class MealPlanRouteTest {
     }
 
     @Test
+    fun `PUT sets a free-text entry and GET returns it (leftJoin keeps recipe-less rows)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val put = client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Reste"}""")
+        }
+        assertEquals(HttpStatusCode.OK, put.status)
+
+        val entries = range(token, "2026-06-15", "2026-06-21")
+        assertEquals(1, entries.size)
+        val e = entries[0].jsonObject
+        assertEquals("DINNER", e["slot"]?.jsonPrimitive?.content)
+        assertEquals("Reste", e["title"]?.jsonPrimitive?.content)
+        // free-text entries carry no recipe — recipeId/recipeTitle/recipeCategory are omitted.
+        assertTrue(e["recipeId"].let { it == null || it is JsonNull })
+        assertTrue(e["recipeTitle"].let { it == null || it is JsonNull })
+        assertTrue(e["recipeCategory"].let { it == null || it is JsonNull })
+    }
+
+    @Test
+    fun `PUT free-text stores servings`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Pizza bestellt","servings":3}""")
+        }
+        val e = range(token, "2026-06-15", "2026-06-21")[0].jsonObject
+        assertEquals("Pizza bestellt", e["title"]?.jsonPrimitive?.content)
+        assertEquals(3, e["servings"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun `PUT with both recipeId and title returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token, "Lasagne")
+        val res = client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId","title":"Reste"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `PUT with neither recipeId nor title returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // neither field, and a blank title also counts as absent
+        assertEquals(HttpStatusCode.BadRequest, client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{}""")
+        }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"title":"   "}""")
+        }.status)
+    }
+
+    @Test
+    fun `PUT free-text replaces an existing recipe entry on the same slot`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token, "Lasagne")
+        client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"recipeId":"$recipeId"}""")
+        }
+        client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"title":"Reste"}""")
+        }
+        val entries = range(token, "2026-06-15", "2026-06-21")
+        assertEquals(1, entries.size)
+        assertEquals("Reste", entries[0].jsonObject["title"]?.jsonPrimitive?.content)
+        assertTrue(entries[0].jsonObject["recipeId"].let { it == null || it is JsonNull })
+    }
+
+    @Test
     fun `PUT with an unknown recipe returns 404`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

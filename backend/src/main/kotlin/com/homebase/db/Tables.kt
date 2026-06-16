@@ -304,7 +304,10 @@ object MealPlanEntriesTable : Table("meal_plan_entries") {
     val id = uuid("id")
     val date = date("date")
     val slot = varchar("slot", 20)
-    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
+    // Exactly one of recipeId / title is set per row (xor, enforced by a DB CHECK in V28, #293):
+    // a recipe reference OR a free-text dish name like "Reste"/"Pizza bestellt".
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE).nullable()
+    val title = varchar("title", 200).nullable()
     // Portions to cook (#251); NULL = use the recipe's own servings (1× as authored).
     val servings = integer("servings").nullable()
     val createdBy = varchar("created_by", 50)
