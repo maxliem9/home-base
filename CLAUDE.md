@@ -38,6 +38,17 @@ Sofort miterledigen nur, wenn der Fund trivial ist **und** vom Auftrag gedeckt �
 ins Issue; ein ausdrückliches „mach das gleich mit" geht vor. Beim Umsetzen das Issue
 über den PR schließen (`Closes #<n>` im PR-Body); Status/Assignee am Issue pflegen.
 
+### In-Bearbeitung markieren (gegen Doppelarbeit)
+Damit nicht zwei Menschen/KI-Agenten/Sessions **dasselbe Ticket parallel** anfangen
+(wie bei #293, das doppelt umgesetzt wurde — PR #301 vs. #315):
+1. **Vor dem Start** prüfen, ob das Issue bereits das Label `in-progress` trägt
+   (`gh issue view <n> --json labels` bzw. `gh issue list --label in-progress`). Trägt es das
+   Label, arbeitet schon jemand daran ⇒ nicht parallel anfangen (oder vorher abstimmen).
+2. **Beim Start** das Label setzen: `gh issue edit <n> --add-label in-progress`.
+3. Das Label fällt mit dem mergenden PR weg (`Closes #<n>` schließt das Issue mitsamt Labels);
+   wird die Arbeit abgebrochen, das Label wieder entfernen
+   (`gh issue edit <n> --remove-label in-progress`).
+
 ## Deployment
 - Synology NAS, DSM 7.x, Container Manager (Docker)
 - Erreichbar via DynDNS + HTTPS (kein VPN nötig)
