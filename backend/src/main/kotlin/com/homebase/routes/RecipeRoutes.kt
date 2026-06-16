@@ -310,6 +310,18 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             // Don't let the browser MIME-sniff a crafted file: the declared content-type is trusted
             // as-is and never validated to be a real image.
             call.response.headers.append("X-Content-Type-Options", "nosniff")
+            // Hand the browser the original upload name so a download is saved as e.g. "Lasagne.jpg"
+            // instead of the browser's generic fallback. Use *inline* (not attachment) so Android
+            // Coil keeps rendering the image in place. Ktor encodes the value (umlauts → RFC 5987),
+            // we only sanitize it. Same fix as the notes endpoint (issue #272 / PR #271).
+            val downloadName = safeImageFilename(
+                row[RecipeImagesTable.originalName],
+                row[RecipeImagesTable.contentType],
+            )
+            call.response.header(
+                HttpHeaders.ContentDisposition,
+                ContentDisposition.Inline.withParameter(ContentDisposition.Parameters.FileName, downloadName).toString(),
+            )
             call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[RecipeImagesTable.contentType])))
         }
 
