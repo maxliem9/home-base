@@ -15,8 +15,9 @@ import java.util.Locale
 
 /**
  * Absence planner data model, palette and summary math. Ported from the design
- * handoff (abw_core.jsx / web core.ts). Pure — no Compose state, no I/O. The
- * mobile build is light-theme only, so the palette drops the dark variants.
+ * handoff (abw_core.jsx / web core.ts). Pure — no Compose state, no I/O. The fill
+ * palette ([AbwPalette] / [colorFor]) carries both a light and a muted dark variant,
+ * selected per call via a `dark` flag (#252).
  */
 
 /**
@@ -40,30 +41,50 @@ object AbsTypes {
 }
 
 /**
- * Light-only fill palette; urlaub/teilzeit take the person hue, the rest are fixed hues.
+ * The Abwesenheit calendar's own fill palette; urlaub/teilzeit take the person hue, the rest are
+ * fixed hues. Deliberately separate from the `Hb.*` tokens (it is a saturated *chip* palette, not a
+ * surface/ink set) — but it now follows the theme too (#252).
  *
- * TODO(#244): the Abwesenheit calendar fills are deliberately a single light palette (chips
- * designed to read on a light grid) and are NOT yet dark-mode-aware — in dark mode the grid keeps
- * these light fills. A proper dark variant needs its own design pass. Kept as plain `oklch(...)`
- * literals (not `Hb.*`) so it stays usable from non-composable code, now that the `Hb.*` colour
- * tokens are `@Composable` getters.
+ * Theme handling: every accessor takes a `dark: Boolean`. The grid is light-mode-only no longer —
+ * in dark mode the fills drop to muted, lower-lightness tones with light ink so a person's leave
+ * reads as a coloured-but-calm block on the dark grid instead of a bright slab, while staying
+ * distinguishable across all day types (Urlaub / Krank / Kind-krank / Feiertag / Teilzeit-frei /
+ * Wochenende). The light values are unchanged. The boolean is sourced from the same single place
+ * the `Hb.*` tokens use — read [com.homebase.android.ui.theme.Hb.isDark] (← [LocalHbPalette]) in
+ * composable scope and pass it down — rather than a parallel dark signal.
+ *
+ * Kept as plain `oklch(...)` literals + `dark`-parameterised functions (not `@Composable` getters)
+ * so the palette and [colorFor] stay usable from the non-composable `DrawScope` / pure code paths,
+ * now that the `Hb.*` colour tokens are `@Composable` getters.
  */
 object AbwPalette {
-    fun urlaub(hue: Double): Color = oklch(0.70, 0.108, hue)
-    val krank: Color = oklch(0.71, 0.13, 27.0)
-    val kindKrank: Color = oklch(0.78, 0.125, 62.0)
-    val feiertag: Color = oklch(0.82, 0.05, 288.0)
-    fun teilzeit(hue: Double): Color = oklch(0.91, 0.034, hue)
-    val weekend: Color = oklch(0.925, 0.006, 130.0)
-    // Same value the light `Hb.surface` resolves to (was `Hb.surface`; inlined as a literal because
-    // that token is now a @Composable getter and this object initialises outside any composition).
-    val workday: Color = oklch(0.988, 0.008, 128.0)
+    fun urlaub(hue: Double, dark: Boolean = false): Color =
+        if (dark) oklch(0.50, 0.10, hue) else oklch(0.70, 0.108, hue)
+    fun krank(dark: Boolean = false): Color =
+        if (dark) oklch(0.50, 0.115, 27.0) else oklch(0.71, 0.13, 27.0)
+    fun kindKrank(dark: Boolean = false): Color =
+        if (dark) oklch(0.52, 0.10, 62.0) else oklch(0.78, 0.125, 62.0)
+    fun feiertag(dark: Boolean = false): Color =
+        if (dark) oklch(0.46, 0.055, 288.0) else oklch(0.82, 0.05, 288.0)
+    fun teilzeit(hue: Double, dark: Boolean = false): Color =
+        if (dark) oklch(0.37, 0.03, hue) else oklch(0.91, 0.034, hue)
+    fun weekend(dark: Boolean = false): Color =
+        if (dark) oklch(0.30, 0.006, 145.0) else oklch(0.925, 0.006, 130.0)
+    // Matches the value the active `Hb.surface` resolves to (light surface / dark surface); inlined
+    // as literals because that token is now a @Composable getter and these are called from outside
+    // any composition (e.g. captured into a DrawScope).
+    fun workday(dark: Boolean = false): Color =
+        if (dark) oklch(0.248, 0.016, 152.0) else oklch(0.988, 0.008, 128.0)
 
-    /** Dark ink used for chip glyphs/labels printed on the light fills. */
-    val onFill: Color = oklch(0.26, 0.03, 150.0)
+    /** Ink for chip glyphs/labels printed on the fills — dark ink on the light palette, light ink
+     *  on the dark one (mirrors the active `Hb.ink`). */
+    fun onFill(dark: Boolean = false): Color =
+        if (dark) oklch(0.95, 0.02, 130.0) else oklch(0.26, 0.03, 150.0)
 
-    /** Hairline divider drawn between the two halves of a split year-grid cell. */
-    val divider: Color = oklch(0.5, 0.0, 0.0, 0.14f)
+    /** Hairline divider drawn between the two halves of a split year-grid cell — a faint dark line
+     *  on the light grid, a faint light line on the dark grid. */
+    fun divider(dark: Boolean = false): Color =
+        if (dark) oklch(1.0, 0.0, 0.0, 0.18f) else oklch(0.5, 0.0, 0.0, 0.14f)
 }
 
 /** A person's resolved state for a single day. */
@@ -79,19 +100,20 @@ data class DayState(
     val ptOff: Boolean,
 )
 
-/** Fill colour for a resolved day-state. */
-fun colorFor(st: DayState?): Color {
-    if (st == null) return AbwPalette.workday
+/** Fill colour for a resolved day-state. [dark] picks the muted dark-theme fills (#252); pass
+ *  `Hb.isDark` from composable scope. */
+fun colorFor(st: DayState?, dark: Boolean = false): Color {
+    if (st == null) return AbwPalette.workday(dark)
     if (st.type != null) return when (st.type) {
-        AbsTypes.URLAUB -> AbwPalette.urlaub(st.hue)
-        AbsTypes.KRANK -> AbwPalette.krank
-        AbsTypes.KIND_KRANK -> AbwPalette.kindKrank
-        else -> AbwPalette.workday
+        AbsTypes.URLAUB -> AbwPalette.urlaub(st.hue, dark)
+        AbsTypes.KRANK -> AbwPalette.krank(dark)
+        AbsTypes.KIND_KRANK -> AbwPalette.kindKrank(dark)
+        else -> AbwPalette.workday(dark)
     }
-    if (st.holiday != null) return AbwPalette.feiertag
-    if (st.ptOff) return AbwPalette.teilzeit(st.hue)
-    if (st.weekend) return AbwPalette.weekend
-    return AbwPalette.workday
+    if (st.holiday != null) return AbwPalette.feiertag(dark)
+    if (st.ptOff) return AbwPalette.teilzeit(st.hue, dark)
+    if (st.weekend) return AbwPalette.weekend(dark)
+    return AbwPalette.workday(dark)
 }
 
 /** Is this user off this weekday under a part-time rule active on [date]? */
