@@ -131,15 +131,26 @@ class TodoViewModel(
      * Quick-add an undated todo to the active list. In the Inbox tab [TodoUiState.activeList]
      * is null, so the POST carries no listId at all — the backend then creates a plain INBOX
      * todo (same contract as the Dashboard quick-add and the web Inbox tab, #77).
+     *
+     * Fire-and-forget for the quick-add bars (Aufgaben + Heute); the edit sheet uses the
+     * suspending [createTodo] so it can keep itself open on failure (#277).
      */
     fun addTodo(title: String) {
         if (title.isBlank()) return
+        viewModelScope.launch { createTodo(title) }
+    }
+
+    /**
+     * Create a todo and return the result so a caller (the edit sheet, #277) can stay open on
+     * failure and show the reason inline. On success the new todo is upserted; on failure the
+     * global error is still set (path intact, mirrors the other mutations), the failed Result is
+     * returned so the sheet can surface the message too.
+     */
+    suspend fun createTodo(title: String): Result<TodoDto> {
         val listId = _uiState.value.activeList?.id
-        viewModelScope.launch {
-            repository.createTodo(CreateTodoRequest(title = title.trim(), listId = listId))
-                .onSuccess { upsertTodo(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
-        }
+        return repository.createTodo(CreateTodoRequest(title = title.trim(), listId = listId))
+            .onSuccess { upsertTodo(it) }
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
     /**
@@ -147,15 +158,26 @@ class TodoViewModel(
      * planning (#77). It is only sent when the todo is still list-less at save time — if the
      * partner moved it into a list while the sheet was open, the stale pick must not overwrite
      * that move (mirrors the web plan modal, #69). Null = „Bleibt in der Inbox" (unchanged).
+     *
+     * Fire-and-forget wrapper used by row actions (toggle done); the edit sheet uses the
+     * suspending [updateTodo] return value to stay open on failure (#277).
      */
     fun updateTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null) {
+        viewModelScope.launch { saveTodo(id, request, targetListId) }
+    }
+
+    /**
+     * Update a todo and return the result so the edit sheet (#277) can keep itself open on
+     * failure and show the reason inline — only dismissing on success. On success the todo is
+     * upserted; on failure the global error stays set (path intact), and the failed Result is
+     * returned so the sheet can render the message instead of silently reverting.
+     */
+    suspend fun saveTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null): Result<TodoDto> {
         val fileInto = targetListId?.takeIf { _uiState.value.todos.firstOrNull { t -> t.id == id }?.listId == null }
         val effective = if (fileInto != null) request.copy(listId = fileInto) else request
-        viewModelScope.launch {
-            repository.updateTodo(id, effective)
-                .onSuccess { upsertTodo(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
-        }
+        return repository.updateTodo(id, effective)
+            .onSuccess { upsertTodo(it) }
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
     /** Toggle a todo between DONE and open (PLANNED when it has a plan, else INBOX). */
