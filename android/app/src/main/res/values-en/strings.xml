@@ -213,13 +213,13 @@
     <string name="notes_empty_hint">Tap “Note” to get started.</string>
     <string name="notes_no_results_title">No matches</string>
     <string name="notes_no_results_hint">No notes for this selection.</string>
-    <string name="notes_detail_title">Note</string>
     <string name="notes_private">Private</string>
     <string name="notes_shared">Shared</string>
     <string name="notes_meta">%1$s · %2$s</string>
     <string name="notes_images">Images</string>
     <string name="notes_images_count">Images (%1$d)</string>
     <string name="notes_add_image">Add image</string>
+    <string name="notes_add_image_needs_save">Images can be added once the note has been created.</string>
     <string name="notes_new_title">New note</string>
     <string name="notes_edit_title">Edit note</string>
     <string name="notes_field_title">Title</string>
@@ -232,6 +232,17 @@
     <string name="notes_field_folder">Folder</string>
     <string name="notes_folder_placeholder">Folder (optional) …</string>
     <string name="notes_field_visibility">Visibility</string>
+    <!-- Notes UX refresh (#309/#310/#313): tap opens the editor, edits auto-save, Edit/Preview
+         toggle, left note-switcher. -->
+    <string name="notes_tab_edit">Edit</string>
+    <string name="notes_tab_preview">Preview</string>
+    <string name="notes_saving">Saving …</string>
+    <string name="notes_saved">Saved</string>
+    <string name="notes_save_error">Not saved</string>
+    <string name="notes_switch_note">Switch note</string>
+    <string name="notes_untitled">Untitled</string>
+    <string name="notes_preview_empty">No content yet.</string>
+    <string name="notes_delete_confirm_message">Delete this note?</string>
 
     <!-- ===== Time tracking ===== -->
     <string name="time_eyebrow">Time tracking</string>

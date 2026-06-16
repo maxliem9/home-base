@@ -220,13 +220,13 @@
     <string name="notes_empty_hint">Tippe auf „Notiz“, um anzufangen.</string>
     <string name="notes_no_results_title">Keine Treffer</string>
     <string name="notes_no_results_hint">Für diese Auswahl gibt es keine Notizen.</string>
-    <string name="notes_detail_title">Notiz</string>
     <string name="notes_private">Privat</string>
     <string name="notes_shared">Geteilt</string>
     <string name="notes_meta">%1$s · %2$s</string>
     <string name="notes_images">Bilder</string>
     <string name="notes_images_count">Bilder (%1$d)</string>
     <string name="notes_add_image">Bild hinzufügen</string>
+    <string name="notes_add_image_needs_save">Bilder können erst nach dem Anlegen der Notiz hinzugefügt werden.</string>
     <string name="notes_new_title">Neue Notiz</string>
     <string name="notes_edit_title">Notiz bearbeiten</string>
     <string name="notes_field_title">Titel</string>
@@ -239,6 +239,17 @@
     <string name="notes_field_folder">Ordner</string>
     <string name="notes_folder_placeholder">Ordner (optional) …</string>
     <string name="notes_field_visibility">Sichtbarkeit</string>
+    <!-- Notes UX refresh (#309/#310/#313): tap opens the editor, edits auto-save, Edit/Vorschau
+         toggle, left note-switcher. -->
+    <string name="notes_tab_edit">Bearbeiten</string>
+    <string name="notes_tab_preview">Vorschau</string>
+    <string name="notes_saving">Speichert …</string>
+    <string name="notes_saved">Gespeichert</string>
+    <string name="notes_save_error">Nicht gespeichert</string>
+    <string name="notes_switch_note">Notiz wechseln</string>
+    <string name="notes_untitled">Ohne Titel</string>
+    <string name="notes_preview_empty">Noch kein Inhalt.</string>
+    <string name="notes_delete_confirm_message">Diese Notiz löschen?</string>
 
     <!-- ===== Time tracking (Zeiterfassung) ===== -->
     <string name="time_eyebrow">Zeiterfassung</string>

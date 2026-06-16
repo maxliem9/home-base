@@ -8,12 +8,19 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -25,12 +32,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,11 +82,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
-import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbDotSep
+import com.homebase.android.ui.components.bottomBorder
 import com.homebase.android.ui.components.HbEmpty
 import com.homebase.android.ui.components.HbFab
 import com.homebase.android.ui.components.HbField
@@ -95,20 +106,12 @@ import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
 
-// ---------------------------------------------------------------------------
-// Editor target (create vs. edit) — held in local UI state.
-// ---------------------------------------------------------------------------
-
-private sealed interface Editor {
-    data object Create : Editor
-    data class Edit(val note: NoteDto) : Editor
-}
-
 @Composable
 @Suppress("UNUSED_PARAMETER")
 fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: () -> Unit) {
     // currentUser is part of the shared screen signature; notes are authored server-side.
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val editor by viewModel.editorState.collectAsStateWithLifecycle()
 
     // Surface upload/network errors (e.g. "image too large") as a transient toast, then clear
     // so it doesn't re-fire on recomposition.
@@ -123,33 +126,58 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
     var selectedTag by remember { mutableStateOf<String?>(null) }
     // null = all folders; "" = the "no folder" bucket; otherwise a specific folder name (mirrors web)
     var selectedFolder by remember { mutableStateOf<String?>(null) }
-    var selectedNoteId by remember { mutableStateOf<String?>(null) }
-    var editor by remember { mutableStateOf<Editor?>(null) }
 
-    // Keep the open detail in sync with WS/list updates; close it if the note vanished.
-    val openNote = selectedNoteId?.let { id -> state.notes.firstOrNull { it.id == id } }
-    if (selectedNoteId != null && openNote == null) {
-        selectedNoteId = null
+    // Folders for the editor's quick-pick + the switcher are derived client-side from the loaded
+    // notes, like tags.
+    val allFolders = remember(state.notes) {
+        state.notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
+            .distinct()
+            .sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.GERMAN)) { it }) // deutsche Kollation, Parität zu web localeCompare('de')
     }
 
-    if (openNote != null) {
-        NoteDetail(
-            note = openNote,
-            onBack = { selectedNoteId = null },
-            onEdit = { editor = Editor.Edit(openNote) },
+    // If the note open in the editor was deleted elsewhere (a partner's delete via WS), close the
+    // editor instead of leaving a dangling editor whose auto-save would 404. Only for a *saved* note
+    // (id != null) that is genuinely gone — a brand-new note is legitimately absent from the list.
+    val openNoteId = editor?.noteId
+    val openNoteGone = openNoteId != null && state.notes.none { it.id == openNoteId }
+    LaunchedEffect(openNoteId, openNoteGone) {
+        if (openNoteGone) viewModel.abandonEditor()
+    }
+
+    // editorState != null ⇒ tap-to-edit (#310): the full-screen editor replaces the list, exactly
+    // like the old read-only detail did. A new note opens with a null id; the editor's grouped
+    // note-switcher (#313) lets the user jump to another note without leaving.
+    val openEditor = editor
+    if (openEditor != null) {
+        // The note this editor is bound to (for the read-only preview's saved images), if it exists.
+        val boundNote = openEditor.noteId?.let { id -> state.notes.firstOrNull { it.id == id } }
+        NoteEditor(
+            editor = openEditor,
+            boundNote = boundNote,
+            allNotes = state.notes,
+            knownFolders = allFolders,
             imageUrl = viewModel::imageUrl,
             // resolve an inline markdown image ref to a loadable URL: `image:<id>` →
             // this note's authed attachment; external http(s) as-is; anything else → null (alt text)
             resolveContentImageUrl = { src ->
+                val nid = openEditor.noteId
                 when {
-                    src.startsWith("image:") -> viewModel.imageUrl(openNote.id, src.removePrefix("image:"))
+                    nid != null && src.startsWith("image:") -> viewModel.imageUrl(nid, src.removePrefix("image:"))
                     src.startsWith("http://", ignoreCase = true) ||
                         src.startsWith("https://", ignoreCase = true) -> src
                     else -> null
                 }
             },
-            onAddImages = { items -> viewModel.uploadImages(openNote.id, items) },
-            onRemoveImage = { imageId -> viewModel.removeImage(openNote.id, imageId) },
+            onTitleChange = { viewModel.updateEditor(title = it) },
+            onContentChange = { viewModel.updateEditor(content = it) },
+            onTagsChange = { viewModel.updateEditor(tags = it) },
+            onFolderChange = { viewModel.updateEditor(folder = it) },
+            onVisibilityChange = { viewModel.updateEditor(visibility = it) },
+            onBack = { viewModel.closeEditor() },
+            onSwitchNote = { viewModel.switchEditorTo(it) },
+            onAddImages = { items -> openEditor.noteId?.let { viewModel.uploadImages(it, items) } },
+            onRemoveImage = { imageId -> openEditor.noteId?.let { viewModel.removeImage(it, imageId) } },
+            onDelete = { viewModel.deleteEditorNote() },
         )
     } else {
         NoteList(
@@ -158,47 +186,10 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             onSelectTag = { selectedTag = it },
             selectedFolder = selectedFolder,
             onSelectFolder = { selectedFolder = it },
-            onOpenNote = { selectedNoteId = it.id },
-            onCreate = { editor = Editor.Create },
+            onOpenNote = { viewModel.openEditor(it) },
+            onCreate = { viewModel.openEditor(null) },
             onOpenDrawer = onOpenDrawer,
             onRefresh = { viewModel.refresh() },
-        )
-    }
-
-    // Folders for the editor's quick-pick are derived client-side from the loaded notes, like tags.
-    val allFolders = remember(state.notes) {
-        state.notes.mapNotNull { it.folder?.takeIf { f -> f.isNotBlank() } }
-            .distinct()
-            .sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.GERMAN)) { it }) // deutsche Kollation, Parität zu web localeCompare('de')
-    }
-
-    when (val e = editor) {
-        null -> {}
-        is Editor.Create -> NoteEditorSheet(
-            note = null,
-            knownFolders = allFolders,
-            imageUrl = viewModel::imageUrl,
-            onDismiss = { editor = null },
-            onSave = { title, content, tags, folder, visibility ->
-                viewModel.saveNote(null, title, content, tags, folder, visibility)
-                editor = null
-            },
-            onDelete = null,
-        )
-        is Editor.Edit -> NoteEditorSheet(
-            note = e.note,
-            knownFolders = allFolders,
-            imageUrl = viewModel::imageUrl,
-            onDismiss = { editor = null },
-            onSave = { title, content, tags, folder, visibility ->
-                viewModel.saveNote(e.note.id, title, content, tags, folder, visibility)
-                editor = null
-            },
-            onDelete = {
-                viewModel.deleteNote(e.note.id)
-                editor = null
-                selectedNoteId = null
-            },
         )
     }
 }
@@ -325,16 +316,86 @@ private fun NoteList(
                     stringResource(R.string.notes_no_results_title),
                     stringResource(R.string.notes_no_results_hint),
                 )
-                else -> Column(
-                    Modifier.padding(horizontal = 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    shown.forEach { note ->
-                        NoteCard(note = note, onClick = { onOpenNote(note) })
+                else -> {
+                    // Folder-grouped sections (#311): a header (folder glyph + name + count) then
+                    // that folder's notes, indented. Folders alphabetical (German Collator), the
+                    // "Ohne Ordner" bucket always last; within a group newest-first by updatedAt.
+                    val groups = remember(shown) { groupByFolder(shown) }
+                    Column(
+                        Modifier.padding(horizontal = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        groups.forEach { group ->
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FolderSectionHeader(
+                                    label = group.folder ?: stringResource(R.string.notes_no_folder),
+                                    count = group.notes.size,
+                                )
+                                Column(
+                                    Modifier.padding(start = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    group.notes.forEach { note ->
+                                        NoteCard(note = note, onClick = { onOpenNote(note) })
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** A folder section in the grouped list. [folder] = null is the "Ohne Ordner" bucket. */
+private data class NoteFolderGroup(val folder: String?, val notes: List<NoteDto>)
+
+/**
+ * Group notes into folder sections for the list (#311): named folders first, alphabetical by the
+ * German Collator (parity with web localeCompare('de')), the no-/blank-folder bucket last; each
+ * group's notes newest-first by updatedAt (ISO-8601 strings sort lexicographically). Mirrors the
+ * web grouping.
+ */
+private fun groupByFolder(notes: List<NoteDto>): List<NoteFolderGroup> {
+    val collator = java.text.Collator.getInstance(java.util.Locale.GERMAN)
+    val named = notes.filter { !it.folder.isNullOrBlank() }
+        .groupBy { it.folder!! }
+        .toSortedMap(collator)
+        .map { (folder, items) -> NoteFolderGroup(folder, items.sortedByDescending { it.updatedAt }) }
+    val loose = notes.filter { it.folder.isNullOrBlank() }
+        .sortedByDescending { it.updatedAt }
+    return if (loose.isEmpty()) named else named + NoteFolderGroup(null, loose)
+}
+
+/** Section header for a folder group: folder glyph + name + a muted count pill. */
+@Composable
+private fun FolderSectionHeader(label: String, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HbIcon(HbIcons.folder, size = 16.dp, tint = Hb.ink2)
+        Text(
+            label,
+            style = HbType.rowTitle.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+            color = Hb.ink2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Box(
+            Modifier
+                .clip(HbPill)
+                .background(Hb.surface3, HbPill)
+                .heightIn(min = 18.dp)
+                .padding(horizontal = 7.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(count.toString(), style = HbType.small.copy(fontWeight = FontWeight.SemiBold), color = Hb.ink3)
+        }
+        Box(Modifier.weight(1f).height(1.dp).background(Hb.lineSoft))
     }
 }
 
@@ -433,23 +494,60 @@ private fun FolderChip(text: String, active: Boolean, onClick: () -> Unit) {
 }
 
 // ---------------------------------------------------------------------------
-// Detail view (full-screen page)
+// Full-screen editor (tap-to-edit + auto-save, #309/#310). Replaces the old read-only
+// detail page AND the editor bottom sheet: tapping a note lands here directly, edits
+// auto-save (no Save button), and an Edit/Vorschau toggle keeps the rendered markdown +
+// inline images reachable. A left note-switcher (#313) lets you jump to another note.
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun NoteDetail(
-    note: NoteDto,
-    onBack: () -> Unit,
-    onEdit: () -> Unit,
+private fun NoteEditor(
+    editor: NoteEditorState,
+    boundNote: NoteDto?,
+    allNotes: List<NoteDto>,
+    knownFolders: List<String>,
     imageUrl: (NoteImageDto) -> String,
     resolveContentImageUrl: (String) -> String?,
+    onTitleChange: (String) -> Unit,
+    onContentChange: (String) -> Unit,
+    onTagsChange: (List<String>) -> Unit,
+    onFolderChange: (String) -> Unit,
+    onVisibilityChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onSwitchNote: (NoteDto) -> Unit,
     onAddImages: (items: List<NoteImageUpload>) -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
+    onDelete: () -> Unit,
 ) {
-    BackHandler(onBack = onBack)
-
     val context = LocalContext.current
+    var switcherOpen by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf(false) }
     var lightbox by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    // Back closes the switcher first, then the editor (which flushes a final save).
+    BackHandler(enabled = switcherOpen) { switcherOpen = false }
+    BackHandler(enabled = !switcherOpen, onBack = onBack)
+
+    // Caret-bearing content field. Keyed on the editor *session* (not the note id) so it reseeds on a
+    // note switch but survives the null→id transition while typing a brand-new note (#309). The text
+    // is pushed to the VM via onContentChange; the VM echoes it back into editor.content without
+    // mutating it, so the local caret is authoritative within a session.
+    var content by remember(editor.session) { mutableStateOf(TextFieldValue(editor.content)) }
+
+    // Tags edited as raw text; committed (split/trim) to the VM on each change, mirroring the sheet.
+    var tagsText by remember(editor.session) { mutableStateOf(editor.tags.joinToString(", ")) }
+
+    // Insert an attachment reference at the cursor; MarkdownText resolves image:<id> on read.
+    fun insertImage(img: NoteImageDto) {
+        val snippet = "![${img.originalName}](image:${img.id})"
+        val t = content.text
+        val start = content.selection.start.coerceIn(0, t.length)
+        val end = content.selection.end.coerceIn(start, t.length)
+        val next = t.substring(0, start) + snippet + t.substring(end)
+        content = content.copy(text = next, selection = TextRange(start + snippet.length))
+        onContentChange(next)
+    }
 
     // Multi-select photo picker (#266): read every chosen image and hand the batch up to the
     // ViewModel, which uploads them one after another (each its own request, correct sort_order).
@@ -468,77 +566,287 @@ private fun NoteDetail(
         }
     }
 
-    HbScreenScaffold(
-        appBar = {
-            HbAppBar(
-                title = stringResource(R.string.notes_detail_title),
-                titleSm = true,
-                bordered = true,
-                leftIcon = HbIcons.chevronLeft,
-                onLeft = onBack,
-                actions = {
-                    HbIconButton(HbIcons.edit, onEdit)
-                    HbIconButton(HbIcons.more, {})
-                },
-            )
-        },
-    ) {
-        Column(Modifier.padding(horizontal = 18.dp)) {
-            Text(
-                note.title,
-                style = HbType.docTitle,
-                color = Hb.ink,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+    Box(Modifier.fillMaxSize()) {
+        HbScreenScaffold(
+            appBar = {
+                HbAppBar(
+                    title = if (editor.noteId == null) stringResource(R.string.notes_new_title) else stringResource(R.string.notes_edit_title),
+                    titleSm = true,
+                    bordered = true,
+                    leftIcon = HbIcons.chevronLeft,
+                    onLeft = onBack,
+                    actions = {
+                        SaveStatusIndicator(editor.status)
+                        // Note-switcher (#313): a left slide-over listing all notes to jump to.
+                        HbIconButton(HbIcons.list, { switcherOpen = true })
+                        HbIconButton(HbIcons.trash, { confirmDelete = true }, tint = Hb.danger)
+                    },
+                )
+            },
+        ) {
+            Column(Modifier.padding(horizontal = 18.dp)) {
+                // Edit / Vorschau toggle — the rendered markdown + inline images live in the preview.
+                HbSegmented(
+                    options = listOf(stringResource(R.string.notes_tab_edit), stringResource(R.string.notes_tab_preview)),
+                    selectedIndex = if (preview) 1 else 0,
+                    onSelect = { preview = it == 1 },
+                    leadingIcons = listOf(HbIcons.edit, HbIcons.note),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                )
 
-            // Meta row: visibility badge + author avatar + "Name · vor X"
-            Row(
-                Modifier.padding(top = 12.dp, bottom = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (note.visibility == "PRIVATE") {
-                    VisibilityBadge(HbIcons.lock, stringResource(R.string.notes_private))
+                if (!preview) {
+                    EditorForm(
+                        editor = editor,
+                        content = content,
+                        tagsText = tagsText,
+                        knownFolders = knownFolders,
+                        imageUrl = imageUrl,
+                        onTitleChange = onTitleChange,
+                        onContentChange = { tfv -> content = tfv; onContentChange(tfv.text) },
+                        onTagsTextChange = { txt ->
+                            tagsText = txt
+                            onTagsChange(txt.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                        },
+                        onFolderChange = onFolderChange,
+                        onVisibilityChange = onVisibilityChange,
+                        onInsertImage = { insertImage(it) },
+                    )
                 } else {
-                    VisibilityBadge(HbIcons.users, stringResource(R.string.notes_shared))
+                    EditorPreview(
+                        editor = editor,
+                        author = boundNote?.createdBy,
+                        updatedAt = boundNote?.updatedAt,
+                        imageUrl = imageUrl,
+                        resolveContentImageUrl = resolveContentImageUrl,
+                        // No id yet ⇒ nothing to attach to; the upload would be dropped silently (#309).
+                        canAddImage = editor.noteId != null,
+                        onAddImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onRemoveImage = onRemoveImage,
+                        onOpenLightbox = { lightbox = it },
+                    )
                 }
-                if (!note.folder.isNullOrBlank()) {
-                    VisibilityBadge(HbIcons.folder, note.folder)
+
+                Spacer(Modifier.size(8.dp))
+            }
+        }
+
+        // Note-switcher left slide-over (#313) — distinct from the global app drawer; scrim + a
+        // left-anchored sheet with the same folder-grouped list, tap to jump (auto-saving first).
+        NoteSwitcherSheet(
+            open = switcherOpen,
+            notes = allNotes,
+            activeNoteId = editor.noteId,
+            onSelect = { onSwitchNote(it); switcherOpen = false },
+            onDismiss = { switcherOpen = false },
+        )
+    }
+
+    lightbox?.let { url -> ImageLightbox(url = url, onDismiss = { lightbox = null }) }
+
+    if (confirmDelete) {
+        HbConfirmDialog(
+            message = stringResource(R.string.notes_delete_confirm_message),
+            confirmLabel = stringResource(R.string.action_delete),
+            onConfirm = { confirmDelete = false; onDelete() },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+/** App-bar save-status chip: "Speichert…" (spinner) / "Gespeichert" (check) / error (#309). */
+@Composable
+private fun SaveStatusIndicator(status: SaveStatus) {
+    if (status == SaveStatus.IDLE) return
+    val (icon, label, tint) = when (status) {
+        SaveStatus.SAVING -> Triple(HbIcons.repeat, stringResource(R.string.notes_saving), Hb.ink3)
+        SaveStatus.SAVED -> Triple(HbIcons.check, stringResource(R.string.notes_saved), Hb.ink3)
+        SaveStatus.ERROR -> Triple(HbIcons.x, stringResource(R.string.notes_save_error), Hb.danger)
+        SaveStatus.IDLE -> return
+    }
+    Row(
+        Modifier.padding(end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        HbIcon(icon, size = 14.dp, tint = tint)
+        Text(label, style = HbType.small.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), color = tint)
+    }
+}
+
+/** The editable form (Edit tab): title, body (caret-aware), insert-image chips, tags, folder, visibility. */
+@Composable
+private fun EditorForm(
+    editor: NoteEditorState,
+    content: TextFieldValue,
+    tagsText: String,
+    knownFolders: List<String>,
+    imageUrl: (NoteImageDto) -> String,
+    onTitleChange: (String) -> Unit,
+    onContentChange: (TextFieldValue) -> Unit,
+    onTagsTextChange: (String) -> Unit,
+    onFolderChange: (String) -> Unit,
+    onVisibilityChange: (String) -> Unit,
+    onInsertImage: (NoteImageDto) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HbField(stringResource(R.string.notes_field_title)) {
+            HbTextField(value = editor.title, onValueChange = onTitleChange, placeholder = stringResource(R.string.notes_title_placeholder))
+        }
+        HbField(stringResource(R.string.notes_field_content)) {
+            HbTextField(
+                value = content,
+                onValueChange = onContentChange,
+                placeholder = stringResource(R.string.notes_content_placeholder),
+                singleLine = false,
+                minLines = 6,
+            )
+        }
+        // Tap an existing attachment to drop its ![name](image:id) reference at the cursor.
+        if (editor.images.isNotEmpty()) {
+            HbField(stringResource(R.string.notes_insert_image)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    editor.images.forEach { img ->
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(HbRadiusSm)
+                                .background(Hb.surface2)
+                                .border(1.dp, Hb.lineSoft, HbRadiusSm)
+                                .clickable { onInsertImage(img) },
+                        ) {
+                            AsyncImage(
+                                model = imageUrl(img),
+                                contentDescription = img.originalName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
-                HbAvatar(note.createdBy, size = 18.dp)
+            }
+        }
+        HbField(stringResource(R.string.notes_field_tags)) {
+            HbTextField(
+                value = tagsText,
+                onValueChange = onTagsTextChange,
+                placeholder = stringResource(R.string.notes_tags_placeholder),
+            )
+        }
+        HbField(stringResource(R.string.notes_field_folder)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HbTextField(
+                    value = editor.folder,
+                    onValueChange = onFolderChange,
+                    placeholder = stringResource(R.string.notes_folder_placeholder),
+                )
+                // Quick-pick from folders already in use (Compose equivalent of the web datalist):
+                // tap to fill, tap the active one again to clear.
+                if (knownFolders.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        knownFolders.forEach { folder ->
+                            val active = editor.folder.trim() == folder
+                            FolderChip(
+                                text = folder,
+                                active = active,
+                                onClick = { onFolderChange(if (active) "" else folder) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        HbField(stringResource(R.string.notes_field_visibility)) {
+            HbSegmented(
+                options = listOf(stringResource(R.string.notes_shared), stringResource(R.string.notes_private)),
+                selectedIndex = if (editor.visibility == "PRIVATE") 1 else 0,
+                onSelect = { onVisibilityChange(if (it == 1) "PRIVATE" else "SHARED") },
+                leadingIcons = listOf(HbIcons.users, HbIcons.lock),
+            )
+        }
+    }
+}
+
+/**
+ * The read-only preview (Vorschau tab): the old detail body — rendered markdown with inline images,
+ * visibility/folder badges, tag chips, and the image-attachment gallery (upload/manage still here).
+ * Uses the live draft (editor.*) so the preview reflects unsaved edits, not just the persisted note.
+ */
+@Composable
+private fun EditorPreview(
+    editor: NoteEditorState,
+    author: String?,
+    updatedAt: String?,
+    imageUrl: (NoteImageDto) -> String,
+    resolveContentImageUrl: (String) -> String?,
+    canAddImage: Boolean,
+    onAddImage: () -> Unit,
+    onRemoveImage: (imageId: String) -> Unit,
+    onOpenLightbox: (url: String) -> Unit,
+) {
+    Column {
+        Text(
+            editor.title.ifBlank { stringResource(R.string.notes_untitled) },
+            style = HbType.docTitle,
+            color = if (editor.title.isBlank()) Hb.ink3 else Hb.ink,
+        )
+
+        // Meta row: visibility badge + folder badge + author avatar + "Name · vor X" (if persisted).
+        Row(
+            Modifier.padding(top = 12.dp, bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (editor.visibility == "PRIVATE") {
+                VisibilityBadge(HbIcons.lock, stringResource(R.string.notes_private))
+            } else {
+                VisibilityBadge(HbIcons.users, stringResource(R.string.notes_shared))
+            }
+            if (editor.folder.isNotBlank()) {
+                VisibilityBadge(HbIcons.folder, editor.folder.trim())
+            }
+            if (author != null && updatedAt != null) {
+                HbAvatar(author, size = 18.dp)
                 Text(
-                    stringResource(R.string.notes_meta, displayName(note.createdBy), Format.relativeTime(note.updatedAt)),
+                    stringResource(R.string.notes_meta, displayName(author), Format.relativeTime(updatedAt)),
                     style = HbType.small.copy(fontSize = 12.5.sp),
                     color = Hb.ink3,
                 )
             }
-
-            // Static tag chips
-            if (note.tags.isNotEmpty()) {
-                Row(
-                    Modifier.padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    note.tags.forEach { tag -> HbTagChip(text = tag, static = true) }
-                }
-            }
-
-            // Rendered markdown body (inline images + links)
-            MarkdownText(note.content, resolveImageUrl = resolveContentImageUrl)
-
-            NoteImagesSection(
-                images = note.images,
-                imageUrl = imageUrl,
-                onAdd = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onRemove = onRemoveImage,
-                onOpen = { lightbox = it },
-            )
-
-            Spacer(Modifier.size(8.dp))
         }
-    }
 
-    lightbox?.let { url -> ImageLightbox(url = url, onDismiss = { lightbox = null }) }
+        // Static tag chips
+        if (editor.tags.isNotEmpty()) {
+            FlowRow(
+                Modifier.padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                editor.tags.forEach { tag -> HbTagChip(text = tag, static = true) }
+            }
+        }
+
+        // Rendered markdown body (inline images + links)
+        if (editor.content.isBlank()) {
+            Text(stringResource(R.string.notes_preview_empty), style = HbType.body.copy(fontSize = 15.sp), color = Hb.ink3)
+        } else {
+            MarkdownText(editor.content, resolveImageUrl = resolveContentImageUrl)
+        }
+
+        NoteImagesSection(
+            images = editor.images,
+            imageUrl = imageUrl,
+            canAdd = canAddImage,
+            onAdd = onAddImage,
+            onRemove = onRemoveImage,
+            onOpen = onOpenLightbox,
+        )
+    }
 }
 
 /** Small badge with a leading glyph (HbBadge has no icon slot). */
@@ -565,6 +873,9 @@ private fun VisibilityBadge(icon: ImageVector, label: String) {
 private fun NoteImagesSection(
     images: List<NoteImageDto>,
     imageUrl: (NoteImageDto) -> String,
+    // Attachments need a persisted note (a server id) to upload against. A brand-new, not-yet-saved
+    // note has no id, so the add button is disabled until the first auto-save creates the note (#309).
+    canAdd: Boolean,
     onAdd: () -> Unit,
     onRemove: (imageId: String) -> Unit,
     onOpen: (url: String) -> Unit,
@@ -586,6 +897,16 @@ private fun NoteImagesSection(
                 variant = HbButtonVariant.Secondary,
                 size = HbButtonSize.Sm,
                 icon = HbIcons.plus,
+                enabled = canAdd,
+            )
+        }
+        // Spell out why the button is dead on an unsaved note (the disabled HbButton doesn't dim).
+        if (!canAdd) {
+            Text(
+                stringResource(R.string.notes_add_image_needs_save),
+                style = HbType.small,
+                color = Hb.ink3,
+                modifier = Modifier.padding(bottom = 12.dp),
             )
         }
         if (images.isNotEmpty()) {
@@ -651,138 +972,130 @@ private fun ImageLightbox(url: String, onDismiss: () -> Unit) {
 }
 
 // ---------------------------------------------------------------------------
-// Editor bottom sheet (create or edit)
+// Note-switcher left slide-over (#313)
 // ---------------------------------------------------------------------------
 
+/**
+ * A left-anchored slide-over listing every note (folder-grouped, like the main list) so the user can
+ * jump to another note without leaving the editor. Deliberately **local** to the notes screen — it
+ * is not the app's global navigation drawer (that one stays reachable from the list view). Selecting a
+ * note auto-saves the current one first (handled in the ViewModel). Scrim + slide animation mirror
+ * the app drawer (MainActivity).
+ */
 @Composable
-private fun NoteEditorSheet(
-    note: NoteDto?,
-    knownFolders: List<String>,
-    imageUrl: (NoteImageDto) -> String,
+private fun BoxScope.NoteSwitcherSheet(
+    open: Boolean,
+    notes: List<NoteDto>,
+    activeNoteId: String?,
+    onSelect: (NoteDto) -> Unit,
     onDismiss: () -> Unit,
-    onSave: (title: String, content: String, tags: List<String>, folder: String, visibility: String) -> Unit,
-    onDelete: (() -> Unit)?,
 ) {
-    var title by remember { mutableStateOf(note?.title ?: "") }
-    // TextFieldValue (not String) so an image insert lands at the caret / replaces the selection
-    var content by remember { mutableStateOf(TextFieldValue(note?.content ?: "")) }
-    var tagsText by remember { mutableStateOf(note?.tags?.joinToString(", ") ?: "") }
-    var folderText by remember { mutableStateOf(note?.folder ?: "") }
-    var segIndex by remember { mutableStateOf(if (note?.visibility == "PRIVATE") 1 else 0) }
-
-    // Insert an attachment reference at the cursor; MarkdownText resolves image:<id> on read.
-    fun insertImage(img: NoteImageDto) {
-        val snippet = "![${img.originalName}](image:${img.id})"
-        val t = content.text
-        val start = content.selection.start.coerceIn(0, t.length)
-        val end = content.selection.end.coerceIn(start, t.length)
-        val next = t.substring(0, start) + snippet + t.substring(end)
-        content = content.copy(text = next, selection = TextRange(start + snippet.length))
+    // Scrim
+    AnimatedVisibility(visible = open, enter = fadeIn(), exit = fadeOut()) {
+        val scrimInteraction = remember { MutableInteractionSource() }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Hb.scrim)
+                .clickable(interactionSource = scrimInteraction, indication = null, onClick = onDismiss),
+        )
     }
-
-    fun submit() {
-        val tags = tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        val visibility = if (segIndex == 0) "SHARED" else "PRIVATE"
-        onSave(title.trim(), content.text, tags, folderText, visibility)
-    }
-
-    HbBottomSheet(
-        onDismiss = onDismiss,
-        title = if (note == null) stringResource(R.string.notes_new_title) else stringResource(R.string.notes_edit_title),
-        full = true,
-        footer = {
-            if (onDelete != null) {
-                HbButton(
-                    "",
-                    onClick = onDelete,
-                    variant = HbButtonVariant.Danger,
-                    icon = HbIcons.trash,
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            HbButton(stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
-            HbButton(stringResource(R.string.action_save), onClick = { submit() }, enabled = title.isNotBlank())
-        },
+    // Sheet
+    AnimatedVisibility(
+        visible = open,
+        modifier = Modifier.align(Alignment.CenterStart),
+        enter = slideInHorizontally { -it },
+        exit = slideOutHorizontally { -it },
     ) {
-        HbField(stringResource(R.string.notes_field_title)) {
-            HbTextField(value = title, onValueChange = { title = it }, placeholder = stringResource(R.string.notes_title_placeholder))
-        }
-        HbField(stringResource(R.string.notes_field_content)) {
-            HbTextField(
-                value = content,
-                onValueChange = { content = it },
-                placeholder = stringResource(R.string.notes_content_placeholder),
-                singleLine = false,
-                minLines = 6,
-            )
-        }
-        // Tap an existing attachment to drop its ![name](image:id) reference at the cursor.
-        if (note != null && note.images.isNotEmpty()) {
-            HbField(stringResource(R.string.notes_insert_image)) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    note.images.forEach { img ->
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(HbRadiusSm)
-                                .background(Hb.surface2)
-                                .border(1.dp, Hb.lineSoft, HbRadiusSm)
-                                .clickable { insertImage(img) },
-                        ) {
-                            AsyncImage(
-                                model = imageUrl(img),
-                                contentDescription = img.originalName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        HbField(stringResource(R.string.notes_field_tags)) {
-            HbTextField(
-                value = tagsText,
-                onValueChange = { tagsText = it },
-                placeholder = stringResource(R.string.notes_tags_placeholder),
-            )
-        }
-        HbField(stringResource(R.string.notes_field_folder)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HbTextField(
-                    value = folderText,
-                    onValueChange = { folderText = it },
-                    placeholder = stringResource(R.string.notes_folder_placeholder),
+        val groups = remember(notes) { groupByFolder(notes) }
+        val sheetInteraction = remember { MutableInteractionSource() }
+        Column(
+            Modifier
+                .width(308.dp)
+                .fillMaxHeight()
+                .background(Hb.surface)
+                .statusBarsPadding()
+                // swallow taps so they don't reach the scrim behind the sheet
+                .clickable(interactionSource = sheetInteraction, indication = null) {},
+        ) {
+            // Header
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .bottomBorder(Hb.lineSoft)
+                    .padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.notes_switch_note),
+                    style = HbType.sheetTitle,
+                    color = Hb.ink,
+                    modifier = Modifier.weight(1f),
                 )
-                // Quick-pick from folders already in use (Compose equivalent of the web datalist):
-                // tap to fill, tap the active one again to clear.
-                if (knownFolders.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        knownFolders.forEach { folder ->
-                            val active = folderText.trim() == folder
-                            FolderChip(
-                                text = folder,
-                                active = active,
-                                onClick = { folderText = if (active) "" else folder },
+                HbIconButton(HbIcons.x, onDismiss, iconSize = 22.dp)
+            }
+            // Grouped, scrollable note list
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                if (groups.isEmpty()) {
+                    Text(
+                        stringResource(R.string.notes_empty_title),
+                        style = HbType.meta,
+                        color = Hb.ink3,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
+                groups.forEach { group ->
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(
+                            Modifier.padding(start = 8.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            HbIcon(HbIcons.folder, size = 14.dp, tint = Hb.ink3)
+                            Text(
+                                group.folder ?: stringResource(R.string.notes_no_folder),
+                                style = HbType.eyebrow,
+                                color = Hb.ink3,
                             )
+                        }
+                        group.notes.forEach { note ->
+                            val active = note.id == activeNoteId
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(HbRadiusSm)
+                                    .background(if (active) Hb.accentSoft else Color.Transparent, HbRadiusSm)
+                                    .clickable { onSelect(note) }
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (note.visibility == "PRIVATE") {
+                                    HbIcon(HbIcons.lock, size = 13.dp, tint = if (active) Hb.accentInk else Hb.ink3)
+                                }
+                                Text(
+                                    note.title.ifBlank { stringResource(R.string.notes_untitled) },
+                                    style = HbType.rowTitle.copy(
+                                        fontSize = 14.5.sp,
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                    ),
+                                    color = if (active) Hb.accentInk else Hb.ink2,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-        HbField(stringResource(R.string.notes_field_visibility)) {
-            HbSegmented(
-                options = listOf(stringResource(R.string.notes_shared), stringResource(R.string.notes_private)),
-                selectedIndex = segIndex,
-                onSelect = { segIndex = it },
-                leadingIcons = listOf(HbIcons.users, HbIcons.lock),
-            )
         }
     }
 }

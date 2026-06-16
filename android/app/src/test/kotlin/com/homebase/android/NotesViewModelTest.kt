@@ -8,6 +8,7 @@ import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.ui.notes.NoteImageUpload
 import com.homebase.android.ui.notes.NotesViewModel
+import com.homebase.android.ui.notes.SaveStatus
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -38,8 +39,10 @@ class NotesViewModelTest {
         title: String = "Titel",
         content: String = "",
         visibility: String = "SHARED",
+        tags: List<String> = emptyList(),
+        folder: String? = null,
     ) = NoteDto(
-        id = id, title = title, content = content, tags = emptyList(), visibility = visibility,
+        id = id, title = title, content = content, tags = tags, folder = folder, visibility = visibility,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
@@ -442,5 +445,256 @@ class NotesViewModelTest {
 
         assertFalse(vm.uiState.value.isLoading)
         assertEquals(1, vm.uiState.value.notes.size)
+    }
+
+    // --- #309/#310: editor auto-save (debounce, id-capture, no-duplicate-create, dirty-check) ---
+
+    @Test
+    fun `editing a new note debounces then creates exactly once and captures the id`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+        val created = note(id = "srv-1", title = "Neu")
+        coEvery { repository.createNote(any()) } returns Result.success(created)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(null)
+        vm.updateEditor(title = "Neu")
+        // Before the debounce window elapses nothing is sent.
+        advanceTimeBy(500)
+        runCurrent()
+        coVerify(exactly = 0) { repository.createNote(any()) }
+        assertEquals(SaveStatus.IDLE, vm.editorState.value?.status)
+
+        // After the window the create fires once and the returned id is captured into the editor.
+        advanceUntilIdle()
+        coVerify(exactly = 1) { repository.createNote(CreateNoteRequest("Neu", "", emptyList(), "", "SHARED")) }
+        assertEquals("srv-1", vm.editorState.value?.noteId)
+        assertEquals(SaveStatus.SAVED, vm.editorState.value?.status)
+        assertEquals(1, vm.uiState.value.notes.size)
+    }
+
+    @Test
+    fun `a second edit after the first create updates the captured id (no duplicate note)`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+        coEvery { repository.createNote(any()) } returns Result.success(note(id = "srv-1", title = "Neu"))
+        coEvery { repository.updateNote(eq("srv-1"), any()) } returns
+            Result.success(note(id = "srv-1", title = "Neu", content = "mehr"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(null)
+        vm.updateEditor(title = "Neu")
+        advanceUntilIdle() // first create
+
+        vm.updateEditor(content = "mehr")
+        advanceUntilIdle() // should UPDATE the captured id, not create again
+
+        coVerify(exactly = 1) { repository.createNote(any()) }
+        coVerify(exactly = 1) { repository.updateNote("srv-1", UpdateNoteRequest("Neu", "mehr", emptyList(), "", "SHARED")) }
+        assertEquals(1, vm.uiState.value.notes.size) // exactly one note, not two
+    }
+
+    @Test
+    fun `a blank-title new note is never created`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(null)
+        // Type only body content — still no title.
+        vm.updateEditor(content = "nur Inhalt")
+        advanceUntilIdle()
+        vm.flushEditorSave() // even an explicit flush must not create an untitled note
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.createNote(any()) }
+        assertEquals(SaveStatus.IDLE, vm.editorState.value?.status)
+    }
+
+    @Test
+    fun `opening an existing note and leaving without changes saves nothing (dirty check)`() = runTest {
+        val existing = note(id = "1", title = "Da", content = "Body", tags = listOf("a"), folder = "Reisen")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        // Re-set every field to its current value: a no-op change must not dirty the note.
+        vm.updateEditor(title = "Da", content = "Body", tags = listOf("a"), folder = "Reisen", visibility = "SHARED")
+        advanceUntilIdle()
+        vm.closeEditor()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateNote(any(), any()) }
+    }
+
+    @Test
+    fun `leaving the editor flushes a pending edit immediately`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.success(existing.copy(title = "Neu"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Neu")
+        // Close BEFORE the debounce elapses — the close must still persist the change.
+        advanceTimeBy(200)
+        runCurrent()
+        vm.closeEditor()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.updateNote("1", UpdateNoteRequest("Neu", "", emptyList(), "", "SHARED")) }
+        assertNull(vm.editorState.value) // editor closed
+    }
+
+    @Test
+    fun `a WS update for the open note does not clobber the unsaved draft`() = runTest {
+        val existing = note(id = "1", title = "Alt", content = "Original")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        // The eventual (debounced) auto-save just needs to succeed so teardown stays clean; this
+        // test is about the WS echo NOT overwriting the draft, not about the save itself.
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.success(existing)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(content = "Meine ungespeicherten Tasten")
+        // A partner's edit (or our own save echo) arrives on the socket for the same note.
+        wsEvents.emit(NotesWebSocketClient.WsEvent.NoteUpdated(existing.copy(content = "Server-Version")))
+        advanceTimeBy(100)
+        runCurrent()
+
+        // The live draft text is preserved; the list copy may differ.
+        assertEquals("Meine ungespeicherten Tasten", vm.editorState.value?.content)
+    }
+
+    @Test
+    fun `switching notes flushes the current draft then opens the target`() = runTest {
+        val a = note(id = "a", title = "A")
+        val b = note(id = "b", title = "B")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(a, b))
+        coEvery { repository.updateNote(eq("a"), any()) } returns Result.success(a.copy(title = "A2"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(a)
+        vm.updateEditor(title = "A2")
+        vm.switchEditorTo(b)
+        advanceUntilIdle()
+
+        // A's pending edit was saved, and the editor now shows B.
+        coVerify(exactly = 1) { repository.updateNote("a", UpdateNoteRequest("A2", "", emptyList(), "", "SHARED")) }
+        assertEquals("b", vm.editorState.value?.noteId)
+        assertEquals("B", vm.editorState.value?.title)
+    }
+
+    @Test
+    fun `deleteEditorNote deletes the open note and closes the editor`() = runTest {
+        val existing = note(id = "1")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.deleteNote("1") } returns Result.success(Unit)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.deleteEditorNote()
+        advanceUntilIdle()
+
+        coVerify { repository.deleteNote("1") }
+        assertNull(vm.editorState.value)
+        assertTrue(vm.uiState.value.notes.isEmpty())
+    }
+
+    @Test
+    fun `an edit during an in-flight save is not lost — the loop re-saves the latest`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        // First update suspends (in flight) long enough for a second edit to land; both must persist.
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success(existing)
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(content = "erste Änderung")
+        advanceTimeBy(1000) // debounce elapses → first save starts and suspends in the mock
+        runCurrent()
+        vm.updateEditor(content = "zweite Änderung") // lands WHILE the first save is in flight
+        advanceUntilIdle() // first save completes, loop notices the new draft and saves again
+
+        // Two updates ran (no dropped edit) and the last one carried the newest content.
+        coVerify(exactly = 2) { repository.updateNote(eq("1"), any()) }
+        coVerify(exactly = 1) { repository.updateNote("1", UpdateNoteRequest("Alt", "zweite Änderung", emptyList(), "", "SHARED")) }
+    }
+
+    @Test
+    fun `closing during an in-flight save still persists the final edit`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success(existing)
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(content = "A")
+        advanceTimeBy(1000)
+        runCurrent() // first save (content "A") in flight
+        vm.updateEditor(content = "B") // newer edit while saving
+        vm.closeEditor() // back press mid-save: must flush B before clearing
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.updateNote("1", UpdateNoteRequest("Alt", "B", emptyList(), "", "SHARED")) }
+        assertNull(vm.editorState.value)
+    }
+
+    @Test
+    fun `abandonEditor closes without saving or deleting`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Bearbeitet aber Notiz wurde anderswo gelöscht")
+        vm.abandonEditor() // partner deleted the note → drop the editor, don't 404 on save
+        advanceUntilIdle()
+
+        assertNull(vm.editorState.value)
+        coVerify(exactly = 0) { repository.updateNote(any(), any()) }
+        coVerify(exactly = 0) { repository.deleteNote(any()) }
+    }
+
+    @Test
+    fun `a failed save surfaces an error and an ERROR status`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.failure(RuntimeException("down"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Neu")
+        advanceUntilIdle()
+
+        assertEquals(SaveStatus.ERROR, vm.editorState.value?.status)
+        assertEquals("down", vm.uiState.value.error)
     }
 }
