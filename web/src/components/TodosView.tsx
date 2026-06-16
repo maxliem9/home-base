@@ -688,12 +688,12 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             <div style={{ marginTop: 26, display: 'flex', gap: 20, alignItems: 'center' }}>
               <button className="hb-link" onClick={() => setEditListOpen(true)}>
                 <Icon name="edit" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-                {t('todos.editList')} „{active.name}"
+                {t('todos.editListNamed', { name: active.name })}
               </button>
               {lists.length > 1 && (
                 <button className="hb-link hb-link--danger" onClick={() => setConfirmDelete(true)}>
                   <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-                  {t('todos.deleteList')} „{active.name}"
+                  {t('todos.deleteListNamed', { name: active.name })}
                 </button>
               )}
             </div>

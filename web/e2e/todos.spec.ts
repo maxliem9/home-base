@@ -222,7 +222,7 @@ test.describe('Todo lists', () => {
     )
     await openApp(page, mock, ALICE_TOKEN)
 
-    await page.getByRole('button', { name: /Liste bearbeiten „Haushalt/ }).click()
+    await page.getByRole('button', { name: /Liste „Haushalt" bearbeiten/ }).click()
     const modal = page.locator('.hb-modal')
     await expect(modal.getByRole('heading', { name: 'Liste bearbeiten' })).toBeVisible()
 
@@ -246,7 +246,7 @@ test.describe('Todo lists', () => {
     )
     await openApp(page, mock, ALICE_TOKEN)
 
-    await page.getByRole('button', { name: /Liste bearbeiten „Geheim/ }).click()
+    await page.getByRole('button', { name: /Liste „Geheim" bearbeiten/ }).click()
     const modal = page.locator('.hb-modal')
     await modal.locator('.hb-pick', { hasText: 'Geteilt' }).click()
     await modal.getByRole('button', { name: 'Speichern' }).click()
@@ -268,7 +268,7 @@ test.describe('Todo lists', () => {
     await page.getByRole('tab', { name: 'Garten' }).click()
     await expect(page.getByText('Rasen mähen')).toBeVisible()
 
-    await page.getByRole('button', { name: /Liste löschen „Garten/ }).click()
+    await page.getByRole('button', { name: /Liste „Garten" löschen/ }).click()
     // a confirmation modal must appear first — no immediate delete
     await expect(page.getByRole('heading', { name: 'Liste löschen?' })).toBeVisible()
     await page.getByRole('button', { name: 'Endgültig löschen' }).click()
