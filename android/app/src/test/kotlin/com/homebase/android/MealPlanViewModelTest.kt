@@ -89,14 +89,33 @@ class MealPlanViewModelTest {
     @Test
     fun `setSlot upserts the returned entry into state`() = runTest {
         val planned = entry("2026-06-16", "DINNER", "r1", "Lasagne")
-        coEvery { repository.setMealSlot("2026-06-16", "DINNER", "r1", null) } returns Result.success(planned)
+        coEvery { repository.setMealSlot("2026-06-16", "DINNER", "r1", null, null) } returns Result.success(planned)
 
         val vm = createVm()
         advanceUntilIdle()
-        vm.setSlot("2026-06-16", "DINNER", "r1", null)
+        vm.setSlot("2026-06-16", "DINNER", "r1", null, null)
         advanceUntilIdle()
 
         assertEquals("Lasagne", vm.uiState.value.entryFor("2026-06-16", "DINNER")?.recipeTitle)
+    }
+
+    @Test
+    fun `setSlot with free text upserts a recipe-less dish entry (#293)`() = runTest {
+        val dish = MealPlanEntryDto(
+            id = "m-free", date = "2026-06-16", slot = "LUNCH", recipeId = null,
+            recipeTitle = null, recipeCategory = null, dishTitle = "Pizza bestellen",
+            servings = null, createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+        )
+        coEvery { repository.setMealSlot("2026-06-16", "LUNCH", null, "Pizza bestellen", null) } returns Result.success(dish)
+
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.setSlot("2026-06-16", "LUNCH", null, "Pizza bestellen", null)
+        advanceUntilIdle()
+
+        val e = vm.uiState.value.entryFor("2026-06-16", "LUNCH")
+        assertEquals("Pizza bestellen", e?.dishTitle)
+        assertEquals(null, e?.recipeId)
     }
 
     @Test

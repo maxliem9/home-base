@@ -31,6 +31,9 @@ private val MEAL_SLOTS = setOf("BREAKFAST", "LUNCH", "DINNER")
 // range can't pull the whole table. The weekly view only ever asks for 7 days.
 private const val MAX_RANGE_DAYS = 370
 
+// Upper bound for a free-text dish name (#293) — a dish name, not a description.
+private const val MAX_DISH_TITLE_LEN = 200
+
 fun Route.mealPlanRoutes() {
     suspend fun notify() =
         WsSessionManager.broadcast(MEAL_PLAN_WS_CHANNEL, appJson.encodeToString(MealPlanWsMessage("MEAL_PLAN_CHANGED")))
@@ -38,7 +41,8 @@ fun Route.mealPlanRoutes() {
     route("/meal-plan") {
 
         // Entries within an inclusive [from, to] date range (the weekly view fetches Mon..Sun).
-        // The recipe title/category are joined in so the grid renders without a second fetch.
+        // LEFT join so free-text entries (no recipe) come through too; recipe-backed entries pick
+        // up the joined title/category so the grid renders without a second fetch.
         get {
             val from = call.request.queryParameters["from"]?.let { parseDate(it) } ?: return@get call.invalidRange()
             val to = call.request.queryParameters["to"]?.let { parseDate(it) } ?: return@get call.invalidRange()
@@ -47,7 +51,7 @@ fun Route.mealPlanRoutes() {
                 return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("RANGE_TOO_LARGE", "range must not exceed $MAX_RANGE_DAYS days"))
             }
             val entries = transaction {
-                (MealPlanEntriesTable innerJoin RecipesTable).selectAll()
+                (MealPlanEntriesTable leftJoin RecipesTable).selectAll()
                     .where { (MealPlanEntriesTable.date greaterEq from) and (MealPlanEntriesTable.date lessEq to) }
                     .orderBy(MealPlanEntriesTable.date to SortOrder.ASC, MealPlanEntriesTable.slot to SortOrder.ASC)
                     .map { it.toMealPlanDto() }
@@ -55,21 +59,34 @@ fun Route.mealPlanRoutes() {
             call.respond(entries)
         }
 
-        // Set (or replace) the recipe planned for a (date, slot). Idempotent — one entry per slot.
+        // Set (or replace) the meal planned for a (date, slot). Idempotent — one entry per slot.
+        // The body carries EITHER a recipeId OR a free-text dishTitle (#293), never both/neither.
         put("/{date}/{slot}") {
             val username = call.username()
             val day = call.parameters["date"]?.let { parseDate(it) } ?: return@put call.invalidDate()
             val slot = call.parameters["slot"]?.uppercase()
             if (slot == null || slot !in MEAL_SLOTS) return@put call.invalidSlot()
             val req = call.receive<SetMealPlanRequest>()
-            val recipeId = runCatching { UUID.fromString(req.recipeId) }.getOrNull()
-                ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "recipeId must be a valid UUID"))
+
+            val rawRecipeId = req.recipeId?.takeIf { it.isNotBlank() }
+            val dishTitle = req.dishTitle?.trim()?.takeIf { it.isNotEmpty() }
+            // XOR: exactly one of recipe / free-text dish must be given.
+            if ((rawRecipeId == null) == (dishTitle == null)) {
+                return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ENTRY", "provide exactly one of recipeId or dishTitle"))
+            }
+            if (dishTitle != null && dishTitle.length > MAX_DISH_TITLE_LEN) {
+                return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("TITLE_TOO_LONG", "dishTitle must be at most $MAX_DISH_TITLE_LEN characters"))
+            }
+            val recipeId = rawRecipeId?.let {
+                runCatching { UUID.fromString(it) }.getOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "recipeId must be a valid UUID"))
+            }
             if (req.servings != null && req.servings < 1) {
                 return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SERVINGS", "servings must be >= 1"))
             }
 
             val dto = transaction {
-                if (RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.empty()) return@transaction null
+                if (recipeId != null && RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.empty()) return@transaction null
                 MealPlanEntriesTable.deleteWhere { (MealPlanEntriesTable.date eq day) and (MealPlanEntriesTable.slot eq slot) }
                 val id = UUID.randomUUID()
                 MealPlanEntriesTable.insert {
@@ -77,11 +94,13 @@ fun Route.mealPlanRoutes() {
                     it[MealPlanEntriesTable.date] = day
                     it[MealPlanEntriesTable.slot] = slot
                     it[MealPlanEntriesTable.recipeId] = recipeId
-                    it[servings] = req.servings
+                    it[MealPlanEntriesTable.dishTitle] = dishTitle
+                    // servings scale a recipe's ingredients — meaningless for free text, so store it only with a recipe.
+                    it[servings] = if (recipeId != null) req.servings else null
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
-                (MealPlanEntriesTable innerJoin RecipesTable).selectAll()
+                (MealPlanEntriesTable leftJoin RecipesTable).selectAll()
                     .where { MealPlanEntriesTable.id eq id }.single().toMealPlanDto()
             } ?: return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
 
@@ -115,14 +134,16 @@ fun Route.mealPlanRoutes() {
     }
 }
 
-// Must be selected from (MealPlanEntriesTable innerJoin RecipesTable) so the recipe columns load.
+// Must be selected from (MealPlanEntriesTable leftJoin RecipesTable). For free-text entries the
+// recipe_id is NULL and the joined recipe columns are absent — getOrNull keeps them null (#293).
 private fun ResultRow.toMealPlanDto() = MealPlanEntryDto(
     id = this[MealPlanEntriesTable.id].toString(),
     date = this[MealPlanEntriesTable.date].toString(),
     slot = this[MealPlanEntriesTable.slot],
-    recipeId = this[MealPlanEntriesTable.recipeId].toString(),
-    recipeTitle = this[RecipesTable.title],
-    recipeCategory = this[RecipesTable.category],
+    recipeId = this[MealPlanEntriesTable.recipeId]?.toString(),
+    recipeTitle = getOrNull(RecipesTable.title),
+    recipeCategory = getOrNull(RecipesTable.category),
+    dishTitle = this[MealPlanEntriesTable.dishTitle],
     servings = this[MealPlanEntriesTable.servings],
     createdBy = this[MealPlanEntriesTable.createdBy],
     createdAt = this[MealPlanEntriesTable.createdAt].toString(),

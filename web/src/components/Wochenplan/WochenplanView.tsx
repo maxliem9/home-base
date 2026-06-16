@@ -17,6 +17,10 @@ const wsUrl = (channel: string) => `${WS_SCHEME}://${window.location.host}/api/v
 // Grid rows, in meal order — independent of the recipe categories (#218).
 const SLOTS: MealSlot[] = ['BREAKFAST', 'LUNCH', 'DINNER']
 
+// A picked slot is EITHER a recipe (with chosen portions) OR a free-text dish (#293).
+// undefined keys are dropped by JSON.stringify, matching the backend's XOR contract.
+type SlotPayload = { recipeId: string; servings: number | null } | { dishTitle: string }
+
 const pad = (n: number) => String(n).padStart(2, '0')
 /** Local YYYY-MM-DD (matches the app's date keying everywhere else). */
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -114,11 +118,12 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   // Ingredients of every dish planned this week, scaled to each entry's chosen portions (#251);
   // the batch endpoint sums them by name+unit. A dish planned twice contributes twice. An entry
   // without an explicit servings falls back to the recipe's own servings (factor 1, 1× as authored).
+  // Free-text entries (#293) have no recipe and thus no ingredients — they're skipped here.
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id, r])), [recipes])
   const plannedItems = useMemo(() => {
     const items: { name: string; amount?: number; unit?: string }[] = []
     for (const e of entries) {
-      const r = recipeById.get(e.recipeId)
+      const r = e.recipeId ? recipeById.get(e.recipeId) : undefined
       if (!r) continue
       const base = r.servings > 0 ? r.servings : 1
       const factor = (e.servings ?? base) / base
@@ -133,12 +138,13 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   const shiftWeek = (delta: number) => setWeekStartIso(ymd(addDays(parseIso(weekStartIso), delta * 7)))
   const goToday = () => setWeekStartIso(ymd(mondayOf(new Date())))
 
-  const setSlot = async (date: string, slot: MealSlot, recipeId: string, servings: number | null) => {
+  // payload carries EITHER a recipeId (+ optional servings) OR a free-text dishTitle (#293).
+  const setSlot = async (date: string, slot: MealSlot, payload: SlotPayload) => {
     setPicking(null)
     const result = await safeFetch(token, `${API_BASE}/meal-plan/${date}/${slot}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipeId, servings }),
+      body: JSON.stringify(payload),
     })
     if (!result.ok) return flashError(errorText(null, t('wochenplan.saveFailed')))
     const { res } = result
@@ -279,7 +285,7 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
           dateLabel={todayLabel(parseIso(picking.date))}
           slotLabel={t(`wochenplan.slots.${picking.slot}`)}
           onClose={() => setPicking(null)}
-          onConfirm={(recipeId, servings) => setSlot(picking.date, picking.slot, recipeId, servings)}
+          onConfirm={(payload) => setSlot(picking.date, picking.slot, payload)}
           onRemove={() => clearSlot(picking.date, picking.slot)}
         />
       )}
@@ -336,11 +342,15 @@ function SlotCell({
       </button>
     )
   }
+  // Recipe-backed entries show the category glyph + recipe title; free-text entries (#293) show a
+  // neutral pencil glyph + the typed dish name.
+  const label = entry.recipeTitle ?? entry.dishTitle ?? ''
+  const icon = entry.recipeId ? (entry.recipeCategory ? CATEGORY_ICON[entry.recipeCategory] ?? 'utensils' : 'utensils') : 'edit'
   return (
     <div data-date={date} data-slot={slot} className={`hb-mealcell hb-mealcell--filled${today ? ' is-today' : ''}`}>
-      <button type="button" className="hb-mealcell__body" onClick={onPick} title={entry.recipeTitle}>
-        <Icon name={CATEGORY_ICON[entry.recipeCategory] ?? 'utensils'} size={14} stroke={2} />
-        <span className="hb-mealcell__title">{entry.recipeTitle}</span>
+      <button type="button" className="hb-mealcell__body" onClick={onPick} title={label}>
+        <Icon name={icon} size={14} stroke={2} />
+        <span className="hb-mealcell__title">{label}</span>
         {entry.servings != null && (
           <span className="hb-mealcell__servings">{t('wochenplan.servingsShort', { n: entry.servings })}</span>
         )}
@@ -366,18 +376,20 @@ function MealRecipePicker({
   dateLabel: string
   slotLabel: string
   onClose: () => void
-  // servings is the chosen portions, or null to keep the recipe's own servings (1× as authored)
-  onConfirm: (recipeId: string, servings: number | null) => void
+  // EITHER a recipe (with chosen portions) OR a free-text dish (#293).
+  onConfirm: (payload: SlotPayload) => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
-  const [q, setQ] = useState('')
-  const currentRecipe = current ? recipes.find((r) => r.id === current.recipeId) : undefined
+  // Editing a free-text entry pre-fills the box so the typed name can be tweaked and re-applied.
+  const [q, setQ] = useState(current?.dishTitle ?? '')
+  const currentRecipe = current?.recipeId ? recipes.find((r) => r.id === current.recipeId) : undefined
   // Pre-select the planned recipe (when editing) with its chosen or default portions.
   const [selectedId, setSelectedId] = useState<string | null>(current?.recipeId ?? null)
   const [servings, setServings] = useState<number>(Math.max(1, current?.servings ?? currentRecipe?.servings ?? 1))
 
-  const needle = q.trim().toLowerCase()
+  const typed = q.trim()
+  const needle = typed.toLowerCase()
   const filtered = needle ? recipes.filter((r) => r.title.toLowerCase().includes(needle)) : recipes
   const selectedRecipe = recipes.find((r) => r.id === selectedId)
 
@@ -388,13 +400,15 @@ function MealRecipePicker({
     setServings(current && current.recipeId === r.id && current.servings != null ? current.servings : Math.max(1, r.servings))
   }
 
-  const confirm = () => {
+  const confirmRecipe = () => {
     if (!selectedId || !selectedRecipe) return
     // Only persist servings when it differs from the recipe default — keeps chips clean and the
     // common 1×-as-authored case stored as null.
     const chosen = servings !== selectedRecipe.servings ? servings : null
-    onConfirm(selectedId, chosen)
+    onConfirm({ recipeId: selectedId, servings: chosen })
   }
+  // One-off dish typed straight into the box (#293) — no recipe, no ingredients, no portions.
+  const confirmText = () => { if (typed) onConfirm({ dishTitle: typed }) }
 
   return (
     <Sheet
@@ -417,21 +431,26 @@ function MealRecipePicker({
           <div className="hb-mealpick__actions">
             <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
             {current && <Button variant="danger" icon="trash" onClick={onRemove}>{t('wochenplan.remove')}</Button>}
-            <Button variant="primary" icon="check" disabled={!selectedId} onClick={confirm}>{t('wochenplan.pickConfirm')}</Button>
+            <Button variant="primary" icon="check" disabled={!selectedId} onClick={confirmRecipe}>{t('wochenplan.pickConfirm')}</Button>
           </div>
         </div>
       }
     >
-      {recipes.length === 0 ? (
-        <p className="hb-muted" style={{ margin: 0 }}>{t('wochenplan.pickEmpty')}</p>
-      ) : (
-        <>
-          <div style={{ marginBottom: 6 }}>
-            <TextInput value={q} onChange={setQ} placeholder={t('wochenplan.pickSearch')} autoFocus />
-          </div>
-          {filtered.length === 0 ? (
-            <p className="hb-muted" style={{ margin: '8px 0 0' }}>{t('wochenplan.pickNoMatch')}</p>
-          ) : (
+      <div style={{ marginBottom: 6 }}>
+        <TextInput value={q} onChange={setQ} placeholder={t('wochenplan.pickSearch')} autoFocus />
+      </div>
+      {/* Type anything and use it directly as a one-off dish — works even with zero recipes (#293). */}
+      {typed && (
+        <button type="button" className="hb-mealpick__freetext" onClick={confirmText}>
+          <Icon name="edit" size={16} stroke={2} />
+          <span className="hb-mealpick__title">{t('wochenplan.useAsText')} <strong>{typed}</strong></span>
+        </button>
+      )}
+      {recipes.length === 0
+        ? !typed && <p className="hb-muted" style={{ margin: '8px 0 0' }}>{t('wochenplan.pickEmpty')}</p>
+        : filtered.length === 0
+          ? !typed && <p className="hb-muted" style={{ margin: '8px 0 0' }}>{t('wochenplan.pickNoMatch')}</p>
+          : (
             <div className="hb-mealpick">
               {filtered.map((r) => (
                 <button
@@ -447,8 +466,6 @@ function MealRecipePicker({
               ))}
             </div>
           )}
-        </>
-      )}
     </Sheet>
   )
 }

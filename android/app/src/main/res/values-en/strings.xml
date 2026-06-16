@@ -62,11 +62,12 @@
     <string name="meal_plan_slot_breakfast">Breakfast</string>
     <string name="meal_plan_slot_lunch">Lunch</string>
     <string name="meal_plan_slot_dinner">Dinner</string>
-    <string name="meal_plan_add_meal">Plan a recipe</string>
+    <string name="meal_plan_add_meal">Plan a meal</string>
     <string name="meal_plan_remove">Remove</string>
-    <string name="meal_plan_pick_search">Search recipe…</string>
-    <string name="meal_plan_pick_empty">Create a recipe first.</string>
+    <string name="meal_plan_pick_search">Search a recipe or type a dish…</string>
+    <string name="meal_plan_pick_empty">No recipes yet — just type a dish above.</string>
     <string name="meal_plan_pick_no_match">No matching recipe.</string>
+    <string name="meal_plan_use_as_text">Use as dish:</string>
     <string name="meal_plan_pick_confirm">Apply</string>
     <string name="meal_plan_servings">Servings</string>
     <string name="meal_plan_servings_short">%1$d srv.</string>

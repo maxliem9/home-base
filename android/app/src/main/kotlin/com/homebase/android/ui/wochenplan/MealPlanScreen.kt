@@ -92,10 +92,12 @@ fun MealPlanScreen(
                 RecipePickerSheet(
                     recipes = state.recipes,
                     currentRecipeId = current?.recipeId,
+                    currentDishTitle = current?.dishTitle,
                     currentServings = current?.servings,
                     dateLabel = Format.longWeekdayDate(LocalDate.parse(date)),
                     slotLabel = stringResource(slotLabelRes(slot)),
-                    onConfirm = { recipeId, servings -> viewModel.setSlot(date, slot, recipeId, servings); picking = null },
+                    onConfirmRecipe = { recipeId, servings -> viewModel.setSlot(date, slot, recipeId, null, servings); picking = null },
+                    onConfirmText = { text -> viewModel.setSlot(date, slot, null, text, null); picking = null },
                     onRemove = { viewModel.clearSlot(date, slot); picking = null },
                     onDismiss = { picking = null },
                 )
@@ -204,7 +206,8 @@ private fun DayCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                entry.recipeTitle,
+                                // recipe title, or the free-text dish name (#293)
+                                entry.recipeTitle ?: entry.dishTitle.orEmpty(),
                                 style = HbType.body.copy(fontWeight = FontWeight.Medium),
                                 color = Hb.ink,
                                 maxLines = 2,
@@ -247,15 +250,19 @@ private fun DayCard(
 private fun RecipePickerSheet(
     recipes: List<RecipeDto>,
     currentRecipeId: String?,
+    currentDishTitle: String?,
     currentServings: Int?,
     dateLabel: String,
     slotLabel: String,
     // servings is the chosen portions, or null to keep the recipe's own servings (1× as authored)
-    onConfirm: (recipeId: String, servings: Int?) -> Unit,
+    onConfirmRecipe: (recipeId: String, servings: Int?) -> Unit,
+    // a one-off dish typed straight in (#293) — no recipe, no ingredients, no portions
+    onConfirmText: (text: String) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
+    // Editing a free-text entry pre-fills the box so the typed name can be tweaked and re-applied.
+    var query by remember(currentDishTitle) { mutableStateOf(currentDishTitle.orEmpty()) }
     val currentRecipe = recipes.firstOrNull { it.id == currentRecipeId }
     // Key the picker state to the slot's current entry so it re-seeds if this sheet is ever reused
     // across slots without remounting (today it remounts per open — defensive).
@@ -264,8 +271,10 @@ private fun RecipePickerSheet(
         mutableStateOf((currentServings ?: currentRecipe?.servings ?: 1).coerceAtLeast(1))
     }
     val selectedRecipe = recipes.firstOrNull { it.id == selectedId }
+    val isEditing = currentRecipeId != null || currentDishTitle != null
 
-    val needle = query.trim().lowercase()
+    val typed = query.trim()
+    val needle = typed.lowercase()
     val filtered = if (needle.isEmpty()) recipes else recipes.filter { it.title.lowercase().contains(needle) }
 
     // Selecting a recipe seeds the stepper: the entry's chosen portions if it's the planned recipe,
@@ -280,14 +289,14 @@ private fun RecipePickerSheet(
         title = "$dateLabel · $slotLabel",
         footer = {
             HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary, size = HbButtonSize.Sm, modifier = Modifier.weight(1f))
-            if (currentRecipeId != null) {
+            if (isEditing) {
                 HbButton(stringResource(R.string.meal_plan_remove), onRemove, variant = HbButtonVariant.Danger, size = HbButtonSize.Sm, modifier = Modifier.weight(1f))
             }
             HbButton(
                 stringResource(R.string.meal_plan_pick_confirm),
                 onClick = {
                     // only persist a non-default portion count (keeps the common 1× case as null)
-                    selectedRecipe?.let { r -> onConfirm(r.id, if (servings != r.servings) servings else null) }
+                    selectedRecipe?.let { r -> onConfirmRecipe(r.id, if (servings != r.servings) servings else null) }
                 },
                 variant = HbButtonVariant.Primary,
                 size = HbButtonSize.Sm,
@@ -297,41 +306,66 @@ private fun RecipePickerSheet(
             )
         },
     ) {
-        if (recipes.isEmpty()) {
-            Text(stringResource(R.string.meal_plan_pick_empty), style = HbType.body, color = Hb.ink2)
-        } else {
-            HbTextField(value = query, onValueChange = { query = it }, placeholder = stringResource(R.string.meal_plan_pick_search))
-            if (selectedId != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.meal_plan_servings), style = HbType.meta, color = Hb.ink2, modifier = Modifier.weight(1f))
-                    HbIconButton(HbIcons.minus, { servings = (servings - 1).coerceAtLeast(1) }, iconSize = 18.dp)
-                    Text("$servings", style = HbType.body.copy(fontWeight = FontWeight.Bold), color = Hb.ink, modifier = Modifier.width(28.dp), maxLines = 1)
-                    HbIconButton(HbIcons.plus, { servings += 1 }, iconSize = 18.dp)
-                }
+        // Always show the field — typing a name is also how you add a free-text dish (#293).
+        HbTextField(value = query, onValueChange = { query = it }, placeholder = stringResource(R.string.meal_plan_pick_search))
+
+        // "Use as dish" row: take the typed text directly, works even with zero recipes.
+        if (typed.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .background(Hb.accentSoft, HbRadiusSm)
+                    .border(1.dp, Hb.accent, HbRadiusSm)
+                    .clickable { onConfirmText(typed) }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                HbIcon(HbIcons.edit, size = 18.dp, tint = Hb.accent)
+                Text(
+                    "${stringResource(R.string.meal_plan_use_as_text)} $typed",
+                    style = HbType.body,
+                    color = Hb.ink,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            if (filtered.isEmpty()) {
-                Text(stringResource(R.string.meal_plan_pick_no_match), style = HbType.body, color = Hb.ink2)
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    filtered.forEach { r ->
-                        val selected = r.id == selectedId
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(HbRadiusSm)
-                                .background(if (selected) Hb.accentSoft else Hb.surface, HbRadiusSm)
-                                .border(1.dp, if (selected) Hb.accent else Hb.lineSoft, HbRadiusSm)
-                                .clickable { select(r) }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text(r.title, style = HbType.body, color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Format.recipeCategoryLabelRes(r.category)?.let {
-                                Text(stringResource(it), style = HbType.small, color = Hb.ink3)
-                            }
-                            if (selected) HbIcon(HbIcons.check, size = 18.dp, tint = Hb.accent)
+        }
+
+        if (selectedId != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.meal_plan_servings), style = HbType.meta, color = Hb.ink2, modifier = Modifier.weight(1f))
+                HbIconButton(HbIcons.minus, { servings = (servings - 1).coerceAtLeast(1) }, iconSize = 18.dp)
+                Text("$servings", style = HbType.body.copy(fontWeight = FontWeight.Bold), color = Hb.ink, modifier = Modifier.width(28.dp), maxLines = 1)
+                HbIconButton(HbIcons.plus, { servings += 1 }, iconSize = 18.dp)
+            }
+        }
+
+        when {
+            // empty hint only until the user starts typing (then the "use as dish" row guides them)
+            recipes.isEmpty() -> if (typed.isEmpty()) Text(stringResource(R.string.meal_plan_pick_empty), style = HbType.body, color = Hb.ink2)
+            filtered.isEmpty() -> if (typed.isEmpty()) Text(stringResource(R.string.meal_plan_pick_no_match), style = HbType.body, color = Hb.ink2)
+            else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                filtered.forEach { r ->
+                    val selected = r.id == selectedId
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(HbRadiusSm)
+                            .background(if (selected) Hb.accentSoft else Hb.surface, HbRadiusSm)
+                            .border(1.dp, if (selected) Hb.accent else Hb.lineSoft, HbRadiusSm)
+                            .clickable { select(r) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(r.title, style = HbType.body, color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Format.recipeCategoryLabelRes(r.category)?.let {
+                            Text(stringResource(it), style = HbType.small, color = Hb.ink3)
                         }
+                        if (selected) HbIcon(HbIcons.check, size = 18.dp, tint = Hb.accent)
                     }
                 }
             }
@@ -346,7 +380,8 @@ private fun AddToShoppingSheet(
     onDismiss: () -> Unit,
 ) {
     val byId = remember(state.recipes) { state.recipes.associateBy { it.id } }
-    val itemCount = state.entries.sumOf { byId[it.recipeId]?.ingredients?.size ?: 0 }
+    // free-text entries (#293) have no recipe → contribute no ingredients
+    val itemCount = state.entries.sumOf { e -> e.recipeId?.let { byId[it] }?.ingredients?.size ?: 0 }
     val dishCount = state.entries.size
     var listId by remember(state.shoppingLists) { mutableStateOf(state.shoppingLists.firstOrNull()?.id) }
 

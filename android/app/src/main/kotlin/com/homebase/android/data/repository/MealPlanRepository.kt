@@ -32,8 +32,9 @@ class MealPlanRepository(
     suspend fun getMealPlan(from: String, to: String): Result<List<MealPlanEntryDto>> =
         apiCatching { api.getMealPlan(from, to) }
 
-    suspend fun setMealSlot(date: String, slot: String, recipeId: String, servings: Int?): Result<MealPlanEntryDto> =
-        apiCatching { api.setMealSlot(date, slot, SetMealPlanRequest(recipeId, servings)) }
+    /** Set a slot to EITHER a recipe OR a free-text dish (#293) — pass exactly one of recipeId/dishTitle. */
+    suspend fun setMealSlot(date: String, slot: String, recipeId: String?, dishTitle: String?, servings: Int?): Result<MealPlanEntryDto> =
+        apiCatching { api.setMealSlot(date, slot, SetMealPlanRequest(recipeId = recipeId, dishTitle = dishTitle, servings = servings)) }
 
     suspend fun deleteMealSlot(date: String, slot: String): Result<Unit> =
         apiCatching { api.deleteMealSlot(date, slot) }

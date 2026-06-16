@@ -519,4 +519,90 @@ class MigrationIntegrationTest {
             )
         }
     }
+
+    /**
+     * Guards V28's free-text XOR CHECK (#293): a meal_plan_entry must carry EXACTLY ONE of
+     * recipe_id / dish_title. H2's SchemaUtils build carries no CHECK (the route tests only prove
+     * the app-level 400s), so only real Postgres proves the DB safety net actually fires.
+     */
+    @Test
+    fun `V28 meal plan entry enforces recipe XOR dish_title`() {
+        DatabaseFactory.init(
+            MapApplicationConfig(
+                "database.url" to dbUrl!!,
+                "database.user" to dbUser!!,
+                "database.password" to dbPassword!!,
+            ),
+        )
+
+        val userName = "mig_meal_${UUID.randomUUID().toString().take(8)}"
+        createdUsers += userName
+        val recipeUuid = UUID.randomUUID()
+
+        transaction {
+            UsersTable.insert {
+                it[id] = UUID.randomUUID()
+                it[username] = userName
+                it[passwordHash] = "x"
+                it[createdAt] = Instant.now()
+            }
+            RecipesTable.insert {
+                it[id] = recipeUuid
+                it[title] = "Lasagne"
+                it[servings] = 2
+                it[category] = "DINNER"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+                it[updatedAt] = Instant.now()
+            }
+        }
+
+        // valid: a free-text dish with no recipe satisfies the XOR (recipe_id NULL, dish_title set)
+        val freeTextId = UUID.randomUUID()
+        transaction {
+            MealPlanEntriesTable.insert {
+                it[id] = freeTextId
+                it[date] = LocalDate.of(2026, 6, 15)
+                it[slot] = "LUNCH"
+                it[dishTitle] = "Pizza bestellen"
+                it[createdBy] = userName
+                it[createdAt] = Instant.now()
+            }
+        }
+        transaction {
+            assertEquals(
+                "Pizza bestellen",
+                MealPlanEntriesTable.selectAll().where { MealPlanEntriesTable.id eq freeTextId }
+                    .single()[MealPlanEntriesTable.dishTitle],
+            )
+        }
+
+        // invalid: BOTH set -> meal_plan_entries_recipe_xor_dish rejects it
+        assertFailsWith<ExposedSQLException> {
+            transaction {
+                MealPlanEntriesTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[date] = LocalDate.of(2026, 6, 16)
+                    it[slot] = "DINNER"
+                    it[recipeId] = recipeUuid
+                    it[dishTitle] = "both set"
+                    it[createdBy] = userName
+                    it[createdAt] = Instant.now()
+                }
+            }
+        }
+
+        // invalid: NEITHER set -> the same CHECK rejects it
+        assertFailsWith<ExposedSQLException> {
+            transaction {
+                MealPlanEntriesTable.insert {
+                    it[id] = UUID.randomUUID()
+                    it[date] = LocalDate.of(2026, 6, 17)
+                    it[slot] = "DINNER"
+                    it[createdBy] = userName
+                    it[createdAt] = Instant.now()
+                }
+            }
+        }
+    }
 }

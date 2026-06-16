@@ -189,7 +189,7 @@ class MoshiRoundTripTest {
 
     @Test
     fun `MealPlanEntryDto parses from the backend payload`() {
-        // Every field is always sent for a meal-plan entry (recipe title/category joined in).
+        // Recipe-backed entry: the recipe title/category are joined in (#218).
         val json = """
             {
               "id": "22222222-2222-2222-2222-222222222222",
@@ -209,6 +209,31 @@ class MoshiRoundTripTest {
         assertEquals("DINNER", entry.slot)
         assertEquals("Lasagne", entry.recipeTitle)
         assertEquals("33333333-3333-3333-3333-333333333333", entry.recipeId)
+        assertNull(entry.dishTitle)
+    }
+
+    @Test
+    fun `MealPlanEntryDto parses a free-text dish payload with no recipe fields`() {
+        // Free-text entry (#293): the backend omits the recipe fields (encodeDefaults=false), so
+        // Moshi must map the missing keys to null and surface only dishTitle.
+        val json = """
+            {
+              "id": "22222222-2222-2222-2222-222222222222",
+              "date": "2026-06-15",
+              "slot": "LUNCH",
+              "dishTitle": "Pizza bestellen",
+              "createdBy": "max",
+              "createdAt": "2026-06-13T08:00:00Z"
+            }
+        """.trimIndent()
+
+        val entry = moshi.adapter(MealPlanEntryDto::class.java).fromJson(json)
+
+        requireNotNull(entry)
+        assertEquals("Pizza bestellen", entry.dishTitle)
+        assertNull(entry.recipeId)
+        assertNull(entry.recipeTitle)
+        assertNull(entry.recipeCategory)
     }
 
     @Test
