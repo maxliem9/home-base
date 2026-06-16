@@ -196,6 +196,15 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       if (!d.id) creatingRef.current = true
       setSaveState('saving')
       setSaveError(null)
+      // Did this attempt succeed (HTTP ok)? Gates the trailing-edit re-fire in `finally`:
+      // we re-fire ONLY after a successful save. On a transport/HTTP failure the live draft
+      // stays dirty vs the snapshot, so a blanket re-fire would hot-loop and hammer the
+      // network — leave the inline error up and wait for the next edit/debounce instead.
+      let saveOk = false
+      // The id captured from a successful create, so a trailing-edit re-fire PUTs the same
+      // note instead of POSTing a second one. We can't read it back off `draft`: setDraft is
+      // async and may not have flushed by the time the re-fire reads draftRef.
+      let savedId: string | undefined = d.id
       try {
         const result = d.id
           ? await safeFetch(token, `${API_BASE}/notes/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
@@ -209,7 +218,9 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         const { res } = result
         if (res.status === 401) return onLogout()
         if (res.ok) {
+          saveOk = true
           const saved: Note = await res.json()
+          savedId = saved.id
           setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
           // Remember exactly what we persisted so the next change is detected as dirty.
           savedSnapshotRef.current = body
@@ -220,7 +231,15 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
             setSelectedId(saved.id)
             setDraft((prev) => (prev && !prev.id ? { ...prev, id: saved.id } : prev))
           }
-          setSaveState('saved')
+          // Truthful status (#309): a keystroke that arrived WHILE this save was in flight is
+          // still unsaved (its debounce tick early-returned because savingRef was set, and
+          // nothing re-schedules it). If the live draft of THIS session still differs from
+          // what we just wrote, KEEP the status on "saving" — don't flash "Gespeichert" while
+          // a newer edit is pending; the `finally` re-fire below will persist it and only then
+          // does the status reach "saved".
+          const live = draftRef.current
+          const trailingDirty = sessionRef.current === session && !!live && serializeDraft(live) !== savedSnapshotRef.current
+          setSaveState(trailingDirty ? 'saving' : 'saved')
         } else {
           setSaveError(errorText(await errorCode(res), t('notes.saveFailed')))
           setSaveState('error')
@@ -228,6 +247,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       } finally {
         savingRef.current = false
         creatingRef.current = false
+        // Trailing-edit re-fire (#309): persist a change typed during the in-flight window.
+        // Must run AFTER clearing savingRef/creatingRef, or the re-fire would hit the in-flight
+        // early-return. Re-reads the freshest draft + same session and re-checks dirtiness, so
+        // it is a no-op when nothing changed. Reusing the now-captured id keeps a mid-create
+        // trailing edit a PUT (not a second POST). This also rescues a commitPending()
+        // (blur/leave/switch/UNMOUNT) that early-returned during the save: its edit lives in
+        // draftRef and gets persisted by this tail. Guarded by saveOk — never on failure.
+        if (saveOk) {
+          const live = draftRef.current
+          if (sessionRef.current === session && live && serializeDraft(live) !== savedSnapshotRef.current) {
+            void saveDraft(savedId ? { ...live, id: savedId } : live, session)
+          }
+        }
       }
     },
     [onLogout, t, token],

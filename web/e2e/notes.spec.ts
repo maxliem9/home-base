@@ -119,6 +119,57 @@ test.describe('Notes', () => {
     await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('Router: xyz789')
   })
 
+  // #309 regression: a keystroke typed WHILE a save is in flight must still be persisted, and
+  // the status must not lie. The first auto-save PUT is artificially delayed; during that window
+  // a SECOND edit is typed. The in-flight save's tail must re-fire so the FINAL PUT carries the
+  // second change, and "Gespeichert" must appear only AFTER that latest content was sent (not on
+  // the first PUT, whose body is already stale).
+  test('persists an edit typed while a save is in flight, and "Gespeichert" only after it lands', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    // Delay every PUT to n1 by ~1.5s, then let the mock handle it. This holds the first save
+    // open long enough to type a second change before it resolves.
+    await page.route('**/api/v1/notes/n1', async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      await new Promise((r) => setTimeout(r, 1500))
+      return route.fallback()
+    })
+
+    // record every PUT body in order so we can assert what the FINAL save actually sent
+    const putBodies: string[] = []
+    page.on('request', (r) => {
+      if (/\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT') {
+        putBodies.push(JSON.parse(r.postData() ?? '{}').content)
+      }
+    })
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+
+    // first edit → after the debounce the (delayed) first PUT starts and stays in flight
+    const firstPut = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    await ta.fill('FIRST change')
+    await firstPut
+
+    // while that PUT is held open the status shows "Speichert…", NOT "Gespeichert"
+    await expect(page.locator('.hb-savestatus.is-saving')).toBeVisible()
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
+
+    // type the SECOND change during the in-flight window — the bug dropped exactly this edit
+    await ta.fill('SECOND change')
+    // status must stay truthful: still saving, never flashing "Gespeichert" with stale content
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
+
+    // once everything settles the status reaches "Gespeichert"…
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
+    // …and the FINAL PUT carried the second change (the trailing edit was persisted, not lost)
+    expect(putBodies[putBodies.length - 1]).toBe('SECOND change')
+    // the editor still holds the latest text (no clobber by the in-flight save's response)
+    await expect(ta).toHaveValue('SECOND change')
+    // the merged list preview reflects the last-saved content, proving "Gespeichert" is truthful
+    await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('SECOND change')
+  })
+
   test('does not auto-save when nothing changed after opening a note', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
     let puts = 0
