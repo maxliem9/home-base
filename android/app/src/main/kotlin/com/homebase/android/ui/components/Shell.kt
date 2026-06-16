@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -562,13 +564,18 @@ fun HbBottomNav(
     dots: Set<HbRoute> = emptySet(),
     moreActive: Boolean = active in MORE_ROUTES,
 ) {
+    // Landmark for the bottom tab bar, mirroring web's `<nav aria-label>` (#239); read out by
+    // TalkBack as the navigation region. Resolved here as a @Composable call, then set in the
+    // non-composable semantics lambda.
+    val navLabel = stringResource(R.string.nav_main)
     Row(
         modifier
             .fillMaxWidth()
             .background(Hb.surface)
             .bottomBorderTop(Hb.lineSoft)
             .navigationBarsPadding()
-            .heightIn(min = 58.dp),
+            .heightIn(min = 58.dp)
+            .semantics { contentDescription = navLabel },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CORE_ROUTES.forEach { route ->

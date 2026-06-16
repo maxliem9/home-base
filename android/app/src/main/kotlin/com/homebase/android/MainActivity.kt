@@ -16,8 +16,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -240,7 +243,13 @@ class MainActivity : AppCompatActivity() {
             // the bar; overlays (scrim/drawer/settings/Mehr-sheet) are siblings below and
             // cover the bar too.
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Consume the navigationBars inset for this screen container so the FAB and toast
+                // (HbFab/HbToast inside the active screen) — which each apply navigationBarsPadding()
+                // — resolve it to ~0 and sit flush above the bar, instead of double-counting it and
+                // floating a full nav-inset too high (a visible gap on every FAB screen + toast).
+                // HbBottomNav is a SIBLING below in this Column, OUTSIDE this Box, so it still
+                // receives the full inset and stays clear of the system navigation bar. (#239 review.)
+                Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) {
                     when (route) {
                         HbRoute.HEUTE -> HeuteScreen(
                             todoVm = todoVm,
