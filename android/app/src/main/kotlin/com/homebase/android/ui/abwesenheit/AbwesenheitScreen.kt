@@ -132,6 +132,7 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                     label = stringResource(R.string.absence_fab),
                 )
             },
+            onRefresh = { viewModel.refresh() },
         ) {
             HbSegmented(
                 options = listOf(stringResource(R.string.absence_view_year), stringResource(R.string.absence_view_month)),

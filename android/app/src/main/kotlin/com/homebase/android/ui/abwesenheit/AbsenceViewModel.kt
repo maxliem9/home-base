@@ -44,11 +44,26 @@ class AbsenceViewModel(
         }
     }
 
-    /** Silent refetch (no loading flicker) after a mutation or a WebSocket ping. */
+    /**
+     * Silent refetch (no loading flicker) after a mutation, a WebSocket ping, a (re)connect, or app
+     * resume (#269). Leaves existing data + `error` untouched on a transient failure so a dropped
+     * network never blanks the planner; the next trigger retries.
+     */
     private fun refetch() {
         viewModelScope.launch {
             repository.getState().onSuccess { snapshot -> _uiState.update { it.copy(data = snapshot) } }
         }
+    }
+
+    /**
+     * Pull-to-refresh entry point (#269). Suspends until the snapshot reload completes so the UI's
+     * refresh indicator can spin for the duration; no full-screen spinner (the planner stays visible)
+     * but it does surface a fetch error, since it's user-triggered.
+     */
+    suspend fun refresh() {
+        repository.getState()
+            .onSuccess { snapshot -> _uiState.update { it.copy(data = snapshot, error = null) } }
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
     private fun mutate(block: suspend () -> Result<Unit>) {
@@ -130,16 +145,30 @@ class AbsenceViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
+        // Re-read the snapshot on every (re)connect — the "server reachable again" signal (#269,
+        // mirrors the time channel + shopping queue flush). The first connect also fires this; that
+        // one refetch overlaps load()'s fetch (harmless — a cheap GET at cold start), and every later
+        // reconnect then reliably re-syncs without bespoke state.
+        repository.setWebSocketOnConnected { refetch() }
         viewModelScope.launch {
             repository.incomingEvents.collect { refetch() }
         }
     }
 
-    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
-    fun ensureConnected() = repository.ensureWebSocketConnected()
+    /**
+     * Called from the UI when the app returns to the foreground (#269). Reconnects the channel if it
+     * dropped **and** re-reads the snapshot: a reconnect fires `onConnected` → [refetch], but if the
+     * socket survived the background no callback fires, so we also refetch here. Either way the
+     * planner matches the server after a backgrounded change elsewhere.
+     */
+    fun ensureConnected() {
+        repository.ensureWebSocketConnected()
+        refetch()
+    }
 
     override fun onCleared() {
         super.onCleared()
+        repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
 }

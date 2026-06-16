@@ -74,17 +74,52 @@ class TodoViewModel(
     }
 
     fun load() {
+        viewModelScope.launch { reload(showSpinner = true) }
+    }
+
+    /**
+     * Pull-to-refresh entry point (#269). Suspends until the refetch completes so the UI's refresh
+     * indicator can spin for the duration; no full-screen spinner (the list stays visible) but it
+     * does surface a fetch error like load(), since it's user-triggered.
+     */
+    suspend fun refresh() = reload(showSpinner = false)
+
+    /**
+     * Refetch lists + todos. [showSpinner] drives the full-screen loading flag — true for the cold
+     * load(), false for pull-to-refresh (the existing content stays put). On a transient failure the
+     * previous lists/todos are kept (getOrDefault) so a dropped network never blanks the screen.
+     */
+    private suspend fun reload(showSpinner: Boolean) {
+        if (showSpinner) _uiState.update { it.copy(isLoading = true, error = null) }
+        val lists = repository.getLists()
+        val todos = repository.getTodos()
+        val error = lists.exceptionOrNull()?.message ?: todos.exceptionOrNull()?.message
+        _uiState.update { state ->
+            state.copy(
+                lists = lists.getOrDefault(state.lists),
+                todos = todos.getOrDefault(state.todos),
+                isLoading = false,
+                error = error,
+            )
+        }
+    }
+
+    /**
+     * Silent background re-sync of lists + todos (#269). Fires on every WS (re)connect
+     * (`onConnected`) and on app/screen resume ([ensureConnected]). A todo created/edited/deleted on
+     * the web or another device while our socket was dead (Doze / mobile-network change / backend
+     * restart) sends a TODO_* frame we never receive — without this refetch the list would stay stale
+     * until logout/login. Unlike [reload] this never flips `isLoading` and leaves `error` untouched on
+     * a transient failure — the next trigger retries.
+     */
+    private fun syncFromServer() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             val lists = repository.getLists()
             val todos = repository.getTodos()
-            val error = lists.exceptionOrNull()?.message ?: todos.exceptionOrNull()?.message
             _uiState.update { state ->
                 state.copy(
                     lists = lists.getOrDefault(state.lists),
                     todos = todos.getOrDefault(state.todos),
-                    isLoading = false,
-                    error = error,
                 )
             }
         }
@@ -206,6 +241,11 @@ class TodoViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
+        // Re-sync on every (re)connect — the "server reachable again" signal (#269, mirrors the time
+        // channel + shopping queue flush). The first connect also fires this; that one re-sync
+        // overlaps load()'s fetch (harmless — cheap GETs at cold start), and every later reconnect
+        // then reliably re-syncs without bespoke state.
+        repository.setWebSocketOnConnected { syncFromServer() }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
@@ -228,11 +268,20 @@ class TodoViewModel(
         }
     }
 
-    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
-    fun ensureConnected() = repository.ensureWebSocketConnected()
+    /**
+     * Called from the UI when the app returns to the foreground (#269). Reconnects the channel if it
+     * dropped **and** re-syncs from the server: a reconnect fires `onConnected` → [syncFromServer],
+     * but if the socket survived the background no callback fires, so we also refetch here. Either way
+     * the list matches the server after a backgrounded change elsewhere.
+     */
+    fun ensureConnected() {
+        repository.ensureWebSocketConnected()
+        syncFromServer()
+    }
 
     override fun onCleared() {
         super.onCleared()
+        repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
 }

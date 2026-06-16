@@ -74,4 +74,15 @@ class AbsenceRepository(
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
     fun disconnectWebSocket() = wsClient.disconnect()
+
+    /**
+     * Register a "socket (re)connected, server reachable again" callback (#269). The ViewModel uses
+     * it to silently re-read the planner snapshot after a drop, so a change made on another device
+     * while our socket was dead (Doze / mobile-network change / backend restart) — whose
+     * ABSENCE_CHANGED ping we missed — shows up instead of leaving stale data on screen. Mirrors the
+     * time + shopping channels.
+     */
+    fun setWebSocketOnConnected(onConnected: (() -> Unit)?) {
+        wsClient.onConnected = onConnected
+    }
 }

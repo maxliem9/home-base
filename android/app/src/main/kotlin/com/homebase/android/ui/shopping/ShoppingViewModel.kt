@@ -159,6 +159,57 @@ class ShoppingViewModel(
         viewModelScope.launch { reload() }
     }
 
+    /**
+     * Pull-to-refresh entry point (#269). Suspends until lists + items are refetched so the UI's
+     * refresh indicator can spin for the duration. Routes through [syncFromServer] (not [reload]) so
+     * a still-pending offline check-off is not clobbered by the server's older state, and surfaces a
+     * fetch error since it's user-triggered.
+     */
+    suspend fun refresh() = syncFromServer(surfaceError = true)
+
+    /**
+     * Silent background re-sync of lists + items (#269). Fires on every WS (re)connect (alongside the
+     * queue [flush], see [observeWebSocket]) and on app/screen resume ([ensureConnected]). An item or
+     * list created/edited/deleted on the web or another device while our socket was dead (Doze /
+     * mobile-network change / backend restart) sends an item/list frame we never receive — the queue
+     * flush alone only re-PUTs our own pending check-offs, it does not pull in a partner's changes, so
+     * without this the list stays stale until logout/login.
+     *
+     * Each fetched item is merged through the same pending-aware rule as [upsertItemFromServer]: a
+     * still-queued local check intent wins over the server's `checked`/`checkedAt` (the server may not
+     * yet have our in-flight PUT), every other field takes the server value. Items removed on the
+     * server drop out; queued checks for them are pruned. Never flips `isLoading`; on a transient
+     * failure existing state is kept (the next trigger retries) unless [surfaceError] (pull-to-refresh).
+     */
+    private suspend fun syncFromServer(surfaceError: Boolean = false) {
+        val listsResult = repository.getLists()
+        val itemsResult = repository.getItems()
+        val error = listsResult.exceptionOrNull()?.message ?: itemsResult.exceptionOrNull()?.message
+        if (error != null) {
+            if (surfaceError) _uiState.update { it.copy(error = error) }
+            return
+        }
+        val serverItems = itemsResult.getOrDefault(emptyList())
+        _uiState.update { state ->
+            val merged = serverItems.map { server ->
+                // A pending local check wins over the server's checked state (see upsertItemFromServer).
+                val local = state.items.firstOrNull { it.id == server.id }
+                if (local != null && server.id in queue) server.copy(checked = local.checked, checkedAt = local.checkedAt)
+                else server
+            }
+            state.copy(
+                lists = listsResult.getOrDefault(state.lists),
+                items = merged,
+                error = if (surfaceError) null else state.error,
+            )
+        }
+        // Prune queued checks for items the server no longer has (deleted elsewhere) — they can never
+        // land. Compare against the freshly fetched ids, not stale local state.
+        val goneIds = queue.entries.keys.filter { id -> serverItems.none { it.id == id } }
+        if (goneIds.isNotEmpty()) dequeueAll(goneIds)
+        migrateListlessItems()
+    }
+
     /** Refetch lists + items into the UI state (the body of [load]); awaited by callers that need
      *  the snapshot in place before they act, e.g. the delete-failure resync. */
     private suspend fun reload() {
@@ -551,8 +602,14 @@ class ShoppingViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
-        // A (re)connected socket means the server is reachable — drain the queue (web WS `onOpen`).
-        repository.setWebSocketOnConnected { flush() }
+        // A (re)connected socket means the server is reachable (web WS `onOpen`): drain the offline
+        // check-off queue AND refetch the list (#269). The flush only re-PUTs our own pending checks;
+        // the refetch pulls in a partner's item/list changes made while our socket was dead, whose
+        // WS frames we missed — without it those would stay stale until logout/login.
+        repository.setWebSocketOnConnected {
+            flush()
+            viewModelScope.launch { syncFromServer() }
+        }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
@@ -621,8 +678,18 @@ class ShoppingViewModel(
         }
     }
 
-    /** Reconnect the channel if it dropped — called from the UI when the app returns to the foreground. */
-    fun ensureConnected() = repository.ensureWebSocketConnected()
+    /**
+     * Called from the UI when the app returns to the foreground (#269). Reconnects the channel if it
+     * dropped, **re-syncs the list** and **flushes** the offline queue. A reconnect fires `onConnected`
+     * (which does both), but if the socket survived the background no callback fires, so we also do it
+     * here. Either way the list matches the server after a backgrounded change elsewhere and any
+     * pending check-offs retry.
+     */
+    fun ensureConnected() {
+        repository.ensureWebSocketConnected()
+        flush()
+        viewModelScope.launch { syncFromServer() }
+    }
 
     override fun onCleared() {
         super.onCleared()

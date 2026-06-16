@@ -26,9 +26,17 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.homebase.android.R
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------
 // Navigation routes (mirrors the drawer order in the design)
@@ -199,6 +208,7 @@ fun HbFab(
 
 val ScreenPad = 18.dp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HbScreenScaffold(
     appBar: @Composable () -> Unit,
@@ -206,20 +216,60 @@ fun HbScreenScaffold(
     scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
     scrollable: Boolean = true,
     fab: (@Composable () -> Unit)? = null,
+    // Pull-to-refresh (#269): when set, the scrolling area gets a Material3 pull-to-refresh gesture.
+    // The lambda suspends until the refetch completes; the indicator spins for that duration. Null =
+    // no gesture (screens without a refreshable list).
+    onRefresh: (suspend () -> Unit)? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier.fillMaxSize().background(Hb.paper).statusBarsPadding()) {
         appBar()
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
-            ) {
-                Spacer(Modifier.size(4.dp))
-                content()
-                Spacer(Modifier.size(110.dp))
+            // The scrolling content, shared by both the plain and the pull-to-refresh paths.
+            val scrollingContent: @Composable () -> Unit = {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
+                ) {
+                    Spacer(Modifier.size(4.dp))
+                    content()
+                    Spacer(Modifier.size(110.dp))
+                }
+            }
+            if (onRefresh != null) {
+                val scope = rememberCoroutineScope()
+                var refreshing by remember { mutableStateOf(false) }
+                val refreshState = rememberPullToRefreshState()
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = {
+                        // Guard against a second pull while one is in flight; reset in finally so a
+                        // failed refetch never wedges the gesture shut.
+                        if (!refreshing) {
+                            refreshing = true
+                            scope.launch {
+                                try { onRefresh() } finally { refreshing = false }
+                            }
+                        }
+                    },
+                    state = refreshState,
+                    indicator = {
+                        // Themed indicator (accent on the surface), pinned to the top-centre.
+                        PullToRefreshDefaults.Indicator(
+                            state = refreshState,
+                            isRefreshing = refreshing,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                            containerColor = Hb.surface,
+                            color = Hb.accent,
+                        )
+                    },
+                ) {
+                    scrollingContent()
+                }
+            } else {
+                scrollingContent()
             }
             if (fab != null) {
                 Box(Modifier.align(Alignment.BottomEnd)) { fab() }

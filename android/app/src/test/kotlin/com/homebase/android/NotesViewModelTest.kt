@@ -12,6 +12,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -27,6 +28,10 @@ class NotesViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: NotesRepository
     private val wsEvents = MutableSharedFlow<NotesWebSocketClient.WsEvent>()
+
+    /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#269). */
+    private val onConnectedSlot = slot<() -> Unit>()
+    private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
 
     private fun note(
         id: String = "1",
@@ -48,6 +53,8 @@ class NotesViewModelTest {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         every { repository.incomingEvents } returns wsEvents
+        // Capture the reconnect callback the VM registers (#269) so tests can fire it.
+        every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
     }
 
     @After
@@ -354,5 +361,86 @@ class NotesViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.notes.isEmpty())
+    }
+
+    // --- #269: re-sync on WS reconnect / app resume / pull-to-refresh ---
+
+    @Test
+    fun `WS reconnect refetches the notes list`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "remote", title = "Von Web")))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.notes.size)
+        assertEquals("Von Web", vm.uiState.value.notes[0].title)
+    }
+
+    @Test
+    fun `WS reconnect refetches with the active query`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+        coEvery { repository.getNotes("pasta") } returns Result.success(listOf(note(title = "Pasta")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.onQueryChange("pasta")
+        advanceUntilIdle()
+
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        // The reconnect re-sync must use the live query, not the empty one.
+        coVerify(atLeast = 2) { repository.getNotes("pasta") }
+        assertEquals(1, vm.uiState.value.notes.size)
+    }
+
+    @Test
+    fun `WS reconnect re-sync keeps existing notes on a transient failure`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1", title = "Da")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.notes.size)
+
+        coEvery { repository.getNotes("") } returns Result.failure(RuntimeException("down"))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.notes.size)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `ensureConnected reconnects and re-syncs from the server`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "bg", title = "Im Hintergrund")))
+        vm.ensureConnected()
+        advanceUntilIdle()
+
+        coVerify { repository.ensureWebSocketConnected() }
+        assertEquals(1, vm.uiState.value.notes.size)
+    }
+
+    @Test
+    fun `refresh refetches without ever setting the loading flag`() = runTest {
+        coEvery { repository.getNotes("") } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "r", title = "Neu")))
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals(1, vm.uiState.value.notes.size)
     }
 }

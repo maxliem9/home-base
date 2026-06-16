@@ -161,6 +161,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             onOpenNote = { selectedNoteId = it.id },
             onCreate = { editor = Editor.Create },
             onOpenDrawer = onOpenDrawer,
+            onRefresh = { viewModel.refresh() },
         )
     }
 
@@ -216,6 +217,7 @@ private fun NoteList(
     onOpenNote: (NoteDto) -> Unit,
     onCreate: () -> Unit,
     onOpenDrawer: () -> Unit,
+    onRefresh: suspend () -> Unit,
 ) {
     val allTags = remember(notes) { notes.flatMap { it.tags }.distinct() }
     // Folders are derived client-side from the loaded notes, like tags — there is no separate
@@ -251,6 +253,7 @@ private fun NoteList(
                 )
             },
             fab = { HbFab(onClick = onCreate, label = stringResource(R.string.notes_fab)) },
+            onRefresh = onRefresh,
         ) {
             // Folder-filter row — only when at least one note has a folder. Full-bleed,
             // horizontally scrollable, with an "all" head and a trailing "no folder" bucket.

@@ -107,6 +107,7 @@ fun ShoppingScreen(
                 )
             },
             fab = { HbFab(onClick = { showAddItemSheet = true }, label = stringResource(R.string.shopping_fab)) },
+            onRefresh = { viewModel.refresh() },
         ) {
             // Full-bleed list-tabs strip
             ListTabs(

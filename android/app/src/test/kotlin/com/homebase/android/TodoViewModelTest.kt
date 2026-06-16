@@ -12,6 +12,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +29,10 @@ class TodoViewModelTest {
     private lateinit var repository: TodoRepository
     private val wsEvents = MutableSharedFlow<TodoWebSocketClient.WsEvent>()
 
+    /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#269). */
+    private val onConnectedSlot = slot<() -> Unit>()
+    private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
+
     private fun todo(id: String = "1", title: String = "Test", status: String = "INBOX", listId: String? = null) = TodoDto(
         id = id, title = title, status = status, listId = listId,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
@@ -43,6 +48,8 @@ class TodoViewModelTest {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
         every { repository.incomingEvents } returns wsEvents
+        // Capture the reconnect callback the VM registers (#269) so tests can fire it.
+        every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
         // load() fetches both lists and todos; default lists to empty unless a test overrides.
         coEvery { repository.getLists() } returns Result.success(emptyList())
     }
@@ -380,5 +387,83 @@ class TodoViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.todos.isEmpty())
+    }
+
+    // --- #269: re-sync on WS reconnect / app resume / pull-to-refresh ---
+
+    @Test
+    fun `WS reconnect refetches lists and todos`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+        // load() fetched once; the first onConnected re-sync overlaps it (cheap), so allow >=2.
+        coVerify(atLeast = 1) { repository.getTodos() }
+
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "remote", title = "Von Web")))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.todos.size)
+        assertEquals("Von Web", vm.uiState.value.todos[0].title)
+    }
+
+    @Test
+    fun `WS reconnect re-sync keeps existing todos on a transient failure`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1", title = "Da")))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.todos.size)
+
+        // Socket reconnects but the refetch fails (still flaky) — must not blank the list or error.
+        coEvery { repository.getLists() } returns Result.failure(RuntimeException("down"))
+        coEvery { repository.getTodos() } returns Result.failure(RuntimeException("down"))
+        fireWsReconnect()
+        advanceUntilIdle()
+
+        assertEquals(1, vm.uiState.value.todos.size)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `ensureConnected reconnects and re-syncs from the server`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "bg", title = "Im Hintergrund")))
+        vm.ensureConnected()
+        advanceUntilIdle()
+
+        coVerify { repository.ensureWebSocketConnected() }
+        assertEquals(1, vm.uiState.value.todos.size)
+        assertEquals("Im Hintergrund", vm.uiState.value.todos[0].title)
+    }
+
+    @Test
+    fun `refresh refetches without ever setting the loading flag`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "r", title = "Neu")))
+        vm.refresh()
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isLoading)
+        assertEquals(1, vm.uiState.value.todos.size)
+    }
+
+    @Test
+    fun `VM registers a reconnect callback on construction`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        createVm()
+        advanceUntilIdle()
+
+        // The VM wired itself to the channel's onConnected (#269) — captured by onConnectedSlot.
+        assertTrue(onConnectedSlot.isCaptured)
     }
 }
