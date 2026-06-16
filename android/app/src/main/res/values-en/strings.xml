@@ -45,6 +45,9 @@
     <!-- Bottom tab bar (HB-09, #239): short labels + "More" overflow sheet. -->
     <string name="nav_more">More</string>
     <string name="nav_main">Main navigation</string>
+    <!-- a11y (#298): onClick label of the "More" tab — TalkBack reads "double tap to …",
+         making clear it opens a menu/sheet (counterpart to web aria-haspopup="dialog"). -->
+    <string name="nav_more_opens_sheet">open more areas</string>
     <string name="nav_short_today">Today</string>
     <string name="nav_short_tasks">Tasks</string>
     <string name="nav_short_shopping">Shopping</string>

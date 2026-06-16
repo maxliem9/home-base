@@ -48,7 +48,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -471,6 +475,12 @@ fun HbDrawerContent(
                         .clip(HbRadiusSm)
                         .background(if (isActive) Hb.accentSoft else Color.Transparent, HbRadiusSm)
                         .clickable { onSelect(route) }
+                        // a11y (#298): mark the current destination as selected + give nav rows
+                        // the tab role, mirroring web's aria-current="page" on the drawer links.
+                        .semantics {
+                            selected = isActive
+                            role = Role.Tab
+                        }
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
@@ -568,6 +578,10 @@ fun HbBottomNav(
     // TalkBack as the navigation region. Resolved here as a @Composable call, then set in the
     // non-composable semantics lambda.
     val navLabel = stringResource(R.string.nav_main)
+    // onClick label for the "Mehr" tab — TalkBack announces "double tap to <label>", conveying it
+    // opens a sheet rather than navigating (Compose has no aria-haspopup; resolved here as a
+    // @Composable call, then applied in the non-composable semantics lambda). a11y (#298).
+    val moreOpensLabel = stringResource(R.string.nav_more_opens_sheet)
     Row(
         modifier
             .fillMaxWidth()
@@ -589,7 +603,9 @@ fun HbBottomNav(
                 modifier = Modifier.weight(1f),
             )
         }
-        // The "Mehr" overflow entry — highlighted while a hidden area is active.
+        // The "Mehr" overflow entry — highlighted while a hidden area is active. It opens a sheet
+        // rather than selecting a tab, so it gets the "opens sheet" semantics (Button role + click
+        // label) instead of selected/Role.Tab. a11y (#298).
         HbBottomNavItem(
             icon = HbIcons.more,
             label = stringResource(R.string.nav_more),
@@ -598,6 +614,7 @@ fun HbBottomNav(
             dot = false,
             onClick = onMore,
             modifier = Modifier.weight(1f),
+            onClickLabel = moreOpensLabel,
         )
     }
 }
@@ -611,11 +628,25 @@ private fun HbBottomNavItem(
     dot: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // a11y (#298): set for the overflow ("Mehr") entry — its onClick gets this label so TalkBack
+    // announces it opens a sheet rather than navigating. Null = a plain nav tab (selected/Role.Tab).
+    onClickLabel: String? = null,
 ) {
     Column(
         modifier
             .fillMaxHeight()
             .applyNoRipple(onClick)
+            // a11y (#298): nav tabs expose selected-state + the tab role (web: aria-current="page");
+            // the overflow entry instead advertises that it opens a sheet via the onClick label
+            // (web: aria-haspopup="dialog"), keeping the default Button role.
+            .semantics {
+                if (onClickLabel != null) {
+                    onClick(label = onClickLabel, action = null)
+                } else {
+                    selected = active
+                    role = Role.Tab
+                }
+            }
             .padding(vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
@@ -686,6 +717,12 @@ fun HbMoreSheet(
                     .clip(HbRadiusSm)
                     .background(if (isActive) Hb.accentSoft else Color.Transparent, HbRadiusSm)
                     .clickable { onSelect(route) }
+                    // a11y (#298): same selected + tab-role semantics as the drawer/bottom-nav rows
+                    // (web: aria-current="page" on the overflow links).
+                    .semantics {
+                        selected = isActive
+                        role = Role.Tab
+                    }
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(13.dp),
