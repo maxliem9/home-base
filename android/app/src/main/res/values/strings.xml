@@ -48,6 +48,14 @@
     <string name="nav_calendar">Kalender</string>
     <string name="nav_recipes">Rezepte</string>
     <string name="nav_meal_plan">Wochenplan</string>
+    <!-- Untere Tab-Bar (HB-09, #239): kurze Labels + "Mehr"-Überlauf-Sheet. Die langen
+         nav_*-Strings bleiben im Drawer. Spiegelt web/src/i18n nav.short.* + nav.more. -->
+    <string name="nav_more">Mehr</string>
+    <string name="nav_main">Hauptnavigation</string>
+    <string name="nav_short_today">Start</string>
+    <string name="nav_short_tasks">Aufgaben</string>
+    <string name="nav_short_shopping">Einkauf</string>
+    <string name="nav_short_time">Zeit</string>
 
     <!-- ===== Wochenplan / Essensplaner (#250) ===== -->
     <string name="meal_plan_title">Wochenplan</string>

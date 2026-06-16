@@ -15,7 +15,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -43,7 +45,9 @@ import com.homebase.android.ui.abwesenheit.AbsenceViewModel
 import com.homebase.android.ui.abwesenheit.AbwesenheitScreen
 import com.homebase.android.ui.aufgaben.AufgabenScreen
 import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.components.HbBottomNav
 import com.homebase.android.ui.components.HbDrawerContent
+import com.homebase.android.ui.components.HbMoreSheet
 import com.homebase.android.ui.components.HbRoute
 import com.homebase.android.ui.components.LocalAvatarHues
 import com.homebase.android.ui.heute.HeuteScreen
@@ -222,56 +226,75 @@ class MainActivity : AppCompatActivity() {
 
         val openDrawer = { drawerOpen = true }
 
+        // HB-09 (#239): the "Mehr" overflow sheet of the bottom nav.
+        var moreOpen by remember { mutableStateOf(false) }
+
         BackHandler(enabled = drawerOpen) { drawerOpen = false }
+        BackHandler(enabled = moreOpen) { moreOpen = false }
 
         // Make the per-user avatar-hue overrides available to every HbAvatar below (Teil von #100).
         CompositionLocalProvider(LocalAvatarHues provides avatarHues) {
         Box(Modifier.fillMaxSize().background(Hb.paper)) {
-            when (route) {
-                HbRoute.HEUTE -> HeuteScreen(
-                    todoVm = todoVm,
-                    shoppingVm = shoppingVm,
-                    timeVm = timeVm,
-                    currentUser = currentUser,
-                    onOpenDrawer = openDrawer,
-                    onNavigate = { route = it },
-                )
-                HbRoute.AUFGABEN -> AufgabenScreen(
-                    viewModel = todoVm,
-                    currentUser = currentUser,
-                    householdUsers = householdUsers,
-                    onOpenDrawer = openDrawer,
-                )
-                HbRoute.EINKAUF -> ShoppingScreen(
-                    viewModel = shoppingVm,
-                    currentUser = currentUser,
-                    onOpenDrawer = openDrawer,
-                )
-                HbRoute.NOTIZEN -> NotesScreen(
-                    viewModel = notesVm,
-                    currentUser = currentUser,
-                    onOpenDrawer = openDrawer,
-                )
-                HbRoute.ZEIT -> TimeScreen(
-                    viewModel = timeVm,
-                    currentUser = currentUser,
-                    onOpenDrawer = openDrawer,
-                    // Suppress the tracker's shared error toast while the settings →
-                    // Zeiterfassung overlay (same TimeViewModel) renders its own on top (#193).
-                    settingsOpen = settingsOpen,
-                )
-                HbRoute.ABWESENHEIT -> AbwesenheitScreen(
-                    viewModel = absenceVm,
-                    onOpenDrawer = openDrawer,
-                )
-                HbRoute.REZEPTE -> RecipesScreen(
-                    viewModel = recipesVm,
-                    shoppingViewModel = shoppingVm,
-                    onOpenDrawer = openDrawer,
-                )
-                HbRoute.WOCHENPLAN -> MealPlanScreen(
-                    viewModel = mealPlanVm,
-                    onOpenDrawer = openDrawer,
+            // HB-09 (#239): the active screen sits above a persistent bottom tab bar. The
+            // screen takes the remaining height (weight 1) so its content never hides behind
+            // the bar; overlays (scrim/drawer/settings/Mehr-sheet) are siblings below and
+            // cover the bar too.
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (route) {
+                        HbRoute.HEUTE -> HeuteScreen(
+                            todoVm = todoVm,
+                            shoppingVm = shoppingVm,
+                            timeVm = timeVm,
+                            currentUser = currentUser,
+                            onOpenDrawer = openDrawer,
+                            onNavigate = { route = it },
+                        )
+                        HbRoute.AUFGABEN -> AufgabenScreen(
+                            viewModel = todoVm,
+                            currentUser = currentUser,
+                            householdUsers = householdUsers,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.EINKAUF -> ShoppingScreen(
+                            viewModel = shoppingVm,
+                            currentUser = currentUser,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.NOTIZEN -> NotesScreen(
+                            viewModel = notesVm,
+                            currentUser = currentUser,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.ZEIT -> TimeScreen(
+                            viewModel = timeVm,
+                            currentUser = currentUser,
+                            onOpenDrawer = openDrawer,
+                            // Suppress the tracker's shared error toast while the settings →
+                            // Zeiterfassung overlay (same TimeViewModel) renders its own on top (#193).
+                            settingsOpen = settingsOpen,
+                        )
+                        HbRoute.ABWESENHEIT -> AbwesenheitScreen(
+                            viewModel = absenceVm,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.REZEPTE -> RecipesScreen(
+                            viewModel = recipesVm,
+                            shoppingViewModel = shoppingVm,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.WOCHENPLAN -> MealPlanScreen(
+                            viewModel = mealPlanVm,
+                            onOpenDrawer = openDrawer,
+                        )
+                    }
+                }
+                HbBottomNav(
+                    active = route,
+                    badges = badges,
+                    dots = dots,
+                    onSelect = { route = it },
+                    onMore = { moreOpen = true },
                 )
             }
 
@@ -300,6 +323,19 @@ class MainActivity : AppCompatActivity() {
                     dots = dots,
                     onSelect = { route = it; drawerOpen = false },
                     onOpenSettings = { settingsOpen = true; drawerOpen = false },
+                )
+            }
+
+            // HB-09 (#239) — "Mehr" overflow sheet: the bottom-nav areas that don't fit in
+            // the bar. Selecting one navigates and dismisses; the bar's "Mehr" item stays
+            // highlighted while one of these areas is active.
+            if (moreOpen) {
+                HbMoreSheet(
+                    active = route,
+                    badges = badges,
+                    dots = dots,
+                    onSelect = { route = it; moreOpen = false },
+                    onDismiss = { moreOpen = false },
                 )
             }
 

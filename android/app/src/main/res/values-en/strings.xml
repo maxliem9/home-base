@@ -42,6 +42,13 @@
     <string name="nav_calendar">Calendar</string>
     <string name="nav_recipes">Recipes</string>
     <string name="nav_meal_plan">Meal plan</string>
+    <!-- Bottom tab bar (HB-09, #239): short labels + "More" overflow sheet. -->
+    <string name="nav_more">More</string>
+    <string name="nav_main">Main navigation</string>
+    <string name="nav_short_today">Today</string>
+    <string name="nav_short_tasks">Tasks</string>
+    <string name="nav_short_shopping">Shopping</string>
+    <string name="nav_short_time">Time</string>
 
     <!-- ===== Meal planner (#250) ===== -->
     <string name="meal_plan_title">Meal plan</string>
