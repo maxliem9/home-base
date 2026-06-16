@@ -78,6 +78,7 @@ import com.homebase.android.ui.components.HbQuickAdd
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbSegmented
 import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.components.bottomBorder
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
@@ -227,6 +228,14 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                 onCreate = { name, visibility -> viewModel.createList(name, visibility) },
             )
             null -> {}
+        }
+
+        // Global error toast (#288): toggle-done / quick-add / delete / subtask mutations are
+        // fire-and-forget and set state.error on failure — without this they failed silently. The
+        // edit-sheet save path shows its error in-sheet instead (and no longer sets the global
+        // error), so it does not double-notify here (#277). Mirrors AbwesenheitScreen.
+        state.error?.let { msg ->
+            HbToast(message = msg, icon = HbIcons.x, actionLabel = stringResource(R.string.action_ok), onAction = { viewModel.clearError() })
         }
     }
 }
