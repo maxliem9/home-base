@@ -664,6 +664,24 @@ class NotesViewModelTest {
     }
 
     @Test
+    fun `abandonEditor closes without saving or deleting`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Bearbeitet aber Notiz wurde anderswo gelöscht")
+        vm.abandonEditor() // partner deleted the note → drop the editor, don't 404 on save
+        advanceUntilIdle()
+
+        assertNull(vm.editorState.value)
+        coVerify(exactly = 0) { repository.updateNote(any(), any()) }
+        coVerify(exactly = 0) { repository.deleteNote(any()) }
+    }
+
+    @Test
     fun `a failed save surfaces an error and an ERROR status`() = runTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))

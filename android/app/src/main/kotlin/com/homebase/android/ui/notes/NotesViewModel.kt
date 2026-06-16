@@ -304,6 +304,19 @@ class NotesViewModel(
         if (id != null) deleteNote(id)
     }
 
+    /**
+     * Close the editor WITHOUT saving — used when the open note was deleted elsewhere (a partner's
+     * delete arriving via WS, #313). Saving would 404 against the now-missing id and re-create
+     * nothing useful; we just drop the editor and any pending save. No-op for a brand-new (unsaved)
+     * note so opening "new" is never yanked away by a list refresh.
+     */
+    fun abandonEditor() {
+        autosaveJob?.cancel()
+        saveJob?.cancel()
+        _editorState.value = null
+        savedSnapshot = null
+    }
+
     /** A draft differs from what's persisted iff there is no snapshot yet or a field changed. */
     private fun isDirty(draft: NoteEditorState): Boolean {
         val snap = savedSnapshot ?: return true

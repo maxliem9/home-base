@@ -135,6 +135,15 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             .sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.GERMAN)) { it }) // deutsche Kollation, Parität zu web localeCompare('de')
     }
 
+    // If the note open in the editor was deleted elsewhere (a partner's delete via WS), close the
+    // editor instead of leaving a dangling editor whose auto-save would 404. Only for a *saved* note
+    // (id != null) that is genuinely gone — a brand-new note is legitimately absent from the list.
+    val openNoteId = editor?.noteId
+    val openNoteGone = openNoteId != null && state.notes.none { it.id == openNoteId }
+    LaunchedEffect(openNoteId, openNoteGone) {
+        if (openNoteGone) viewModel.abandonEditor()
+    }
+
     // editorState != null ⇒ tap-to-edit (#310): the full-screen editor replaces the list, exactly
     // like the old read-only detail did. A new note opens with a null id; the editor's grouped
     // note-switcher (#313) lets the user jump to another note without leaving.
