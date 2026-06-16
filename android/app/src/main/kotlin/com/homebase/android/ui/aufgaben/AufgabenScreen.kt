@@ -167,11 +167,25 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     )
                 }
             } else {
-                // Due-date groups in fixed order, skipping empty ones.
+                // Due-date groups, skipping empty ones. Inbox-Tab (#306): die unverplanten,
+                // undatierten Todos (OHNE_DATUM — wo Status-INBOX-Quick-Adds landen) gehören
+                // nach oben, darin neueste zuerst (createdAt desc). Andere Tabs/Listen behalten
+                // die übliche Reihenfolge (Überfällig zuerst).
                 val grouped = openTodos.groupBy { Format.dueGroup(it.dueDate) }
-                Format.DueGroup.entries.sortedBy { it.order }.forEach { group ->
-                    val items = grouped[group] ?: return@forEach
-                    if (items.isEmpty()) return@forEach
+                val groupOrder = if (state.inboxActive) {
+                    listOf(Format.DueGroup.OHNE_DATUM) +
+                        Format.DueGroup.entries.filter { it != Format.DueGroup.OHNE_DATUM }.sortedBy { it.order }
+                } else {
+                    Format.DueGroup.entries.sortedBy { it.order }
+                }
+                groupOrder.forEach { group ->
+                    val raw = grouped[group] ?: return@forEach
+                    if (raw.isEmpty()) return@forEach
+                    val items = if (state.inboxActive && group == Format.DueGroup.OHNE_DATUM) {
+                        raw.sortedByDescending { it.createdAt }
+                    } else {
+                        raw
+                    }
 
                     GroupLabel(stringResource(group.labelRes), items.size)
                     Column(Modifier.padding(horizontal = 18.dp)) {
