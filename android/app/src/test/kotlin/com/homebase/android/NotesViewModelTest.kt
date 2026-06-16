@@ -615,6 +615,55 @@ class NotesViewModelTest {
     }
 
     @Test
+    fun `an edit during an in-flight save is not lost — the loop re-saves the latest`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        // First update suspends (in flight) long enough for a second edit to land; both must persist.
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success(existing)
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(content = "erste Änderung")
+        advanceTimeBy(1000) // debounce elapses → first save starts and suspends in the mock
+        runCurrent()
+        vm.updateEditor(content = "zweite Änderung") // lands WHILE the first save is in flight
+        advanceUntilIdle() // first save completes, loop notices the new draft and saves again
+
+        // Two updates ran (no dropped edit) and the last one carried the newest content.
+        coVerify(exactly = 2) { repository.updateNote(eq("1"), any()) }
+        coVerify(exactly = 1) { repository.updateNote("1", UpdateNoteRequest("Alt", "zweite Änderung", emptyList(), "", "SHARED")) }
+    }
+
+    @Test
+    fun `closing during an in-flight save still persists the final edit`() = runTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success(existing)
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(content = "A")
+        advanceTimeBy(1000)
+        runCurrent() // first save (content "A") in flight
+        vm.updateEditor(content = "B") // newer edit while saving
+        vm.closeEditor() // back press mid-save: must flush B before clearing
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.updateNote("1", UpdateNoteRequest("Alt", "B", emptyList(), "", "SHARED")) }
+        assertNull(vm.editorState.value)
+    }
+
+    @Test
     fun `a failed save surfaces an error and an ERROR status`() = runTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))

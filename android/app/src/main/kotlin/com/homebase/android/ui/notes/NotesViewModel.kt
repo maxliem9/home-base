@@ -68,11 +68,16 @@ class NotesViewModel(
     /** Debounce job: cancelled on each keystroke, fires the save after [AUTOSAVE_DEBOUNCE_MS]. */
     private var autosaveJob: Job? = null
 
+    /**
+     * The single in-flight save coroutine, or null/!isActive when idle. Saves are **serialized**
+     * through this one job: while it runs, no second save starts (no duplicate create); when it
+     * finishes it re-checks dirtiness and saves again, so a keystroke that landed mid-save is still
+     * persisted. [flushEditorSave] joins it so leaving the editor always lands the latest draft.
+     */
+    private var saveJob: Job? = null
+
     /** Snapshot of what is currently persisted on the server, to skip no-op saves (dirty check). */
     private var savedSnapshot: EditorSnapshot? = null
-
-    /** True while a create/update request is in flight — guards the first-create double-create race. */
-    private var saveInFlight = false
 
     /** Monotonic editor-session counter; bumped on each open/switch (see [NoteEditorState.session]). */
     private var editorSession = 0
@@ -176,7 +181,6 @@ class NotesViewModel(
      */
     fun openEditor(note: NoteDto?) {
         autosaveJob?.cancel()
-        saveInFlight = false
         val session = ++editorSession
         if (note == null) {
             savedSnapshot = null
@@ -233,20 +237,39 @@ class NotesViewModel(
         if (!isDirty(next)) return
         autosaveJob = viewModelScope.launch {
             delay(AUTOSAVE_DEBOUNCE_MS)
-            persistEditor(next)
+            requestSave()
         }
     }
 
     /**
      * Persist the current draft right now (no debounce) — called on leaving the editor or before
      * switching to another note, so an edit is never lost between the last keystroke and the debounce
-     * firing. Suspends until the save completes so the caller (note switch) can sequence reliably.
+     * firing. Suspends until the save (incl. any save that was already running) completes, so the
+     * caller (note switch / close) can sequence reliably and the very last keystroke is always saved.
      */
     suspend fun flushEditorSave() {
         autosaveJob?.cancel()
-        val draft = _editorState.value ?: return
-        if (!isDirty(draft)) return
-        persistEditor(draft)
+        requestSave()
+        saveJob?.join()
+    }
+
+    /**
+     * Start the serialized save loop if it isn't already running. A running loop re-checks the draft
+     * when it finishes the current request, so we never start a second concurrent save (no duplicate
+     * create) yet never drop a mid-save edit either.
+     */
+    private fun requestSave() {
+        if (saveJob?.isActive == true) return
+        saveJob = viewModelScope.launch {
+            // Save the latest draft; if it changed (or was dirtied again) while saving, loop and save
+            // the newer version. Stop on a clean draft or a failed save (don't spin on errors).
+            while (true) {
+                val draft = _editorState.value ?: break
+                if (!isDirty(draft)) break
+                val ok = saveOnce(draft)
+                if (!ok) break
+            }
+        }
     }
 
     /**
@@ -268,17 +291,16 @@ class NotesViewModel(
             autosaveJob?.cancel()
             _editorState.value = null
             savedSnapshot = null
-            saveInFlight = false
         }
     }
 
     /** Delete the note currently open in the editor (if it was ever created), then close it. */
     fun deleteEditorNote() {
         autosaveJob?.cancel()
+        saveJob?.cancel()
         val id = _editorState.value?.noteId
         _editorState.value = null
         savedSnapshot = null
-        saveInFlight = false
         if (id != null) deleteNote(id)
     }
 
@@ -289,22 +311,23 @@ class NotesViewModel(
     }
 
     /**
-     * Create-or-update the draft and reconcile the result. Hazards handled:
+     * One create-or-update round for [draft]; returns true on success (so the serialized save loop in
+     * [requestSave] may continue if the draft was dirtied again) and false on a skip/failure (stop).
+     * Hazards handled:
      * - **No create without a title:** the backend rejects a blank title, so we don't even attempt a
      *   create until the title is non-blank (an untitled new note simply stays unsaved/IDLE).
-     * - **No duplicate create:** [saveInFlight] suppresses a second request while one is running, and
-     *   the first create's returned id is captured into the editor so every later save is an UPDATE.
-     * - **Caret safety:** on success we only fold the *server-side* fields (id, images, updatedAt via
-     *   the list) into state; we never overwrite the live title/content the user may have typed
-     *   while the request was in flight — those stay in [_editorState]. The snapshot is set to the
-     *   values we actually sent, so if the user kept typing the draft is still dirty and re-saves.
+     * - **No duplicate create:** the single [saveJob] loop is the only caller, so two creates can't
+     *   run at once; the first create's returned id is captured into the editor, so the loop's next
+     *   iteration (and every later save) is an UPDATE of that id.
+     * - **Caret safety:** on success we only fold the *server-side* fields (id, images) into state; we
+     *   never overwrite the live title/content the user may have typed while the request was in flight
+     *   — those stay in [_editorState]. The snapshot is set to the values we actually sent, so if the
+     *   user kept typing the draft is still dirty and the loop re-saves.
      */
-    private suspend fun persistEditor(draft: NoteEditorState) {
+    private suspend fun saveOnce(draft: NoteEditorState): Boolean {
         val title = draft.title.trim()
         val id = draft.noteId
-        if (id == null && title.isBlank()) return // never create an untitled note
-        if (saveInFlight) return // a save is already running; the trailing edit will re-trigger
-        saveInFlight = true
+        if (id == null && title.isBlank()) return false // never create an untitled note
         // Snapshot of exactly what we send, so a no-op repeat is skipped and a change mid-flight stays dirty.
         val sentSnapshot = EditorSnapshot.of(draft.title, draft.content, draft.tags, draft.folder, draft.visibility)
         setEditorStatus(SaveStatus.SAVING)
@@ -331,9 +354,8 @@ class NotesViewModel(
                 ),
             )
         }
-        saveInFlight = false
-        result
-            .onSuccess { note ->
+        return result.fold(
+            onSuccess = { note ->
                 upsert(note)
                 savedSnapshot = sentSnapshot
                 // Capture the new id (first create) + refresh server-owned fields, but keep the live
@@ -341,11 +363,14 @@ class NotesViewModel(
                 _editorState.update { st ->
                     st?.copy(noteId = note.id, images = note.images, status = SaveStatus.SAVED)
                 }
-            }
-            .onFailure { e ->
+                true
+            },
+            onFailure = { e ->
                 setEditorStatus(SaveStatus.ERROR)
                 _uiState.update { it.copy(error = e.message) }
-            }
+                false
+            },
+        )
     }
 
     private fun setEditorStatus(status: SaveStatus) {
@@ -461,6 +486,7 @@ class NotesViewModel(
     override fun onCleared() {
         super.onCleared()
         autosaveJob?.cancel()
+        saveJob?.cancel()
         repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
