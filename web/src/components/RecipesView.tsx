@@ -5,6 +5,7 @@ import { API_BASE, authFetch, errorCode, notifyTransportError, recipeImageUrl, s
 import { errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { formatDecimal } from '../ui/format'
 import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -30,7 +31,9 @@ const buildCategories = (t: TFunction): { id: RecipeCategory; label: string }[] 
 
 const categoryLabel = (t: TFunction, c: RecipeCategory) => buildCategories(t).find((x) => x.id === c)?.label ?? c
 const totalTime = (r: Recipe) => (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0)
-const fmtAmount = (n: number) => String(Math.round(n * 100) / 100)
+// Scaled ingredient amount for display — locale-aware decimal separator (#238): "0,5 l" (de) /
+// "0.5 l" (en). 2-decimal max with trailing zeros stripped, as before.
+const fmtAmount = (n: number) => formatDecimal(n, 2)
 
 // The backend omits empty collections from its JSON (encodeDefaults=false), so a recipe
 // without ingredients or steps arrives with those keys missing. Coerce them to [] on the

@@ -7,6 +7,8 @@ import {
   dueLabel,
   fmtClock,
   fmtDurationShort,
+  formatDecimal,
+  formatNumber,
   relTime,
   todayLabel,
   userMeta,
@@ -244,6 +246,24 @@ describe('usernameFromToken', () => {
   })
 })
 
+// #238 — number formats (decimal/thousands separators) follow the active language, the same
+// way the date helpers do. German default here; the English counterpart is in the block below.
+describe('formatNumber / formatDecimal (German default)', () => {
+  it('formatDecimal uses a comma decimal and strips trailing zeros', () => {
+    expect(formatDecimal(3)).toBe('3')
+    expect(formatDecimal(2.5)).toBe('2,5')
+    expect(formatDecimal(2.5, 1)).toBe('2,5')
+    expect(formatDecimal(0.333)).toBe('0,333')
+    // rounds to the requested precision
+    expect(formatDecimal(1 / 3, 2)).toBe('0,33')
+  })
+
+  it('formatNumber groups thousands with a dot (de)', () => {
+    expect(formatNumber(1234.5)).toBe('1.234,5')
+    expect(formatNumber(1000)).toBe('1.000')
+  })
+})
+
 // HB-07 — the same date helpers must follow the active UI language. German is asserted
 // throughout above (default); here we flip to English and back so both paths are covered.
 describe('locale-aware output (English)', () => {
@@ -270,5 +290,12 @@ describe('locale-aware output (English)', () => {
     expect(todayLabel(new Date('2026-06-15T12:00:00Z'))).toBe('Monday, Jun 15')
     expect(dayGroupLabel('2026-06-15T08:00:00Z')).toBe('Today')
     expect(weekLabel('2026-06-15T12:00:00Z').label).toBe('This week')
+  })
+
+  it('formatNumber / formatDecimal switch to a dot decimal and comma grouping', () => {
+    expect(formatDecimal(2.5)).toBe('2.5')
+    expect(formatDecimal(3)).toBe('3')
+    expect(formatNumber(1234.5)).toBe('1,234.5')
+    expect(formatNumber(1000)).toBe('1,000')
   })
 })

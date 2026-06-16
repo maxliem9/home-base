@@ -61,6 +61,29 @@ export function relTime(isoStr: string): string {
   return t('fmt.weeksAgo', { n: Math.round(days / 7) })
 }
 
+// --- numbers --------------------------------------------------------------
+// Decimal/thousands separators follow the active UI language (#238 / HB-07, #223):
+// German renders a comma decimal + dot grouping ("1.234,5"), English a dot decimal +
+// comma grouping ("1,234.5"). Locale-bound through `currentLang()`, exactly like the
+// date helpers above. Use these for any user-visible number with a fractional part or
+// large magnitude; the previous hard-coded `…replace('.', ',')` sites become locale-aware.
+// (Out of scope: number PARSING of user input and the server-generated CSV export.)
+
+/** Format a number for display in the active locale (de → comma decimal, en → dot decimal). */
+export function formatNumber(n: number, opts?: Intl.NumberFormatOptions): string {
+  return new Intl.NumberFormat(currentLang(), opts).format(n)
+}
+
+/**
+ * Locale-aware decimal with trailing zeros stripped: up to `maxFractionDigits` places, but no
+ * "1,50"/"3,0" noise — "3" stays "3", "2.5" becomes "2,5" (de) / "2.5" (en). The default of 3
+ * matches the recipe-amount precision (keeps 1/3, 2/3 honest). Grouping stays on, so a large
+ * value still gets the locale's thousands separator.
+ */
+export function formatDecimal(n: number, maxFractionDigits = 3): string {
+  return formatNumber(n, { maximumFractionDigits: maxFractionDigits })
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** HH:MM:SS from a number of seconds. */
