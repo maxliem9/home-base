@@ -13,7 +13,7 @@ import { Project, User, WorkTarget } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../../ui/primitives'
-import { formatDecimal, userMeta } from '../../ui/format'
+import { formatDecimal, parseLocaleNumber, userMeta } from '../../ui/format'
 import { COLOR_CHOICES, ProjectDraft, ProjectModal } from '../TimeView'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -327,7 +327,10 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
     Object.fromEntries(users.map((u) => [u, {
       hours: Object.fromEntries(projects.map((p) => {
         const h = targetFor(u, p.id)?.weeklyHours ?? 0
-        return [p.id, h > 0 ? String(h).replace('.', ',') : '']
+        // Pre-fill the editable field with the locale decimal mark (#299) so it matches the
+        // read-only summary (formatDecimal, line ~298) and round-trips: en "1.5" / de "1,5".
+        // Hours stay ≤168, so formatDecimal never adds a grouping separator here.
+        return [p.id, h > 0 ? formatDecimal(h) : '']
       })),
       def: defaultFor(u),
     }])),
@@ -341,7 +344,7 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
     setDraft((d) => ({
       ...d,
       [u]: {
-        def: d[u].def === '' && Number(v.trim().replace(',', '.')) > 0 ? p : d[u].def,
+        def: d[u].def === '' && (parseLocaleNumber(v) ?? 0) > 0 ? p : d[u].def,
         hours: { ...d[u].hours, [p]: v },
       },
     }))
@@ -355,7 +358,8 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
       let sumHours = 0
       for (const p of projects) {
         const raw = (draft[u].hours[p.id] ?? '').trim()
-        const hours = raw === '' ? 0 : Number(raw.replace(',', '.'))
+        // empty field → 0 hours; an unparseable entry (null) stays NaN and fails validation below
+        const hours = raw === '' ? 0 : (parseLocaleNumber(raw) ?? NaN)
         if (!Number.isFinite(hours) || hours < 0 || hours > 168) {
           setError(t('time.invalidHours'))
           return

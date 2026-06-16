@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 import type { AbsenceState } from '../../types'
 import { Avatar, Button, Field, IconButton, Select, TextInput } from '../../ui/primitives'
 import { Icon } from '../../ui/Icon'
-import { userMeta } from '../../ui/format'
+import { parseLocaleNumber, userMeta } from '../../ui/format'
 import * as C from './holidays'
 import type { Ctx } from './core'
 import type { Api } from './useAbsenceData'
@@ -24,10 +24,9 @@ export function AbwSettings({ ctx, data, api, userIds, year }: {
   year: number
 }) {
   const { t } = useTranslation()
-  const num = (v: string, fallback: number): number => {
-    const n = parseFloat(String(v).replace(',', '.'))
-    return Number.isFinite(n) ? n : fallback
-  }
+  // Accept comma or dot decimal (#299); blank/unparseable falls back. (These are type="number"
+  // fields, so the DOM value is usually dot-format already, but tolerating both keeps it uniform.)
+  const num = (v: string, fallback: number): number => parseLocaleNumber(String(v)) ?? fallback
   const [kDate, setKDate] = useState(`${year}-01-01`)
   const [rVon, setRVon] = useState(`${year}-07-27`)
   const [rBis, setRBis] = useState(`${year}-08-07`)

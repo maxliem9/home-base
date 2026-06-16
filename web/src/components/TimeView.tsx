@@ -6,7 +6,7 @@ import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
-import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
+import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -1317,8 +1317,8 @@ function SplitEntryModal({ entry, onSave, onClose }: {
   const submitRef = useRef(false)
 
   const cutMs = cut ? new Date(cut).getTime() : NaN
-  // comma input is fine ("7,5"); the backend takes whole minutes, so round
-  const breakRaw = breakMin.trim() === '' ? 0 : Number(breakMin.trim().replace(',', '.'))
+  // comma or dot input is fine ("7,5" / "7.5", #299); the backend takes whole minutes, so round
+  const breakRaw = breakMin.trim() === '' ? 0 : (parseLocaleNumber(breakMin) ?? NaN)
   const breakNum = Math.round(breakRaw)
   const breakParses = Number.isFinite(breakRaw) && breakNum >= 0
   const secondStartMs = cutMs + breakNum * 60000
