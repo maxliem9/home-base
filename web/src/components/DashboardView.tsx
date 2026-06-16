@@ -7,7 +7,7 @@ import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
-import { Avatar, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
+import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
 import { clockTime, dueLabel, fmtClock, fmtDurationShort, localDateIso, todayLabel, userMeta, usernameFromToken } from '../ui/format'
 import type { TodosFocus } from './TodosView'
 
@@ -230,7 +230,14 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const tomorrowIso = localDateIso(tomorrow)
   const todayIso = localDateIso()
 
+  // Stat tile stays due-today-only; the overdue items live in their own bucket (#307).
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
+  // "Heute dran" (#307): overdue (due date strictly before today, not done) belong here too —
+  // they're still things to do today. Overdue first (oldest due date first), then today's.
+  const overdue = todos
+    .filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'over')
+    .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+  const todayAndOverdue = [...overdue, ...dueToday]
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
   const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso)
@@ -282,29 +289,33 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
                   {t('dashboard.allTasks')} <Icon name="chevronRight" size={15} stroke={2.2} />
                 </button>
               </div>
-              {dueToday.length === 0 ? (
+              {todayAndOverdue.length === 0 ? (
                 <EmptyState icon="checkCircle" title={t('dashboard.todayEmpty')} hint={t('dashboard.todayEmptyHint')} />
               ) : (
                 <div className="hb-list">
-                  {dueToday.map((todo) => (
-                    <div key={todo.id} className="hb-row">
-                      <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
-                      <div className="hb-row__main">
-                        <div className="hb-row__title">{todo.title}</div>
-                        {(todo.priority || todo.recurrence) && (
-                          <div className="hb-row__meta">
-                            {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
-                            {todo.recurrence && (
-                              <span className="hb-recur" title={t('dashboard.recurring')}>
-                                <Icon name="repeat" size={13} stroke={2} />{t('dashboard.recurring')}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                  {todayAndOverdue.map((todo) => {
+                    const isOverdue = dueLabel(todo.dueDate)?.tone === 'over'
+                    return (
+                      <div key={todo.id} className="hb-row">
+                        <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
+                        <div className="hb-row__main">
+                          <div className="hb-row__title">{todo.title}</div>
+                          {(isOverdue || todo.priority || todo.recurrence) && (
+                            <div className="hb-row__meta">
+                              {isOverdue && <Badge tone="over">{t('todos.bucketOver')}</Badge>}
+                              {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
+                              {todo.recurrence && (
+                                <span className="hb-recur" title={t('dashboard.recurring')}>
+                                  <Icon name="repeat" size={13} stroke={2} />{t('dashboard.recurring')}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
                       </div>
-                      <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </Card>
