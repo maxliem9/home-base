@@ -18,7 +18,6 @@ import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.Flow
-import org.json.JSONObject
 import retrofit2.HttpException
 
 class TimeRepository(
@@ -138,9 +137,4 @@ class TimeRepository(
         "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
         else -> "Eintrag konnte nicht gesplittet werden."
     }
-
-    private fun errorCodeOf(e: HttpException): String? = runCatching {
-        e.response()?.errorBody()?.string()
-            ?.let { JSONObject(it).optString("code").ifBlank { null } }
-    }.getOrNull()
 }
