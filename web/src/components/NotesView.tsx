@@ -6,6 +6,7 @@ import {
   useMemo,
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
+  type FocusEvent as ReactFocusEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
@@ -16,14 +17,13 @@ import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import {
-  Avatar,
-  Badge,
   Button,
   Card,
   EmptyState,
   Field,
   IconButton,
   PageHead,
+  Sheet,
   TextInput,
   renderMarkdown,
 } from '../ui/primitives'
@@ -31,6 +31,9 @@ import { relTime } from '../ui/format'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_NOTES ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/notes`
+
+// Debounce window for auto-save after the last keystroke/field change (#309).
+const AUTOSAVE_DELAY = 900
 
 interface Draft {
   id?: string
@@ -40,6 +43,8 @@ interface Draft {
   folder: string
   visibility: NoteVisibility
 }
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const emptyDraft = (): Draft => ({ title: '', content: '', tags: '', folder: '', visibility: 'SHARED' })
 const draftFromNote = (n: Note): Draft => ({
@@ -52,6 +57,20 @@ const draftFromNote = (n: Note): Draft => ({
 })
 const parseTags = (raw: string): string[] => raw.split(',').map((x) => x.trim()).filter(Boolean)
 
+// Canonical JSON of the persisted fields — drives both the PUT/POST body and the
+// dirty check (compare against the last-saved snapshot so we never fire a redundant
+// PUT right after loading a note, #309).
+const serializeDraft = (d: Draft): string =>
+  JSON.stringify({
+    title: d.title.trim(),
+    content: d.content,
+    tags: parseTags(d.tags),
+    // always send a (possibly empty) string: the backend trims it and maps blank ⇒
+    // null, so this both sets a folder and clears one when the field is emptied.
+    folder: d.folder.trim(),
+    visibility: d.visibility,
+  })
+
 interface NotesViewProps {
   token: string
   onLogout: () => void
@@ -63,9 +82,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // editor sub-mode: false = Markdown source textarea, true = rendered preview (#310)
+  const [previewMode, setPreviewMode] = useState(false)
+  // mobile (≤860px) note-switcher slide-over (#313)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   // null = all folders; '' = the "no folder" bucket; otherwise a specific folder name
   const [folderFilter, setFolderFilter] = useState<string | null>(null)
@@ -80,6 +103,25 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // user switched/closed the editor in the meantime (the captured `draft` would be stale).
   const draftIdRef = useRef<string | undefined>(undefined)
   draftIdRef.current = draft?.id
+
+  // ---- Auto-save plumbing (#309) ----
+  // Live mirror of the draft so async callbacks (debounce, blur, commit-on-switch)
+  // read the CURRENT editor model rather than a stale render closure.
+  const draftRef = useRef<Draft | null>(null)
+  draftRef.current = draft
+  // Monotonic editor-session token. Bumped every time an editor session begins (open
+  // existing note or start a new one). A save captures the session it was issued for;
+  // the id-capture after a create only applies if we're STILL in that same session —
+  // so switching notes / opening a different new note mid-create can't get the wrong id.
+  const sessionRef = useRef(0)
+  // Serialized last-saved payload for the current session; the debounce only saves when
+  // the live draft differs from this, so a freshly-opened note is never re-PUT.
+  const savedSnapshotRef = useRef<string | null>(null)
+  // In-flight guards: savingRef serializes saves; creatingRef specifically blocks a
+  // second POST while the first create (no id yet) is still in flight (double-POST race).
+  const savingRef = useRef(false)
+  const creatingRef = useRef(false)
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout>>()
   const { flashError, errorToast } = useErrorToast()
 
   const fetchNotes = useCallback(async (q: string) => {
@@ -114,6 +156,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     try {
       const msg = JSON.parse(raw)
       if (!msg.payload) return
+      // WS-echo safety (#309): every save broadcasts NOTE_UPDATED, and we merge it into
+      // the `notes` list only. The editor binds to the separate `draft` state, so the
+      // echo never clobbers the in-progress text/caret — we deliberately do NOT feed the
+      // echoed payload back into `draft`.
       if (msg.type === 'NOTE_CREATED') {
         setNotes((prev) => (prev.some((n) => n.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
       } else if (msg.type === 'NOTE_UPDATED') {
@@ -131,48 +177,128 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     }
   })
 
-  const handleSave = async () => {
-    if (!draft || !draft.title.trim()) return
-    setSaving(true)
+  // Persist the given draft (POST for a new note, PUT for an existing one). Reads from an
+  // explicit `d` snapshot so it can run against the OUTGOING note when the user is already
+  // switching away. `session` is the editor session this save belongs to.
+  const saveDraft = useCallback(
+    async (d: Draft, session: number) => {
+      const title = d.title.trim()
+      // Never write an empty title (the backend requires one for both POST and PUT);
+      // for a new note this means we simply don't create until the user types a title.
+      if (!title) return
+      // Skip when nothing changed since the last save (e.g. a stray blur right after load).
+      const body = serializeDraft(d)
+      if (body === savedSnapshotRef.current) return
+      // Don't start a second create while the first is still in flight (#309 double-POST).
+      if (!d.id && creatingRef.current) return
+      if (savingRef.current) return
+      savingRef.current = true
+      if (!d.id) creatingRef.current = true
+      setSaveState('saving')
+      setSaveError(null)
+      try {
+        const result = d.id
+          ? await safeFetch(token, `${API_BASE}/notes/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+          : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        // transport reject → surface the inline error so the user notices (edits are NOT lost)
+        if (!result.ok) {
+          setSaveError(errorText(null, t('notes.saveFailed')))
+          setSaveState('error')
+          return
+        }
+        const { res } = result
+        if (res.status === 401) return onLogout()
+        if (res.ok) {
+          const saved: Note = await res.json()
+          setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
+          // Remember exactly what we persisted so the next change is detected as dirty.
+          savedSnapshotRef.current = body
+          // On the FIRST create, capture the new id INTO the draft so subsequent autosaves
+          // PUT it — but only if we're still editing the same (still-unsaved) session, so a
+          // switch/new-note mid-create can't get stamped with the wrong id (#309).
+          if (!d.id && sessionRef.current === session) {
+            setSelectedId(saved.id)
+            setDraft((prev) => (prev && !prev.id ? { ...prev, id: saved.id } : prev))
+          }
+          setSaveState('saved')
+        } else {
+          setSaveError(errorText(await errorCode(res), t('notes.saveFailed')))
+          setSaveState('error')
+        }
+      } finally {
+        savingRef.current = false
+        creatingRef.current = false
+      }
+    },
+    [onLogout, t, token],
+  )
+
+  // Cancel any pending debounce and flush an immediate save of the CURRENT draft. Called
+  // when leaving the editor (switch note / close / blur / unmount) so nothing is dropped.
+  const commitPending = useCallback(() => {
+    clearTimeout(autosaveTimer.current)
+    const d = draftRef.current
+    if (d) void saveDraft(d, sessionRef.current)
+  }, [saveDraft])
+
+  // Open the editor on a note (or a brand-new draft). Bumps the session, seeds the
+  // dirty-baseline so an unedited note is never re-saved, and resets the editor UI.
+  const openEditor = useCallback((note: Note | null) => {
+    // re-clicking the note already open in the editor is a no-op — don't reset the draft
+    // (which would discard in-flight, not-yet-debounced edits and flicker the content).
+    if (note && draftRef.current?.id === note.id) return
+    // flush whatever was being edited before swapping the draft out (#309)
+    commitPending()
+    sessionRef.current++
+    const next = note ? draftFromNote(note) : emptyDraft()
+    savedSnapshotRef.current = note ? serializeDraft(next) : null
+    setDraft(next)
+    setSelectedId(note ? note.id : null)
+    setPreviewMode(false)
+    setSaveState('idle')
     setSaveError(null)
-    try {
-      const body = JSON.stringify({
-        title: draft.title.trim(),
-        content: draft.content,
-        tags: parseTags(draft.tags),
-        // always send a (possibly empty) string: the backend trims it and maps blank ⇒
-        // null, so this both sets a folder and clears one when the field is emptied.
-        folder: draft.folder.trim(),
-        visibility: draft.visibility,
-      })
-      const result = draft.id
-        ? await safeFetch(token, `${API_BASE}/notes/${draft.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
-        : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-      // transport reject → keep the editor open and show the inline error so the user can retry
-      if (!result.ok) {
-        setSaveError(errorText(null, t('notes.saveFailed')))
-        return
-      }
-      const { res } = result
-      if (res.status === 401) return onLogout()
-      if (res.ok) {
-        const saved: Note = await res.json()
-        setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
-        setSelectedId(saved.id)
-        setDraft(null)
-      } else {
-        // keep the editor open and show the reason inline so the user can retry
-        setSaveError(errorText(await errorCode(res), t('notes.saveFailed')))
-      }
-    } finally {
-      setSaving(false)
-    }
+  }, [commitPending])
+
+  // Close the editor back to the empty state (mobile "back", desktop Cancel/Close). Edits
+  // are already auto-saved; commitPending covers any change still inside the debounce window.
+  const closeEditor = useCallback(() => {
+    commitPending()
+    setDraft(null)
+    setSelectedId(null)
+    setSwitcherOpen(false)
+  }, [commitPending])
+
+  // Debounced auto-save: whenever the draft changes and differs from the last save, schedule
+  // a save AUTOSAVE_DELAY after the last change. Keyed on the serialized payload so only the
+  // persisted fields (title/content/tags/folder/visibility) restart the timer.
+  const draftKey = draft ? serializeDraft(draft) : null
+  useEffect(() => {
+    if (draftKey == null) return
+    if (draftKey === savedSnapshotRef.current) return
+    const session = sessionRef.current
+    clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => {
+      const d = draftRef.current
+      if (d) void saveDraft(d, session)
+    }, AUTOSAVE_DELAY)
+    return () => clearTimeout(autosaveTimer.current)
+  }, [draftKey, saveDraft])
+
+  // Flush a pending save if the whole NotesView unmounts mid-edit (view switch).
+  useEffect(() => () => { commitPending() }, [commitPending])
+
+  // Commit when focus leaves the editor entirely (blur to outside the card, #309).
+  const handleEditorBlur = (e: ReactFocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commitPending()
   }
 
   const handleDelete = async (id: string) => {
+    // a delete supersedes any pending auto-save of this note
+    clearTimeout(autosaveTimer.current)
     setNotes((prev) => prev.filter((n) => n.id !== id))
     setDraft(null)
     setSelectedId(null)
+    setSwitcherOpen(false)
     const result = await safeFetch(token, `${API_BASE}/notes/${id}`, { method: 'DELETE' })
     // On failure refetch to resync rather than restoring a captured snapshot,
     // which could clobber a concurrent WS update.
@@ -202,26 +328,47 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     return [...s].sort((a, b) => a.localeCompare(b, 'de'))
   }, [notes])
 
-  const listed = notes.filter((n) => {
-    if (tagFilter && !n.tags.includes(tagFilter)) return false
-    if (folderFilter !== null) {
-      // '' selects notes without a folder; otherwise an exact folder match
-      if (folderFilter === '') { if (n.folder) return false }
-      else if (n.folder !== folderFilter) return false
+  const listed = useMemo(
+    () =>
+      notes.filter((n) => {
+        if (tagFilter && !n.tags.includes(tagFilter)) return false
+        if (folderFilter !== null) {
+          // '' selects notes without a folder; otherwise an exact folder match
+          if (folderFilter === '') { if (n.folder) return false }
+          else if (n.folder !== folderFilter) return false
+        }
+        return true
+      }),
+    [notes, tagFilter, folderFilter],
+  )
+
+  // Folder-grouped sections (#311): named folders first (alphabetical, de), then the
+  // "no folder" bucket last; within each group newest-first by updatedAt. Applied to the
+  // already-filtered subset, so an active folder/tag filter just narrows what's grouped.
+  const groups = useMemo(() => {
+    const byFolder = new Map<string, Note[]>()
+    for (const n of listed) {
+      const key = n.folder || ''
+      const arr = byFolder.get(key)
+      if (arr) arr.push(n)
+      else byFolder.set(key, [n])
     }
-    return true
-  })
-  const selected = notes.find((n) => n.id === selectedId) ?? null
-  // attachments of the note currently being edited — the source for caret-insertion.
-  // Only existing (saved) notes have images; a brand-new draft has none yet.
-  const editImages = draft?.id ? (notes.find((n) => n.id === draft.id)?.images ?? []) : []
+    const named = [...byFolder.keys()].filter((k) => k !== '').sort((a, b) => a.localeCompare(b, 'de'))
+    const keys = byFolder.has('') ? [...named, ''] : named
+    return keys.map((key) => ({
+      folder: key, // '' = the no-folder bucket
+      notes: byFolder.get(key)!.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    }))
+  }, [listed])
 
-  // clear any stale image upload error when the read selection changes or the editor
-  // opens/closes/switches notes — paste/drop errors must not leak across views (#146)
-  useEffect(() => { setImageError(null) }, [selectedId, draft?.id, draft === null])
+  // the note currently being edited (live, from `notes`) — source for the image gallery +
+  // caret-insertion. Only existing (saved) notes have images; a brand-new draft has none.
+  const editNote = draft?.id ? notes.find((n) => n.id === draft.id) ?? null : null
+  const editImages = editNote?.images ?? []
 
-  // clear a stale save error whenever the editor opens on a different note (or closes)
-  useEffect(() => { setSaveError(null) }, [draft?.id, draft === null])
+  // clear any stale image upload error when the editor opens/closes/switches notes —
+  // paste/drop errors must not leak across views (#146)
+  useEffect(() => { setImageError(null) }, [draft?.id, draft === null])
 
   // Post a single image file to a saved note and refresh that note in state. Returns the
   // newly-attached NoteImage on success, or an HTTP-status-tagged failure — the callers
@@ -278,8 +425,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // with the right sort_order, show {done}/{total} progress, and report any failures as a
   // single aggregated count rather than flashing one error per file. A 401 anywhere logs out.
   const handleUploadImages = async (files: File[]) => {
-    if (!selected || files.length === 0) return
-    const noteId = selected.id
+    if (!editNote || files.length === 0) return
+    const noteId = editNote.id
     setImageError(null)
     setUploadingImage(true)
     setUploadProgress({ done: 0, total: files.length })
@@ -358,9 +505,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   }
 
   const handleDeleteImage = async (imageId: string) => {
-    if (!selected) return
+    if (!editNote) return
+    const noteId = editNote.id
     setImageError(null)
-    const result = await safeFetch(token, `${API_BASE}/notes/${selected.id}/images/${imageId}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/notes/${noteId}/images/${imageId}`, { method: 'DELETE' })
     // transport reject → no Response; surface the inline image error
     if (!result.ok) {
       setImageError(errorText(null, t('notes.imageDeleteFailed')))
@@ -378,7 +526,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
   // Insert an inline reference to an already-uploaded attachment at the editor caret.
   // The snippet `![name](image:id)` replaces the current selection / lands at the cursor;
-  // renderMarkdown resolves it to the authed image on the read side. Caret is restored
+  // renderMarkdown resolves it to the authed image on the preview side. Caret is restored
   // after React re-renders the controlled textarea.
   //
   // Both the thumbnail-click and the async paste/drop upload (#146) funnel here. The
@@ -414,16 +562,56 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     })
   }
 
+  // The grouped, clickable note list — rendered in the left column AND inside the mobile
+  // switcher Sheet. `onPick` lets the Sheet close itself after a jump.
+  const renderNoteGroups = (onPick?: () => void) => (
+    <div className="hb-notes-groups">
+      {groups.map((g) => (
+        // the no-folder bucket has folder==='' → prefix keys so a real folder can't collide
+        <div key={g.folder ? `f:${g.folder}` : 'nofolder'} className="hb-notes-group">
+          <div className="hb-notes-group__head">
+            <Icon name={g.folder ? 'folder' : 'inbox'} size={14} stroke={2} />
+            <span className="hb-notes-group__name">{g.folder || t('notes.noFolder')}</span>
+            <span className="hb-notes-group__count">{g.notes.length}</span>
+          </div>
+          <div className="hb-notes-items">
+            {g.notes.map((n) => (
+              <button
+                key={n.id}
+                className={`hb-noteitem${selectedId === n.id ? ' is-active' : ''}`}
+                onClick={() => { openEditor(n); onPick?.() }}
+              >
+                <div className="hb-noteitem__top">
+                  <Icon name={n.visibility === 'PRIVATE' ? 'lock' : 'users'} size={14} stroke={2} style={{ color: 'var(--ink-3)' }} />
+                  <span className="hb-noteitem__title">{n.title}</span>
+                </div>
+                {n.content && <div className="hb-noteitem__preview">{n.content.replace(/[#*`>_-]/g, '').trim()}</div>}
+                <div className="hb-noteitem__meta">
+                  {relTime(n.updatedAt)}
+                  {n.images.length > 0 && (
+                    <span className="hb-noteitem__imgcount">
+                      <Icon name="image" size={13} stroke={2} /> {n.images.length}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div className="hb-page">
       <PageHead
         eyebrow={`${notes.length} ${t('notes.count')}`}
         title={t('notes.title')}
-        actions={<Button icon="plus" onClick={() => { setDraft(emptyDraft()); setSelectedId(null) }}>{t('notes.newNote')}</Button>}
+        actions={<Button icon="plus" onClick={() => openEditor(null)}>{t('notes.newNote')}</Button>}
       />
 
-      <div className="hb-notes-layout">
-        <div>
+      <div className={`hb-notes-layout${draft ? ' is-editing' : ''}`}>
+        <div className="hb-notes-list">
           <div className="hb-quickadd hb-search" style={{ marginBottom: 14 }}>
             <Icon name="search" size={18} stroke={2} style={{ color: 'var(--ink-3)' }} />
             <input value={query} placeholder={t('notes.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} />
@@ -470,69 +658,101 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 icon="note"
                 title={query.trim() ? t('notes.noResults') : t('notes.empty')}
                 hint={query.trim() ? undefined : t('notes.emptyHint')}
-                action={query.trim() ? undefined : <Button size="sm" icon="plus" onClick={() => { setDraft(emptyDraft()); setSelectedId(null) }}>{t('notes.newNote')}</Button>}
+                action={query.trim() ? undefined : <Button size="sm" icon="plus" onClick={() => openEditor(null)}>{t('notes.newNote')}</Button>}
               />
             </Card>
           ) : (
-            <div className="hb-notes-items">
-              {listed.map((note) => (
-                <button
-                  key={note.id}
-                  className={`hb-noteitem${selectedId === note.id ? ' is-active' : ''}`}
-                  onClick={() => { setSelectedId(note.id); setDraft(null) }}
-                >
-                  <div className="hb-noteitem__top">
-                    <Icon name={note.visibility === 'PRIVATE' ? 'lock' : 'users'} size={14} stroke={2} style={{ color: 'var(--ink-3)' }} />
-                    <span className="hb-noteitem__title">{note.title}</span>
-                  </div>
-                  {note.content && <div className="hb-noteitem__preview">{note.content.replace(/[#*`>_-]/g, '').trim()}</div>}
-                  <div className="hb-noteitem__meta">
-                    {relTime(note.updatedAt)}
-                    {note.folder && (
-                      <span className="hb-noteitem__imgcount">
-                        <Icon name="folder" size={13} stroke={2} /> {note.folder}
-                      </span>
-                    )}
-                    {note.images.length > 0 && (
-                      <span className="hb-noteitem__imgcount">
-                        <Icon name="image" size={13} stroke={2} /> {note.images.length}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
+            renderNoteGroups()
           )}
         </div>
 
-        <div>
+        <div className="hb-notes-detail" onBlur={handleEditorBlur}>
           {draft ? (
             <Card className="hb-card--pad">
+              {/* Mobile-only bar: back to the list + open the note switcher (#313) */}
+              <div className="hb-note-editor__mobilebar">
+                <button type="button" className="hb-note-back" onClick={closeEditor}>
+                  <Icon name="chevronLeft" size={18} stroke={2.2} /> {t('notes.backToList')}
+                </button>
+                <IconButton icon="more" label={t('notes.switchNote')} onClick={() => setSwitcherOpen(true)} />
+              </div>
+
+              {/* Header: Edit/Preview toggle on the left, auto-save status + delete on the right */}
+              <div className="hb-note-editor__bar">
+                <div className="hb-seg" role="tablist">
+                  <button
+                    role="tab"
+                    aria-selected={!previewMode}
+                    className={`hb-seg__item${!previewMode ? ' is-active' : ''}`}
+                    onClick={() => setPreviewMode(false)}
+                  >
+                    {t('notes.editSource')}
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={previewMode}
+                    className={`hb-seg__item${previewMode ? ' is-active' : ''}`}
+                    onClick={() => setPreviewMode(true)}
+                  >
+                    {t('notes.preview')}
+                  </button>
+                </div>
+                <div className="hb-note-editor__baractions">
+                  <SaveStatus
+                    state={saveState}
+                    savingLabel={t('notes.saving')}
+                    savedLabel={t('notes.saved')}
+                    errorLabel={t('notes.saveFailed')}
+                  />
+                  {draft.id && (
+                    <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(draft.id!)} />
+                  )}
+                </div>
+              </div>
+
               <Field label={t('common.titlePlaceholder')}>
                 <TextInput autoFocus value={draft.title} onChange={(v) => setDraft({ ...draft, title: v })} placeholder={t('common.titlePlaceholder')} />
               </Field>
-              <Field label={t('notes.contentPlaceholder')}>
-                <textarea
-                  ref={contentRef}
-                  className="hb-input hb-mono-area"
-                  rows={12}
-                  value={draft.content}
-                  placeholder={t('notes.contentPlaceholder')}
-                  onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-                  // paste/drag an image straight into the editor → upload + inline ref (#146)
-                  onPaste={handleEditorPaste}
-                  onDrop={handleEditorDrop}
-                  onDragOver={handleEditorDragOver}
-                />
-                {/* subtle inline feedback for the paste/drop upload flow */}
-                {uploadingImage && (
-                  <p className="hb-note-editor__uploading">
-                    <Icon name="image" size={14} stroke={2} /> {t('notes.imageUploadingInline')}
-                  </p>
-                )}
-                {imageError && <p className="hb-note-images__error">{imageError}</p>}
-              </Field>
-              {editImages.length > 0 && (
+
+              {previewMode ? (
+                <div className="hb-md hb-note-preview">
+                  {draft.content.trim()
+                    ? renderMarkdown(draft.content, {
+                        // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery
+                        resolveImage: (imageId, alt) =>
+                          draft.id ? (
+                            <AuthedImage url={noteImageUrl(draft.id, imageId)} token={token} alt={alt} className="hb-md-img" />
+                          ) : (
+                            alt || null
+                          ),
+                      })
+                    : <p className="hb-muted" style={{ margin: 0 }}>{t('notes.contentPlaceholder')}</p>}
+                </div>
+              ) : (
+                <Field label={t('notes.contentPlaceholder')}>
+                  <textarea
+                    ref={contentRef}
+                    className="hb-input hb-mono-area"
+                    rows={12}
+                    value={draft.content}
+                    placeholder={t('notes.contentPlaceholder')}
+                    onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+                    // paste/drag an image straight into the editor → upload + inline ref (#146)
+                    onPaste={handleEditorPaste}
+                    onDrop={handleEditorDrop}
+                    onDragOver={handleEditorDragOver}
+                  />
+                  {/* subtle inline feedback for the paste/drop upload flow */}
+                  {uploadingImage && (
+                    <p className="hb-note-editor__uploading">
+                      <Icon name="image" size={14} stroke={2} /> {t('notes.imageUploadingInline')}
+                    </p>
+                  )}
+                  {imageError && <p className="hb-note-images__error">{imageError}</p>}
+                </Field>
+              )}
+
+              {!previewMode && editImages.length > 0 && (
                 <Field label={t('notes.insertImageLabel')}>
                   <div className="hb-note-insert-strip">
                     {editImages.map((img) => (
@@ -550,6 +770,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   </div>
                 </Field>
               )}
+
               <Field label={t('notes.tagsPlaceholder')}>
                 <TextInput value={draft.tags} onChange={(v) => setDraft({ ...draft, tags: v })} placeholder={t('notes.tagsPlaceholder')} />
               </Field>
@@ -577,105 +798,73 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   {draft.visibility === 'PRIVATE' ? t('notes.private') : t('notes.shared')}
                 </Button>
               </div>
-              {saveError && <p className="hb-modal-error" style={{ marginTop: 8 }}>{saveError}</p>}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                {draft.id ? (
-                  <Button variant="danger" icon="trash" onClick={() => handleDelete(draft.id!)}>{t('common.delete')}</Button>
-                ) : <span />}
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <Button variant="ghost" onClick={() => setDraft(null)}>{t('common.cancel')}</Button>
-                  <Button onClick={handleSave} disabled={saving || !draft.title.trim()}>{t('common.save')}</Button>
-                </div>
-              </div>
-            </Card>
-          ) : selected ? (
-            <Card className="hb-card--pad">
-              <div className="hb-note-doc__head">
-                <div style={{ minWidth: 0 }}>
-                  <div className="hb-note-doc__title">{selected.title}</div>
-                  <div className="hb-note-doc__meta">
-                    <Avatar user={selected.createdBy} size={22} />
-                    <Badge tone={selected.visibility === 'PRIVATE' ? 'neutral' : 'accent'}>
-                      {selected.visibility === 'PRIVATE' ? t('notes.private') : t('notes.shared')}
-                    </Badge>
-                    <span className="hb-muted" style={{ fontSize: 13 }}>{relTime(selected.updatedAt)}</span>
-                    {selected.folder && (
-                      <span className="hb-tagchip is-static">
-                        <Icon name="folder" size={12} stroke={2} /> {selected.folder}
-                      </span>
-                    )}
-                    {selected.tags.map((tag) => <span key={tag} className="hb-tagchip is-static">#{tag}</span>)}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 2 }}>
-                  <IconButton icon="edit" label={t('common.edit')} onClick={() => setDraft(draftFromNote(selected))} />
-                  <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(selected.id)} />
-                </div>
-              </div>
-              <div className="hb-md">
-                {renderMarkdown(selected.content, {
-                  // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery
-                  resolveImage: (imageId, alt) => (
-                    <AuthedImage url={noteImageUrl(selected.id, imageId)} token={token} alt={alt} className="hb-md-img" />
-                  ),
-                })}
-              </div>
 
-              <div className="hb-note-images">
-                <div className="hb-note-images__head">
-                  <span className="hb-field__label">
-                    {t('notes.images')}{selected.images.length > 0 ? ` (${selected.images.length})` : ''}
-                  </span>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon="plus"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadingImage}
-                  >
-                    {uploadProgress
-                      ? t('notes.uploadingMany', { done: uploadProgress.done, total: uploadProgress.total })
-                      : uploadingImage
-                        ? t('notes.uploading')
-                        : t('notes.addImage')}
-                  </Button>
-                </div>
-                {imageError && <p className="hb-note-images__error">{imageError}</p>}
-                {selected.images.length > 0 && (
-                  <div className="hb-note-images__grid">
-                    {selected.images.map((img) => (
-                      <div key={img.id} className="hb-note-thumb">
-                        <AuthedImage
-                          url={noteImageUrl(selected.id, img.id)}
-                          token={token}
-                          alt={img.originalName}
-                          onClick={() => setLightbox({ noteId: selected.id, imageId: img.id })}
-                        />
-                        <button
-                          type="button"
-                          className="hb-note-thumb__del"
-                          title={t('notes.removeImage')}
-                          aria-label={t('notes.removeImage')}
-                          onClick={() => handleDeleteImage(img.id)}
-                        >
-                          <Icon name="x" size={14} stroke={2.4} />
-                        </button>
-                      </div>
-                    ))}
+              {saveError && <p className="hb-modal-error" style={{ marginTop: 8 }}>{saveError}</p>}
+
+              {/* Image gallery (upload / manage) — available while editing a SAVED note (#310). */}
+              {editNote && (
+                <div className="hb-note-images">
+                  <div className="hb-note-images__head">
+                    <span className="hb-field__label">
+                      {t('notes.images')}{editNote.images.length > 0 ? ` (${editNote.images.length})` : ''}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon="plus"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingImage}
+                    >
+                      {uploadProgress
+                        ? t('notes.uploadingMany', { done: uploadProgress.done, total: uploadProgress.total })
+                        : uploadingImage
+                          ? t('notes.uploading')
+                          : t('notes.addImage')}
+                    </Button>
                   </div>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? [])
-                    if (files.length > 0) handleUploadImages(files)
-                    e.target.value = '' // allow re-selecting the same file(s)
-                  }}
-                />
+                  {/* show the inline image error here too when in preview mode (the editor field is hidden) */}
+                  {previewMode && imageError && <p className="hb-note-images__error">{imageError}</p>}
+                  {editNote.images.length > 0 && (
+                    <div className="hb-note-images__grid">
+                      {editNote.images.map((img) => (
+                        <div key={img.id} className="hb-note-thumb">
+                          <AuthedImage
+                            url={noteImageUrl(editNote.id, img.id)}
+                            token={token}
+                            alt={img.originalName}
+                            onClick={() => setLightbox({ noteId: editNote.id, imageId: img.id })}
+                          />
+                          <button
+                            type="button"
+                            className="hb-note-thumb__del"
+                            title={t('notes.removeImage')}
+                            aria-label={t('notes.removeImage')}
+                            onClick={() => handleDeleteImage(img.id)}
+                          >
+                            <Icon name="x" size={14} stroke={2.4} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? [])
+                      if (files.length > 0) handleUploadImages(files)
+                      e.target.value = '' // allow re-selecting the same file(s)
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Close affordance: edits are already auto-saved, so this just deselects. */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+                <Button variant="ghost" onClick={closeEditor}>{t('common.close')}</Button>
               </div>
             </Card>
           ) : (
@@ -683,6 +872,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           )}
         </div>
       </div>
+
+      {/* Mobile note switcher (#313): jump to another note without going back first. */}
+      <Sheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} title={t('notes.switchNote')}>
+        {listed.length === 0
+          ? <EmptyState icon="note" title={t('notes.empty')} />
+          : renderNoteGroups(() => setSwitcherOpen(false))}
+      </Sheet>
 
       {lightbox && (
         <div className="hb-lightbox" onClick={() => setLightbox(null)}>
@@ -693,4 +889,27 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       {errorToast}
     </div>
   )
+}
+
+// Auto-save status pill (#309): idle shows nothing; "Speichert…" pulses, "Gespeichert" gets a
+// check, the error state is a red tag reusing notes.saveFailed. Replaces the manual Save button.
+// Labels are passed pre-resolved so this stays a dumb presentational component.
+function SaveStatus({ state, savingLabel, savedLabel, errorLabel }: {
+  state: SaveState
+  savingLabel: string
+  savedLabel: string
+  errorLabel: string
+}) {
+  if (state === 'idle') return null
+  if (state === 'saving') {
+    return <span className="hb-savestatus is-saving">{savingLabel}</span>
+  }
+  if (state === 'saved') {
+    return (
+      <span className="hb-savestatus is-saved">
+        <Icon name="check" size={14} stroke={2.4} /> {savedLabel}
+      </span>
+    )
+  }
+  return <span className="hb-savestatus is-error">{errorLabel}</span>
 }
