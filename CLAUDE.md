@@ -225,6 +225,21 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
     ist umgesetzt (#187).
     Für Confirms gibt es das Primitive `<ConfirmDialog>` (primitives.tsx, #125/#129) —
     Cross-Person-Aktionen der Zeiterfassung (Partner-Timer, Partner-Einträge) laufen darüber.
+- Notizen-View (`components/NotesView.tsx`, #309–#313): Ein Klick auf eine Notiz öffnet **direkt
+  den Editor** (kein separater Lese-Schritt); ein Edit/Vorschau-Umschalter im Editor zeigt
+  wahlweise den Markdown-Quelltext oder die gerenderte Vorschau (Bild-Galerie/Insert-Strip
+  bleiben erhalten). Es gibt **keinen Speichern-Button** mehr: Änderungen **auto-speichern**
+  debounced (~900 ms nach der letzten Eingabe, sofort bei Blur/Notizwechsel/Schließen/Unmount)
+  per bestehendem PUT bzw. POST, mit Status-Indikator (Speichert…/Gespeichert/Fehler). Hazards:
+  neue Notiz wird erst bei nicht-leerem Titel angelegt, die zurückgegebene id wandert in den
+  Draft (Folge-Saves sind PUT), ein `creatingRef`/`savingRef`-Guard verhindert Doppel-POST,
+  ein Session-Token verhindert id-Stamping auf einen inzwischen gewechselten Draft, ein
+  Snapshot-Vergleich unterdrückt redundante Saves, und der WS-`NOTE_UPDATED`-Echo wird nur in
+  die `notes`-Liste gemerged — **nie** zurück in den `draft` (kein Text/Caret-Clobber). Die
+  Liste ist **ordner-gruppiert** (Header + eingerückte Notizen, benannte Ordner alphabetisch,
+  „Ohne Ordner" zuletzt; Filter-Chips bleiben). Auf Mobile (≤860px) wird bei offenem Editor die
+  Liste eingeklappt (Voll-Breite-Editor + „← Notizen"-Back-Control), Notizwechsel ohne Zurück
+  über ein linkes `<Sheet>`-Slide-over.
 
 ## Android-Konventionen
 - Jetpack Compose, Kotlin Coroutines + Flow
