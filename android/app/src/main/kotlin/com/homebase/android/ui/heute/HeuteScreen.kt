@@ -39,6 +39,7 @@ import com.homebase.android.data.model.TodoDto
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAppBar
+import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
@@ -57,6 +58,7 @@ import com.homebase.android.ui.components.HbRoute
 import com.homebase.android.ui.components.HbRow
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbToast
+import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
@@ -99,11 +101,17 @@ fun HeuteScreen(
         it.status == "DONE" && doneLocalDate(it.doneAt) == today
     }
 
-    val dueTodayTodos = todoState.todos.filter {
-        it.status != "DONE" && Format.dueGroup(it.dueDate) == Format.DueGroup.HEUTE
-    }
+    // "Heute dran" (#307): overdue (due date strictly before today, not done) belong here too —
+    // they're still things to do today. Overdue first (DueGroup.order: overdue=0, today=1), each
+    // sub-group oldest due date first. The stat tile above stays today-only.
+    val todayAndOverdue = todoState.todos
+        .filter {
+            it.status != "DONE" &&
+                Format.dueGroup(it.dueDate).let { g -> g == Format.DueGroup.UEBERFAELLIG || g == Format.DueGroup.HEUTE }
+        }
+        .sortedWith(compareBy({ Format.dueGroup(it.dueDate).order }, { it.dueDate ?: "" }))
     val heuteDran: List<TodoDto> = (
-        dueTodayTodos.ifEmpty { todoState.todos.filter { it.status != "DONE" } }
+        todayAndOverdue.ifEmpty { todoState.todos.filter { it.status != "DONE" } }
         ).take(3)
 
     val openShopping = shoppingState.items.filter { !it.checked }
@@ -192,6 +200,7 @@ fun HeuteScreen(
                     } else {
                         Column {
                             heuteDran.forEachIndexed { index, todo ->
+                                val isOverdue = Format.dueGroup(todo.dueDate) == Format.DueGroup.UEBERFAELLIG
                                 HbRow(divider = index < heuteDran.lastIndex) {
                                     HbCheck(
                                         checked = todo.status == "DONE",
@@ -205,8 +214,19 @@ fun HeuteScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        if (todo.priority != null) {
-                                            HbPriority(todo.priority, Modifier.padding(top = 4.dp))
+                                        // Overdue items stay recognizable here (#307) — same "Überfällig"
+                                        // marker the web dashboard uses.
+                                        if (isOverdue || todo.priority != null) {
+                                            Row(
+                                                Modifier.padding(top = 4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                if (isOverdue) {
+                                                    HbBadge(stringResource(R.string.due_group_overdue), HbTone.Over)
+                                                }
+                                                todo.priority?.let { HbPriority(it) }
+                                            }
                                         }
                                     }
                                     HbAvatar(todo.assignee)
