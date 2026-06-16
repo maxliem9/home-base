@@ -95,12 +95,6 @@
     <string name="dashboard_shopping_card">Shopping list</string>
     <string name="dashboard_list_empty">List is empty</string>
     <string name="dashboard_more_items">+ %1$d more</string>
-    <string name="dashboard_digest_title">Evening digest</string>
-    <string name="dashboard_digest_badge">today · 20:00</string>
-    <string name="dashboard_digest_hint">Preview of the Telegram message you both receive.</string>
-    <string name="dashboard_digest_done_today">Done today</string>
-    <string name="dashboard_digest_new_inbox">New in inbox</string>
-    <string name="dashboard_digest_due_tomorrow">Due tomorrow</string>
     <string name="confirm_stop_partner_timer">Stop %1$s\'s timer?</string>
     <string name="time_project_fallback">Project</string>
 

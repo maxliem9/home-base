@@ -7,9 +7,8 @@ import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
-import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
+import { Avatar, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
 import { clockTime, dueLabel, fmtClock, fmtDurationShort, localDateIso, todayLabel, userMeta, usernameFromToken } from '../ui/format'
-import { PresenceStrip } from './PresenceStrip'
 import type { TodosFocus } from './TodosView'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -234,10 +233,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
-  // Digest preview only (#76): the Telegram digest counts INBOX todos *created
-  // today* (DigestService keys createdAt to the local day) — the stat tile and
-  // the Inbox tab badge intentionally keep showing the whole inbox (#71).
-  const inboxNewToday = todos.filter((x) => x.status === 'INBOX' && localDateIso(new Date(x.createdAt)) === todayIso).length
   const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
   // own timer first, then the partner's
@@ -278,9 +273,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
             <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onOpenTodos('done')} />
           </div>
 
-          {/* HB-01 — weekly presence overview, above "Heute dran" */}
-          <PresenceStrip token={token} onLogout={onLogout} onOpen={() => onNavigate('abwesenheit')} />
-
           <div className="hb-heute-grid">
             <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
               {/* Today's tasks */}
@@ -316,26 +308,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
                     ))}
                   </div>
                 )}
-              </Card>
-
-              {/* Digest preview */}
-              <Card className="hb-card--pad hb-digest">
-                <div className="hb-cardhead">
-                  <h3>
-                    <Icon name="send" size={17} stroke={2} style={{ verticalAlign: '-2px', marginRight: 7, color: 'var(--accent)' }} />
-                    {t('dashboard.digestTitle')}
-                  </h3>
-                  <Badge tone="neutral">{t('dashboard.digestBadge')}</Badge>
-                </div>
-                <p className="hb-muted" style={{ fontSize: 13.5, margin: '2px 0 14px' }}>{t('dashboard.digestSub')}</p>
-                <div className="hb-digest__body">
-                  <div className="hb-digest__line"><span className="hb-digest__k">✓ {t('dashboard.digestDone')}</span><span>{doneToday.length}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t('dashboard.digestInbox')}</span><span>{inboxNewToday}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">↻ {t('dashboard.digestTomorrow')}</span><span>{dueTomorrow.length}</span></div>
-                  {dueTomorrow.slice(0, 3).map((todo) => (
-                    <div key={todo.id} className="hb-digest__sub">· {todo.title}{todo.assignee ? ` (${userMeta(todo.assignee)?.name ?? todo.assignee})` : ''}</div>
-                  ))}
-                </div>
               </Card>
             </div>
 

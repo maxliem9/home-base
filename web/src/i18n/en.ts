@@ -185,18 +185,6 @@ export const en: Messages = {
     shoppingTitle: 'Shopping list',
     shoppingEmpty: 'Everything bought',
     moreItems: 'more', // rendered as "+ {n} more"
-    // digest preview card
-    digestTitle: 'Evening digest',
-    digestBadge: 'Preview', // static badge; the peek doesn't fetch the configured time (/config/digest)
-    digestSub: 'Preview of the Telegram message you both receive.',
-    digestDone: 'Done today',
-    digestInbox: 'New in the Inbox',
-    digestTomorrow: 'Due tomorrow',
-    // HB-01 presence strip ("Who's around?")
-    presenceTitle: "Who's around?",
-    presenceOpen: 'Calendar',
-    presenceWeek: 'This week',
-    presenceKita: 'Daycare closed',
     // HB-10 recurring tasks + weekly work-target peek
     recurring: 'Recurring',
     worktargetTitle: 'Weekly target',

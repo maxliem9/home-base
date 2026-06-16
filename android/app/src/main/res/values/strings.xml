@@ -101,12 +101,6 @@
     <string name="dashboard_shopping_card">Einkaufsliste</string>
     <string name="dashboard_list_empty">Liste ist leer</string>
     <string name="dashboard_more_items">+ %1$d weitere</string>
-    <string name="dashboard_digest_title">Abend-Digest</string>
-    <string name="dashboard_digest_badge">heute · 20:00</string>
-    <string name="dashboard_digest_hint">Vorschau der Telegram-Nachricht, die ihr beide bekommt.</string>
-    <string name="dashboard_digest_done_today">Heute erledigt</string>
-    <string name="dashboard_digest_new_inbox">Neu in der Inbox</string>
-    <string name="dashboard_digest_due_tomorrow">Morgen fällig</string>
     <string name="confirm_stop_partner_timer">Timer von %1$s stoppen?</string>
     <string name="time_project_fallback">Projekt</string>
 
