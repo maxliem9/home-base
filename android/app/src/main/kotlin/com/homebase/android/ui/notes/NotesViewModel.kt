@@ -9,6 +9,8 @@ import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +27,32 @@ data class NotesUiState(
 /** One picked image to upload to a note: its bytes + the original filename and MIME type. */
 data class NoteImageUpload(val bytes: ByteArray, val filename: String, val contentType: String)
 
+/** Auto-save status shown in the editor app bar (#309). */
+enum class SaveStatus { IDLE, SAVING, SAVED, ERROR }
+
+/**
+ * In-progress editor draft (#309/#310). Lives in the ViewModel — **not** sourced from
+ * [NotesUiState.notes] — so the WS-echo list refresh ([upsert] on our own save's NOTE_UPDATED, or a
+ * partner's edit) never clobbers the user's unsaved keystrokes/caret. `noteId` is null for a
+ * not-yet-created note and is captured from the first successful create so later saves UPDATE that
+ * id (no duplicate notes). `images` mirrors the saved note's gallery (upload/remove refresh it
+ * without touching the text draft).
+ */
+data class NoteEditorState(
+    val noteId: String?,
+    val title: String,
+    val content: String,
+    val tags: List<String>,
+    val folder: String,
+    val visibility: String,
+    val images: List<NoteImageDto> = emptyList(),
+    val status: SaveStatus = SaveStatus.IDLE,
+    // Bumped once per editor open/switch — NOT on the first-create id capture — so the UI can key
+    // its caret-bearing content field on a stable token (reseeds on a note switch, survives the
+    // null→id transition while typing in a brand-new note). #309/#310.
+    val session: Int = 0,
+)
+
 class NotesViewModel(
     private val repository: NotesRepository,
     private val token: String,
@@ -32,6 +60,22 @@ class NotesViewModel(
 
     private val _uiState = MutableStateFlow(NotesUiState(isLoading = true))
     val uiState: StateFlow<NotesUiState> = _uiState.asStateFlow()
+
+    // --- Editor / auto-save state (#309/#310) ---
+    private val _editorState = MutableStateFlow<NoteEditorState?>(null)
+    val editorState: StateFlow<NoteEditorState?> = _editorState.asStateFlow()
+
+    /** Debounce job: cancelled on each keystroke, fires the save after [AUTOSAVE_DEBOUNCE_MS]. */
+    private var autosaveJob: Job? = null
+
+    /** Snapshot of what is currently persisted on the server, to skip no-op saves (dirty check). */
+    private var savedSnapshot: EditorSnapshot? = null
+
+    /** True while a create/update request is in flight — guards the first-create double-create race. */
+    private var saveInFlight = false
+
+    /** Monotonic editor-session counter; bumped on each open/switch (see [NoteEditorState.session]). */
+    private var editorSession = 0
 
     init {
         load()
@@ -120,6 +164,194 @@ class NotesViewModel(
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Editor / auto-save (#309/#310)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Open the editor for [note] (null = a brand-new note). Seeds the draft and the saved snapshot:
+     * for an existing note the snapshot equals the loaded state (so the first keystroke is the first
+     * dirty change — opening alone never saves); for a new note there is no snapshot yet, so the
+     * first non-blank title triggers the create.
+     */
+    fun openEditor(note: NoteDto?) {
+        autosaveJob?.cancel()
+        saveInFlight = false
+        val session = ++editorSession
+        if (note == null) {
+            savedSnapshot = null
+            _editorState.value = NoteEditorState(
+                noteId = null,
+                title = "",
+                content = "",
+                tags = emptyList(),
+                folder = "",
+                visibility = "SHARED",
+                images = emptyList(),
+                status = SaveStatus.IDLE,
+                session = session,
+            )
+        } else {
+            savedSnapshot = EditorSnapshot.of(note.title, note.content, note.tags, note.folder ?: "", note.visibility)
+            _editorState.value = NoteEditorState(
+                noteId = note.id,
+                title = note.title,
+                content = note.content,
+                tags = note.tags,
+                folder = note.folder ?: "",
+                visibility = note.visibility,
+                images = note.images,
+                status = SaveStatus.IDLE,
+                session = session,
+            )
+        }
+    }
+
+    /**
+     * Apply an editor field change and (re)arm the debounced auto-save. Each call cancels the
+     * pending save and starts a fresh [AUTOSAVE_DEBOUNCE_MS] timer, so we persist ~1s after the last
+     * keystroke rather than on every character. A no-op change (draft already equals the saved
+     * snapshot) clears the timer and shows nothing — the dirty check.
+     */
+    fun updateEditor(
+        title: String? = null,
+        content: String? = null,
+        tags: List<String>? = null,
+        folder: String? = null,
+        visibility: String? = null,
+    ) {
+        val current = _editorState.value ?: return
+        val next = current.copy(
+            title = title ?: current.title,
+            content = content ?: current.content,
+            tags = tags ?: current.tags,
+            folder = folder ?: current.folder,
+            visibility = visibility ?: current.visibility,
+        )
+        _editorState.value = next
+        autosaveJob?.cancel()
+        if (!isDirty(next)) return
+        autosaveJob = viewModelScope.launch {
+            delay(AUTOSAVE_DEBOUNCE_MS)
+            persistEditor(next)
+        }
+    }
+
+    /**
+     * Persist the current draft right now (no debounce) — called on leaving the editor or before
+     * switching to another note, so an edit is never lost between the last keystroke and the debounce
+     * firing. Suspends until the save completes so the caller (note switch) can sequence reliably.
+     */
+    suspend fun flushEditorSave() {
+        autosaveJob?.cancel()
+        val draft = _editorState.value ?: return
+        if (!isDirty(draft)) return
+        persistEditor(draft)
+    }
+
+    /**
+     * Jump to another note from inside the editor (note-switcher, #313): flush the current draft so
+     * nothing is lost, then re-seed the editor for [target]. A no-op if already on that note.
+     */
+    fun switchEditorTo(target: NoteDto) {
+        if (_editorState.value?.noteId == target.id) return
+        viewModelScope.launch {
+            flushEditorSave()
+            openEditor(target)
+        }
+    }
+
+    /** Close the editor, flushing a final save first (back press). */
+    fun closeEditor() {
+        viewModelScope.launch {
+            flushEditorSave()
+            autosaveJob?.cancel()
+            _editorState.value = null
+            savedSnapshot = null
+            saveInFlight = false
+        }
+    }
+
+    /** Delete the note currently open in the editor (if it was ever created), then close it. */
+    fun deleteEditorNote() {
+        autosaveJob?.cancel()
+        val id = _editorState.value?.noteId
+        _editorState.value = null
+        savedSnapshot = null
+        saveInFlight = false
+        if (id != null) deleteNote(id)
+    }
+
+    /** A draft differs from what's persisted iff there is no snapshot yet or a field changed. */
+    private fun isDirty(draft: NoteEditorState): Boolean {
+        val snap = savedSnapshot ?: return true
+        return snap != EditorSnapshot.of(draft.title, draft.content, draft.tags, draft.folder, draft.visibility)
+    }
+
+    /**
+     * Create-or-update the draft and reconcile the result. Hazards handled:
+     * - **No create without a title:** the backend rejects a blank title, so we don't even attempt a
+     *   create until the title is non-blank (an untitled new note simply stays unsaved/IDLE).
+     * - **No duplicate create:** [saveInFlight] suppresses a second request while one is running, and
+     *   the first create's returned id is captured into the editor so every later save is an UPDATE.
+     * - **Caret safety:** on success we only fold the *server-side* fields (id, images, updatedAt via
+     *   the list) into state; we never overwrite the live title/content the user may have typed
+     *   while the request was in flight — those stay in [_editorState]. The snapshot is set to the
+     *   values we actually sent, so if the user kept typing the draft is still dirty and re-saves.
+     */
+    private suspend fun persistEditor(draft: NoteEditorState) {
+        val title = draft.title.trim()
+        val id = draft.noteId
+        if (id == null && title.isBlank()) return // never create an untitled note
+        if (saveInFlight) return // a save is already running; the trailing edit will re-trigger
+        saveInFlight = true
+        // Snapshot of exactly what we send, so a no-op repeat is skipped and a change mid-flight stays dirty.
+        val sentSnapshot = EditorSnapshot.of(draft.title, draft.content, draft.tags, draft.folder, draft.visibility)
+        setEditorStatus(SaveStatus.SAVING)
+        val folderValue = draft.folder.trim()
+        val result = if (id == null) {
+            repository.createNote(
+                CreateNoteRequest(
+                    title = title,
+                    content = draft.content,
+                    tags = draft.tags,
+                    folder = folderValue,
+                    visibility = draft.visibility,
+                ),
+            )
+        } else {
+            repository.updateNote(
+                id,
+                UpdateNoteRequest(
+                    title = title,
+                    content = draft.content,
+                    tags = draft.tags,
+                    folder = folderValue,
+                    visibility = draft.visibility,
+                ),
+            )
+        }
+        saveInFlight = false
+        result
+            .onSuccess { note ->
+                upsert(note)
+                savedSnapshot = sentSnapshot
+                // Capture the new id (first create) + refresh server-owned fields, but keep the live
+                // text draft so in-flight keystrokes survive.
+                _editorState.update { st ->
+                    st?.copy(noteId = note.id, images = note.images, status = SaveStatus.SAVED)
+                }
+            }
+            .onFailure { e ->
+                setEditorStatus(SaveStatus.ERROR)
+                _uiState.update { it.copy(error = e.message) }
+            }
+    }
+
+    private fun setEditorStatus(status: SaveStatus) {
+        _editorState.update { it?.copy(status = status) }
+    }
+
     fun deleteNote(id: String) {
         viewModelScope.launch {
             repository.deleteNote(id)
@@ -187,6 +419,11 @@ class NotesViewModel(
             }
             state.copy(notes = notes)
         }
+        // If the editor is open on this note, fold in the server-owned image gallery (an image
+        // upload/remove, or a partner's change) WITHOUT touching the live text draft / caret (#309).
+        _editorState.update { st ->
+            if (st != null && st.noteId == note.id) st.copy(images = note.images) else st
+        }
     }
 
     private fun observeWebSocket() {
@@ -223,7 +460,31 @@ class NotesViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        autosaveJob?.cancel()
         repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
+    }
+
+    companion object {
+        /** Idle delay after the last keystroke before an auto-save fires (#309). */
+        const val AUTOSAVE_DEBOUNCE_MS = 1000L
+    }
+}
+
+/**
+ * The comparable set of persisted note fields, used for the dirty check (#309). Tags compare by
+ * value; title/folder are NOT pre-trimmed here so that typing a trailing space still counts as a
+ * change worth saving once it settles — the trim happens only on the wire in [persistEditor].
+ */
+private data class EditorSnapshot(
+    val title: String,
+    val content: String,
+    val tags: List<String>,
+    val folder: String,
+    val visibility: String,
+) {
+    companion object {
+        fun of(title: String, content: String, tags: List<String>, folder: String, visibility: String) =
+            EditorSnapshot(title, content, tags, folder, visibility)
     }
 }
