@@ -225,6 +225,17 @@ class MealPlanRouteTest {
     }
 
     @Test
+    fun `PUT with an over-long dishTitle returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/meal-plan/2026-06-15/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"dishTitle":"${"x".repeat(201)}"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
     fun `PUT with an unknown recipe returns 404`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
