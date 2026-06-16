@@ -280,8 +280,9 @@ export const en: Messages = {
     todayEmptyHint: 'No open tasks due today.',
     tomorrowEmpty: 'Nothing due tomorrow',
     tomorrowEmptyHint: 'No open tasks due tomorrow.',
-    doneViewEmpty: 'Nothing done today yet',
-    doneViewEmptyHint: 'Tasks you complete today show up here.',
+    doneViewEmpty: 'Nothing done recently',
+    doneViewEmptyHint: 'Tasks completed in the last {n} days show up here.',
+    doneWindowNote: 'Last {n} days', // hint above the Done list (#263)
     // Subtasks
     subtasks: 'Subtasks',
     addSubtask: 'Add subtask …',
