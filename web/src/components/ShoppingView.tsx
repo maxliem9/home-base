@@ -522,7 +522,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
           {lists.length > 1 && (
             <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
               <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {t('shopping.deleteList')} „{active.name}"
+              {t('shopping.deleteListNamed', { name: active.name })}
             </button>
           )}
         </>

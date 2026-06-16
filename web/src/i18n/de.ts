@@ -234,10 +234,10 @@ export const de = {
     visPrivate: 'Privat',
     visSharedHint: 'Beide sehen und bearbeiten diese Liste.',
     visPrivateHint: 'Nur du siehst diese Liste.',
-    editList: 'Liste bearbeiten', // link label, rendered as `Liste bearbeiten „{name}"`
+    editListNamed: 'Liste „{name}" bearbeiten', // link label, {name} = Listenname (Quotes sprachabhängig)
     editListTitle: 'Liste bearbeiten', // edit-modal title
     saveList: 'Speichern', // save button in the edit modal
-    deleteList: 'Liste löschen', // link label, rendered as `Liste „{name}" löschen`
+    deleteListNamed: 'Liste „{name}" löschen', // link label, {name} = Listenname (Quotes sprachabhängig)
     deleteListTitle: 'Liste löschen?', // confirm-modal title
     deleteListConfirm: 'Endgültig löschen', // danger button in the confirm modal
     deleteListWarn: 'Das kann nicht rückgängig gemacht werden.', // shown when the list has todos
@@ -293,7 +293,7 @@ export const de = {
     listName: 'Name',
     listNamePlaceholder: 'z. B. Wocheneinkauf',
     createList: 'Erstellen',
-    deleteList: 'Liste löschen', // rendered as `Liste „{name}" löschen`
+    deleteListNamed: 'Liste „{name}" löschen', // link label, {name} = Listenname (Quotes sprachabhängig)
     deleteListTitle: 'Liste löschen?', // confirm-modal title
     deleteListConfirm: 'Liste und alle Einträge löschen?', // modal body (legacy, no longer used in body)
     deleteListBtn: 'Endgültig löschen', // danger button in the confirm modal

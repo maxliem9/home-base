@@ -237,10 +237,10 @@ export const en: Messages = {
     visPrivate: 'Private',
     visSharedHint: 'Both see and edit this list.',
     visPrivateHint: 'Only you see this list.',
-    editList: 'Edit list', // link label, rendered as `Edit list „{name}"`
+    editListNamed: 'Edit list "{name}"', // link label, {name} = list name (quotes are locale-specific)
     editListTitle: 'Edit list', // edit-modal title
     saveList: 'Save', // save button in the edit modal
-    deleteList: 'Delete list', // link label, rendered as `Delete list „{name}"`
+    deleteListNamed: 'Delete list "{name}"', // link label, {name} = list name (quotes are locale-specific)
     deleteListTitle: 'Delete list?', // confirm-modal title
     deleteListConfirm: 'Delete permanently', // danger button in the confirm modal
     deleteListWarn: 'This cannot be undone.', // shown when the list has todos
@@ -296,7 +296,7 @@ export const en: Messages = {
     listName: 'Name',
     listNamePlaceholder: 'e.g. Weekly groceries',
     createList: 'Create',
-    deleteList: 'Delete list', // rendered as `Delete list „{name}"`
+    deleteListNamed: 'Delete list "{name}"', // link label, {name} = list name (quotes are locale-specific)
     deleteListTitle: 'Delete list?', // confirm-modal title
     deleteListConfirm: 'Delete list and all items?', // modal body (legacy, no longer used in body)
     deleteListBtn: 'Delete permanently', // danger button in the confirm modal
