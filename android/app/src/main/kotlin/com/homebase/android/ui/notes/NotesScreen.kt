@@ -618,6 +618,8 @@ private fun NoteEditor(
                         updatedAt = boundNote?.updatedAt,
                         imageUrl = imageUrl,
                         resolveContentImageUrl = resolveContentImageUrl,
+                        // No id yet ⇒ nothing to attach to; the upload would be dropped silently (#309).
+                        canAddImage = editor.noteId != null,
                         onAddImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         onRemoveImage = onRemoveImage,
                         onOpenLightbox = { lightbox = it },
@@ -782,6 +784,7 @@ private fun EditorPreview(
     updatedAt: String?,
     imageUrl: (NoteImageDto) -> String,
     resolveContentImageUrl: (String) -> String?,
+    canAddImage: Boolean,
     onAddImage: () -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
     onOpenLightbox: (url: String) -> Unit,
@@ -838,6 +841,7 @@ private fun EditorPreview(
         NoteImagesSection(
             images = editor.images,
             imageUrl = imageUrl,
+            canAdd = canAddImage,
             onAdd = onAddImage,
             onRemove = onRemoveImage,
             onOpen = onOpenLightbox,
@@ -869,6 +873,9 @@ private fun VisibilityBadge(icon: ImageVector, label: String) {
 private fun NoteImagesSection(
     images: List<NoteImageDto>,
     imageUrl: (NoteImageDto) -> String,
+    // Attachments need a persisted note (a server id) to upload against. A brand-new, not-yet-saved
+    // note has no id, so the add button is disabled until the first auto-save creates the note (#309).
+    canAdd: Boolean,
     onAdd: () -> Unit,
     onRemove: (imageId: String) -> Unit,
     onOpen: (url: String) -> Unit,
@@ -890,6 +897,16 @@ private fun NoteImagesSection(
                 variant = HbButtonVariant.Secondary,
                 size = HbButtonSize.Sm,
                 icon = HbIcons.plus,
+                enabled = canAdd,
+            )
+        }
+        // Spell out why the button is dead on an unsaved note (the disabled HbButton doesn't dim).
+        if (!canAdd) {
+            Text(
+                stringResource(R.string.notes_add_image_needs_save),
+                style = HbType.small,
+                color = Hb.ink3,
+                modifier = Modifier.padding(bottom = 12.dp),
             )
         }
         if (images.isNotEmpty()) {

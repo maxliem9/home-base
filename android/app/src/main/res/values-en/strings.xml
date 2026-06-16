@@ -213,13 +213,13 @@
     <string name="notes_empty_hint">Tap “Note” to get started.</string>
     <string name="notes_no_results_title">No matches</string>
     <string name="notes_no_results_hint">No notes for this selection.</string>
-    <string name="notes_detail_title">Note</string>
     <string name="notes_private">Private</string>
     <string name="notes_shared">Shared</string>
     <string name="notes_meta">%1$s · %2$s</string>
     <string name="notes_images">Images</string>
     <string name="notes_images_count">Images (%1$d)</string>
     <string name="notes_add_image">Add image</string>
+    <string name="notes_add_image_needs_save">Images can be added once the note has been created.</string>
     <string name="notes_new_title">New note</string>
     <string name="notes_edit_title">Edit note</string>
     <string name="notes_field_title">Title</string>

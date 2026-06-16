@@ -513,7 +513,7 @@ class NotesViewModel(
 /**
  * The comparable set of persisted note fields, used for the dirty check (#309). Tags compare by
  * value; title/folder are NOT pre-trimmed here so that typing a trailing space still counts as a
- * change worth saving once it settles — the trim happens only on the wire in [persistEditor].
+ * change worth saving once it settles — the trim happens only on the wire in [saveOnce].
  */
 private data class EditorSnapshot(
     val title: String,

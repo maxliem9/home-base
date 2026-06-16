@@ -220,13 +220,13 @@
     <string name="notes_empty_hint">Tippe auf „Notiz“, um anzufangen.</string>
     <string name="notes_no_results_title">Keine Treffer</string>
     <string name="notes_no_results_hint">Für diese Auswahl gibt es keine Notizen.</string>
-    <string name="notes_detail_title">Notiz</string>
     <string name="notes_private">Privat</string>
     <string name="notes_shared">Geteilt</string>
     <string name="notes_meta">%1$s · %2$s</string>
     <string name="notes_images">Bilder</string>
     <string name="notes_images_count">Bilder (%1$d)</string>
     <string name="notes_add_image">Bild hinzufügen</string>
+    <string name="notes_add_image_needs_save">Bilder können erst nach dem Anlegen der Notiz hinzugefügt werden.</string>
     <string name="notes_new_title">Neue Notiz</string>
     <string name="notes_edit_title">Notiz bearbeiten</string>
     <string name="notes_field_title">Titel</string>
