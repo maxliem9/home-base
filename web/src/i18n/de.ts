@@ -374,6 +374,15 @@ export const de = {
     selectHint: 'Wähle links eine Notiz oder erstelle eine neue.',
     newNote: 'Neue Notiz',
     editNote: 'Notiz bearbeiten',
+    // editor-mode toggle (Markdown-Quelltext ↔ gerenderte Vorschau)
+    editSource: 'Bearbeiten',
+    preview: 'Vorschau',
+    // auto-save status indicator (replaces the manual save button)
+    saving: 'Speichert…',
+    saved: 'Gespeichert',
+    // mobile: collapse the list when a note is open + jump to another note
+    backToList: 'Notizen',
+    switchNote: 'Notiz wechseln',
     contentPlaceholder: 'Inhalt (Markdown)…',
     tagsPlaceholder: 'Tags (kommagetrennt)…',
     folderLabel: 'Ordner',

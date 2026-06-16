@@ -378,6 +378,15 @@ export const en: Messages = {
     selectHint: 'Pick a note on the left or create a new one.',
     newNote: 'New note',
     editNote: 'Edit note',
+    // editor-mode toggle (Markdown source ↔ rendered preview)
+    editSource: 'Edit',
+    preview: 'Preview',
+    // auto-save status indicator (replaces the manual save button)
+    saving: 'Saving…',
+    saved: 'Saved',
+    // mobile: collapse the list when a note is open + jump to another note
+    backToList: 'Notes',
+    switchNote: 'Switch note',
     contentPlaceholder: 'Content (Markdown)…',
     tagsPlaceholder: 'Tags (comma-separated)…',
     folderLabel: 'Folder',
