@@ -56,6 +56,7 @@ import com.homebase.android.ui.components.HbRadius
 import com.homebase.android.ui.components.HbRoute
 import com.homebase.android.ui.components.HbRow
 import com.homebase.android.ui.components.HbScreenScaffold
+import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
@@ -313,6 +314,13 @@ fun HeuteScreen(
                 onConfirm = { c.onConfirm(); pendingConfirm = null },
                 onDismiss = { pendingConfirm = null },
             )
+        }
+
+        // Global todo error toast (#288): the dashboard quick-add and "Heute dran" toggle-done are
+        // fire-and-forget on the shared TodoViewModel and set state.error on failure — surface it the
+        // same way AufgabenScreen/AbwesenheitScreen do, otherwise these mutations fail silently here.
+        todoState.error?.let { msg ->
+            HbToast(message = msg, icon = HbIcons.x, actionLabel = stringResource(R.string.action_ok), onAction = { todoVm.clearError() })
         }
     }
 }

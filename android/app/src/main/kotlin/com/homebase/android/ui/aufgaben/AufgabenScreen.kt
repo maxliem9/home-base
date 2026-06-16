@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,12 +78,14 @@ import com.homebase.android.ui.components.HbQuickAdd
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbSegmented
 import com.homebase.android.ui.components.HbTextField
+import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.components.bottomBorder
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
 import com.homebase.android.ui.components.HbRadiusSm
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -214,8 +217,10 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                 lists = state.lists,
                 householdUsers = householdUsers,
                 onDismiss = { sheet = null },
-                onSaveCreate = { title -> viewModel.addTodo(title) },
-                onSaveEdit = { id, req, targetListId -> viewModel.updateTodo(id, req, targetListId) },
+                // suspend saves return null on success / the error message on failure, so the
+                // sheet stays open and shows the reason inline instead of silently reverting (#277)
+                onSaveCreate = { title -> viewModel.createTodo(title).exceptionOrNull()?.message },
+                onSaveEdit = { id, req, targetListId -> viewModel.saveTodo(id, req, targetListId).exceptionOrNull()?.message },
                 onDelete = { id -> viewModel.deleteTodo(id) },
             )
             AufgabenSheet.NewList -> NewListSheet(
@@ -223,6 +228,14 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                 onCreate = { name, visibility -> viewModel.createList(name, visibility) },
             )
             null -> {}
+        }
+
+        // Global error toast (#288): toggle-done / quick-add / delete / subtask mutations are
+        // fire-and-forget and set state.error on failure — without this they failed silently. The
+        // edit-sheet save path shows its error in-sheet instead (and no longer sets the global
+        // error), so it does not double-notify here (#277). Mirrors AbwesenheitScreen.
+        state.error?.let { msg ->
+            HbToast(message = msg, icon = HbIcons.x, actionLabel = stringResource(R.string.action_ok), onAction = { viewModel.clearError() })
         }
     }
 }
@@ -631,8 +644,10 @@ private fun EditSheet(
     lists: List<TodoListDto>,
     householdUsers: List<String>,
     onDismiss: () -> Unit,
-    onSaveCreate: (String) -> Unit,
-    onSaveEdit: (String, UpdateTodoRequest, String?) -> Unit,
+    // Saves are suspending and return null on success / a user-facing error message on failure,
+    // so the sheet can stay open and surface the reason inline instead of silently reverting (#277).
+    onSaveCreate: suspend (String) -> String?,
+    onSaveEdit: suspend (String, UpdateTodoRequest, String?) -> String?,
     onDelete: (String) -> Unit,
 ) {
     val isEdit = todo != null
@@ -651,6 +666,11 @@ private fun EditSheet(
     // Liste (#77, wie der Web-Plan-Dialog). Null = „Bleibt in der Inbox".
     val showListPicker = isEdit && todo?.listId == null && lists.isNotEmpty()
     var targetListId by remember { mutableStateOf<String?>(null) }
+    // Save in flight + the last in-sheet save error (#277). On failure the sheet stays open and
+    // shows the message; only a successful save dismisses it (mirrors the web plan modal).
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     HbBottomSheet(
         onDismiss = onDismiss,
@@ -671,10 +691,13 @@ private fun EditSheet(
             HbButton(text = stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
             HbButton(
                 text = stringResource(R.string.action_save),
-                enabled = !recurrenceNeedsDue,
+                enabled = !recurrenceNeedsDue && !saving && title.isNotBlank(),
                 onClick = {
-                    if (title.isNotBlank()) {
-                        if (isEdit) {
+                    if (title.isBlank() || saving) return@HbButton
+                    saving = true
+                    saveError = null
+                    scope.launch {
+                        val error = if (isEdit) {
                             val dueIso = dueDate?.toString()
                             onSaveEdit(
                                 todo!!.id,
@@ -697,13 +720,31 @@ private fun EditSheet(
                         } else {
                             onSaveCreate(title.trim())
                         }
+                        saving = false
+                        // null = saved → close; otherwise keep the sheet open and show the reason
+                        if (error == null) onDismiss() else saveError = error
                     }
-                    onDismiss()
                 },
                 variant = HbButtonVariant.Primary,
             )
         },
     ) {
+        // In-sheet save error (#277): stays until the next save attempt so the user sees why the
+        // save did not go through instead of the sheet closing on a stale value.
+        saveError?.let { msg ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .background(Hb.claySoft, HbRadiusSm)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HbIcon(HbIcons.x, size = 16.dp, tint = Hb.clay)
+                Text(msg, style = HbType.small, color = Hb.clay)
+            }
+        }
         HbField(stringResource(R.string.common_field_title)) {
             HbTextField(value = title, onValueChange = { title = it }, placeholder = stringResource(R.string.common_field_title))
         }

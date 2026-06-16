@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground layer — the "Zwei Dächer" mark (two houses + door + ground
+  bars), HB-06 / #240. Faithful 1:1 port of the <path>/<rect> geometry in
+  web/public/app-icon.svg (512x512 viewBox): the android:pathData below uses the SVG's
+  exact path coordinates. The rounded ground bars are translated to rounded-rect paths.
+
+  Fill colors were oklch() in the SVG; converted to sRGB hex (validated against the
+  rendered web/public/maskable-512.png):
+    green back house oklch(0.66  0.07  150) -> #739F7C
+    cream front house oklch(0.965 0.018  95) -> #F7F4E6
+    door             oklch(0.52  0.092  34) -> #965445
+    ground bars      oklch(0.965 0.018  95) @ 0.55 / 0.30 alpha -> #F7F4E6 with alpha
+  (The SVG's soft drop-shadow filter is intentionally dropped — VectorDrawable has no
+  feDropShadow; the flat mark reads cleanly at launcher sizes.)
+
+  Safe zone: viewport is the SVG's native 512 grid. The <group> scales the mark to 0.92
+  and recenters its content bounding box (x[150..366] y[188..432], center 258,310) onto
+  the canvas center (256,256). At 0.92 the full content half-diagonal is 149.9 < the
+  adaptive 66dp safe-circle radius (156.4 in 512-space) — nothing important is clipped by
+  a circle/squircle mask. The centered content lands at exactly (54dp,54dp) of the 108dp
+  canvas.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:scaleX="0.92"
+        android:scaleY="0.92"
+        android:translateX="18.64"
+        android:translateY="-29.2">
+
+        <!-- green back house (roof + body) -->
+        <path
+            android:fillColor="#739F7C"
+            android:pathData="M300,224 L360,284 L360,360 Q360,370 350,370 L266,370 L266,284 Z" />
+
+        <!-- cream front house (roof + body) -->
+        <path
+            android:fillColor="#F7F4E6"
+            android:pathData="M202,188 L286,272 L286,360 Q286,370 276,370 L160,370 Q150,370 150,360 L150,272 Z" />
+
+        <!-- door (arched, in the front house) -->
+        <path
+            android:fillColor="#965445"
+            android:pathData="M196,370 L196,322 Q196,300 218,300 Q240,300 240,322 L240,370 Z" />
+
+        <!-- ground bar 1: rect x=150 y=386 w=216 h=20 rx=10, cream @ 55% -->
+        <path
+            android:fillColor="#F7F4E6"
+            android:fillAlpha="0.55"
+            android:pathData="M160,386 L356,386 Q366,386 366,396 Q366,406 356,406 L160,406 Q150,406 150,396 Q150,386 160,386 Z" />
+
+        <!-- ground bar 2: rect x=182 y=418 w=104 h=14 rx=7, cream @ 30% -->
+        <path
+            android:fillColor="#F7F4E6"
+            android:fillAlpha="0.3"
+            android:pathData="M189,418 L279,418 Q286,418 286,425 Q286,432 279,432 L189,432 Q182,432 182,425 Q182,418 189,418 Z" />
+    </group>
+</vector>

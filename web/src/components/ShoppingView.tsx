@@ -447,7 +447,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
               <Icon name="cart" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
               <input
                 value={newName}
-                placeholder={`Was fehlt in „${active.name}"? …`}
+                placeholder={t('shopping.namePlaceholder', { name: active.name })}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
@@ -542,7 +542,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       >
         {active && (
           <p className="hb-muted" style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
-            Die Liste „<strong>{active.name}</strong>" und alle Einträge darin werden gelöscht.{' '}
+            {t('shopping.deleteListBody', { name: active.name })}{' '}
             {t('shopping.deleteListWarn')}
           </p>
         )}

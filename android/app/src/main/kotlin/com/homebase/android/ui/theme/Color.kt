@@ -54,9 +54,17 @@ private const val ACCENT2_HUE = 42.0
  * The theme-swappable design tokens — every surface/ink/line/accent/status colour that differs
  * between the light and dark theme (#244). Authored as a single bundle so [Hb] can resolve the
  * active set from [LocalHbPalette] and every `Hb.<token>` call site stays unchanged. Hue-derived
- * helpers (avatar/recipe/project colours, see [Hb]) are NOT here — they are not theme-dependent.
+ * helpers (avatar/recipe/project colours, see [Hb]) are NOT here — they compute from a hue; the
+ * recipe-band helpers additionally take an explicit `dark` flag (#252) rather than living in this
+ * bundle, so they stay callable from non-composable code. Only [isDark] bridges the two: the flag
+ * those helpers read to follow the theme.
  */
 data class HbPalette(
+    // Whether this bundle is the dark theme. Exposed via [Hb.isDark] so the few palettes that
+    // resolve outside the `Hb.*` getters but still want to follow the theme — the Abwesenheit
+    // calendar fills and the recipe placeholder band (#252) — can pick their dark variant from
+    // the same single source of truth ([LocalHbPalette]) instead of a parallel dark signal.
+    val isDark: Boolean,
     // surfaces & ink
     val paper: Color,
     val surface: Color,
@@ -94,6 +102,7 @@ data class HbPalette(
  * Mirrors the web index.css `:root` 1:1.
  */
 val HbLightPalette = HbPalette(
+    isDark = false,
     paper = oklch(0.96, 0.014, 128.0),
     surface = oklch(0.988, 0.008, 128.0),
     surface2 = oklch(0.935, 0.018, 128.0),
@@ -129,10 +138,12 @@ val HbLightPalette = HbPalette(
  * on-accent. Status hues (danger/prio) carry over from light, as on the web; the `over` badge,
  * scrim and toast are tuned for a dark backdrop. This is a FIRST proposal — open to design tweaks.
  *
- * NOTE: the Abwesenheit calendar keeps its own deliberately light fill palette (AbwPalette in
- * ui/abwesenheit/AbsenceModel.kt); it is NOT re-themed here (see TODO there).
+ * NOTE: the Abwesenheit calendar has its own dedicated fill palette (AbwPalette in
+ * ui/abwesenheit/AbsenceModel.kt) that now follows the theme too (#252); it reads [Hb.isDark]
+ * (this bundle's flag) to pick its muted dark fills rather than being re-listed here.
  */
 val HbDarkPalette = HbPalette(
+    isDark = true,
     paper = oklch(0.2, 0.014, 152.0),
     surface = oklch(0.248, 0.016, 152.0),
     surface2 = oklch(0.29, 0.018, 152.0),
@@ -179,15 +190,26 @@ val LocalHbPalette = staticCompositionLocalOf { HbLightPalette }
  * The colour tokens (paper/surface/ink/accent/…) are theme-aware (#244): each is a
  * `@Composable @ReadOnlyComposable` getter resolving the active [HbPalette] from [LocalHbPalette],
  * so light/dark swaps without touching the hundreds of `Hb.ink` / `Hb.surface` call sites. The
- * hue-derived helpers below (avatar/project/recipe colours) are plain functions — they are not
- * theme-dependent and stay callable from non-composable code.
+ * hue-derived helpers below (avatar/project colours) are plain functions and theme-independent; the
+ * recipe-band helpers are plain functions too but take an explicit `dark` flag (#252) — they stay
+ * callable from non-composable code (e.g. the `DrawScope`/brush in RecipesScreen).
  *
- * Caveat: because the tokens are now `@Composable` getters they can only be read inside a
- * composition. The one historic non-composable reader (AbwPalette.workday) was switched to a
- * literal — see ui/abwesenheit/AbsenceModel.kt.
+ * Caveat: because the colour tokens are now `@Composable` getters they can only be read inside a
+ * composition. The handful of non-composable palettes that still want to follow the theme — the
+ * recipe band here and the Abwesenheit fills (ui/abwesenheit/AbsenceModel.kt) — instead take a
+ * `dark` boolean, sourced once in composable scope from [Hb.isDark].
  */
 object Hb {
     private const val ACCENT_HUE = 35.0
+
+    /**
+     * Is the dark theme active? (#252) Reads the same [LocalHbPalette] the colour tokens use, so
+     * the two palettes that resolve outside the `Hb.*` getters but still want to follow the theme
+     * — the Abwesenheit fills (`AbwPalette`/`colorFor`) and the recipe placeholder band
+     * (`recipeBand*`) — can pick their dark variant from one source of truth. Read it in composable
+     * scope and pass the boolean down to those non-composable helpers.
+     */
+    val isDark: Boolean @Composable @ReadOnlyComposable get() = LocalHbPalette.current.isDark
 
     // --- theme-swappable tokens (resolve the active palette) ---
     val paper: Color @Composable @ReadOnlyComposable get() = LocalHbPalette.current.paper
@@ -270,8 +292,16 @@ object Hb {
     fun userInitial(userId: String?): String =
         userId?.trim()?.firstOrNull()?.uppercase() ?: "?"
 
-    // recipe placeholder band (deterministic warm hue per recipe)
-    fun recipeBandLight(hue: Double) = oklch(0.95, 0.03, hue)
-    fun recipeBandDark(hue: Double) = oklch(0.93, 0.04, hue)
-    fun recipeBandInk(hue: Double) = oklch(0.55, 0.07, hue)
+    // Recipe placeholder band — the diagonal-striped "Foto folgt" fill (deterministic warm hue per
+    // recipe). Two close tones per theme so the stripe reads softly. The [dark] flag follows the
+    // app theme (pass `Hb.isDark`, #252): light keeps the original pale warm pair on a light card;
+    // dark drops to two muted, low-lightness warm tones so the band is a subtle dark island instead
+    // of a bright block, with light ink for the glyph/label. (Here "Light"/"Dark" name the two
+    // *stripe tones*, not the theme; the theme is the [dark] parameter.)
+    fun recipeBandLight(hue: Double, dark: Boolean = false) =
+        if (dark) oklch(0.33, 0.035, hue) else oklch(0.95, 0.03, hue)
+    fun recipeBandDark(hue: Double, dark: Boolean = false) =
+        if (dark) oklch(0.29, 0.04, hue) else oklch(0.93, 0.04, hue)
+    fun recipeBandInk(hue: Double, dark: Boolean = false) =
+        if (dark) oklch(0.82, 0.055, hue) else oklch(0.55, 0.07, hue)
 }

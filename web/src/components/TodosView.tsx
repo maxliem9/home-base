@@ -42,6 +42,14 @@ const DONE_ID = '__done__'
 const SMART_IDS = [ALL_ID, TODAY_ID, TOMORROW_ID, DONE_ID]
 const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id && SMART_IDS.includes(id))
 
+// Done todos in the cross-list smart-views (the "Alle" done-section and the
+// "Erledigt" tab) are limited to the last N calendar days so the section can't
+// grow unbounded across the whole history (#263). One shared window for both:
+// it caps the "Alle" done-section AND widens "Erledigt" beyond just today. The
+// badge/tile COUNTS stay deliberately on "today" (doneTodayCount) and are not
+// touched. N is a named constant (configurable later if needed — issue note).
+const DONE_WINDOW_DAYS = 14
+
 // Deep-link target the dashboard can ask the todos view to open (stat tiles).
 export type TodosFocus = 'inbox' | 'all' | 'today' | 'tomorrow' | 'done'
 const FOCUS_TO_ID: Record<TodosFocus, string> = {
@@ -442,9 +450,19 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const tomorrowDate = new Date()
   tomorrowDate.setDate(tomorrowDate.getDate() + 1)
   const tomorrowIso = localDateIso(tomorrowDate)
+  // Inclusive lower bound of the done window: today minus (N-1) days, so a window
+  // of N days spans today and the previous N-1 calendar days. Local-date semantics
+  // throughout (localDateIso), and ISO YYYY-MM-DD strings compare lexically.
+  const doneWindowStart = new Date()
+  doneWindowStart.setDate(doneWindowStart.getDate() - (DONE_WINDOW_DAYS - 1))
+  const doneWindowStartIso = localDateIso(doneWindowStart)
   const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
   const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso
   const isDoneToday = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso
+  // Done within the shared "last N days" window (#263) — used by the "Erledigt"
+  // tab and the cross-list/list done-section. A done todo without doneAt (rare,
+  // pre-migration) is excluded from the window, like the today-only filter above.
+  const isDoneInWindow = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) >= doneWindowStartIso
 
   // Inbox = alles Unverplante: Status INBOX zählt auch dann, wenn das Todo schon
   // in einer Liste liegt (Entscheidung #71 — gleiche Semantik wie die
@@ -470,13 +488,16 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         : tomorrowActive
           ? todos.filter(isDueTomorrow)
           : doneActive
-            ? todos.filter(isDoneToday)
+            ? todos.filter(isDoneInWindow) // "Erledigt"-Tab: letzte N Tage statt nur heute (#263)
             : active
               ? todos.filter((x) => x.listId === active.id)
               : []
   const openTodos = viewTodos.filter((x) => x.status !== 'DONE')
+  // Done section/tab is limited to the shared "last N days" window (#263): caps the
+  // "Alle" (and per-list) collapsible done-section and is the Erledigt tab's content.
+  // doneTodayCount above stays on "today" — counts are intentionally unchanged.
   const done = viewTodos
-    .filter((x) => x.status === 'DONE')
+    .filter(isDoneInWindow)
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
 
   // view-shape flags
@@ -597,15 +618,19 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
           )}
 
           {doneActive ? (
-            // "Erledigt"-Tab: heute abgehakte Todos über alle Listen, flach + neueste zuerst
+            // "Erledigt"-Tab: über alle Listen abgehakte Todos der letzten N Tage,
+            // flach + neueste zuerst (#263; die Tab-/Kachel-Zählung bleibt "heute")
             done.length === 0 ? (
               <Card className="hb-card--pad">
-                <EmptyState icon="checkCircle" title={t('todos.doneViewEmpty')} hint={t('todos.doneViewEmptyHint')} />
+                <EmptyState icon="checkCircle" title={t('todos.doneViewEmpty')} hint={t('todos.doneViewEmptyHint', { n: DONE_WINDOW_DAYS })} />
               </Card>
             ) : (
-              <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-                <div className="hb-list">{done.map(renderRow)}</div>
-              </Card>
+              <>
+                <div className="hb-sectionlabel">{t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}</div>
+                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                  <div className="hb-list">{done.map(renderRow)}</div>
+                </Card>
+              </>
             )
           ) : openTodos.length > 0 ? (
             useBuckets ? (
@@ -648,6 +673,8 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 <Icon name="chevronDown" size={16} stroke={2.4} className="hb-donehead__chev" />
                 <span className="hb-sectionlabel" style={{ margin: 0 }}>{t('todos.doneSection')}</span>
                 <span className="hb-donehead__c">{done.length}</span>
+                {/* the done-section is windowed to the last N days (#263) — count reflects that */}
+                <span className="hb-muted" style={{ fontSize: 12 }}>{t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}</span>
               </button>
               {doneOpen && (
                 <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6, marginTop: 12 }}>

@@ -13,7 +13,7 @@ import { Project, User, WorkTarget } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
 import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../../ui/primitives'
-import { userMeta } from '../../ui/format'
+import { formatDecimal, userMeta } from '../../ui/format'
 import { COLOR_CHOICES, ProjectDraft, ProjectModal } from '../TimeView'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -295,7 +295,7 @@ function TargetsSummary({ users, projects, targets }: { users: string[]; project
                   </div>
                 </div>
                 <div className="hb-row__right">
-                  <span className="hb-mono">{r.weeklyHours > 0 ? `${String(r.weeklyHours).replace('.', ',')} ${t('settings.perWeek')}` : '—'}</span>
+                  <span className="hb-mono">{r.weeklyHours > 0 ? `${formatDecimal(r.weeklyHours)} ${t('settings.perWeek')}` : '—'}</span>
                 </div>
               </div>
             ))}

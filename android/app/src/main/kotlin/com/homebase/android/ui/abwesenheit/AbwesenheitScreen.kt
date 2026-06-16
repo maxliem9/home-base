@@ -260,6 +260,7 @@ private fun PersonSummary(s: AbsSummary, hue: Double, uid: String) {
 private fun Legend(userIds: List<String>) {
     // Honour per-user avatar-hue overrides so the legend swatches match the avatars (Teil von #100).
     val hues = LocalAvatarHues.current
+    val dark = Hb.isDark
     val uidA = userIds.getOrNull(0)
     val uidB = userIds.getOrNull(1) ?: userIds.getOrNull(0)
     val hueA = Hb.userHue(uidA, hues[uidA])
@@ -269,12 +270,12 @@ private fun Legend(userIds: List<String>) {
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        LegendItem(stringResource(R.string.absence_legend_urlaub)) { SplitSwatch(AbwPalette.urlaub(hueA), AbwPalette.urlaub(hueB)) }
-        LegendItem(stringResource(R.string.absence_legend_krank)) { Swatch(AbwPalette.krank) }
-        LegendItem(stringResource(R.string.absence_legend_kind)) { Swatch(AbwPalette.kindKrank) }
-        LegendItem(stringResource(R.string.absence_legend_holiday)) { Swatch(AbwPalette.feiertag) }
-        LegendItem(stringResource(R.string.absence_legend_parttime)) { Swatch(AbwPalette.teilzeit(220.0)) }
-        LegendItem(stringResource(R.string.absence_legend_weekend)) { Swatch(AbwPalette.weekend) }
+        LegendItem(stringResource(R.string.absence_legend_urlaub)) { SplitSwatch(AbwPalette.urlaub(hueA, dark), AbwPalette.urlaub(hueB, dark)) }
+        LegendItem(stringResource(R.string.absence_legend_krank)) { Swatch(AbwPalette.krank(dark)) }
+        LegendItem(stringResource(R.string.absence_legend_kind)) { Swatch(AbwPalette.kindKrank(dark)) }
+        LegendItem(stringResource(R.string.absence_legend_holiday)) { Swatch(AbwPalette.feiertag(dark)) }
+        LegendItem(stringResource(R.string.absence_legend_parttime)) { Swatch(AbwPalette.teilzeit(220.0, dark)) }
+        LegendItem(stringResource(R.string.absence_legend_weekend)) { Swatch(AbwPalette.weekend(dark)) }
         LegendItem(stringResource(R.string.absence_legend_kita)) { KitaSwatch() }
     }
 }
@@ -294,9 +295,10 @@ private fun Swatch(color: Color) {
 
 @Composable
 private fun SplitSwatch(a: Color, b: Color) {
+    val dark = Hb.isDark
     Box(
         Modifier.size(13.dp).clip(RoundedCornerShape(4.dp)).border(1.dp, Hb.line, RoundedCornerShape(4.dp))
-            .drawBehind { drawSplit(a, b) },
+            .drawBehind { drawSplit(a, b, dark) },
     )
 }
 
@@ -423,18 +425,25 @@ private fun MonthChip(uid: String, st: DayState) {
         st.type == null && st.holiday != null && st.holidayHalf -> "½"
         else -> Hb.userInitial(uid)
     }
+    val dark = Hb.isDark
     Box(
         Modifier.heightIn(min = 16.dp).widthIn(min = 16.dp).clip(RoundedCornerShape(5.dp))
-            .background(colorFor(st), RoundedCornerShape(5.dp)).padding(horizontal = 3.dp),
+            .background(colorFor(st, dark), RoundedCornerShape(5.dp)).padding(horizontal = 3.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(txt, style = HbType.small.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.02).em), color = AbwPalette.onFill)
+        Text(txt, style = HbType.small.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.02).em), color = AbwPalette.onFill(dark))
     }
 }
 
 // ---------------------------------------------------------------------------
 // Year grid (.abwm-yr) — months as rows, days 1–31 as columns
 // ---------------------------------------------------------------------------
+
+// Width of the leading month-label column (and the matching header corner spacer). Sized to fit the
+// widest German CLDR TextStyle.SHORT label rendered at 9sp — "Sept." (5 chars) / "März" (umlaut) —
+// without clipping (#212); the day cells use weight(1f), so this fixed column must be identical in
+// the header and every month row to keep the columns aligned.
+private val MONTH_LABEL_WIDTH = 32.dp
 
 @Composable
 private fun YearGrid(
@@ -448,6 +457,7 @@ private fun YearGrid(
     val uA = userIds.getOrNull(0)
     val uB = userIds.getOrNull(1) ?: uA
     val shape = RoundedCornerShape(8.dp)
+    val dark = Hb.isDark
     Column(Modifier.padding(horizontal = 18.dp)) {
         // year nav
         Row(
@@ -465,8 +475,10 @@ private fun YearGrid(
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             // header row: corner + day-of-month ticks
+            // Corner spacer width must match the month-label box below (MONTH_LABEL_WIDTH) so the
+            // weighted day columns line up between header and rows.
             Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                Box(Modifier.width(26.dp).height(15.dp).background(Hb.surface))
+                Box(Modifier.width(MONTH_LABEL_WIDTH).height(15.dp).background(Hb.surface))
                 for (d in 1..31) {
                     Box(Modifier.weight(1f).height(15.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
                         val tick = if (d == 1 || d % 7 == 0) "$d" else ""
@@ -481,8 +493,11 @@ private fun YearGrid(
             for (m in 0 until 12) {
                 val dim = AbwCal.daysInMonth(year, m)
                 Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Box(Modifier.width(26.dp).height(16.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
-                        Text(monAbbr[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2)
+                    Box(Modifier.width(MONTH_LABEL_WIDTH).height(16.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
+                        // CLDR TextStyle.SHORT labels (#204) can be 5 chars ("Sept.") or carry
+                        // umlauts/dots ("März", "Dez."); maxLines=1 + softWrap=false keeps them on one
+                        // line and MONTH_LABEL_WIDTH leaves enough room so they never clip at 9sp (#212).
+                        Text(monAbbr[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2, maxLines = 1, softWrap = false)
                     }
                     for (d in 1..31) {
                         if (d > dim) {
@@ -493,10 +508,11 @@ private fun YearGrid(
                             val dayB = uB?.let { personDay(ctx, it, ds) }
                             YearCell(
                                 modifier = Modifier.weight(1f),
-                                colorA = colorFor(dayA), colorB = colorFor(dayB),
+                                colorA = colorFor(dayA, dark), colorB = colorFor(dayB, dark),
                                 // half custom holiday is household-wide — key off A, like web (#51)
                                 halfHoliday = dayA?.holidayHalf == true,
                                 isToday = ds == today, kita = ctx.kita.containsKey(ds),
+                                dark = dark,
                                 onClick = { onPick(ds) },
                             )
                         }
@@ -508,9 +524,10 @@ private fun YearGrid(
 }
 
 @Composable
-private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHoliday: Boolean, isToday: Boolean, kita: Boolean, onClick: () -> Unit) {
+private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHoliday: Boolean, isToday: Boolean, kita: Boolean, dark: Boolean, onClick: () -> Unit) {
     // Resolve theme tokens in the composable scope; the drawBehind lambda is a (non-composable)
-    // DrawScope, so it can't read the Hb.* getters directly (#244).
+    // DrawScope, so it can't read the Hb.* getters directly (#244). The split divider also needs
+    // the theme, threaded as the `dark` flag into the (non-composable) drawSplit (#252).
     val surface = Hb.surface
     val kitaColor = Hb.clay
     val todayColor = Hb.accent
@@ -520,7 +537,7 @@ private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHolid
             .background(surface)
             .clickable { onClick() }
             .drawBehind {
-                drawSplit(colorA, colorB)
+                drawSplit(colorA, colorB, dark)
                 if (kita) {
                     val sw = 1.5.dp.toPx()
                     drawRect(kitaColor, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), style = Stroke(sw))
@@ -534,13 +551,14 @@ private fun YearCell(modifier: Modifier, colorA: Color, colorB: Color, halfHolid
     ) {
         // ½ marks a half-day custom holiday (#51); statutory + full ones carry no glyph.
         if (halfHoliday) {
-            Text("½", style = HbType.mono.copy(fontSize = 8.sp, fontWeight = FontWeight.Black), color = AbwPalette.onFill)
+            Text("½", style = HbType.mono.copy(fontSize = 8.sp, fontWeight = FontWeight.Black), color = AbwPalette.onFill(dark))
         }
     }
 }
 
-/** Diagonal two-person split: upper-left = A, lower-right = B (anti-diagonal divider). */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSplit(a: Color, b: Color) {
+/** Diagonal two-person split: upper-left = A, lower-right = B (anti-diagonal divider). [dark]
+ *  picks the theme-matching hairline (#252). */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSplit(a: Color, b: Color, dark: Boolean = false) {
     val w = size.width
     val h = size.height
     if (a == b) {
@@ -551,7 +569,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSplit(a: Color,
     drawPath(pathA, a)
     val pathB = Path().apply { moveTo(w, 0f); lineTo(w, h); lineTo(0f, h); close() }
     drawPath(pathB, b)
-    drawLine(AbwPalette.divider, Offset(w, 0f), Offset(0f, h), strokeWidth = 1f)
+    drawLine(AbwPalette.divider(dark), Offset(w, 0f), Offset(0f, h), strokeWidth = 1f)
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,8 @@ import com.homebase.android.data.model.UpdateTodoListRequest
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import kotlinx.coroutines.flow.Flow
+import org.json.JSONObject
+import retrofit2.HttpException
 
 class TodoRepository(
     private val api: HomeBaseApi,
@@ -22,11 +24,14 @@ class TodoRepository(
 
     suspend fun getTodos(): Result<List<TodoDto>> = apiCatching { api.getTodos() }
 
+    // Surface the backend's ErrorResponse.code as German text instead of a raw
+    // "HTTP 400/404" so the edit sheet's in-sheet failure banner is understandable
+    // (e.g. a validation 400, or a 404 if the partner deleted the todo mid-edit).
     suspend fun createTodo(request: CreateTodoRequest): Result<TodoDto> =
-        apiCatching { api.createTodo(request) }
+        apiCatching(mapHttpError = ::germanTodoError) { api.createTodo(request) }
 
     suspend fun updateTodo(id: String, request: UpdateTodoRequest): Result<TodoDto> =
-        apiCatching { api.updateTodo(id, request) }
+        apiCatching(mapHttpError = ::germanTodoError) { api.updateTodo(id, request) }
 
     suspend fun deleteTodo(id: String): Result<Unit> =
         apiCatching { api.deleteTodo(id) }
@@ -53,6 +58,27 @@ class TodoRepository(
 
     suspend fun deleteSubtask(todoId: String, subtaskId: String): Result<TodoDto> =
         apiCatching { api.deleteSubtask(todoId, subtaskId) }
+
+    /**
+     * Map a failed todo create/update response to German text via its ErrorResponse.code
+     * (wording mirrors the web errors map, web/src/i18n/de.ts). Without this an HTTP 4xx/5xx
+     * would surface in the edit sheet as the raw English "HTTP 400 Bad Request".
+     */
+    private fun germanTodoError(e: HttpException): String = when (errorCodeOf(e)) {
+        "INVALID_TODO" -> "Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben."
+        "INVALID_STATUS" -> "Ungültiger Status."
+        "INVALID_PRIORITY" -> "Ungültige Priorität."
+        "INVALID_DUE_DATE" -> "Ungültiges Fälligkeitsdatum."
+        "INVALID_RECURRENCE" -> "Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben."
+        "INVALID_ID" -> "Ungültige Liste."
+        "NOT_FOUND" -> "Aufgabe nicht gefunden – bitte neu laden."
+        else -> "Aufgabe konnte nicht gespeichert werden."
+    }
+
+    private fun errorCodeOf(e: HttpException): String? = runCatching {
+        e.response()?.errorBody()?.string()
+            ?.let { JSONObject(it).optString("code").ifBlank { null } }
+    }.getOrNull()
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()

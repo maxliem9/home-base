@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.JsonEncodingException
 import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
+import org.json.JSONObject
 import retrofit2.HttpException
 
 // Central error mapper for the repositories (issue #73). ViewModels toast `e.message`
@@ -16,6 +17,13 @@ internal const val NETWORK_ERROR_TEXT = "Keine Verbindung – bitte später erne
 
 /** Parse failures and everything unexpected — wording = web `errors.INTERNAL_ERROR`. */
 internal const val GENERIC_ERROR_TEXT = "Serverfehler – bitte später erneut versuchen."
+
+/**
+ * A 409 on a date that's already occupied — wording = web `errors.DATE_CONFLICT` (#254).
+ * Shared by the absence editors (Kita-Schließtage, eigene Feiertage): the backend reuses the
+ * same code for both, so the text is deliberately neutral (not Kita-specific).
+ */
+internal const val DATE_CONFLICT_TEXT = "Für dieses Datum gibt es schon einen Eintrag."
 
 /** A failure whose [message] is German UI text; the original failure stays as [cause]. */
 internal class ApiException(message: String, cause: Throwable) : Exception(message, cause)
@@ -52,6 +60,17 @@ internal fun mapApiError(e: Throwable, mapHttpError: ((HttpException) -> String)
     is IOException -> ApiException(NETWORK_ERROR_TEXT, e)
     else -> ApiException(GENERIC_ERROR_TEXT, e)
 }
+
+/**
+ * Read the backend `ErrorResponse.code` off a failed HTTP response (the body is
+ * `{ "code", "message" }` — see backend model/Models.kt), so a `mapHttpError` can branch
+ * on the stable code instead of the English `message`. Returns null when the body is empty
+ * or not the expected shape. Mirrors the web `errorCode` helper (web/src/api.ts).
+ */
+internal fun errorCodeOf(e: HttpException): String? = runCatching {
+    e.response()?.errorBody()?.string()
+        ?.let { JSONObject(it).optString("code").ifBlank { null } }
+}.getOrNull()
 
 /** Maps a failed login HTTP response to a German user-facing message (issue #83). */
 internal fun germanLoginError(e: HttpException): String = when (e.code()) {

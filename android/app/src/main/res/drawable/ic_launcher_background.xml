@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon background layer — full-bleed clay gradient ("Zwei Dächer", HB-06 / #240).
+  Faithful port of the linearGradient #tile in web/public/app-icon-maskable.svg
+  (vertical, x1=0 y1=0 -> x2=0 y2=1). The SVG defined the stops in oklch(); converted
+  to sRGB hex (validated 1:1 against the rendered web/public/maskable-512.png):
+    top    oklch(0.6  0.094 38) -> #B06C56
+    bottom oklch(0.48 0.088 32) -> #88493D
+  108x108dp canvas; the OS mask (circle / squircle / rounded square) shapes it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0 h108 v108 h-108 z">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt"
+            name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="0"
+                android:endX="54"
+                android:endY="108"
+                android:startColor="#B06C56"
+                android:endColor="#88493D" />
+        </aapt:attr>
+    </path>
+</vector>

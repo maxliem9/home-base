@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,17 +64,31 @@ import kotlinx.coroutines.launch
 // ---------------------------------------------------------------------------
 
 // Drawer/app-bar label resolved via stringResource at the call site (enum args can't be
-// composable). labelRes points at the localized nav_* string.
-enum class HbRoute(@StringRes val labelRes: Int, val icon: ImageVector) {
-    HEUTE(R.string.nav_today, HbIcons.home),
-    AUFGABEN(R.string.nav_tasks, HbIcons.checkCircle),
-    EINKAUF(R.string.nav_shopping, HbIcons.cart),
+// composable). labelRes points at the localized nav_* string; shortLabelRes is the compact
+// label for the bottom tab bar (HB-09, #239) — only the core bar items need one, the rest
+// reuse labelRes inside the "Mehr" sheet.
+enum class HbRoute(
+    @StringRes val labelRes: Int,
+    val icon: ImageVector,
+    @StringRes val shortLabelRes: Int = labelRes,
+) {
+    HEUTE(R.string.nav_today, HbIcons.home, R.string.nav_short_today),
+    AUFGABEN(R.string.nav_tasks, HbIcons.checkCircle, R.string.nav_short_tasks),
+    EINKAUF(R.string.nav_shopping, HbIcons.cart, R.string.nav_short_shopping),
     NOTIZEN(R.string.nav_notes, HbIcons.note),
-    ZEIT(R.string.nav_time, HbIcons.clock),
+    ZEIT(R.string.nav_time, HbIcons.clock, R.string.nav_short_time),
     ABWESENHEIT(R.string.nav_calendar, HbIcons.calendar),
     REZEPTE(R.string.nav_recipes, HbIcons.chef),
     WOCHENPLAN(R.string.nav_meal_plan, HbIcons.utensils),
 }
+
+// HB-09 (#239) — the mobile bottom tab bar shows these core areas (in this order) plus a
+// "Mehr" button; everything else moves into the "Mehr" sheet so 8 areas never overflow on a
+// narrow phone. Mirrors web's CORE_TABS (App.tsx): Heute · Aufgaben · Einkauf · Zeit; after
+// web #270 "Zeit" sits in the bar and "Kalender" (Abwesenheit) lives under "Mehr". The drawer
+// is unaffected — it still lists every route.
+val CORE_ROUTES: List<HbRoute> = listOf(HbRoute.HEUTE, HbRoute.AUFGABEN, HbRoute.EINKAUF, HbRoute.ZEIT)
+val MORE_ROUTES: List<HbRoute> = HbRoute.entries.filterNot { it in CORE_ROUTES }
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -528,4 +545,181 @@ private fun Modifier.bottomBorderRight(color: Color): Modifier = drawBehind {
 
 private fun Modifier.bottomBorderTop(color: Color): Modifier = drawBehind {
     drawLine(color, Offset(0f, 0f), Offset(size.width, 0f), 1f)
+}
+
+// ---------------------------------------------------------------------------
+// Bottom navigation bar (HB-09, #239) — mirrors web's mobile tab bar (App.tsx
+// `.hb-tabbar`): the core areas + a "Mehr" entry that opens an overflow sheet.
+// The "Mehr" entry highlights while one of the overflow areas is active, so the
+// current area stays recognizable even when it lives behind "Mehr".
+// ---------------------------------------------------------------------------
+
+@Composable
+fun HbBottomNav(
+    active: HbRoute,
+    onSelect: (HbRoute) -> Unit,
+    onMore: () -> Unit,
+    modifier: Modifier = Modifier,
+    badges: Map<HbRoute, Int> = emptyMap(),
+    dots: Set<HbRoute> = emptySet(),
+    moreActive: Boolean = active in MORE_ROUTES,
+) {
+    // Landmark for the bottom tab bar, mirroring web's `<nav aria-label>` (#239); read out by
+    // TalkBack as the navigation region. Resolved here as a @Composable call, then set in the
+    // non-composable semantics lambda.
+    val navLabel = stringResource(R.string.nav_main)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(Hb.surface)
+            .bottomBorderTop(Hb.lineSoft)
+            .navigationBarsPadding()
+            .heightIn(min = 58.dp)
+            .semantics { contentDescription = navLabel },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CORE_ROUTES.forEach { route ->
+            HbBottomNavItem(
+                icon = route.icon,
+                label = stringResource(route.shortLabelRes),
+                active = route == active,
+                badge = badges[route]?.takeIf { it > 0 },
+                dot = route in dots,
+                onClick = { onSelect(route) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // The "Mehr" overflow entry — highlighted while a hidden area is active.
+        HbBottomNavItem(
+            icon = HbIcons.more,
+            label = stringResource(R.string.nav_more),
+            active = moreActive,
+            badge = null,
+            dot = false,
+            onClick = onMore,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun HbBottomNavItem(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    badge: Int?,
+    dot: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxHeight()
+            .applyNoRipple(onClick)
+            .padding(vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            HbIcon(icon, size = 23.dp, tint = if (active) Hb.accent else Hb.ink2)
+            if (badge != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 11.dp, y = (-6).dp)
+                        .heightIn(min = 16.dp)
+                        .clip(HbPill)
+                        .background(Hb.accent, HbPill)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        badge.toString(),
+                        style = HbType.mono.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        color = Hb.onAccent,
+                    )
+                }
+            } else if (dot) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 6.dp, y = (-3).dp)
+                        .size(7.dp)
+                        .clip(HbPill)
+                        .background(Hb.clay),
+                )
+            }
+        }
+        Text(
+            label,
+            style = HbType.small.copy(
+                fontSize = 11.sp,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+            color = if (active) Hb.accentInk else Hb.ink3,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// "Mehr" overflow sheet (HB-09, #239) — lists the areas that don't fit in the
+// bottom bar; selecting one navigates and dismisses. Mirrors web's `.hb-morenav`.
+// The active overflow area is highlighted (accent), matching the drawer rows.
+// ---------------------------------------------------------------------------
+
+@Composable
+fun HbMoreSheet(
+    active: HbRoute,
+    onSelect: (HbRoute) -> Unit,
+    onDismiss: () -> Unit,
+    badges: Map<HbRoute, Int> = emptyMap(),
+    dots: Set<HbRoute> = emptySet(),
+) {
+    HbBottomSheet(onDismiss = onDismiss, title = stringResource(R.string.nav_more)) {
+        MORE_ROUTES.forEach { route ->
+            val isActive = route == active
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .background(if (isActive) Hb.accentSoft else Color.Transparent, HbRadiusSm)
+                    .clickable { onSelect(route) }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(13.dp),
+            ) {
+                HbIcon(route.icon, size = 21.dp, tint = if (isActive) Hb.accent else Hb.ink2)
+                Text(
+                    stringResource(route.labelRes),
+                    style = HbType.rowTitle.copy(
+                        fontSize = 15.5.sp,
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                    ),
+                    color = if (isActive) Hb.accentInk else Hb.ink2,
+                    modifier = Modifier.weight(1f),
+                )
+                val badge = badges[route]?.takeIf { it > 0 }
+                if (badge != null) {
+                    Box(
+                        Modifier
+                            .heightIn(min = 20.dp)
+                            .clip(HbPill)
+                            .background(if (isActive) Hb.accent else Hb.surface3, HbPill)
+                            .padding(horizontal = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            badge.toString(),
+                            style = HbType.small.copy(fontWeight = FontWeight.SemiBold),
+                            color = if (isActive) Hb.onAccent else Hb.ink2,
+                        )
+                    }
+                } else if (route in dots) {
+                    Box(Modifier.size(7.dp).clip(HbPill).background(Hb.clay))
+                }
+            }
+        }
+    }
 }

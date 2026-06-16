@@ -192,9 +192,9 @@ internal fun stepsToText(steps: List<RecipeStepDto>): String =
  * tones, mirroring the CSS `repeating-linear-gradient(135deg, …)`. The gradient runs along
  * a short vector and tiles via [TileMode.Repeated]; the (1,1) direction yields the 135° look.
  */
-private fun stripeBrush(hue: Double, periodPx: Float): Brush {
-    val dark = Hb.recipeBandDark(hue)
-    val light = Hb.recipeBandLight(hue)
+private fun stripeBrush(hue: Double, periodPx: Float, darkTheme: Boolean): Brush {
+    val dark = Hb.recipeBandDark(hue, darkTheme)
+    val light = Hb.recipeBandLight(hue, darkTheme)
     return Brush.linearGradient(
         0.0f to dark,
         0.5f to dark,
@@ -358,6 +358,7 @@ private fun ColumnScope.RecipeGrid(
 @Composable
 private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (RecipeImageDto) -> String) {
     val hue = Format.recipeHue(recipe.id)
+    val darkTheme = Hb.isDark
     val coverImage = recipe.image
     HbCard(modifier = Modifier.fillMaxWidth().clickable { onClick() }, pad = false) {
         Column(Modifier.fillMaxWidth()) {
@@ -366,7 +367,7 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                 Modifier
                     .fillMaxWidth()
                     .height(104.dp)
-                    .background(stripeBrush(hue, 31f)),
+                    .background(stripeBrush(hue, 31f, darkTheme)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (coverImage != null) {
@@ -381,11 +382,11 @@ private fun RecipeCard(recipe: RecipeDto, onClick: () -> Unit, imageUrl: (Recipe
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        HbIcon(HbIcons.chef, size = 26.dp, tint = Hb.recipeBandInk(hue))
+                        HbIcon(HbIcons.chef, size = 26.dp, tint = Hb.recipeBandInk(hue, darkTheme))
                         Text(
                             stringResource(R.string.recipe_photo_placeholder),
                             style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
-                            color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
+                            color = Hb.recipeBandInk(hue, darkTheme).copy(alpha = 0.75f),
                         )
                     }
                 }
@@ -499,6 +500,7 @@ private fun RecipeDetailPage(
     }
 
     val hue = Format.recipeHue(recipe.id)
+    val darkTheme = Hb.isDark
 
     Box(Modifier.fillMaxSize()) {
     HbScreenScaffold(
@@ -540,7 +542,7 @@ private fun RecipeDetailPage(
             Modifier
                 .fillMaxWidth()
                 .height(188.dp)
-                .background(stripeBrush(hue, 37f))
+                .background(stripeBrush(hue, 37f, darkTheme))
                 .then(if (heroImage != null) Modifier.clickable { lightbox = viewModel.imageUrl(heroImage) } else Modifier),
             contentAlignment = Alignment.Center,
         ) {
@@ -556,11 +558,11 @@ private fun RecipeDetailPage(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    HbIcon(HbIcons.chef, size = 34.dp, tint = Hb.recipeBandInk(hue))
+                    HbIcon(HbIcons.chef, size = 34.dp, tint = Hb.recipeBandInk(hue, darkTheme))
                     Text(
                         stringResource(R.string.recipe_photo_placeholder),
                         style = HbType.mono.copy(fontSize = 10.sp, letterSpacing = 0.04.em),
-                        color = Hb.recipeBandInk(hue).copy(alpha = 0.75f),
+                        color = Hb.recipeBandInk(hue, darkTheme).copy(alpha = 0.75f),
                     )
                 }
             }

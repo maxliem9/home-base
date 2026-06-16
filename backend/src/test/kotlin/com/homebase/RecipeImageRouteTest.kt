@@ -97,6 +97,32 @@ class RecipeImageRouteTest {
         assertEquals(ContentType.Image.PNG, response.contentType()?.withoutParameters())
         assertContentEquals(pngBytes, response.readRawBytes())
         assertEquals("nosniff", response.headers["X-Content-Type-Options"])
+        // the original upload name is offered for download (inline, so Coil still renders in
+        // place) — otherwise the browser saves it under a generic fallback name (#272)
+        val disposition = response.headers[HttpHeaders.ContentDisposition]
+        assertTrue(disposition?.startsWith("inline") == true, "expected inline disposition, got $disposition")
+        assertTrue(disposition?.contains("filename=pic.png") == true, "missing original filename in $disposition")
+    }
+
+    @Test
+    fun `served image disposition keeps a name with umlauts and never an attachment`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val recipeId = createRecipe(token)
+        val imageId = imageOf(
+            uploadImage(token, recipeId, pngBytes, filename = "Sommerurlaub Österreich.png").bodyAsText()
+        )!!.id()
+
+        val response = client.get("/api/v1/recipes/$recipeId/images/$imageId") { bearerAuth(token) }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val disposition = response.headers[HttpHeaders.ContentDisposition]
+        // never attachment (would break Coil's inline rendering); Ktor encodes the umlaut per RFC 5987
+        assertTrue(disposition?.startsWith("inline") == true, "expected inline disposition, got $disposition")
+        assertTrue(
+            disposition?.contains("Sommerurlaub") == true,
+            "expected original name to survive in $disposition",
+        )
     }
 
     @Test
