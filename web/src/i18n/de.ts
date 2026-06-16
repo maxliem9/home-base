@@ -149,7 +149,7 @@ export const de = {
   },
   dashboard: {
     headerTitle: 'HomeBase — Heute',
-    // greeting head — thresholds mirror the mock (views_heute.jsx)
+    // greeting head — thresholds mirror the original design
     greetingNight: 'Gute Nacht',
     greetingMorning: 'Guten Morgen',
     greetingDay: 'Hallo',

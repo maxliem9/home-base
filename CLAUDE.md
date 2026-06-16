@@ -176,8 +176,7 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   Default-Tab) — zeitabhängige Begrüßung, Quick-Add → Inbox-Todo, 4 Stat-Kacheln
   (heute fällig / Inbox / morgen fällig / heute erledigt), „Heute dran", laufender
   Timer, Einkaufs-Peek und Digest-Vorschau; aggregiert die bestehenden Reads
-  (Todos/Shopping/Time) live über WebSocket. Vorlage: Mock `docs/web/src/views_heute.jsx`
-  + Android `HeuteScreen`.
+  (Todos/Shopping/Time) live über WebSocket. Vorbild: Android `HeuteScreen`.
 - Aufgaben-View (`components/TodosView.tsx`): Inbox-Tab als erster Tab vor den
   Listen-Tabs. **Inbox-Semantik (#71): „alles Unverplante"** — der Tab zeigt alle
   Todos mit Status INBOX (auch wenn sie schon in einer Liste liegen; Quick-Add in

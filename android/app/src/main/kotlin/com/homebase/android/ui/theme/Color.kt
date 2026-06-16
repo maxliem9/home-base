@@ -11,7 +11,7 @@ import kotlin.math.sin
 /**
  * Convert an OKLCH color to an sRGB [Color].
  *
- * The HomeBase design tokens are authored in OKLCH (see docs/android/android/hb-mobile.css).
+ * The HomeBase design tokens are authored in OKLCH.
  * Rather than transcribe hand-converted hex values, we convert here so the palette stays
  * faithful to the source and so deterministic per-recipe hues can be computed at runtime.
  *
@@ -91,7 +91,7 @@ data class HbPalette(
 
 /**
  * HomeBase design tokens — "klar" look, clay accent (hue 35), LIGHT theme.
- * Mirrors hb-mobile.css / web index.css `:root` 1:1.
+ * Mirrors the web index.css `:root` 1:1.
  */
 val HbLightPalette = HbPalette(
     paper = oklch(0.96, 0.014, 128.0),

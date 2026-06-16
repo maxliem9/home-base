@@ -152,7 +152,7 @@ export const en: Messages = {
   },
   dashboard: {
     headerTitle: 'HomeBase — Today',
-    // greeting head — thresholds mirror the mock (views_heute.jsx)
+    // greeting head — thresholds mirror the original design
     greetingNight: 'Good night',
     greetingMorning: 'Good morning',
     greetingDay: 'Hello',

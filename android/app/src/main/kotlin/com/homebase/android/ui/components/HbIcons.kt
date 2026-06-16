@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * HomeBase stroke-icon set — 24×24 viewBox, 1.8 stroke, round caps/joins, currentColor.
- * Path data is copied verbatim from docs/android/android/m-shell.jsx so the mobile icons
+ * Path data is copied verbatim from the original design mockup so the mobile icons
  * match the design's thin grotesque style. Recolor via Icon(tint = ...).
  */
 object HbIcons {

@@ -90,7 +90,7 @@ import java.time.ZoneOffset
 
 // ---------------------------------------------------------------------------
 // Abwesenheit / Familienkalender — shared household absence planner.
-// Compose port of docs/android/android/m-screens-abwesenheit.jsx: month-first
+// Compose port of the original design mockup: month-first
 // calendar, transposed year raster, combined summary, and three bottom sheets
 // (day editor, Zeitraum, Einstellungen). Logic lives in AbsenceModel/Holidays.
 // ---------------------------------------------------------------------------

@@ -18,8 +18,7 @@ import kotlin.math.roundToLong
 
 /**
  * Shared, locale-aware formatting helpers used across the mobile screens. Centralised so
- * date/duration/relative-time rendering is consistent everywhere and mirrors the desktop copy
- * described in docs/android/README.md.
+ * date/duration/relative-time rendering is consistent everywhere and mirrors the desktop copy.
  *
  * These are Compose-free utilities (called from both composables and unit tests), so they take
  * the active [Locale] rather than a `Context`/`stringResource`. It defaults to
