@@ -344,6 +344,34 @@ test.describe('Inbox', () => {
     await expect(page.locator('.hb-row', { hasText: 'Versicherung kündigen' })).toBeVisible()
   })
 
+  // Inbox ordering (#306): the unplanned, undated todos ("Ohne Datum" — where
+  // status-INBOX quick-adds land) render at the TOP of the Inbox tab, newest
+  // first (createdAt desc); a dated todo's bucket follows below.
+  test('shows undated inbox todos first, newest first, above dated ones', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        // dated → lands in a due bucket that must render BELOW "Ohne Datum" in the inbox
+        todo({ id: 't1', title: 'Termin wahrnehmen', dueDate: '2026-06-12', createdAt: '2026-06-01T08:00:00Z' }),
+        // two undated inbox todos with distinct createdAt — newer must precede older
+        todo({ id: 't2', title: 'Älterer Eintrag', createdAt: '2026-06-02T08:00:00Z' }),
+        todo({ id: 't3', title: 'Neuerer Eintrag', createdAt: '2026-06-05T08:00:00Z' }),
+      ],
+      [HAUSHALT],
+    )
+    await openApp(page, mock, TOKEN, PINNED)
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' }).click()
+
+    // "Ohne Datum" section heading renders before the dated bucket heading
+    const labels = page.locator('.hb-sectionlabel')
+    await expect(labels.first()).toContainText('Ohne Datum')
+
+    // within the inbox, the three rows appear undated-newest, undated-older, then dated
+    const rows = page.locator('.hb-row')
+    await expect(rows.nth(0)).toContainText('Neuerer Eintrag')
+    await expect(rows.nth(1)).toContainText('Älterer Eintrag')
+    await expect(rows.nth(2)).toContainText('Termin wahrnehmen')
+  })
+
   // Inbox semantics (#71): "everything unplanned" — a status-INBOX todo counts
   // even when it already sits in a list, and the tab badge uses the exact same
   // rule as the dashboard's inbox tile. Planning it removes it from the inbox
