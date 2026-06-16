@@ -5,7 +5,7 @@ import { API_BASE, authFetch, errorCode, notifyTransportError, recipeImageUrl, s
 import { errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { formatNumber } from '../ui/format'
+import { formatNumber, parseLocaleNumber } from '../ui/format'
 import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -193,7 +193,8 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
             .filter((i) => i.name.trim())
             .map((i) => ({
               name: i.name.trim(),
-              amount: i.amount.trim() ? parseFloat(i.amount.replace(',', '.')) : undefined,
+              // accept comma or dot decimal (#299); blank/unparseable → no amount
+              amount: i.amount.trim() ? (parseLocaleNumber(i.amount) ?? undefined) : undefined,
               unit: i.unit.trim() || undefined,
               section: sec.name.trim() || undefined,
             })),

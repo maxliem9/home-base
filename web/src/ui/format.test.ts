@@ -9,6 +9,7 @@ import {
   fmtDurationShort,
   formatDecimal,
   formatNumber,
+  parseLocaleNumber,
   relTime,
   todayLabel,
   userMeta,
@@ -270,6 +271,48 @@ describe('formatNumber / formatDecimal (German default)', () => {
     expect(fmtAmount(1500)).toBe('1500')
     expect(fmtAmount(1234.5)).toBe('1234,5')
     expect(fmtAmount(0.5)).toBe('0,5')
+  })
+})
+
+// #299 — number INPUT must be locale-tolerant: both comma and dot decimals parse the same,
+// so a value rendered by formatDecimal round-trips in either UI language. Parsing is
+// language-independent by design (not bound to currentLang), so no locale flip is needed.
+describe('parseLocaleNumber', () => {
+  it('accepts both comma and dot as the decimal separator', () => {
+    expect(parseLocaleNumber('1,5')).toBe(1.5)
+    expect(parseLocaleNumber('1.5')).toBe(1.5)
+    expect(parseLocaleNumber('0,333')).toBe(0.333)
+    expect(parseLocaleNumber('0.333')).toBe(0.333)
+  })
+
+  it('parses plain integers and a leading sign', () => {
+    expect(parseLocaleNumber('42')).toBe(42)
+    expect(parseLocaleNumber('0')).toBe(0)
+    expect(parseLocaleNumber('-2,5')).toBe(-2.5)
+  })
+
+  it('trims surrounding space and strips inner grouping spaces (incl. NBSP/thin)', () => {
+    expect(parseLocaleNumber('  7,5  ')).toBe(7.5)
+    expect(parseLocaleNumber('1 234,5')).toBe(1234.5) // NBSP grouping
+    expect(parseLocaleNumber('1 234.5')).toBe(1234.5) // thin-space grouping
+  })
+
+  it('returns null for empty / blank input', () => {
+    expect(parseLocaleNumber('')).toBeNull()
+    expect(parseLocaleNumber('   ')).toBeNull()
+  })
+
+  it('returns null for non-numeric or partially-numeric input', () => {
+    expect(parseLocaleNumber('abc')).toBeNull()
+    expect(parseLocaleNumber('1.5x')).toBeNull()
+    expect(parseLocaleNumber('--')).toBeNull()
+  })
+
+  it('rejects ambiguous multi-separator input rather than guessing a thousands style', () => {
+    // by design we do NOT disambiguate "1.234,56" vs "1,234.56"; >1 separator → null
+    expect(parseLocaleNumber('1.234,56')).toBeNull()
+    expect(parseLocaleNumber('1,234.56')).toBeNull()
+    expect(parseLocaleNumber('1.2.3')).toBeNull()
   })
 })
 

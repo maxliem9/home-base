@@ -84,6 +84,35 @@ export function formatDecimal(n: number, maxFractionDigits = 3): string {
   return formatNumber(n, { maximumFractionDigits: maxFractionDigits })
 }
 
+/**
+ * Parse a user-typed number locale-TOLERANTLY: accept BOTH comma and dot as the decimal
+ * separator, so a value rendered by `formatDecimal` round-trips regardless of UI language
+ * (de "1,5" / en "1.5" both parse to 1.5). The counterpart to the locale-aware display above
+ * — every place a user types a number should route through this (#299), replacing the old
+ * ad-hoc `Number(v.replace(',', '.'))`.
+ *
+ * Returns the parsed number, or `null` for empty/blank/invalid input (callers decide the
+ * fallback). Leading/trailing space is trimmed; spaces *inside* the number — incl. the
+ * thin/NBSP a locale might use for thousands grouping — are stripped.
+ *
+ * SIMPLIFYING ASSUMPTION: these inputs are single small decimals (work hours, ingredient
+ * amounts, allowances, break minutes), never grouped magnitudes. We deliberately do NOT try
+ * to disambiguate "1.234,56" vs "1,234.56" thousands styles. After unifying the separator to
+ * a dot, a value with MORE THAN ONE separator is treated as invalid (→ null) rather than
+ * guessed. A bare grouping like "1.000" is therefore read as 1 (one separator = the decimal),
+ * which is correct for the small-decimal inputs here.
+ */
+export function parseLocaleNumber(input: string): number | null {
+  // strip all whitespace (incl. thin space U+2009 / NBSP U+00A0 used as a grouping mark)
+  const cleaned = input.replace(/\s/g, '')
+  if (cleaned === '') return null
+  // unify the decimal mark, then reject ambiguous multi-separator input (see assumption above)
+  const normalized = cleaned.replace(/,/g, '.')
+  if ((normalized.match(/\./g)?.length ?? 0) > 1) return null
+  const n = Number(normalized)
+  return Number.isFinite(n) ? n : null
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** HH:MM:SS from a number of seconds. */
