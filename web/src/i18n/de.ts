@@ -88,7 +88,9 @@ export const de = {
     INVALID_WEEKDAY: 'Ungültiger Wochentag.',
     INVALID_STATE: 'Ungültiges Bundesland.',
     INVALID_YEAR: 'Ungültiges Jahr.',
-    DATE_CONFLICT: 'An diesem Tag gibt es bereits einen Schließtag.',
+    // Gilt für beide Editoren, die ein Datum eindeutig belegen (Kita-Schließtag PUT,
+    // eigener Feiertag PUT) — daher bewusst neutral formuliert, nicht Kita-spezifisch (#254).
+    DATE_CONFLICT: 'Für dieses Datum gibt es schon einen Eintrag.',
     RANGE_TOO_LARGE: 'Der Zeitraum ist zu lang.',
     TOO_MANY_DATES: 'Zu viele Tage im Zeitraum.',
   } as Record<string, string>,
