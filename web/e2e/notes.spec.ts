@@ -28,12 +28,17 @@ test.describe('Notes', () => {
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
   })
 
-  test('lists notes and opens one to read it', async ({ page }) => {
+  test('clicking a note opens the editor directly (not a read-only view)', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
 
+    // #310: a click opens the editor in place — the Markdown source textarea is shown,
+    // pre-filled with the note's content (no intermediate read-only step / pencil button).
     await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-    // the reading pane renders the note's markdown content
-    await expect(page.locator('.hb-md')).toContainText('Router: abc123')
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+
+    // the Edit/Preview toggle flips to the rendered markdown (keeps the read capability)
+    await page.getByRole('tab', { name: 'Vorschau' }).click()
+    await expect(page.locator('.hb-note-preview')).toContainText('Router: abc123')
   })
 
   test('searches notes by query', async ({ page }) => {
@@ -60,34 +65,132 @@ test.describe('Notes', () => {
     await expect(page.getByRole('button', { name: /^WLAN/ })).toHaveCount(0)
   })
 
-  test('creates a note', async ({ page }) => {
+  test('creates a note via auto-save (no Save button), capturing the new id', async ({ page }) => {
     await openNotes(page, new MockApi())
 
-    await page.getByRole('button', { name: 'Neue Notiz' }).click()
+    // a brand-new draft has no id, so the first auto-save must be a POST (not PUT). Track both;
+    // ignore the image sub-routes (not exercised here).
+    const posts: string[] = []
+    const puts: string[] = []
+    page.on('request', (r) => {
+      const p = new URL(r.url()).pathname
+      if (p.includes('/images')) return
+      if (p.endsWith('/notes') && r.method() === 'POST') posts.push(p)
+      else if (/\/notes\/[^/]+$/.test(p) && r.method() === 'PUT') puts.push(p)
+    })
+
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
     await page.getByPlaceholder('Titel…').fill('Einkaufsidee')
     await page.getByPlaceholder('Inhalt (Markdown)…').fill('Test Inhalt')
-    await page.getByRole('button', { name: 'Speichern' }).click()
 
-    // the new note is selected and shown in the reading pane + list
-    await expect(page.locator('.hb-note-doc__title')).toHaveText('Einkaufsidee')
+    // auto-save fires after the debounce → POST, status flips to "Gespeichert", note in the list
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
     await expect(page.getByRole('button', { name: /Einkaufsidee/ })).toBeVisible()
+    expect(posts.length).toBe(1) // exactly one create, no double-POST
+
+    // id was captured into the draft → editing again auto-saves via PUT (not a second POST)
+    const put = page.waitForRequest(
+      (r) => /\/notes\/[^/]+$/.test(new URL(r.url()).pathname) && r.method() === 'PUT',
+    )
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Test Inhalt — mehr')
+    await put
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
+    expect(posts.length).toBe(1) // still just the one create
+    expect(puts.length).toBeGreaterThanOrEqual(1)
   })
 
-  test('edits a note', async ({ page }) => {
+  test('editing a note auto-saves via PUT after the debounce, showing "Gespeichert"', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    // clicking opens the editor straight away (#310)
+    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    await expect(page.getByPlaceholder('Titel…')).toHaveValue('WLAN Passwort')
+
+    // #309: editing the content fires exactly one auto-save PUT carrying the new content,
+    // and the status indicator flips to "Gespeichert" (no manual Save button exists).
+    const put = page.waitForRequest(
+      (r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT',
+    )
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **xyz789**')
+    const req = await put
+    expect(JSON.parse(req.postData() ?? '{}').content).toBe('Router: **xyz789**')
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
+
+    // the list reflects the merged REST response (preview text updated)
+    await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('Router: xyz789')
+  })
+
+  // #309 regression: a keystroke typed WHILE a save is in flight must still be persisted, and
+  // the status must not lie. The first auto-save PUT is artificially delayed; during that window
+  // a SECOND edit is typed. The in-flight save's tail must re-fire so the FINAL PUT carries the
+  // second change, and "Gespeichert" must appear only AFTER that latest content was sent (not on
+  // the first PUT, whose body is already stale).
+  test('persists an edit typed while a save is in flight, and "Gespeichert" only after it lands', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await openEditorFor(page, /WLAN Passwort/)
+
+    // Delay every PUT to n1 by ~1.5s, then let the mock handle it. This holds the first save
+    // open long enough to type a second change before it resolves.
+    await page.route('**/api/v1/notes/n1', async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      await new Promise((r) => setTimeout(r, 1500))
+      return route.fallback()
+    })
+
+    // record every PUT body in order so we can assert what the FINAL save actually sent
+    const putBodies: string[] = []
+    page.on('request', (r) => {
+      if (/\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT') {
+        putBodies.push(JSON.parse(r.postData() ?? '{}').content)
+      }
+    })
+
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+
+    // first edit → after the debounce the (delayed) first PUT starts and stays in flight
+    const firstPut = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    await ta.fill('FIRST change')
+    await firstPut
+
+    // while that PUT is held open the status shows "Speichert…", NOT "Gespeichert"
+    await expect(page.locator('.hb-savestatus.is-saving')).toBeVisible()
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
+
+    // type the SECOND change during the in-flight window — the bug dropped exactly this edit
+    await ta.fill('SECOND change')
+    // status must stay truthful: still saving, never flashing "Gespeichert" with stale content
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
+
+    // once everything settles the status reaches "Gespeichert"…
+    await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
+    // …and the FINAL PUT carried the second change (the trailing edit was persisted, not lost)
+    expect(putBodies[putBodies.length - 1]).toBe('SECOND change')
+    // the editor still holds the latest text (no clobber by the in-flight save's response)
+    await expect(ta).toHaveValue('SECOND change')
+    // the merged list preview reflects the last-saved content, proving "Gespeichert" is truthful
+    await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('SECOND change')
+  })
+
+  test('does not auto-save when nothing changed after opening a note', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    let puts = 0
+    page.on('request', (r) => {
+      const p = new URL(r.url()).pathname
+      if (/\/notes\/n1$/.test(p) && r.method() === 'PUT') puts++
+    })
+    // open + just toggle the Preview tab back and forth — no field edits → no PUT (#309 dirty flag)
+    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    await page.getByRole('tab', { name: 'Vorschau' }).click()
+    await page.getByRole('tab', { name: 'Bearbeiten' }).click()
+    // give the debounce window a chance to (wrongly) fire
+    await page.waitForTimeout(1200)
+    expect(puts).toBe(0)
+  })
+
+  test('deletes a note from the editor header', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
     await page.getByRole('button', { name: /WLAN Passwort/ }).click()
 
-    await page.getByRole('button', { name: 'Bearbeiten' }).click()
-    await page.getByPlaceholder('Titel…').fill('WLAN Zugang')
-    await page.getByRole('button', { name: 'Speichern' }).click()
-
-    await expect(page.locator('.hb-note-doc__title')).toHaveText('WLAN Zugang')
-  })
-
-  test('deletes a note', async ({ page }) => {
-    await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-
+    // delete is the trash action in the editor header now (no separate read view)
     await page.getByRole('button', { name: 'Löschen' }).click()
 
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
@@ -234,9 +337,10 @@ test.describe('Notes', () => {
       { kind, payload },
     )
 
+  // Clicking a note now opens the editor directly (#310) — no intermediate read view /
+  // "Bearbeiten" button. The Markdown source textarea is the default (edit) mode.
   const openEditorFor = async (page: Page, titleRe: RegExp) => {
     await page.getByRole('button', { name: titleRe }).click()
-    await page.getByRole('button', { name: 'Bearbeiten' }).click()
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
   }
 
@@ -428,9 +532,96 @@ test.describe('Notes', () => {
     // give the resolved promise a tick; B's content must remain exactly "BBB"
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
 
-    // and A really did receive the image (ref insert skipped, upload succeeded)
-    await page.getByRole('button', { name: 'Abbrechen' }).click()
+    // and A really did receive the image (ref insert skipped, upload succeeded). Switching
+    // back to A opens its editor directly; the gallery shows the uploaded attachment.
     await page.getByRole('button', { name: /Notiz A/ }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('AAA')
     await expect(page.locator('.hb-note-thumb img')).toHaveCount(1)
+  })
+
+  // ---- Folder grouping (#311) ----
+  // The flat list becomes folder-grouped sections: a header (folder name + count) with its
+  // notes indented beneath; notes without a folder fall into the "Ohne Ordner" group.
+  test('groups notes into folder sections with headers + counts', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({ id: 'n1', title: 'Steuer 2025', folder: 'Finanzen' }),
+      note({ id: 'n2', title: 'Versicherung', folder: 'Finanzen' }),
+      note({ id: 'n3', title: 'Geschenkideen' }), // no folder
+    ]))
+
+    const groups = page.locator('.hb-notes-group')
+    // two groups: the named "Finanzen" folder, then the "Ohne Ordner" bucket
+    await expect(groups).toHaveCount(2)
+
+    const finanzen = groups.filter({ hasText: 'Finanzen' })
+    await expect(finanzen.locator('.hb-notes-group__count')).toHaveText('2')
+    await expect(finanzen.getByRole('button', { name: /Steuer 2025/ })).toBeVisible()
+    await expect(finanzen.getByRole('button', { name: /Versicherung/ })).toBeVisible()
+
+    const ohne = groups.filter({ hasText: 'Ohne Ordner' })
+    await expect(ohne.locator('.hb-notes-group__count')).toHaveText('1')
+    await expect(ohne.getByRole('button', { name: /Geschenkideen/ })).toBeVisible()
+  })
+
+  test('folder filter chip still narrows the grouped list to that folder', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({ id: 'n1', title: 'Steuer 2025', folder: 'Finanzen' }),
+      note({ id: 'n2', title: 'Rezept-Notiz', folder: 'Küche' }),
+    ]))
+    // both folder groups present initially
+    await expect(page.locator('.hb-notes-group')).toHaveCount(2)
+
+    // activating the "Finanzen" filter chip narrows the grouping to just that folder
+    await page.locator('.hb-tagchip', { hasText: 'Finanzen' }).click()
+    await expect(page.locator('.hb-notes-group')).toHaveCount(1)
+    await expect(page.locator('.hb-notes-group__name')).toHaveText('Finanzen')
+    await expect(page.getByRole('button', { name: /Rezept-Notiz/ })).toHaveCount(0)
+  })
+
+  // ---- Mobile collapse + back control (#313) ----
+  // At ≤860px the list and editor are one-pane-at-a-time: browsing shows the list, opening a
+  // note collapses the list to show the full-width editor, and a back control returns to it.
+  test('mobile: opening a note collapses the list; back restores it', async ({ page }) => {
+    // navigate via the desktop nav first, then shrink to the mobile breakpoint
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await page.setViewportSize({ width: 600, height: 900 })
+
+    const list = page.locator('.hb-notes-list')
+    await expect(list).toBeVisible()
+
+    // open the note → list collapses, full-width editor + mobile back bar appear
+    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    await expect(page.getByPlaceholder('Titel…')).toBeVisible()
+    await expect(list).toBeHidden()
+    // the mobile back control (scoped to the editor bar to avoid the nav's "Notizen" tab)
+    const back = page.locator('.hb-note-back')
+    await expect(back).toBeVisible()
+    await expect(back).toHaveText('Notizen')
+
+    // back → editor closes, list returns
+    await back.click()
+    await expect(list).toBeVisible()
+    await expect(page.getByPlaceholder('Titel…')).toHaveCount(0)
+  })
+
+  test('mobile: the note switcher slide-over jumps to another note', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({ id: 'n1', title: 'Erste Notiz', content: 'AAA' }),
+      note({ id: 'n2', title: 'Zweite Notiz', content: 'BBB' }),
+    ]))
+    await page.setViewportSize({ width: 600, height: 900 })
+
+    await page.getByRole('button', { name: /Erste Notiz/ }).click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('AAA')
+
+    // open the switcher slide-over and pick the other note (no "back" needed)
+    await page.getByRole('button', { name: 'Notiz wechseln' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet).toBeVisible()
+    await sheet.getByRole('button', { name: /Zweite Notiz/ }).click()
+
+    // the editor now shows the second note; the sheet has closed
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
+    await expect(sheet).toHaveCount(0)
   })
 })

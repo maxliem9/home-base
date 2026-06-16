@@ -551,10 +551,6 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-noteitem__preview { font-size: 13px; color: var(--ink-3); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hb-noteitem__meta { font-size: 12px; color: var(--ink-3); margin-top: 6px; display: flex; align-items: center; gap: 8px; }
 .hb-noteitem__imgcount { display: inline-flex; align-items: center; gap: 3px; }
-.hb-note-doc__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.hb-note-doc__title { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.12; letter-spacing: -0.025em; overflow-wrap: anywhere; }
-.hb-note-doc__meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-
 /* Note image attachments */
 .hb-note-images { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
 .hb-note-images__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -574,6 +570,30 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 /* edit view: subtle "uploading…" line while a pasted/dropped image is being uploaded */
 .hb-note-editor__uploading { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; color: var(--ink-3); animation: hb-note-uploading-pulse 1.1s ease-in-out infinite; }
 @keyframes hb-note-uploading-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+/* Folder-grouped note list (#311): a header per folder, its notes indented beneath. */
+.hb-notes-groups { display: flex; flex-direction: column; gap: 18px; }
+.hb-notes-group__head { display: flex; align-items: center; gap: 7px; padding: 0 2px 7px; color: var(--ink-2); }
+.hb-notes-group__head > svg { color: var(--ink-3); flex-shrink: 0; }
+.hb-notes-group__name { font-weight: 700; font-size: 13px; letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-notes-group__count { font-size: 12px; font-weight: 600; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 1px 8px; }
+.hb-notes-group .hb-notes-items { padding-left: 11px; border-left: 2px solid var(--line-soft); }
+
+/* Editor header: Edit/Preview toggle (left) + auto-save status / delete (right) (#309/#310). */
+.hb-note-editor__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.hb-note-editor__baractions { display: flex; align-items: center; gap: 8px; }
+.hb-note-preview { min-height: 220px; padding-top: 2px; }
+
+/* Auto-save status pill (#309). */
+.hb-savestatus { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.hb-savestatus.is-saving { color: var(--ink-3); animation: hb-note-uploading-pulse 1.1s ease-in-out infinite; }
+.hb-savestatus.is-saved { color: oklch(0.55 0.12 150); }
+.hb-savestatus.is-error { color: oklch(0.55 0.16 32); }
+
+/* Mobile-only editor bar: back to list + open the note switcher (#313). Hidden on desktop. */
+.hb-note-editor__mobilebar { display: none; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.hb-note-back { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px 6px 6px; border: none; background: transparent; color: var(--accent-ink); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); }
+.hb-note-back:hover { background: var(--accent-soft); }
 .hb-lightbox { position: fixed; inset: 0; z-index: 100; background: oklch(0.15 0 0 / 0.82); display: flex; align-items: center; justify-content: center; padding: 32px; cursor: zoom-out; }
 .hb-lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-lg, 0 20px 60px oklch(0 0 0 / 0.4)); cursor: default; }
 
@@ -872,6 +892,13 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
   .hb-mealdays { display: flex; }
   .hb-mealcell { min-height: 52px; }
   .hb-mealcell__remove { opacity: 1; }
+
+  /* Notizen (#313): one pane at a time. Browsing → only the list; a note open → only the
+     full-width editor with its back/switch bar (the list collapses, switch via the slide-over). */
+  .hb-notes-layout .hb-notes-detail { display: none; }
+  .hb-notes-layout.is-editing .hb-notes-list { display: none; }
+  .hb-notes-layout.is-editing .hb-notes-detail { display: block; }
+  .hb-note-editor__mobilebar { display: flex; }
 }
 
 @media (max-width: 520px) {
