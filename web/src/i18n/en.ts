@@ -91,7 +91,9 @@ export const en: Messages = {
     INVALID_WEEKDAY: 'Invalid weekday.',
     INVALID_STATE: 'Invalid federal state.',
     INVALID_YEAR: 'Invalid year.',
-    DATE_CONFLICT: 'There is already a closure on this day.',
+    // Applies to both editors that uniquely occupy a date (Kita closure PUT, custom
+    // holiday PUT) — deliberately neutral wording, not Kita-specific (#254).
+    DATE_CONFLICT: 'There is already an entry for this date.',
     RANGE_TOO_LARGE: 'The period is too long.',
     TOO_MANY_DATES: 'Too many days in the period.',
   } as Record<string, string>,

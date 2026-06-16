@@ -14,6 +14,7 @@ import com.homebase.android.data.model.UpdateKitaRequest
 import com.homebase.android.data.model.UpdatePartTimeRequest
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import kotlinx.coroutines.flow.Flow
+import retrofit2.HttpException
 
 /**
  * Absence planner persistence. The backend is pure storage; every mutation returns
@@ -48,28 +49,51 @@ class AbsenceRepository(
         apiCatching { api.deletePartTime(id) }
 
     suspend fun addKita(date: String, label: String?): Result<Unit> =
-        apiCatching { api.createKita(CreateKitaRequest(date, label)) }
+        apiCatching(mapHttpError = ::germanKitaError) { api.createKita(CreateKitaRequest(date, label)) }
 
     suspend fun addKitaRange(from: String, to: String, label: String?): Result<Unit> =
-        apiCatching { api.createKitaRange(CreateKitaRangeRequest(from, to, label)) }
+        apiCatching(mapHttpError = ::germanKitaError) { api.createKitaRange(CreateKitaRangeRequest(from, to, label)) }
 
     suspend fun updateKita(id: String, date: String?, label: String?): Result<Unit> =
-        apiCatching { api.updateKita(id, UpdateKitaRequest(date, label)) }
+        apiCatching(mapHttpError = ::germanKitaError) { api.updateKita(id, UpdateKitaRequest(date, label)) }
 
     suspend fun removeKita(id: String): Result<Unit> =
         apiCatching { api.deleteKita(id) }
 
     suspend fun addCustomHoliday(month: Int, day: Int, half: Boolean, label: String?): Result<Unit> =
-        apiCatching { api.createCustomHoliday(CreateCustomHolidayRequest(month, day, half, label)) }
+        apiCatching(mapHttpError = ::germanHolidayError) { api.createCustomHoliday(CreateCustomHolidayRequest(month, day, half, label)) }
 
     suspend fun updateCustomHoliday(id: String, month: Int?, day: Int?, half: Boolean?, label: String?): Result<Unit> =
-        apiCatching { api.updateCustomHoliday(id, UpdateCustomHolidayRequest(month, day, half, label)) }
+        apiCatching(mapHttpError = ::germanHolidayError) { api.updateCustomHoliday(id, UpdateCustomHolidayRequest(month, day, half, label)) }
 
     suspend fun removeCustomHoliday(id: String): Result<Unit> =
         apiCatching { api.deleteCustomHoliday(id) }
 
     suspend fun updateSettings(userId: String, year: Int, request: UpdateAbsSettingsRequest): Result<Unit> =
         apiCatching { api.updateAbsSettings(userId, year, request) }
+
+    // Map a failed Kita-closure create/update to German text via its ErrorResponse.code.
+    // The backend answers 409 DATE_CONFLICT when a closure is moved onto a date another
+    // closure already occupies (AbsenceRoutes kita PUT) — surface that explicitly instead
+    // of the raw "HTTP 409" message. Wording mirrors the web catalog (#254). Other HTTP
+    // failures fall back to the per-action default (= web `abwesenheit.kitaFailed`).
+    private fun germanKitaError(e: HttpException): String = when (errorCodeOf(e)) {
+        "DATE_CONFLICT" -> DATE_CONFLICT_TEXT
+        "INVALID_DATE" -> "Ungültiges Datum."
+        "RANGE_TOO_LARGE" -> "Der Zeitraum ist zu lang."
+        "NOT_FOUND" -> "Nicht gefunden – bitte neu laden."
+        else -> "Kita-Schließtag konnte nicht gespeichert werden."
+    }
+
+    // Same mapping for the eigene-Feiertage editor: the backend reuses 409 DATE_CONFLICT
+    // when a holiday is moved onto a month+day another holiday occupies (AbsenceRoutes
+    // holiday PUT). Fallback = web `abwesenheit.holidayFailed` (#254).
+    private fun germanHolidayError(e: HttpException): String = when (errorCodeOf(e)) {
+        "DATE_CONFLICT" -> DATE_CONFLICT_TEXT
+        "INVALID_DATE" -> "Ungültiges Datum."
+        "NOT_FOUND" -> "Nicht gefunden – bitte neu laden."
+        else -> "Eigener Feiertag konnte nicht gespeichert werden."
+    }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
