@@ -239,6 +239,17 @@
     <string name="notes_field_folder">Ordner</string>
     <string name="notes_folder_placeholder">Ordner (optional) …</string>
     <string name="notes_field_visibility">Sichtbarkeit</string>
+    <!-- Notes UX refresh (#309/#310/#313): tap opens the editor, edits auto-save, Edit/Vorschau
+         toggle, left note-switcher. -->
+    <string name="notes_tab_edit">Bearbeiten</string>
+    <string name="notes_tab_preview">Vorschau</string>
+    <string name="notes_saving">Speichert …</string>
+    <string name="notes_saved">Gespeichert</string>
+    <string name="notes_save_error">Nicht gespeichert</string>
+    <string name="notes_switch_note">Notiz wechseln</string>
+    <string name="notes_untitled">Ohne Titel</string>
+    <string name="notes_preview_empty">Noch kein Inhalt.</string>
+    <string name="notes_delete_confirm_message">Diese Notiz löschen?</string>
 
     <!-- ===== Time tracking (Zeiterfassung) ===== -->
     <string name="time_eyebrow">Zeiterfassung</string>
