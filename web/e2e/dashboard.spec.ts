@@ -63,14 +63,19 @@ test.describe('Dashboard (Heute)', () => {
     ])
     await openDashboard(page, mock, PINNED)
 
-    await expect(tile(page, 'Heute fällig')).toHaveText('1')
+    await expect(tile(page, 'Heute fällig')).toHaveText('1') // overdue stays out of this tile (#307)
     await expect(tile(page, 'In der Inbox')).toHaveText('2') // whole inbox, age-independent (#71)
     await expect(tile(page, 'Morgen fällig')).toHaveText('1')
     await expect(tile(page, 'Heute erledigt')).toHaveText('1')
 
-    // "Heute dran" lists exactly the todo due today
-    await expect(page.locator('.hb-row', { hasText: 'Heute-Task' })).toBeVisible()
-    await expect(page.locator('.hb-row', { hasText: 'Überfällig-Task' })).toHaveCount(0)
+    // "Heute dran" lists overdue + today's, overdue first and flagged "Überfällig" (#307)
+    const card = page.locator('.hb-heute-grid > .hb-card').first()
+    const rows = card.locator('.hb-row')
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(0)).toContainText('Überfällig-Task')
+    await expect(rows.nth(0)).toContainText('Überfällig') // overdue badge
+    await expect(rows.nth(1)).toContainText('Heute-Task')
+    await expect(rows.nth(1)).not.toContainText('Überfällig')
   })
 
   test('quick-add posts only the title and counts once into the inbox tile', async ({ page }) => {
