@@ -201,6 +201,14 @@ class MainActivity : AppCompatActivity() {
             container.configRepository.getAvatarHues().onSuccess { avatarHues = it }
         }
         LaunchedEffect(token) { reloadAvatarHues() }
+        // The roster only refetches on token change and after the user saves their OWN colour
+        // (#242/#246); a PARTNER's colour change would otherwise stay invisible until a cold start.
+        // Mirror the web's focus-refetch (`useAvatarHues`): on every return to the foreground, re-read
+        // the shared hue map (one cheap GET /users) so a partner's new colour shows up. (#253)
+        val avatarHueScope = rememberCoroutineScope()
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            avatarHueScope.launch { reloadAvatarHues() }
+        }
 
         val todoState by todoVm.uiState.collectAsState()
         val shoppingState by shoppingVm.uiState.collectAsState()
