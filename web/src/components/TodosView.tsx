@@ -523,7 +523,18 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   Object.values(buckets).forEach((b) =>
     b.sort((a, c) => (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')),
   )
-  const groups = buildBuckets(t).filter((g) => buckets[g.key].length)
+  // Inbox-Tab (#306): die unverplanten, undatierten Todos ("Ohne Datum" — wo
+  // Status-INBOX-Quick-Adds landen) gehören nach oben, darin neueste zuerst
+  // (createdAt desc). Andere Tabs ("Alle"/Listen) behalten die übliche
+  // Reihenfolge (Überfällig zuerst) und ihre dueDate-asc-Sortierung.
+  if (inboxActive) {
+    buckets.none.sort((a, c) => (c.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+  }
+  const allBuckets = buildBuckets(t)
+  const orderedBuckets = inboxActive
+    ? [...allBuckets.filter((g) => g.key === 'none'), ...allBuckets.filter((g) => g.key !== 'none')]
+    : allBuckets
+  const groups = orderedBuckets.filter((g) => buckets[g.key].length)
 
   // the todo currently in the plan modal — inbox todos (no listId) additionally
   // get a list picker there, so planning can file them into a list (#69)
