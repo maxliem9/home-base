@@ -262,6 +262,15 @@ describe('formatNumber / formatDecimal (German default)', () => {
     expect(formatNumber(1234.5)).toBe('1.234,5')
     expect(formatNumber(1000)).toBe('1.000')
   })
+
+  // Recipe amounts (RecipesView fmtAmount, #296) keep the locale decimal mark but drop grouping:
+  // a scaled amount ≥ 1000 must stay "1500", not "1.500" (which reads as 1,5 in German).
+  it('formatNumber with useGrouping:false keeps magnitude but localises the decimal mark', () => {
+    const fmtAmount = (n: number) => formatNumber(n, { maximumFractionDigits: 2, useGrouping: false })
+    expect(fmtAmount(1500)).toBe('1500')
+    expect(fmtAmount(1234.5)).toBe('1234,5')
+    expect(fmtAmount(0.5)).toBe('0,5')
+  })
 })
 
 // HB-07 — the same date helpers must follow the active UI language. German is asserted
