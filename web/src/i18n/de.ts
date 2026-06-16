@@ -308,13 +308,14 @@ export const de = {
     deleteListTitle: 'Liste löschen?', // confirm-modal title
     deleteListConfirm: 'Liste und alle Einträge löschen?', // modal body (legacy, no longer used in body)
     deleteListBtn: 'Endgültig löschen', // danger button in the confirm modal
+    deleteListBody: 'Die Liste „{name}" und alle Einträge darin werden gelöscht.', // confirm-modal body, {name} = Listenname
     deleteListWarn: 'Das kann nicht rückgängig gemacht werden.', // shown in delete-list modal body
     noLists: 'Noch keine Liste',
     noListsHint: 'Lege oben deine erste Einkaufsliste an.',
     emptyTitle: 'Liste ist leer',
     emptyHint: 'Füge oben das erste Produkt hinzu.',
     allChecked: 'Alles abgehakt 🎉',
-    namePlaceholder: 'Was fehlt? …', // rendered as `Was fehlt in „{name}"? …`
+    namePlaceholder: 'Was fehlt in „{name}"? …', // quick-add placeholder, {name} = aktive Liste
     inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
     clearChecked: 'Abgehakte entfernen',
     // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
@@ -708,7 +709,7 @@ export const de = {
     viewList: 'Ansehen',
     backToRecipes: 'Alle Rezepte',
     pickerTitle: 'Zutaten zur Liste',
-    pickerSelected: 'ausgewählt', // rendered as "{n} von {total} ausgewählt"
+    pickerSelected: '{n} von {total} ausgewählt', // Zutaten-Picker-Zähler
     pickerAll: 'Alle',
     pickerNone: 'Keine',
     pickerTargetList: 'Liste',
