@@ -1,5 +1,5 @@
 // German public-holiday computation + calendar date utils.
-// Ported from the design handoff (holidays.jsx → HBcal). Pure, framework-free.
+// Ported from the original design handoff (HBcal). Pure, framework-free.
 
 export const pad = (n: number): string => String(n).padStart(2, '0')
 

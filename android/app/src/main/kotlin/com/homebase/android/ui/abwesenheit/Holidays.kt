@@ -9,7 +9,7 @@ import java.util.Locale
 
 /**
  * German public-holiday computation per Bundesland + calendar date utils.
- * Ported verbatim from the design handoff (holidays.jsx / web holidays.ts) so the
+ * Ported verbatim from the design handoff (mirrors web holidays.ts) so the
  * mobile planner derives the exact same dates. Holidays are computed, never stored.
  */
 object AbwCal {

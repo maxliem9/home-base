@@ -1,4 +1,4 @@
-// HomeBase — shared UI primitives. Ported from the design handoff (ui.jsx)
+// HomeBase — shared UI primitives. Ported from the original design handoff.
 // to TypeScript/React. Pure presentational components over the design tokens.
 import {
   useEffect,
