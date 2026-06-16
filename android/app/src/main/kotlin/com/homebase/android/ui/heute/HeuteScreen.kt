@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +39,6 @@ import com.homebase.android.data.model.TodoDto
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAppBar
-import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
@@ -59,7 +57,6 @@ import com.homebase.android.ui.components.HbRoute
 import com.homebase.android.ui.components.HbRow
 import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbToast
-import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
@@ -309,16 +306,6 @@ fun HeuteScreen(
                     }
                 }
             }
-
-            Spacer(Modifier.size(16.dp))
-
-            // "Abend-Digest" — custom card with top gradient
-            DigestCard(
-                doneToday = doneTodayCount,
-                inbox = inboxCount,
-                dueTomorrow = dueTomorrowCount,
-                modifier = Modifier.padding(horizontal = 18.dp),
-            )
         }
 
         pendingConfirm?.let { c ->
@@ -458,74 +445,6 @@ private fun ShopRow(item: ShoppingItemDto, divider: Boolean, onToggle: () -> Uni
             modifier = Modifier.weight(1f),
         )
         HbAvatar(item.createdBy, size = 24.dp)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Abend-Digest card (custom — needs top gradient)
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun DigestCard(doneToday: Int, inbox: Int, dueTomorrow: Int, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
-            .clip(HbRadius)
-            .background(Brush.verticalGradient(0f to Hb.accentSoft, 0.42f to Hb.surface))
-            .border(1.dp, Hb.lineSoft, HbRadius)
-            .padding(18.dp),
-    ) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HbIcon(HbIcons.send, size = 17.dp, tint = Hb.accent)
-                    Text(stringResource(R.string.dashboard_digest_title), style = HbType.cardTitle, color = Hb.ink)
-                }
-                HbBadge(stringResource(R.string.dashboard_digest_badge), tone = HbTone.Neutral)
-            }
-            Text(
-                stringResource(R.string.dashboard_digest_hint),
-                style = HbType.meta,
-                color = Hb.ink3,
-                modifier = Modifier.padding(bottom = 14.dp),
-            )
-            Column {
-                DigestLine(stringResource(R.string.dashboard_digest_done_today), doneToday.toString(), divider = true)
-                DigestLine(stringResource(R.string.dashboard_digest_new_inbox), inbox.toString(), divider = true)
-                DigestLine(stringResource(R.string.dashboard_digest_due_tomorrow), dueTomorrow.toString(), divider = false)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DigestLine(key: String, value: String, divider: Boolean) {
-    Column {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = if (divider) 9.dp else 0.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                key,
-                style = HbType.body.copy(fontSize = 14.5.sp, fontWeight = FontWeight.Medium),
-                color = Hb.ink2,
-            )
-            Text(
-                value,
-                style = HbType.mono.copy(fontWeight = FontWeight.Bold),
-                color = Hb.accentInk,
-            )
-        }
-        if (divider) {
-            Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
-            Spacer(Modifier.size(9.dp))
-        }
     }
 }
 

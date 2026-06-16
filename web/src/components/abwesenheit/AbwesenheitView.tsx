@@ -1,5 +1,5 @@
 // Abwesenheit / Familienkalender — shared household absence planner.
-// Ported from the design handoff (views_abwesenheit.jsx) to the HomeBase web stack.
+// Ported from the original design handoff to the HomeBase web stack.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'

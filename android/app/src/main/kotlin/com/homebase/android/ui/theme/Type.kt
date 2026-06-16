@@ -7,7 +7,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 /**
- * Typography roles mirroring hb-mobile.css. The desktop intent is Helvetica Neue;
+ * Typography roles mirroring the original design. The desktop intent is Helvetica Neue;
  * on Android we use the default grotesque (Roboto). Numerals/timers use a monospace
  * family with tabular figures.
  */

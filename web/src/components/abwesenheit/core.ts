@@ -1,5 +1,5 @@
 // Abwesenheit: data model, palette + summary math.
-// Ported from the design handoff (abw_core.jsx → ABW). Pure, framework-free.
+// Ported from the original design handoff (ABW). Pure, framework-free.
 import { formatDecimal, userMeta } from '../../ui/format'
 import type { AbsSettings, Absence, AbsenceState, AbsenceType, CustomHoliday, HalfDay, KitaClosure, PartTimeRule } from '../../types'
 import * as C from './holidays'

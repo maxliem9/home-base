@@ -97,8 +97,8 @@ import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------
 // Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
-// project-detail sheet and new-project sheet. Mirrors docs/android/android/
-// m-screens-zeit.jsx and the .hb-timerhero/.hb-projcard/.hb-weekbar tokens.
+// project-detail sheet and new-project sheet. Mirrors the original design's
+// .hb-timerhero/.hb-projcard/.hb-weekbar tokens.
 // ---------------------------------------------------------------------------
 
 @Composable

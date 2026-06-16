@@ -496,40 +496,15 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-stat__value { font-size: 34px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
 .hb-stat__label { font-size: 13.5px; color: var(--ink-3); font-weight: 500; }
 
-.hb-heute-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--gap); align-items: start; }
-
-.hb-digest { background: linear-gradient(180deg, var(--accent-soft) 0%, var(--surface) 38%); }
-.hb-digest__body { display: flex; flex-direction: column; gap: 9px; }
-.hb-digest__line { display: flex; justify-content: space-between; align-items: center; font-size: 14.5px; font-weight: 500; padding-bottom: 9px; border-bottom: 1px solid var(--line-soft); }
-.hb-digest__line span:last-child { font-family: var(--font-mono); font-weight: 700; color: var(--accent-ink); }
-.hb-digest__k { color: var(--ink-2); }
-.hb-digest__sub { font-size: 13px; color: var(--ink-3); padding-left: 4px; }
+/* Content-balanced cards (#282): CSS multi-column distributes the cards across
+   two columns by height, so a tall card (Heute dran / Einkauf, grows with items)
+   is matched by the others — no fixed left/right split that leaves one side empty. */
+.hb-heute-grid { column-count: 2; column-gap: var(--gap); }
+.hb-heute-grid > * { break-inside: avoid; margin-bottom: var(--gap); }
 
 .hb-runwidget { display: flex; align-items: center; gap: 13px; padding: 6px 2px; }
 .hb-runwidget__pdot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 .hb-runwidget__clock { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
-
-/* HB-01 — "Wer ist da?" presence strip (read-only weekly absence overview) */
-.hb-presence { margin-bottom: var(--gap); }
-.hb-presence__grid { display: grid; gap: 5px; align-items: stretch; }
-.hb-presence__corner { font-size: 12px; font-weight: 600; color: var(--ink-3); display: flex; align-items: flex-end; padding-bottom: 4px; }
-.hb-presence__dh { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 0 5px; border-radius: var(--radius-sm); }
-.hb-presence__dh.is-today { background: var(--accent-soft); }
-.hb-presence__wd { font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; }
-.hb-presence__dh.is-today .hb-presence__wd { color: var(--accent-ink); }
-.hb-presence__date { font-size: 15px; font-weight: 600; color: var(--ink-2); }
-.hb-presence__dh.is-today .hb-presence__date { color: var(--accent-ink); }
-.hb-presence__kita { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: oklch(0.55 0.13 25); background: oklch(0.55 0.13 25 / 0.12); border-radius: 999px; padding: 0 5px; line-height: 1.5; }
-.hb-presence__name { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--ink); min-width: 0; }
-.hb-presence__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hb-presence__cell { min-height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); display: grid; place-items: center; }
-.hb-presence__cell.is-absent { border-color: transparent; }
-.hb-presence__cell.is-today { box-shadow: 0 0 0 2px var(--accent) inset; }
-.hb-presence__short { font-size: 12px; font-weight: 700; letter-spacing: -0.01em; }
-.hb-presence__legend { display: flex; flex-wrap: wrap; gap: 6px 15px; margin-top: 13px; }
-.hb-presence__leg { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
-.hb-presence__leg > i { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
-.hb-presence__leg--kita > i { background: oklch(0.55 0.13 25 / 0.18); border: 1px solid oklch(0.55 0.13 25 / 0.4); }
 
 /* HB-10 — recurrence indicator on a dashboard task row */
 .hb-recur { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); font-size: 12px; font-weight: 600; }
@@ -804,7 +779,8 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {
-  .hb-heute-grid, .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
+  .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
+  .hb-heute-grid { column-count: 1; }
   .hb-stats { grid-template-columns: repeat(2, 1fr); }
 }
 /* ---------- Wochenplan / meal planner (#218) ---------- */

@@ -7,9 +7,8 @@ import { Project, ShoppingItem, TimeEntry, TimeForecast, Todo } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Icon } from '../ui/Icon'
-import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
+import { Avatar, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
 import { clockTime, dueLabel, fmtClock, fmtDurationShort, localDateIso, todayLabel, userMeta, usernameFromToken } from '../ui/format'
-import { PresenceStrip } from './PresenceStrip'
 import type { TodosFocus } from './TodosView'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -27,7 +26,7 @@ interface DashboardViewProps {
   onOpenTodos: (focus: TodosFocus) => void
 }
 
-// time-of-day greeting — thresholds mirror the mock (docs/web/src/views_heute.jsx)
+// time-of-day greeting — thresholds mirror the original design
 function greeting(t: TFunction, hour = new Date().getHours()): string {
   if (hour < 5) return t('dashboard.greetingNight')
   if (hour < 11) return t('dashboard.greetingMorning')
@@ -234,10 +233,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
-  // Digest preview only (#76): the Telegram digest counts INBOX todos *created
-  // today* (DigestService keys createdAt to the local day) — the stat tile and
-  // the Inbox tab badge intentionally keep showing the whole inbox (#71).
-  const inboxNewToday = todos.filter((x) => x.status === 'INBOX' && localDateIso(new Date(x.createdAt)) === todayIso).length
   const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
   // own timer first, then the partner's
@@ -278,178 +273,151 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
             <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onOpenTodos('done')} />
           </div>
 
-          {/* HB-01 — weekly presence overview, above "Heute dran" */}
-          <PresenceStrip token={token} onLogout={onLogout} onOpen={() => onNavigate('abwesenheit')} />
-
           <div className="hb-heute-grid">
-            <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
-              {/* Today's tasks */}
-              <Card className="hb-card--pad">
-                <div className="hb-cardhead">
-                  <h3>{t('dashboard.todayTitle')}</h3>
-                  <button className="hb-link" onClick={() => onOpenTodos('all')}>
-                    {t('dashboard.allTasks')} <Icon name="chevronRight" size={15} stroke={2.2} />
-                  </button>
+            {/* Today's tasks */}
+            <Card className="hb-card--pad">
+              <div className="hb-cardhead">
+                <h3>{t('dashboard.todayTitle')}</h3>
+                <button className="hb-link" onClick={() => onOpenTodos('all')}>
+                  {t('dashboard.allTasks')} <Icon name="chevronRight" size={15} stroke={2.2} />
+                </button>
+              </div>
+              {dueToday.length === 0 ? (
+                <EmptyState icon="checkCircle" title={t('dashboard.todayEmpty')} hint={t('dashboard.todayEmptyHint')} />
+              ) : (
+                <div className="hb-list">
+                  {dueToday.map((todo) => (
+                    <div key={todo.id} className="hb-row">
+                      <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
+                      <div className="hb-row__main">
+                        <div className="hb-row__title">{todo.title}</div>
+                        {(todo.priority || todo.recurrence) && (
+                          <div className="hb-row__meta">
+                            {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
+                            {todo.recurrence && (
+                              <span className="hb-recur" title={t('dashboard.recurring')}>
+                                <Icon name="repeat" size={13} stroke={2} />{t('dashboard.recurring')}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
+                    </div>
+                  ))}
                 </div>
-                {dueToday.length === 0 ? (
-                  <EmptyState icon="checkCircle" title={t('dashboard.todayEmpty')} hint={t('dashboard.todayEmptyHint')} />
-                ) : (
-                  <div className="hb-list">
-                    {dueToday.map((todo) => (
-                      <div key={todo.id} className="hb-row">
-                        <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
-                        <div className="hb-row__main">
-                          <div className="hb-row__title">{todo.title}</div>
-                          {(todo.priority || todo.recurrence) && (
-                            <div className="hb-row__meta">
-                              {todo.priority && <PriorityDot priority={todo.priority} withLabel />}
-                              {todo.recurrence && (
-                                <span className="hb-recur" title={t('dashboard.recurring')}>
-                                  <Icon name="repeat" size={13} stroke={2} />{t('dashboard.recurring')}
-                                </span>
-                              )}
-                            </div>
-                          )}
+              )}
+            </Card>
+
+            {/* Running timer */}
+            <Card className="hb-card--pad">
+              <div className="hb-cardhead">
+                <h3>{t('dashboard.timeTitle')}</h3>
+                <button className="hb-link" onClick={() => onNavigate('time')}>
+                  {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
+                </button>
+              </div>
+              {runningSorted.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {runningSorted.map((entry) => {
+                    const proj = projects.find((p) => p.id === entry.projectId)
+                    const elapsed = Math.max(0, Math.floor((nowMs - new Date(entry.startedAt).getTime()) / 1000))
+                    const ownTimer = entry.userId === me
+                    // expected end from the work forecast (#31) — only with a configured Wochensoll
+                    const userForecast = (forecast?.users ?? []).find((u) => u.userId === entry.userId && u.weekTargetSeconds > 0)
+                    const eta = userForecast?.expectedEndAt
+                    const etaSuffix = eta
+                      ? ` · ${new Date(eta).getTime() <= nowMs
+                        ? t('dashboard.targetReachedShort')
+                        : t('dashboard.expectedEndShort', { time: clockTime(eta) })}`
+                      : ''
+                    return (
+                      <div key={entry.id} className="hb-runwidget">
+                        <span className="hb-runwidget__pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="hb-row__title" style={{ fontWeight: 600 }}>{proj?.name ?? t('dashboard.timeTitle')}</div>
+                          <div className="hb-muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                            {!ownTimer && <Avatar user={entry.userId} size={18} />}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {ownTimer
+                                ? (entry.description || t('dashboard.timerRunningHint'))
+                                : `${userMeta(entry.userId)?.name ?? entry.userId}${entry.description ? ` · ${entry.description}` : ''}`}
+                              {etaSuffix}
+                            </span>
+                          </div>
                         </div>
-                        <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
+                        <span className="hb-mono hb-runwidget__clock">{fmtClock(elapsed)}</span>
+                        <IconButton icon="stop" label={t('dashboard.stop')} onClick={() => stopTimer(entry)} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyState icon="timer" title={t('dashboard.noTimer')} hint={t('dashboard.noTimerHint')} />
+              )}
+            </Card>
+
+            {/* HB-10 — weekly work-target peek; only when a Wochensoll is configured (#31) */}
+            {myForecast && (() => {
+              const weekDone = myForecast.weekRecordedSeconds + myForecast.weekCreditedSeconds + myLiveSeconds
+              const pct = Math.min(100, Math.round((weekDone / myForecast.weekTargetSeconds) * 100))
+              const todayLeft = myForecast.todayTargetSeconds - (myForecast.todayRecordedSeconds + myLiveSeconds)
+              return (
+                <Card className="hb-card--pad hb-worktarget">
+                  <div className="hb-cardhead">
+                    <h3>
+                      <Icon name="timer" size={17} stroke={2} style={{ verticalAlign: '-3px', marginRight: 7, color: 'var(--accent)' }} />
+                      {t('dashboard.worktargetTitle')}
+                    </h3>
+                    <button className="hb-link" onClick={() => onNavigate('time')}>
+                      {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
+                    </button>
+                  </div>
+                  <div className="hb-worktarget__top">
+                    <span className="hb-worktarget__val">
+                      <b>{fmtDurationShort(weekDone)}</b>{' '}
+                      <span className="hb-worktarget__target">/ {myForecast.weeklyTargetHours} {t('dashboard.worktargetHours')}</span>
+                    </span>
+                    <span className="hb-worktarget__pct">{pct}%</span>
+                  </div>
+                  <div className="hb-worktarget__bar"><span className="hb-worktarget__fill" style={{ width: `${pct}%` }} /></div>
+                  <div className="hb-worktarget__sub">
+                    {todayLeft <= 0
+                      ? t('dashboard.worktargetTodayReached')
+                      : t('dashboard.worktargetTodayLeft', { time: fmtDurationShort(todayLeft) })}
+                  </div>
+                </Card>
+              )
+            })()}
+
+            {/* Shopping peek */}
+            <Card className="hb-card--pad">
+              <div className="hb-cardhead">
+                <h3>{t('dashboard.shoppingTitle')}</h3>
+                <button className="hb-link" onClick={() => onNavigate('shopping')}>
+                  {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
+                </button>
+              </div>
+              {openShop.length === 0 ? (
+                <EmptyState icon="cart" title={t('dashboard.shoppingEmpty')} />
+              ) : (
+                <>
+                  <div className="hb-list">
+                    {openShop.slice(0, 5).map((item) => (
+                      <div key={item.id} className="hb-row" style={{ padding: '9px 4px' }}>
+                        <Checkbox checked={false} onChange={() => checkItem(item)} />
+                        <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                       </div>
                     ))}
                   </div>
-                )}
-              </Card>
-
-              {/* Digest preview */}
-              <Card className="hb-card--pad hb-digest">
-                <div className="hb-cardhead">
-                  <h3>
-                    <Icon name="send" size={17} stroke={2} style={{ verticalAlign: '-2px', marginRight: 7, color: 'var(--accent)' }} />
-                    {t('dashboard.digestTitle')}
-                  </h3>
-                  <Badge tone="neutral">{t('dashboard.digestBadge')}</Badge>
-                </div>
-                <p className="hb-muted" style={{ fontSize: 13.5, margin: '2px 0 14px' }}>{t('dashboard.digestSub')}</p>
-                <div className="hb-digest__body">
-                  <div className="hb-digest__line"><span className="hb-digest__k">✓ {t('dashboard.digestDone')}</span><span>{doneToday.length}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">＋ {t('dashboard.digestInbox')}</span><span>{inboxNewToday}</span></div>
-                  <div className="hb-digest__line"><span className="hb-digest__k">↻ {t('dashboard.digestTomorrow')}</span><span>{dueTomorrow.length}</span></div>
-                  {dueTomorrow.slice(0, 3).map((todo) => (
-                    <div key={todo.id} className="hb-digest__sub">· {todo.title}{todo.assignee ? ` (${userMeta(todo.assignee)?.name ?? todo.assignee})` : ''}</div>
-                  ))}
-                </div>
-              </Card>
-            </div>
-
-            <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
-              {/* Running timer */}
-              <Card className="hb-card--pad">
-                <div className="hb-cardhead">
-                  <h3>{t('dashboard.timeTitle')}</h3>
-                  <button className="hb-link" onClick={() => onNavigate('time')}>
-                    {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
-                  </button>
-                </div>
-                {runningSorted.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {runningSorted.map((entry) => {
-                      const proj = projects.find((p) => p.id === entry.projectId)
-                      const elapsed = Math.max(0, Math.floor((nowMs - new Date(entry.startedAt).getTime()) / 1000))
-                      const ownTimer = entry.userId === me
-                      // expected end from the work forecast (#31) — only with a configured Wochensoll
-                      const userForecast = (forecast?.users ?? []).find((u) => u.userId === entry.userId && u.weekTargetSeconds > 0)
-                      const eta = userForecast?.expectedEndAt
-                      const etaSuffix = eta
-                        ? ` · ${new Date(eta).getTime() <= nowMs
-                          ? t('dashboard.targetReachedShort')
-                          : t('dashboard.expectedEndShort', { time: clockTime(eta) })}`
-                        : ''
-                      return (
-                        <div key={entry.id} className="hb-runwidget">
-                          <span className="hb-runwidget__pdot" style={{ background: proj?.color ?? 'var(--ink-3)' }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="hb-row__title" style={{ fontWeight: 600 }}>{proj?.name ?? t('dashboard.timeTitle')}</div>
-                            <div className="hb-muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                              {!ownTimer && <Avatar user={entry.userId} size={18} />}
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {ownTimer
-                                  ? (entry.description || t('dashboard.timerRunningHint'))
-                                  : `${userMeta(entry.userId)?.name ?? entry.userId}${entry.description ? ` · ${entry.description}` : ''}`}
-                                {etaSuffix}
-                              </span>
-                            </div>
-                          </div>
-                          <span className="hb-mono hb-runwidget__clock">{fmtClock(elapsed)}</span>
-                          <IconButton icon="stop" label={t('dashboard.stop')} onClick={() => stopTimer(entry)} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState icon="timer" title={t('dashboard.noTimer')} hint={t('dashboard.noTimerHint')} />
-                )}
-              </Card>
-
-              {/* HB-10 — weekly work-target peek; only when a Wochensoll is configured (#31) */}
-              {myForecast && (() => {
-                const weekDone = myForecast.weekRecordedSeconds + myForecast.weekCreditedSeconds + myLiveSeconds
-                const pct = Math.min(100, Math.round((weekDone / myForecast.weekTargetSeconds) * 100))
-                const todayLeft = myForecast.todayTargetSeconds - (myForecast.todayRecordedSeconds + myLiveSeconds)
-                return (
-                  <Card className="hb-card--pad hb-worktarget">
-                    <div className="hb-cardhead">
-                      <h3>
-                        <Icon name="timer" size={17} stroke={2} style={{ verticalAlign: '-3px', marginRight: 7, color: 'var(--accent)' }} />
-                        {t('dashboard.worktargetTitle')}
-                      </h3>
-                      <button className="hb-link" onClick={() => onNavigate('time')}>
-                        {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
-                      </button>
+                  {openShop.length > 5 && (
+                    <div className="hb-muted" style={{ fontSize: 13, marginTop: 10, textAlign: 'center' }}>
+                      + {openShop.length - 5} {t('dashboard.moreItems')}
                     </div>
-                    <div className="hb-worktarget__top">
-                      <span className="hb-worktarget__val">
-                        <b>{fmtDurationShort(weekDone)}</b>{' '}
-                        <span className="hb-worktarget__target">/ {myForecast.weeklyTargetHours} {t('dashboard.worktargetHours')}</span>
-                      </span>
-                      <span className="hb-worktarget__pct">{pct}%</span>
-                    </div>
-                    <div className="hb-worktarget__bar"><span className="hb-worktarget__fill" style={{ width: `${pct}%` }} /></div>
-                    <div className="hb-worktarget__sub">
-                      {todayLeft <= 0
-                        ? t('dashboard.worktargetTodayReached')
-                        : t('dashboard.worktargetTodayLeft', { time: fmtDurationShort(todayLeft) })}
-                    </div>
-                  </Card>
-                )
-              })()}
-
-              {/* Shopping peek */}
-              <Card className="hb-card--pad">
-                <div className="hb-cardhead">
-                  <h3>{t('dashboard.shoppingTitle')}</h3>
-                  <button className="hb-link" onClick={() => onNavigate('shopping')}>
-                    {t('dashboard.open')} <Icon name="chevronRight" size={15} stroke={2.2} />
-                  </button>
-                </div>
-                {openShop.length === 0 ? (
-                  <EmptyState icon="cart" title={t('dashboard.shoppingEmpty')} />
-                ) : (
-                  <>
-                    <div className="hb-list">
-                      {openShop.slice(0, 5).map((item) => (
-                        <div key={item.id} className="hb-row" style={{ padding: '9px 4px' }}>
-                          <Checkbox checked={false} onChange={() => checkItem(item)} />
-                          <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
-                        </div>
-                      ))}
-                    </div>
-                    {openShop.length > 5 && (
-                      <div className="hb-muted" style={{ fontSize: 13, marginTop: 10, textAlign: 'center' }}>
-                        + {openShop.length - 5} {t('dashboard.moreItems')}
-                      </div>
-                    )}
-                  </>
-                )}
-              </Card>
-            </div>
+                  )}
+                </>
+              )}
+            </Card>
           </div>
         </>
       )}

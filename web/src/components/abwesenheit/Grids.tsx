@@ -1,5 +1,5 @@
 // Abwesenheit grids — Jahresraster (year grid) + Monatskalender (month view).
-// Ported from the design handoff (abw_grid.jsx).
+// Ported from the original design handoff.
 import type { MouseEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Icon } from '../../ui/Icon'

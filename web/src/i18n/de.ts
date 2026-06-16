@@ -151,7 +151,7 @@ export const de = {
   },
   dashboard: {
     headerTitle: 'HomeBase — Heute',
-    // greeting head — thresholds mirror the mock (views_heute.jsx)
+    // greeting head — thresholds mirror the original design
     greetingNight: 'Gute Nacht',
     greetingMorning: 'Guten Morgen',
     greetingDay: 'Hallo',
@@ -184,18 +184,6 @@ export const de = {
     shoppingTitle: 'Einkaufsliste',
     shoppingEmpty: 'Alles eingekauft',
     moreItems: 'weitere', // rendered as "+ {n} weitere"
-    // digest preview card
-    digestTitle: 'Abend-Digest',
-    digestBadge: 'Vorschau', // static badge; the peek doesn't fetch the configured time (/config/digest)
-    digestSub: 'Vorschau der Telegram-Nachricht, die ihr beide bekommt.',
-    digestDone: 'Heute erledigt',
-    digestInbox: 'Neu in der Inbox',
-    digestTomorrow: 'Morgen fällig',
-    // HB-01 presence strip ("Wer ist da?")
-    presenceTitle: 'Wer ist da?',
-    presenceOpen: 'Kalender',
-    presenceWeek: 'Diese Woche',
-    presenceKita: 'Kita zu',
     // HB-10 recurring tasks + weekly work-target peek
     recurring: 'Wiederkehrend',
     worktargetTitle: 'Wochensoll',

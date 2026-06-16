@@ -24,11 +24,6 @@ function tile(page: Page, label: string) {
   return page.locator('.hb-stat', { hasText: label }).locator('.hb-stat__value')
 }
 
-/** Count shown in the digest-preview line with the given label. */
-function digestValue(page: Page, label: string) {
-  return page.locator('.hb-digest__line', { hasText: label }).locator('span').last()
-}
-
 /** Local YYYY-MM-DD, `offset` days from now (test process and browser share the TZ). */
 function isoDaysFromNow(offset: number): string {
   const d = new Date()
@@ -51,9 +46,6 @@ test.describe('Dashboard (Heute)', () => {
     await expect(page.getByText('Für heute nichts geplant')).toBeVisible()
     await expect(page.getByText('Kein Timer läuft')).toBeVisible()
     await expect(page.getByText('Alles eingekauft')).toBeVisible()
-    for (const label of ['Heute erledigt', 'Neu in der Inbox', 'Morgen fällig']) {
-      await expect(digestValue(page, label)).toHaveText('0')
-    }
   })
 
   test('stat tiles bucket todos by the (pinned) local day', async ({ page }) => {
@@ -81,29 +73,7 @@ test.describe('Dashboard (Heute)', () => {
     await expect(page.locator('.hb-row', { hasText: 'Überfällig-Task' })).toHaveCount(0)
   })
 
-  // Regression for #76: the digest preview must mirror DigestService — "Neu in
-  // der Inbox" counts only INBOX todos *created today*, while the stat tile
-  // keeps showing the whole inbox (#71). An old inbox todo therefore appears
-  // in the tile but not in the preview line.
-  test('digest preview counts only today-created inbox todos, unlike the inbox tile', async ({ page }) => {
-    const mock = new MockApi([
-      todo({ id: 't-inbox-old', title: 'Alte Inbox-Idee', createdAt: '2026-06-09T08:00:00Z' }),
-      todo({ id: 't-inbox-new', title: 'Neue Inbox-Idee', createdAt: '2026-06-10T08:00:00Z' }),
-      todo({ id: 't-done-today', title: 'Frisch erledigt', status: 'DONE', doneAt: '2026-06-10T07:00:00Z' }),
-      todo({ id: 't-tomorrow', title: 'Morgen-Task', status: 'PLANNED', dueDate: '2026-06-11', assignee: 'max' }),
-    ])
-    await openDashboard(page, mock, PINNED)
-
-    // tile: whole inbox (2) — digest line: only the todo created today (1)
-    await expect(tile(page, 'In der Inbox')).toHaveText('2')
-    await expect(digestValue(page, 'Neu in der Inbox')).toHaveText('1')
-    await expect(digestValue(page, 'Heute erledigt')).toHaveText('1')
-    await expect(digestValue(page, 'Morgen fällig')).toHaveText('1')
-    // tomorrow's todos are previewed by title incl. assignee
-    await expect(page.locator('.hb-digest__sub')).toHaveText('· Morgen-Task (Max)')
-  })
-
-  test('quick-add posts only the title and counts once into inbox tile and digest line', async ({ page }) => {
+  test('quick-add posts only the title and counts once into the inbox tile', async ({ page }) => {
     await openDashboard(page, new MockApi())
     await expect(tile(page, 'In der Inbox')).toHaveText('0')
 
@@ -119,8 +89,6 @@ test.describe('Dashboard (Heute)', () => {
     // the mock echoes TODO_CREATED *before* the REST response resolves (#61) —
     // the todo must still count exactly once, not twice
     await expect(tile(page, 'In der Inbox')).toHaveText('1')
-    // created just now ⇒ also part of tonight's digest (#76 semantics)
-    await expect(digestValue(page, 'Neu in der Inbox')).toHaveText('1')
     await expect(input).toHaveValue('')
   })
 

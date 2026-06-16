@@ -300,7 +300,7 @@ homebase/
 ├── android/             — Jetpack Compose App
 ├── docker-compose.yml   — Produktion (Synology NAS, Images aus GHCR)
 ├── docker-compose.dev.yml — Lokale Entwicklung (nur DB)
-├── docs/                — Deployment-Doku, Design-Mockups & Screenshots
+├── docs/                — Deployment-Doku & Screenshots
 └── scripts/             — setup-env / deploy / backup / restore
 ```
 

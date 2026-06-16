@@ -1,4 +1,4 @@
-// HomeBase — stroke-glyph icon set. Ported from the design handoff (icons.jsx).
+// HomeBase — stroke-glyph icon set. Ported from the original design handoff.
 // Each path is drawn on a 24×24 viewBox; stroke = currentColor.
 import type { CSSProperties } from 'react'
 

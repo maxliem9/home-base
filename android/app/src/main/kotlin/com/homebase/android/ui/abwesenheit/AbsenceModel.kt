@@ -15,7 +15,7 @@ import java.util.Locale
 
 /**
  * Absence planner data model, palette and summary math. Ported from the design
- * handoff (abw_core.jsx / web core.ts). Pure — no Compose state, no I/O. The fill
+ * handoff (mirrors web core.ts). Pure — no Compose state, no I/O. The fill
  * palette ([AbwPalette] / [colorFor]) carries both a light and a muted dark variant,
  * selected per call via a `dark` flag (#252).
  */
