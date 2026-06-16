@@ -707,7 +707,7 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
             </p>
           )}
           <div className="hb-picker-head">
-            <span className="hb-muted">{count} von {recipe.ingredients.length} {t('recipes.pickerSelected')}</span>
+            <span className="hb-muted">{t('recipes.pickerSelected', { n: String(count), total: String(recipe.ingredients.length) })}</span>
             <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
               {allOn ? t('recipes.pickerNone') : t('recipes.pickerAll')}
             </button>

@@ -309,13 +309,14 @@ export const en: Messages = {
     deleteListTitle: 'Delete list?', // confirm-modal title
     deleteListConfirm: 'Delete list and all items?', // modal body (legacy, no longer used in body)
     deleteListBtn: 'Delete permanently', // danger button in the confirm modal
+    deleteListBody: 'The list „{name}" and all its items will be deleted.', // confirm-modal body, {name} = list name
     deleteListWarn: 'This cannot be undone.', // shown in delete-list modal body
     noLists: 'No list yet',
     noListsHint: 'Create your first shopping list above.',
     emptyTitle: 'List is empty',
     emptyHint: 'Add the first item above.',
     allChecked: 'All checked off 🎉',
-    namePlaceholder: 'What is missing? …', // rendered as `What is missing in „{name}"? …`
+    namePlaceholder: 'What is missing in „{name}"? …', // quick-add placeholder, {name} = active list
     inCart: 'In cart', // rendered as "In cart · {n}"
     clearChecked: 'Remove checked',
     // Offline sync: checking an item off without a connection is remembered locally
@@ -708,7 +709,7 @@ export const en: Messages = {
     viewList: 'View',
     backToRecipes: 'All recipes',
     pickerTitle: 'Ingredients to list',
-    pickerSelected: 'selected', // rendered as "{n} of {total} selected"
+    pickerSelected: '{n} of {total} selected', // ingredient-picker counter
     pickerAll: 'All',
     pickerNone: 'None',
     pickerTargetList: 'List',
