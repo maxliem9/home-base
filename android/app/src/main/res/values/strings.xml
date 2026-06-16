@@ -52,6 +52,9 @@
          nav_*-Strings bleiben im Drawer. Spiegelt web/src/i18n nav.short.* + nav.more. -->
     <string name="nav_more">Mehr</string>
     <string name="nav_main">Hauptnavigation</string>
+    <!-- a11y (#298): onClick-Label des "Mehr"-Tabs — TalkBack liest "Doppeltippen, um …",
+         macht klar, dass ein Menü/Sheet geöffnet wird (Pendant zu web aria-haspopup="dialog"). -->
+    <string name="nav_more_opens_sheet">weitere Bereiche öffnen</string>
     <string name="nav_short_today">Start</string>
     <string name="nav_short_tasks">Aufgaben</string>
     <string name="nav_short_shopping">Einkauf</string>
