@@ -89,9 +89,10 @@ class MealPlanViewModel(
         }
     }
 
-    fun setSlot(date: String, slot: String, recipeId: String, servings: Int?) {
+    /** Plan EITHER a recipe (recipeId + optional servings) OR a free-text dish (dishTitle), #293. */
+    fun setSlot(date: String, slot: String, recipeId: String?, dishTitle: String?, servings: Int?) {
         viewModelScope.launch {
-            repository.setMealSlot(date, slot, recipeId, servings)
+            repository.setMealSlot(date, slot, recipeId, dishTitle, servings)
                 .onSuccess { entry ->
                     _uiState.update { s ->
                         s.copy(entries = s.entries.filterNot { it.date == entry.date && it.slot == entry.slot } + entry)
@@ -125,13 +126,13 @@ class MealPlanViewModel(
      * Aggregate the week's planned-recipe ingredients, scaled to each entry's chosen portions (#261;
      * the batch endpoint sums by name+unit), and add them to [listId]; reports (added, merged) to
      * [onResult] for the toast. An entry without an explicit servings keeps the recipe's own servings
-     * (factor 1, 1× as authored).
+     * (factor 1, 1× as authored). Free-text entries (#293) have no recipe/ingredients — skipped.
      */
     fun addWeekToShopping(listId: String, onResult: (added: Int, merged: Int) -> Unit) {
         val state = _uiState.value
         val byId = state.recipes.associateBy { it.id }
         val lines = state.entries.flatMap { e ->
-            val recipe = byId[e.recipeId] ?: return@flatMap emptyList()
+            val recipe = e.recipeId?.let { byId[it] } ?: return@flatMap emptyList()
             val base = if (recipe.servings > 0) recipe.servings else 1
             val factor = (e.servings ?: base).toDouble() / base
             recipe.ingredients.map { ing ->

@@ -1011,21 +1011,27 @@ export class MockApi {
       const date = mealPlanSlotMatch[1]
       const slot = mealPlanSlotMatch[2].toUpperCase() as MealSlot
       if (method === 'PUT') {
-        const body = JSON.parse(req.postData() ?? '{}') as { recipeId?: string; servings?: number | null }
-        const recipe = this.recipes.find((r) => r.id === body.recipeId)
-        if (!recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
+        const body = JSON.parse(req.postData() ?? '{}') as { recipeId?: string; dishTitle?: string; servings?: number | null }
+        // XOR: a recipe reference OR a free-text dish (#293), never both/neither.
+        const dishTitle = body.dishTitle?.trim()
+        if ((!body.recipeId) === (!dishTitle)) return this.json(route, { code: 'INVALID_ENTRY', message: 'recipeId xor dishTitle' }, 400)
         this.mealPlan = this.mealPlan.filter((e) => !(e.date === date && e.slot === slot))
-        const entry: MealPlanEntry = {
-          id: `meal-${this.nextMealPlanId++}`,
-          date,
-          slot,
-          recipeId: recipe.id,
-          recipeTitle: recipe.title,
-          recipeCategory: recipe.category,
-          // mirror encodeDefaults=false: only carry servings when set
-          ...(body.servings != null ? { servings: body.servings } : {}),
-          createdBy: 'alice',
-          createdAt: new Date().toISOString(),
+        const base = { id: `meal-${this.nextMealPlanId++}`, date, slot, createdBy: 'alice', createdAt: new Date().toISOString() }
+        let entry: MealPlanEntry
+        if (dishTitle) {
+          // free-text entry: mirror encodeDefaults=false — no recipe fields, no servings
+          entry = { ...base, dishTitle }
+        } else {
+          const recipe = this.recipes.find((r) => r.id === body.recipeId)
+          if (!recipe) return this.json(route, { code: 'NOT_FOUND', message: 'Recipe not found' }, 404)
+          entry = {
+            ...base,
+            recipeId: recipe.id,
+            recipeTitle: recipe.title,
+            recipeCategory: recipe.category,
+            // mirror encodeDefaults=false: only carry servings when set
+            ...(body.servings != null ? { servings: body.servings } : {}),
+          }
         }
         this.mealPlan.push(entry)
         return this.jsonWithFrames(route, entry, 200, 'meal-plan', [{ type: 'MEAL_PLAN_CHANGED' }])

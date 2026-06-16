@@ -73,6 +73,32 @@ test.describe('Wochenplan', () => {
     await expect(cell(page, '2026-06-15', 'BREAKFAST')).not.toContainText('Port.')
   })
 
+  test('plans a free-text dish into an empty slot (#293)', async ({ page }) => {
+    await open(page, seeded())
+
+    await cell(page, '2026-06-15', 'LUNCH').click() // empty "+" cell
+    await expect(page.locator('.hb-sheet')).toBeVisible()
+    await page.locator('.hb-sheet').getByRole('textbox').fill('Pizza bestellen')
+    await page.locator('.hb-mealpick__freetext').click() // "Als Gericht übernehmen: Pizza bestellen"
+
+    await expect(cell(page, '2026-06-15', 'LUNCH')).toContainText('Pizza bestellen')
+    // free text has no recipe → no portions badge
+    await expect(cell(page, '2026-06-15', 'LUNCH')).not.toContainText('Port.')
+  })
+
+  test('allows a free-text dish even with no recipes (#293)', async ({ page }) => {
+    await open(page, new MockApi().seedRecipes([]).seedMealPlan([]))
+
+    await cell(page, '2026-06-15', 'DINNER').click()
+    await expect(page.locator('.hb-sheet')).toBeVisible()
+    // the picker is no longer a dead end when there are no recipes — a hint invites typing
+    await expect(page.locator('.hb-sheet')).toContainText('Noch keine Rezepte')
+    await page.locator('.hb-sheet').getByRole('textbox').fill('Auswärts essen')
+    await page.locator('.hb-mealpick__freetext').click()
+
+    await expect(cell(page, '2026-06-15', 'DINNER')).toContainText('Auswärts essen')
+  })
+
   test('replaces a planned recipe via the picker', async ({ page }) => {
     await open(page, seeded([mealPlanEntry({ id: 'm1', date: '2026-06-17', slot: 'DINNER', recipeId: 'r1', recipeTitle: 'Lasagne' })]))
 
@@ -93,7 +119,7 @@ test.describe('Wochenplan', () => {
 
     // the slot becomes an empty "+" cell again
     await expect(
-      page.locator('.hb-mealgrid button[data-date="2026-06-17"][data-slot="DINNER"][aria-label="Rezept einplanen"]'),
+      page.locator('.hb-mealgrid button[data-date="2026-06-17"][data-slot="DINNER"][aria-label="Gericht einplanen"]'),
     ).toBeVisible()
     await expect(cell(page, '2026-06-17', 'DINNER')).not.toContainText('Lasagne')
   })

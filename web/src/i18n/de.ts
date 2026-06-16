@@ -743,12 +743,13 @@ export const de = {
       LUNCH: 'Mittag',
       DINNER: 'Abend',
     },
-    addMeal: 'Rezept einplanen',
+    addMeal: 'Gericht einplanen',
     removeMeal: 'Aus dem Plan entfernen',
     // recipe picker (set/replace a slot)
-    pickSearch: 'Rezept suchen…',
-    pickEmpty: 'Lege zuerst ein Rezept an.',
+    pickSearch: 'Rezept suchen oder Gericht eintippen…',
+    pickEmpty: 'Noch keine Rezepte — tippe oben einfach ein Gericht ein.',
     pickNoMatch: 'Kein passendes Rezept.',
+    useAsText: 'Als Gericht übernehmen:', // #293 — gefolgt vom eingetippten Text
     pickConfirm: 'Übernehmen',
     remove: 'Entfernen',
     // Portionen pro Eintrag (#251) — Picker-Stepper + Kachel-Anzeige

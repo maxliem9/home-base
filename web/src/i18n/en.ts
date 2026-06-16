@@ -745,12 +745,13 @@ export const en: Messages = {
       LUNCH: 'Lunch',
       DINNER: 'Dinner',
     },
-    addMeal: 'Plan a recipe',
+    addMeal: 'Plan a meal',
     removeMeal: 'Remove from plan',
     // recipe picker (set/replace a slot)
-    pickSearch: 'Search recipe…',
-    pickEmpty: 'Create a recipe first.',
+    pickSearch: 'Search a recipe or type a dish…',
+    pickEmpty: 'No recipes yet — just type a dish above.',
     pickNoMatch: 'No matching recipe.',
+    useAsText: 'Use as dish:', // #293 — followed by the typed text
     pickConfirm: 'Apply',
     remove: 'Remove',
     // per-entry portions (#251) — picker stepper + cell badge

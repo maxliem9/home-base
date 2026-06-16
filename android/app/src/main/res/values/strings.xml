@@ -58,11 +58,12 @@
     <string name="meal_plan_slot_breakfast">Frühstück</string>
     <string name="meal_plan_slot_lunch">Mittag</string>
     <string name="meal_plan_slot_dinner">Abend</string>
-    <string name="meal_plan_add_meal">Rezept einplanen</string>
+    <string name="meal_plan_add_meal">Gericht einplanen</string>
     <string name="meal_plan_remove">Entfernen</string>
-    <string name="meal_plan_pick_search">Rezept suchen…</string>
-    <string name="meal_plan_pick_empty">Lege zuerst ein Rezept an.</string>
+    <string name="meal_plan_pick_search">Rezept suchen oder Gericht eintippen…</string>
+    <string name="meal_plan_pick_empty">Noch keine Rezepte — tippe oben einfach ein Gericht ein.</string>
     <string name="meal_plan_pick_no_match">Kein passendes Rezept.</string>
+    <string name="meal_plan_use_as_text">Als Gericht übernehmen:</string>
     <string name="meal_plan_pick_confirm">Übernehmen</string>
     <string name="meal_plan_servings">Portionen</string>
     <string name="meal_plan_servings_short">%1$d Port.</string>

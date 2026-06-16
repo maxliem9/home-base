@@ -296,7 +296,7 @@ object RecipeStepsTable : Table("recipe_steps") {
     override val primaryKey = PrimaryKey(id)
 }
 
-// Wochenplan / Essensplaner (#218): one recipe planned into a (date, slot) of the weekly grid.
+// Wochenplan / Essensplaner (#218): one meal planned into a (date, slot) of the weekly grid.
 // Household-wide shared (no owner check). `slot` is one of the three grid meals
 // BREAKFAST|LUNCH|DINNER — intentionally independent of the recipe categories (no LUNCH since
 // V17): any recipe can be planned into any slot. recipe_id cascades on recipe delete.
@@ -304,8 +304,13 @@ object MealPlanEntriesTable : Table("meal_plan_entries") {
     val id = uuid("id")
     val date = date("date")
     val slot = varchar("slot", 20)
-    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE)
-    // Portions to cook (#251); NULL = use the recipe's own servings (1× as authored).
+    // A slot holds EITHER a recipe reference OR a free-text dish name (#293) — XOR, enforced by a
+    // DB CHECK (V28). Free-text lets a slot hold a one-off meal ("Pizza bestellen") without
+    // authoring a full recipe; such entries carry no ingredients (skipped by "In Einkaufsliste").
+    val recipeId = reference("recipe_id", RecipesTable.id, onDelete = ReferenceOption.CASCADE).nullable()
+    val dishTitle = text("dish_title").nullable()
+    // Portions to cook (#251); NULL = use the recipe's own servings (1× as authored). Only
+    // meaningful for recipe-backed entries (free-text has nothing to scale).
     val servings = integer("servings").nullable()
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")

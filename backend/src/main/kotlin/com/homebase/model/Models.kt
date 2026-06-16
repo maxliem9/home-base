@@ -607,26 +607,33 @@ data class UpdateRecipeRequest(
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
 // ---------- Wochenplan / Essensplaner (#218) ----------
-// One recipe planned into a (date, slot) of the weekly grid. The recipe title/category ride
-// along so the grid renders without a second fetch; slot ∈ BREAKFAST|LUNCH|DINNER.
+// One meal planned into a (date, slot) of the weekly grid; slot ∈ BREAKFAST|LUNCH|DINNER.
+// Exactly one of recipeId / dishTitle is set (#293): recipe-backed entries also carry the joined
+// recipe title/category so the grid renders without a second fetch; free-text entries carry only
+// dishTitle. With encodeDefaults=false the unused fields are omitted from the payload.
 
 @Serializable
 data class MealPlanEntryDto(
     val id: String,
     val date: String,
     val slot: String,
-    val recipeId: String,
-    val recipeTitle: String,
-    val recipeCategory: String,
+    val recipeId: String? = null,
+    val recipeTitle: String? = null,
+    val recipeCategory: String? = null,
+    // free-text dish name when no recipe is referenced (#293)
+    val dishTitle: String? = null,
     // portions to cook (#251); null = use the recipe's own servings (1× as authored)
     val servings: Int? = null,
     val createdBy: String,
     val createdAt: String,
 )
 
-/** Set/replace the recipe in a (date, slot) — PUT /meal-plan/{date}/{slot}. */
+/**
+ * Set/replace the meal in a (date, slot) — PUT /meal-plan/{date}/{slot}. Provide EITHER recipeId
+ * (a real recipe) OR dishTitle (free text, #293), never both/neither. servings applies to recipes.
+ */
 @Serializable
-data class SetMealPlanRequest(val recipeId: String, val servings: Int? = null)
+data class SetMealPlanRequest(val recipeId: String? = null, val dishTitle: String? = null, val servings: Int? = null)
 
 /** Any meal-plan mutation broadcasts this; clients refetch the visible range (like absence). */
 @Serializable
