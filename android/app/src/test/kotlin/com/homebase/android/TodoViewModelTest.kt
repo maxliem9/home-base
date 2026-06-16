@@ -156,6 +156,97 @@ class TodoViewModelTest {
         assertNull(vm.uiState.value.error)
     }
 
+    // --- #288: silent mutations now surface via the global error (screen toast) ---
+
+    @Test
+    fun `addTodo failure sets the global error`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Quick-add kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.addTodo("Neu")
+        advanceUntilIdle()
+
+        assertEquals("Quick-add kaputt", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `toggleDone failure sets the global error`() = runTest {
+        val original = todo(id = "1", status = "INBOX")
+        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.updateTodo("1", any()) } returns Result.failure(RuntimeException("Abhaken kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.toggleDone(original)
+        advanceUntilIdle()
+
+        assertEquals("Abhaken kaputt", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `deleteTodo failure sets the global error`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.deleteTodo("1") } returns Result.failure(RuntimeException("Löschen kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.deleteTodo("1")
+        advanceUntilIdle()
+
+        assertEquals("Löschen kaputt", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `subtask mutation failure sets the global error`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.addSubtask("1", "Sub") } returns Result.failure(RuntimeException("Subtask kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.addSubtask("1", "Sub")
+        advanceUntilIdle()
+
+        assertEquals("Subtask kaputt", vm.uiState.value.error)
+    }
+
+    // --- #277/#288 coordination: the edit-sheet save fns return the message but must NOT also
+    //     set the global error, or an edit-sheet failure would double-notify (in-sheet + toast). ---
+
+    @Test
+    fun `createTodo failure returns the message without setting the global error`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Sheet kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        val result = vm.createTodo("Neu")
+
+        assertEquals("Sheet kaputt", result.exceptionOrNull()?.message)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `saveTodo failure returns the message without setting the global error`() = runTest {
+        val original = todo(id = "1", status = "INBOX")
+        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.updateTodo("1", any()) } returns Result.failure(RuntimeException("Sheet-Save kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        val result = vm.saveTodo("1", UpdateTodoRequest(status = "DONE"))
+
+        assertEquals("Sheet-Save kaputt", result.exceptionOrNull()?.message)
+        assertNull(vm.uiState.value.error)
+    }
+
     // --- Inbox tab (issue #77, semantics decided in #71) ---
 
     @Test

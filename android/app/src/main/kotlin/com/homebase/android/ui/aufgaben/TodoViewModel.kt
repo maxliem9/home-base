@@ -132,25 +132,29 @@ class TodoViewModel(
      * is null, so the POST carries no listId at all — the backend then creates a plain INBOX
      * todo (same contract as the Dashboard quick-add and the web Inbox tab, #77).
      *
-     * Fire-and-forget for the quick-add bars (Aufgaben + Heute); the edit sheet uses the
-     * suspending [createTodo] so it can keep itself open on failure (#277).
+     * Fire-and-forget for the quick-add bars (Aufgaben + Heute): this wrapper owns the global error
+     * so a failed quick-add surfaces via the screen toast (#288). The edit sheet calls the suspending
+     * [createTodo] directly and renders the returned message in-sheet instead — so it must NOT also
+     * set the global error (no double-notify, #277/#288).
      */
     fun addTodo(title: String) {
         if (title.isBlank()) return
-        viewModelScope.launch { createTodo(title) }
+        viewModelScope.launch {
+            createTodo(title).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
     }
 
     /**
      * Create a todo and return the result so a caller (the edit sheet, #277) can stay open on
-     * failure and show the reason inline. On success the new todo is upserted; on failure the
-     * global error is still set (path intact, mirrors the other mutations), the failed Result is
-     * returned so the sheet can surface the message too.
+     * failure and show the reason inline. On success the new todo is upserted. Deliberately does
+     * **not** set the global `_uiState.error` — the edit sheet surfaces the returned message itself;
+     * the fire-and-forget [addTodo] wrapper sets the global error for the quick-add bars so the
+     * screen toast covers them without the sheet path double-notifying (#288).
      */
     suspend fun createTodo(title: String): Result<TodoDto> {
         val listId = _uiState.value.activeList?.id
         return repository.createTodo(CreateTodoRequest(title = title.trim(), listId = listId))
             .onSuccess { upsertTodo(it) }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
     /**
@@ -159,25 +163,30 @@ class TodoViewModel(
      * partner moved it into a list while the sheet was open, the stale pick must not overwrite
      * that move (mirrors the web plan modal, #69). Null = „Bleibt in der Inbox" (unchanged).
      *
-     * Fire-and-forget wrapper used by row actions (toggle done); the edit sheet uses the
-     * suspending [updateTodo] return value to stay open on failure (#277).
+     * Fire-and-forget wrapper used by row actions (toggle done): it owns the global error so a failed
+     * toggle surfaces via the screen toast (#288). The edit sheet calls the suspending [saveTodo]
+     * directly and renders the returned message in-sheet — so [saveTodo] must NOT also set the global
+     * error (no double-notify, #277/#288).
      */
     fun updateTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null) {
-        viewModelScope.launch { saveTodo(id, request, targetListId) }
+        viewModelScope.launch {
+            saveTodo(id, request, targetListId).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
     }
 
     /**
      * Update a todo and return the result so the edit sheet (#277) can keep itself open on
      * failure and show the reason inline — only dismissing on success. On success the todo is
-     * upserted; on failure the global error stays set (path intact), and the failed Result is
-     * returned so the sheet can render the message instead of silently reverting.
+     * upserted. Deliberately does **not** set the global `_uiState.error` — the edit sheet surfaces
+     * the returned message itself; the fire-and-forget [updateTodo]/[toggleDone] wrapper sets the
+     * global error for the row actions so the screen toast covers them without the sheet path
+     * double-notifying (#288).
      */
     suspend fun saveTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null): Result<TodoDto> {
         val fileInto = targetListId?.takeIf { _uiState.value.todos.firstOrNull { t -> t.id == id }?.listId == null }
         val effective = if (fileInto != null) request.copy(listId = fileInto) else request
         return repository.updateTodo(id, effective)
             .onSuccess { upsertTodo(it) }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
     /** Toggle a todo between DONE and open (PLANNED when it has a plan, else INBOX). */
