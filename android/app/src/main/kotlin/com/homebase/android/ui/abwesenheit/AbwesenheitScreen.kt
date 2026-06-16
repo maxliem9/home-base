@@ -439,6 +439,12 @@ private fun MonthChip(uid: String, st: DayState) {
 // Year grid (.abwm-yr) — months as rows, days 1–31 as columns
 // ---------------------------------------------------------------------------
 
+// Width of the leading month-label column (and the matching header corner spacer). Sized to fit the
+// widest German CLDR TextStyle.SHORT label rendered at 9sp — "Sept." (5 chars) / "März" (umlaut) —
+// without clipping (#212); the day cells use weight(1f), so this fixed column must be identical in
+// the header and every month row to keep the columns aligned.
+private val MONTH_LABEL_WIDTH = 32.dp
+
 @Composable
 private fun YearGrid(
     ctx: AbsCtx,
@@ -469,8 +475,10 @@ private fun YearGrid(
             verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             // header row: corner + day-of-month ticks
+            // Corner spacer width must match the month-label box below (MONTH_LABEL_WIDTH) so the
+            // weighted day columns line up between header and rows.
             Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                Box(Modifier.width(26.dp).height(15.dp).background(Hb.surface))
+                Box(Modifier.width(MONTH_LABEL_WIDTH).height(15.dp).background(Hb.surface))
                 for (d in 1..31) {
                     Box(Modifier.weight(1f).height(15.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
                         val tick = if (d == 1 || d % 7 == 0) "$d" else ""
@@ -485,8 +493,11 @@ private fun YearGrid(
             for (m in 0 until 12) {
                 val dim = AbwCal.daysInMonth(year, m)
                 Row(horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Box(Modifier.width(26.dp).height(16.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
-                        Text(monAbbr[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2)
+                    Box(Modifier.width(MONTH_LABEL_WIDTH).height(16.dp).background(Hb.surface), contentAlignment = Alignment.Center) {
+                        // CLDR TextStyle.SHORT labels (#204) can be 5 chars ("Sept.") or carry
+                        // umlauts/dots ("März", "Dez."); maxLines=1 + softWrap=false keeps them on one
+                        // line and MONTH_LABEL_WIDTH leaves enough room so they never clip at 9sp (#212).
+                        Text(monAbbr[m], style = HbType.small.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Hb.ink2, maxLines = 1, softWrap = false)
                     }
                     for (d in 1..31) {
                         if (d > dim) {
