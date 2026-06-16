@@ -1,6 +1,6 @@
 // Abwesenheit: data model, palette + summary math.
 // Ported from the design handoff (abw_core.jsx → ABW). Pure, framework-free.
-import { userMeta } from '../../ui/format'
+import { formatDecimal, userMeta } from '../../ui/format'
 import type { AbsSettings, Absence, AbsenceState, AbsenceType, CustomHoliday, HalfDay, KitaClosure, PartTimeRule } from '../../types'
 import * as C from './holidays'
 
@@ -264,8 +264,9 @@ export function summarize(ctx: Ctx, userId: string, todayStr: string): Summary {
   }
 }
 
-/** pretty day count: "3", "2,5" */
-export const fmtDays = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ','))
+/** pretty day count, locale-aware: "3" / "2,5" (de) · "3" / "2.5" (en). Half-days are the
+ *  only fractional case, so one decimal place is plenty (#238). */
+export const fmtDays = (n: number): string => formatDecimal(n, 1)
 
 /** inclusive list of date-strings from→to. */
 export function eachDate(from: string, to: string): string[] {
