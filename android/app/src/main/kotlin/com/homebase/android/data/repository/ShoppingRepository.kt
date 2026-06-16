@@ -16,7 +16,6 @@ import com.homebase.android.data.model.UpdateShoppingListRequest
 import com.homebase.android.data.model.UpdateShoppingTemplateRequest
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import kotlinx.coroutines.flow.Flow
-import org.json.JSONObject
 import retrofit2.HttpException
 
 class ShoppingRepository(
@@ -81,11 +80,6 @@ class ShoppingRepository(
         "NOT_FOUND" -> "Vorlage nicht gefunden – bitte neu laden."
         else -> "Vorlage konnte nicht gespeichert werden."
     }
-
-    private fun errorCodeOf(e: HttpException): String? = runCatching {
-        e.response()?.errorBody()?.string()
-            ?.let { JSONObject(it).optString("code").ifBlank { null } }
-    }.getOrNull()
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
     fun ensureWebSocketConnected() = wsClient.ensureConnected()
