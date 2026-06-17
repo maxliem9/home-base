@@ -35,6 +35,10 @@ const WS_URL = import.meta.env.VITE_WS_URL_NOTES ?? `${WS_SCHEME}://${window.loc
 // Debounce window for auto-save after the last keystroke/field change (#309).
 const AUTOSAVE_DELAY = 900
 
+// Collapsed folder sections persist across reloads/navigation: a list of folder keys
+// the user has collapsed in the grouped note list ('' = the no-folder bucket).
+const COLLAPSED_FOLDERS_KEY = 'homebase_notes_collapsed_folders'
+
 interface Draft {
   id?: string
   title: string
@@ -92,6 +96,15 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   // null = all folders; '' = the "no folder" bucket; otherwise a specific folder name
   const [folderFilter, setFolderFilter] = useState<string | null>(null)
+  // Collapsed folder sections in the grouped list — persisted so a tidied list stays tidy
+  // across reloads. Keys are folder names; '' is the no-folder bucket. Absent = expanded.
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_FOLDERS_KEY)
+      if (raw) return new Set<string>(JSON.parse(raw))
+    } catch { /* corrupt/unavailable storage → start all-expanded */ }
+    return new Set<string>()
+  })
   const [uploadingImage, setUploadingImage] = useState(false)
   // progress of a multi-file gallery upload (null = no batch in flight); drives the button label
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
@@ -393,6 +406,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     }))
   }, [listed])
 
+  // Collapse/expand a folder section and persist the new set (best-effort).
+  const toggleFolder = useCallback((key: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      try {
+        localStorage.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify([...next]))
+      } catch { /* ignore quota/availability errors — collapse still works this session */ }
+      return next
+    })
+  }, [])
+
   // the note currently being edited (live, from `notes`) — source for the image gallery +
   // caret-insertion. Only existing (saved) notes have images; a brand-new draft has none.
   const editNote = draft?.id ? notes.find((n) => n.id === draft.id) ?? null : null
@@ -598,39 +624,51 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // switcher Sheet. `onPick` lets the Sheet close itself after a jump.
   const renderNoteGroups = (onPick?: () => void) => (
     <div className="hb-notes-groups">
-      {groups.map((g) => (
-        // the no-folder bucket has folder==='' → prefix keys so a real folder can't collide
-        <div key={g.folder ? `f:${g.folder}` : 'nofolder'} className="hb-notes-group">
-          <div className="hb-notes-group__head">
-            <Icon name={g.folder ? 'folder' : 'inbox'} size={14} stroke={2} />
-            <span className="hb-notes-group__name">{g.folder || t('notes.noFolder')}</span>
-            <span className="hb-notes-group__count">{g.notes.length}</span>
+      {groups.map((g) => {
+        const collapsed = collapsedFolders.has(g.folder)
+        return (
+          // the no-folder bucket has folder==='' → prefix keys so a real folder can't collide
+          <div key={g.folder ? `f:${g.folder}` : 'nofolder'} className="hb-notes-group">
+            {/* the header toggles its section; chevron + aria-expanded convey the state */}
+            <button
+              type="button"
+              className="hb-notes-group__head"
+              aria-expanded={!collapsed}
+              onClick={() => toggleFolder(g.folder)}
+            >
+              <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} stroke={2.4} className="hb-notes-group__chevron" />
+              <Icon name={g.folder ? 'folder' : 'inbox'} size={14} stroke={2} />
+              <span className="hb-notes-group__name">{g.folder || t('notes.noFolder')}</span>
+              <span className="hb-notes-group__count">{g.notes.length}</span>
+            </button>
+            {!collapsed && (
+              <div className="hb-notes-items">
+                {g.notes.map((n) => (
+                  <button
+                    key={n.id}
+                    className={`hb-noteitem${selectedId === n.id ? ' is-active' : ''}`}
+                    onClick={() => { openEditor(n); onPick?.() }}
+                  >
+                    <div className="hb-noteitem__top">
+                      <Icon name={n.visibility === 'PRIVATE' ? 'lock' : 'users'} size={14} stroke={2} style={{ color: 'var(--ink-3)' }} />
+                      <span className="hb-noteitem__title">{n.title}</span>
+                    </div>
+                    {n.content && <div className="hb-noteitem__preview">{n.content.replace(/[#*`>_-]/g, '').trim()}</div>}
+                    <div className="hb-noteitem__meta">
+                      {relTime(n.updatedAt)}
+                      {n.images.length > 0 && (
+                        <span className="hb-noteitem__imgcount">
+                          <Icon name="image" size={13} stroke={2} /> {n.images.length}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="hb-notes-items">
-            {g.notes.map((n) => (
-              <button
-                key={n.id}
-                className={`hb-noteitem${selectedId === n.id ? ' is-active' : ''}`}
-                onClick={() => { openEditor(n); onPick?.() }}
-              >
-                <div className="hb-noteitem__top">
-                  <Icon name={n.visibility === 'PRIVATE' ? 'lock' : 'users'} size={14} stroke={2} style={{ color: 'var(--ink-3)' }} />
-                  <span className="hb-noteitem__title">{n.title}</span>
-                </div>
-                {n.content && <div className="hb-noteitem__preview">{n.content.replace(/[#*`>_-]/g, '').trim()}</div>}
-                <div className="hb-noteitem__meta">
-                  {relTime(n.updatedAt)}
-                  {n.images.length > 0 && (
-                    <span className="hb-noteitem__imgcount">
-                      <Icon name="image" size={13} stroke={2} /> {n.images.length}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 
