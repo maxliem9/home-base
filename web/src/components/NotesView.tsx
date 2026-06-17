@@ -101,7 +101,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(COLLAPSED_FOLDERS_KEY)
-      if (raw) return new Set<string>(JSON.parse(raw))
+      // guard the parse: only an array seeds the set — a bare string would otherwise
+      // iterate into per-character "folders" (new Set("ab") → {'a','b'}).
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) return new Set<string>(parsed)
+      }
     } catch { /* corrupt/unavailable storage → start all-expanded */ }
     return new Set<string>()
   })
