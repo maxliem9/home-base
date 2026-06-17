@@ -155,6 +155,43 @@ test.describe('Wochenplan', () => {
     await expect(page.locator('.hb-toast')).toContainText('4 hinzugefügt')
   })
 
+  test('counts only recipe dishes and excludes free text from the batch (#318)', async ({ page }) => {
+    const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
+      .seedRecipes([LASAGNE]) // servings 2 → Nudelplatten + Hackfleisch
+      .seedMealPlan([
+        mealPlanEntry({ id: 'm1', date: '2026-06-17', slot: 'DINNER', recipeId: 'r1', recipeTitle: 'Lasagne' }),
+        // a free-text dish — no recipe, no ingredients; must not inflate the dish count nor the batch
+        {
+          id: 'm2',
+          date: '2026-06-16',
+          slot: 'LUNCH',
+          dishTitle: 'Pizza bestellen',
+          createdBy: 'alice',
+          createdAt: '2026-06-01T08:00:00Z',
+        },
+      ])
+    await open(page, mock)
+
+    // both dishes render in the grid…
+    await expect(cell(page, '2026-06-17', 'DINNER')).toContainText('Lasagne')
+    await expect(cell(page, '2026-06-16', 'LUNCH')).toContainText('Pizza bestellen')
+
+    const reqP = page.waitForRequest((r) => r.url().includes('/shopping/batch') && r.method() === 'POST')
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
+    await expect(page.locator('.hb-sheet')).toBeVisible()
+    // …but the summary counts only the recipe dish: 2 ingredients from 1 dish (not 2).
+    await expect(page.locator('.hb-sheet')).toContainText('2 Zutaten aus 1')
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
+
+    // the batch payload carries ONLY the recipe's ingredients — the free-text dish contributes none.
+    const items = JSON.parse((await reqP).postData() || '{}').items as Array<{ name: string }>
+    expect(items.map((i) => i.name).sort()).toEqual(['Hackfleisch', 'Nudelplatten'])
+    expect(items.some((i) => i.name === 'Pizza bestellen')).toBe(false)
+
+    // and the toast reflects only the two recipe ingredients
+    await expect(page.locator('.hb-toast')).toContainText('2 hinzugefügt')
+  })
+
   test('scales ingredient amounts by the chosen portions when adding to a list', async ({ page }) => {
     const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [])
       .seedRecipes([LASAGNE]) // servings 2, Nudelplatten 250 g + Hackfleisch 500 g
