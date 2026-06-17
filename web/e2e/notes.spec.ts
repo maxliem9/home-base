@@ -578,6 +578,42 @@ test.describe('Notes', () => {
     await expect(page.getByRole('button', { name: /Rezept-Notiz/ })).toHaveCount(0)
   })
 
+  // A folder header collapses/expands its section; the collapsed set is persisted in
+  // localStorage so it survives a reload.
+  test('collapses a folder section via its header and persists the state across reload', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({ id: 'n1', title: 'Steuer 2025', folder: 'Finanzen' }),
+      note({ id: 'n2', title: 'Versicherung', folder: 'Finanzen' }),
+      note({ id: 'n3', title: 'Geschenkideen' }), // no folder → control group, stays expanded
+    ]))
+
+    const finanzenHead = page.locator('.hb-notes-group__head', { hasText: 'Finanzen' })
+    // expanded by default: the folder's notes are visible
+    await expect(finanzenHead).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toBeVisible()
+
+    // collapsing hides only this folder's notes (the no-folder note stays put)
+    await finanzenHead.click()
+    await expect(finanzenHead).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Versicherung/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Geschenkideen/ })).toBeVisible()
+
+    // clicking again expands it back
+    await finanzenHead.click()
+    await expect(finanzenHead).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toBeVisible()
+
+    // collapse, then reload: the section comes back collapsed (read from localStorage)
+    await finanzenHead.click()
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
+    await page.reload()
+    await page.getByRole('button', { name: 'Notizen' }).click()
+    const finanzenAfter = page.locator('.hb-notes-group__head', { hasText: 'Finanzen' })
+    await expect(finanzenAfter).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
+  })
+
   // ---- Mobile collapse + back control (#313) ----
   // At ≤860px the list and editor are one-pane-at-a-time: browsing shows the list, opening a
   // note collapses the list to show the full-width editor, and a back control returns to it.
