@@ -48,6 +48,7 @@ import com.homebase.android.ui.abwesenheit.AbsenceViewModel
 import com.homebase.android.ui.abwesenheit.AbwesenheitScreen
 import com.homebase.android.ui.aufgaben.AufgabenScreen
 import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.aufgaben.TodosFocus
 import com.homebase.android.ui.components.HbBottomNav
 import com.homebase.android.ui.components.HbDrawerContent
 import com.homebase.android.ui.components.HbMoreSheet
@@ -178,6 +179,11 @@ class MainActivity : AppCompatActivity() {
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
         var drawerOpen by remember { mutableStateOf(false) }
         var settingsOpen by rememberSaveable { mutableStateOf(false) }
+        // Pending deep-link from a dashboard stat tile into the tasks view (#255/#256): set together
+        // with route = AUFGABEN, consumed (cleared) by AufgabenScreen once it has selected the tab.
+        // Plain navigation to Aufgaben (drawer / bottom bar / "Mehr") leaves this null → default tab.
+        var pendingTodosFocus by remember { mutableStateOf<TodosFocus?>(null) }
+        val goAufgaben: (TodosFocus) -> Unit = { focus -> pendingTodosFocus = focus; route = HbRoute.AUFGABEN }
 
         // Load the per-user UI theme once we're authenticated (#244): /user-prefs needs the token,
         // so it can't be read at cold start. Best-effort — ThemeRepository keeps the system default
@@ -258,12 +264,17 @@ class MainActivity : AppCompatActivity() {
                             currentUser = currentUser,
                             onOpenDrawer = openDrawer,
                             onNavigate = { route = it },
+                            // Stat tiles deep-link into the matching tasks tab (#255/#256).
+                            onOpenTodos = goAufgaben,
                         )
                         HbRoute.AUFGABEN -> AufgabenScreen(
                             viewModel = todoVm,
                             currentUser = currentUser,
                             householdUsers = householdUsers,
                             onOpenDrawer = openDrawer,
+                            // Deep-link target from a dashboard tile; cleared once the tab is selected.
+                            initialFocus = pendingTodosFocus,
+                            onFocusConsumed = { pendingTodosFocus = null },
                         )
                         HbRoute.EINKAUF -> ShoppingScreen(
                             viewModel = shoppingVm,
