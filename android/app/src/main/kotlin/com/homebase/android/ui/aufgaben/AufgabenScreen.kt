@@ -244,9 +244,14 @@ fun AufgabenScreen(
                 // hidden when a cross-list view holds only done todos (they show in the done section)
                 if (!crossListWithOnlyDone) SmartEmpty(state.inboxActive, smartTab)
             } else if (flatOpenList) {
-                // single due-day → flat list, no due-bucket headers
+                // single due-day → flat list, no due-bucket headers; bei gleichem Datum
+                // nach Priorität (hoch → niedrig), analog Buckets/Web.
                 Spacer(Modifier.size(16.dp))
-                Column(Modifier.padding(horizontal = 18.dp)) { openTodos.forEach { taskRow(it) } }
+                Column(Modifier.padding(horizontal = 18.dp)) {
+                    openTodos
+                        .sortedWith(compareBy({ it.dueDate ?: "9999" }, { Format.prioRank(it.priority) }))
+                        .forEach { taskRow(it) }
+                }
             } else {
                 // Due-date groups, skipping empty ones. Innerhalb jeder Gruppe steht das
                 // früheste Fälligkeitsdatum oben (dueDate aufsteigend) — eine Gruppe wie
