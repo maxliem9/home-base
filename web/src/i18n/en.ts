@@ -262,6 +262,9 @@ export const en: Messages = {
     tabToday: 'Today',
     tabTomorrow: 'Tomorrow',
     tabDone: 'Done',
+    // Two-row tab strip: cross-list filters on top, lists below — aria labels
+    filtersAria: 'Task filters',
+    listsAria: 'Lists',
     allEmpty: 'No tasks yet',
     allEmptyHint: 'Add tasks in a list or the Inbox.',
     todayEmpty: 'Nothing due today',

@@ -259,6 +259,9 @@ export const de = {
     tabToday: 'Heute',
     tabTomorrow: 'Morgen',
     tabDone: 'Erledigt',
+    // Zwei-Zeilen-Tableiste: Filter (übergreifend) oben, Listen unten — aria-labels
+    filtersAria: 'Aufgaben-Filter',
+    listsAria: 'Listen',
     allEmpty: 'Noch keine Aufgaben',
     allEmptyHint: 'Lege Aufgaben in einer Liste oder der Inbox an.',
     todayEmpty: 'Heute nichts fällig',

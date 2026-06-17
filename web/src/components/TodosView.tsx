@@ -576,8 +576,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     <div className="hb-page">
       <PageHead eyebrow={t('todos.eyebrow')} title={t('todos.title')} />
 
-      {/* Listen-Tabs */}
-      <div className="hb-tabs" role="tablist">
+      {/* Filter-Tabs (listenübergreifend): Inbox + Smart-Views auf eigener Zeile,
+          getrennt von den projektbasierten Listen-Tabs darunter. */}
+      <div className="hb-tabs hb-tabs--filters" role="tablist" aria-label={t('todos.filtersAria')}>
         <button
           role="tab"
           aria-selected={inboxActive}
@@ -601,6 +602,10 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             {s.count > 0 && <span className="hb-tab__count">{s.count}</span>}
           </button>
         ))}
+      </div>
+
+      {/* Listen-Tabs (projektbasiert) */}
+      <div className="hb-tabs" role="tablist" aria-label={t('todos.listsAria')}>
         {lists.map((l) => (
           <button
             key={l.id}
