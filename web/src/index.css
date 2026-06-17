@@ -802,6 +802,15 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
   .hb-zeit-grid, .hb-notes-layout, .hb-recipe-body { grid-template-columns: 1fr; }
   .hb-heute-grid { column-count: 1; }
   .hb-stats { grid-template-columns: repeat(2, 1fr); }
+
+  /* Notizen: once the layout collapses to a single column (≤1000px) we need the
+     same single-pane rules as on mobile — without this the 861–1000px band showed
+     list + editor stacked vertically with no back/switch controls (#324). The
+     ≤860px block below repeats these same rules so they also cover narrow viewports. */
+  .hb-notes-layout .hb-notes-detail { display: none; }
+  .hb-notes-layout.is-editing .hb-notes-list { display: none; }
+  .hb-notes-layout.is-editing .hb-notes-detail { display: block; }
+  .hb-note-editor__mobilebar { display: flex; }
 }
 /* ---------- Wochenplan / meal planner (#218) ---------- */
 .hb-weeknav { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
