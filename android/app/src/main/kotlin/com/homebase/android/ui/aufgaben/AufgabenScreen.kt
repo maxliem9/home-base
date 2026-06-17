@@ -167,10 +167,12 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     )
                 }
             } else {
-                // Due-date groups, skipping empty ones. Inbox-Tab (#306): die unverplanten,
-                // undatierten Todos (OHNE_DATUM — wo Status-INBOX-Quick-Adds landen) gehören
-                // nach oben, darin neueste zuerst (createdAt desc). Andere Tabs/Listen behalten
-                // die übliche Reihenfolge (Überfällig zuerst).
+                // Due-date groups, skipping empty ones. Innerhalb jeder Gruppe steht das
+                // früheste Fälligkeitsdatum oben (dueDate aufsteigend) — eine Gruppe wie
+                // "Überfällig"/"Demnächst"/"Später" spannt mehrere Tage, deren Backend-
+                // Reihenfolge ist nicht datums-sortiert (analog Web). Inbox-Tab (#306): die
+                // unverplanten, undatierten Todos (OHNE_DATUM — wo Status-INBOX-Quick-Adds
+                // landen) gehören nach oben, darin neueste zuerst (createdAt desc).
                 val grouped = openTodos.groupBy { Format.dueGroup(it.dueDate) }
                 val groupOrder = if (state.inboxActive) {
                     listOf(Format.DueGroup.OHNE_DATUM) +
@@ -184,7 +186,8 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     val items = if (state.inboxActive && group == Format.DueGroup.OHNE_DATUM) {
                         raw.sortedByDescending { it.createdAt }
                     } else {
-                        raw
+                        // Frühestes Fälligkeitsdatum zuerst; null (nur OHNE_DATUM) ans Ende.
+                        raw.sortedBy { it.dueDate ?: "9999" }
                     }
 
                     GroupLabel(stringResource(group.labelRes), items.size)
