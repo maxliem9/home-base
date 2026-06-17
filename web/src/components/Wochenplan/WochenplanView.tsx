@@ -135,6 +135,14 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
     return items
   }, [entries, recipeById])
 
+  // How many planned dishes actually feed the shopping batch: only recipe-backed entries whose
+  // recipe still resolves. Free-text dishes (#293) bring no ingredients, so counting them would
+  // overstate the "{items} from {dishes}" summary (#318). Mirrors the plannedItems filter above.
+  const recipeDishCount = useMemo(
+    () => entries.reduce((n, e) => (e.recipeId && recipeById.has(e.recipeId) ? n + 1 : n), 0),
+    [entries, recipeById],
+  )
+
   const shiftWeek = (delta: number) => setWeekStartIso(ymd(addDays(parseIso(weekStartIso), delta * 7)))
   const goToday = () => setWeekStartIso(ymd(mondayOf(new Date())))
 
@@ -294,7 +302,7 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
         <AddToShoppingSheet
           lists={shoppingLists}
           itemCount={plannedItems.length}
-          dishCount={entries.length}
+          dishCount={recipeDishCount}
           onClose={() => setAddingToShopping(false)}
           onAdd={addToShopping}
         />
