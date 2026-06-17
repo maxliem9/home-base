@@ -326,6 +326,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 
 /* ---------- List tabs (todos + shopping) ---------- */
 .hb-tabs { display: flex; align-items: stretch; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line-soft); margin-bottom: 24px; }
+/* Todos: cross-list filter row sits on its own line above the list-tab row.
+   No bottom border (the list row below carries the single divider) and tight
+   spacing so the two rows read as one grouped tab strip. */
+.hb-tabs--filters { border-bottom: none; margin-bottom: 6px; }
 .hb-tab { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; padding: 11px 15px; font: inherit; font-size: 14.5px; font-weight: 600; color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.12s; }
 .hb-tab:hover { color: var(--ink); }
 .hb-tab.is-active { color: var(--ink); border-bottom-color: var(--accent); }
