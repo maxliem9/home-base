@@ -110,7 +110,9 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
     var doneCollapsed by remember { mutableStateOf(true) }
 
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }
+    // zuletzt erledigt oben (doneAt absteigend) — analog Web
     val doneTodos = state.visibleTodos.filter { it.status == "DONE" }
+        .sortedByDescending { it.doneAt ?: "" }
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
@@ -186,8 +188,11 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     val items = if (state.inboxActive && group == Format.DueGroup.OHNE_DATUM) {
                         raw.sortedByDescending { it.createdAt }
                     } else {
-                        // Frühestes Fälligkeitsdatum zuerst; null (nur OHNE_DATUM) ans Ende.
-                        raw.sortedBy { it.dueDate ?: "9999" }
+                        // Frühestes Fälligkeitsdatum zuerst; bei gleichem Datum nach
+                        // Priorität (hoch → niedrig). null-Datum (nur OHNE_DATUM) ans Ende.
+                        raw.sortedWith(
+                            compareBy({ it.dueDate ?: "9999" }, { Format.prioRank(it.priority) }),
+                        )
                     }
 
                     GroupLabel(stringResource(group.labelRes), items.size)
