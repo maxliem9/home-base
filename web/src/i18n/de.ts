@@ -396,6 +396,7 @@ export const de = {
     images: 'Bilder',
     addImage: 'Bild hinzufügen',
     removeImage: 'Bild entfernen',
+    downloadImage: 'Bild herunterladen',
     insertImage: 'In Text einfügen',
     insertImageLabel: 'Bild in den Text einfügen',
     uploading: 'Wird hochgeladen…',
@@ -413,6 +414,7 @@ export const de = {
     saveFailed: 'Notiz konnte nicht gespeichert werden.',
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',
     imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
+    imageDownloadFailed: 'Bild konnte nicht heruntergeladen werden.',
   },
   // Inbox tab in the todos view: all todos without a list (issue #69) —
   // Dashboard quick-add and the Android FAB create these.
@@ -696,10 +698,12 @@ export const de = {
     uploading: 'Wird hochgeladen…',
     removeImage: 'Bild entfernen',
     openImage: 'Bild öffnen',
+    downloadImage: 'Bild herunterladen',
     imageTooLarge: 'Bild ist zu groß (max. 10 MB).',
     imageBadType: 'Nur JPEG, PNG, WebP oder GIF erlaubt.',
     imageUploadFailed: 'Upload fehlgeschlagen.',
     imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
+    imageDownloadFailed: 'Bild konnte nicht heruntergeladen werden.',
     addToList: 'Zutaten zur Liste',
     addedToList: 'Zutaten zur Einkaufsliste hinzugefügt', // "{n} Zutaten …"
     addedOne: 'Zutat zur Einkaufsliste hinzugefügt', // "1 Zutat …"

@@ -603,6 +603,8 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-note-back:hover { background: var(--accent-soft); }
 .hb-lightbox { position: fixed; inset: 0; z-index: 100; background: oklch(0.15 0 0 / 0.82); display: flex; align-items: center; justify-content: center; padding: 32px; cursor: zoom-out; }
 .hb-lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-lg, 0 20px 60px oklch(0 0 0 / 0.4)); cursor: default; }
+.hb-lightbox__download { position: absolute; top: 24px; right: 24px; display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border: none; border-radius: 999px; background: oklch(1 0 0 / 0.16); color: #fff; cursor: pointer; backdrop-filter: blur(4px); transition: background 0.12s ease; }
+.hb-lightbox__download:hover { background: oklch(1 0 0 / 0.28); }
 
 /* ---------- Zeiterfassung ---------- */
 .hb-pdot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }

@@ -400,6 +400,7 @@ export const en: Messages = {
     images: 'Images',
     addImage: 'Add image',
     removeImage: 'Remove image',
+    downloadImage: 'Download image',
     insertImage: 'Insert into text',
     insertImageLabel: 'Insert image into the text',
     uploading: 'Uploading…',
@@ -415,6 +416,7 @@ export const en: Messages = {
     saveFailed: 'Note could not be saved.',
     deleteFailed: 'Note could not be deleted.',
     imageDeleteFailed: 'Image could not be deleted.',
+    imageDownloadFailed: 'Image could not be downloaded.',
   },
   // Inbox tab in the todos view: all todos without a list (issue #69) —
   // Dashboard quick-add and the Android FAB create these.
@@ -698,10 +700,12 @@ export const en: Messages = {
     uploading: 'Uploading…',
     removeImage: 'Remove image',
     openImage: 'Open image',
+    downloadImage: 'Download image',
     imageTooLarge: 'Image is too large (max. 10 MB).',
     imageBadType: 'Only JPEG, PNG, WebP or GIF allowed.',
     imageUploadFailed: 'Upload failed.',
     imageDeleteFailed: 'Image could not be deleted.',
+    imageDownloadFailed: 'Image could not be downloaded.',
     addToList: 'Ingredients to list',
     addedToList: 'ingredients added to the shopping list', // "{n} ingredients …"
     addedOne: 'ingredient added to the shopping list', // "1 ingredient …"

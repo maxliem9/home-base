@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { API_BASE, authFetch, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
+import { API_BASE, authFetch, downloadImage, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -612,6 +612,15 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
     }
   }
 
+  // Download the cover image under its original upload name (the lightbox renders a blob URL, so
+  // the browser's "Save image as…" loses the server's filename — see downloadImage in api.ts).
+  const handleDownload = async () => {
+    if (!image) return
+    const outcome = await downloadImage(token, recipeImageUrl(recipe.id, image.id), image.originalName)
+    if (outcome === 'unauthorized') onLogout()
+    else if (outcome === 'error') setImageError(t('recipes.imageDownloadFailed'))
+  }
+
   return (
     <div className="hb-recipe-photos">
       {image && (
@@ -647,6 +656,18 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
 
       {lightbox && image && (
         <div className="hb-lightbox" onClick={() => setLightbox(false)}>
+          <button
+            type="button"
+            className="hb-lightbox__download"
+            title={t('recipes.downloadImage')}
+            aria-label={t('recipes.downloadImage')}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDownload()
+            }}
+          >
+            <Icon name="download" size={18} stroke={2.2} />
+          </button>
           <AuthedImage url={recipeImageUrl(recipe.id, image.id)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
