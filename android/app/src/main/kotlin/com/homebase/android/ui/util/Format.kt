@@ -220,6 +220,18 @@ object Format {
         }
     }
 
+    /**
+     * Sekundär-Sortierschlüssel innerhalb einer Fälligkeitsgruppe: höhere Priorität
+     * zuerst, keine Priorität zuletzt. Synchron zum Web-Client halten (PRIORITY_RANK
+     * in TodosView.tsx).
+     */
+    fun prioRank(priority: String?): Int = when (priority) {
+        "HIGH" -> 0
+        "MEDIUM" -> 1
+        "LOW" -> 2
+        else -> 3
+    }
+
     data class DueBadge(val label: String, val tone: HbTone)
 
     /** A short due-date badge ("Heute"/"Today", "Morgen"/"Tomorrow", weekday, "vor 2 Tagen", date). */

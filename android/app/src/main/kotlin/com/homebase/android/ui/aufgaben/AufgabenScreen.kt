@@ -133,6 +133,7 @@ fun AufgabenScreen(
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }
     // Done shown here is windowed to the last N days (#263) — caps the Inbox/Alle/list done-section
     // and is the entire content of the "Erledigt" tab. visibleTodos already windows the DONE tab.
+    // (zuletzt erledigt oben wird an den Render-Stellen sortiert, doneAt desc.)
     val doneTodos = if (smartTab == TodosFocus.DONE) state.visibleTodos else state.visibleTodos.filter(::isDoneInWindow)
     // The active view's title (Inbox / smart-tab label / list name).
     val title = when {
@@ -247,10 +248,12 @@ fun AufgabenScreen(
                 Spacer(Modifier.size(16.dp))
                 Column(Modifier.padding(horizontal = 18.dp)) { openTodos.forEach { taskRow(it) } }
             } else {
-                // Due-date groups, skipping empty ones. Inbox-Tab (#306): die unverplanten,
-                // undatierten Todos (OHNE_DATUM — wo Status-INBOX-Quick-Adds landen) gehören
-                // nach oben, darin neueste zuerst (createdAt desc). Andere Tabs/Listen behalten
-                // die übliche Reihenfolge (Überfällig zuerst).
+                // Due-date groups, skipping empty ones. Innerhalb jeder Gruppe steht das
+                // früheste Fälligkeitsdatum oben (dueDate aufsteigend) — eine Gruppe wie
+                // "Überfällig"/"Demnächst"/"Später" spannt mehrere Tage, deren Backend-
+                // Reihenfolge ist nicht datums-sortiert (analog Web). Inbox-Tab (#306): die
+                // unverplanten, undatierten Todos (OHNE_DATUM — wo Status-INBOX-Quick-Adds
+                // landen) gehören nach oben, darin neueste zuerst (createdAt desc).
                 val grouped = openTodos.groupBy { Format.dueGroup(it.dueDate) }
                 val groupOrder = if (state.inboxActive) {
                     listOf(Format.DueGroup.OHNE_DATUM) +
@@ -264,7 +267,11 @@ fun AufgabenScreen(
                     val items = if (state.inboxActive && group == Format.DueGroup.OHNE_DATUM) {
                         raw.sortedByDescending { it.createdAt }
                     } else {
-                        raw
+                        // Frühestes Fälligkeitsdatum zuerst; bei gleichem Datum nach
+                        // Priorität (hoch → niedrig). null-Datum (nur OHNE_DATUM) ans Ende.
+                        raw.sortedWith(
+                            compareBy({ it.dueDate ?: "9999" }, { Format.prioRank(it.priority) }),
+                        )
                     }
 
                     GroupLabel(stringResource(group.labelRes), items.size)

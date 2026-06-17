@@ -50,6 +50,11 @@ const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id &&
 // touched. N is a named constant (configurable later if needed — issue note).
 const DONE_WINDOW_DAYS = 14
 
+// Secondary sort key within a due-date bucket: higher priority first, no
+// priority last. Kept in sync with the Android client (Format.prioRank).
+const PRIORITY_RANK: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 }
+const prioRank = (p?: string): number => (p ? PRIORITY_RANK[p] ?? 3 : 3)
+
 // Deep-link target the dashboard can ask the todos view to open (stat tiles).
 export type TodosFocus = 'inbox' | 'all' | 'today' | 'tomorrow' | 'done'
 const FOCUS_TO_ID: Record<TodosFocus, string> = {
@@ -520,8 +525,12 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     const d = dueLabel(todo.dueDate)
     buckets[d ? d.tone : 'none'].push(todo)
   })
+  // earliest due date first, ties broken by priority (high → low → none)
   Object.values(buckets).forEach((b) =>
-    b.sort((a, c) => (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')),
+    b.sort((a, c) => {
+      const byDate = (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')
+      return byDate !== 0 ? byDate : prioRank(a.priority) - prioRank(c.priority)
+    }),
   )
   // Inbox-Tab (#306): die unverplanten, undatierten Todos ("Ohne Datum" — wo
   // Status-INBOX-Quick-Adds landen) gehören nach oben, darin neueste zuerst
