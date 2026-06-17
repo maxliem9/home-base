@@ -55,6 +55,13 @@ const DONE_WINDOW_DAYS = 14
 const PRIORITY_RANK: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 }
 const prioRank = (p?: string): number => (p ? PRIORITY_RANK[p] ?? 3 : 3)
 
+// Open-todo ordering: earliest due date first, ties broken by priority
+// (high → low → none). Shared by the due-buckets and the flat Heute/Morgen lists.
+const byDueThenPriority = (a: Todo, c: Todo): number => {
+  const byDate = (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')
+  return byDate !== 0 ? byDate : prioRank(a.priority) - prioRank(c.priority)
+}
+
 // Deep-link target the dashboard can ask the todos view to open (stat tiles).
 export type TodosFocus = 'inbox' | 'all' | 'today' | 'tomorrow' | 'done'
 const FOCUS_TO_ID: Record<TodosFocus, string> = {
@@ -526,12 +533,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     buckets[d ? d.tone : 'none'].push(todo)
   })
   // earliest due date first, ties broken by priority (high → low → none)
-  Object.values(buckets).forEach((b) =>
-    b.sort((a, c) => {
-      const byDate = (a.dueDate ?? '9999').localeCompare(c.dueDate ?? '9999')
-      return byDate !== 0 ? byDate : prioRank(a.priority) - prioRank(c.priority)
-    }),
-  )
+  Object.values(buckets).forEach((b) => b.sort(byDueThenPriority))
   // Inbox-Tab (#306): die unverplanten, undatierten Todos ("Ohne Datum" — wo
   // Status-INBOX-Quick-Adds landen) gehören nach oben, darin neueste zuerst
   // (createdAt desc). Andere Tabs ("Alle"/Listen) behalten die übliche
@@ -668,7 +670,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             ) : (
               // "Heute"/"Morgen": ein einziger Fälligkeits-Tag → flache Liste statt Buckets
               <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-                <div className="hb-list">{openTodos.map(renderRow)}</div>
+                <div className="hb-list">{[...openTodos].sort(byDueThenPriority).map(renderRow)}</div>
               </Card>
             )
           ) : showOpenEmpty ? (
