@@ -94,10 +94,10 @@ export function recipeImageUrl(recipeId: string, imageId: string) {
 // browser's native "Save image as…" can't see the server's Content-Disposition filename and
 // falls back to a generic name. This re-fetches the bytes with auth (responses are cached
 // immutable, so it's cheap) and triggers a download under the real name. The filename prefers
-// the caller's originalName (clean — handles umlauts/spaces that the RFC-5987-encoded
-// Content-Disposition header would garble), then the header's filename (covers the server's
-// "bild.<ext>" fallback when the original name was blank), then a generic last resort.
-// Returns an outcome so the caller drives logout / its own error surface.
+// the caller's originalName — the clean, canonical value we already hold — over re-parsing the
+// Content-Disposition header (redundant, and quoting/encoding can vary). The header's filename
+// is kept only as a backstop for the server's "bild.<ext>" fallback when the original name was
+// blank, then a generic last resort. Returns an outcome so the caller drives logout / its UI.
 export async function downloadImage(
   token: string,
   url: string,

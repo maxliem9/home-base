@@ -574,6 +574,7 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
   onUpdated: (recipe: Recipe) => void
 }) {
   const { t } = useTranslation()
+  const { flashError, errorToast } = useErrorToast()
   const [uploading, setUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState(false)
@@ -614,11 +615,13 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
 
   // Download the cover image under its original upload name (the lightbox renders a blob URL, so
   // the browser's "Save image as…" loses the server's filename — see downloadImage in api.ts).
+  // The download is triggered from inside the lightbox, so a failure goes to a toast (the inline
+  // imageError below would be hidden behind the overlay).
   const handleDownload = async () => {
     if (!image) return
     const outcome = await downloadImage(token, recipeImageUrl(recipe.id, image.id), image.originalName)
     if (outcome === 'unauthorized') onLogout()
-    else if (outcome === 'error') setImageError(t('recipes.imageDownloadFailed'))
+    else if (outcome === 'error') flashError(t('recipes.imageDownloadFailed'))
   }
 
   return (
@@ -671,6 +674,7 @@ function RecipeImages({ recipe, token, onLogout, onUpdated }: {
           <AuthedImage url={recipeImageUrl(recipe.id, image.id)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+      {errorToast}
     </div>
   )
 }
