@@ -300,14 +300,14 @@ export const en: Messages = {
     deleteListTitle: 'Delete list?', // confirm-modal title
     deleteListConfirm: 'Delete list and all items?', // modal body (legacy, no longer used in body)
     deleteListBtn: 'Delete permanently', // danger button in the confirm modal
-    deleteListBody: 'The list „{name}" and all its items will be deleted.', // confirm-modal body, {name} = list name
+    deleteListBody: 'The list "{name}" and all its items will be deleted.', // confirm-modal body, {name} = list name
     deleteListWarn: 'This cannot be undone.', // shown in delete-list modal body
     noLists: 'No list yet',
     noListsHint: 'Create your first shopping list above.',
     emptyTitle: 'List is empty',
     emptyHint: 'Add the first item above.',
     allChecked: 'All checked off 🎉',
-    namePlaceholder: 'What is missing in „{name}"? …', // quick-add placeholder, {name} = active list
+    namePlaceholder: 'What is missing in "{name}"? …', // quick-add placeholder, {name} = active list
     inCart: 'In cart', // rendered as "In cart · {n}"
     clearChecked: 'Remove checked',
     // Offline sync: checking an item off without a connection is remembered locally
@@ -686,8 +686,8 @@ export const en: Messages = {
     // ingredient bulk/free-text editor (paste a whole list at once)
     editAsText: 'As text',
     editAsList: 'As list',
-    ingredientsTextPlaceholder: 'One ingredient per line, e.g. „200 g flour"\n# Name starts a section (e.g. # Dough)',
-    ingredientsTextHint: 'One ingredient per line (e.g. „200 g flour"). A line with „# Name" starts a section.',
+    ingredientsTextPlaceholder: 'One ingredient per line, e.g. "200 g flour"\n# Name starts a section (e.g. # Dough)',
+    ingredientsTextHint: 'One ingredient per line (e.g. "200 g flour"). A line with "# Name" starts a section.',
     // recipe cover image (single)
     image: 'Image',
     addImage: 'Add image',
