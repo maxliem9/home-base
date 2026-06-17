@@ -2,6 +2,7 @@ package com.homebase.android.ui.heute
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,10 @@ import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.aufgaben.TodosFocus
+import com.homebase.android.ui.aufgaben.isDoneToday
+import com.homebase.android.ui.aufgaben.isDueToday
+import com.homebase.android.ui.aufgaben.isDueTomorrow
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBadge
@@ -66,8 +71,6 @@ import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.time.TimeViewModel
 import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
-import java.time.LocalDate
-import java.time.ZoneId
 
 @Composable
 fun HeuteScreen(
@@ -77,29 +80,26 @@ fun HeuteScreen(
     currentUser: String?,
     onOpenDrawer: () -> Unit,
     onNavigate: (HbRoute) -> Unit,
+    // Stat tiles deep-link into the matching cross-list tasks view (#255/#256). Distinct from
+    // onNavigate (which lands on the default tab) — this also selects the tile's tab.
+    onOpenTodos: (TodosFocus) -> Unit,
 ) {
     val todoState by todoVm.uiState.collectAsStateWithLifecycle()
     val shoppingState by shoppingVm.uiState.collectAsStateWithLifecycle()
     val timeState by timeVm.uiState.collectAsStateWithLifecycle()
 
-    val today = LocalDate.now()
     var value by remember { mutableStateOf("") }
     // Cross-person action awaiting confirmation (stopping the partner's timer).
     var pendingConfirm by remember { mutableStateOf<HbConfirm?>(null) }
 
     // --- Derived counts / lists ---
-    val dueTodayCount = todoState.todos.count {
-        it.status != "DONE" && Format.dueGroup(it.dueDate) == Format.DueGroup.HEUTE
-    }
+    // The four stat tiles share their rules with the cross-list smart-view tabs (#256), so the
+    // counts here and on the matching tab agree by construction — reuse the same predicates/state.
+    val dueTodayCount = todoState.todos.count(::isDueToday)
     // Same rule as the Inbox-tab badge in AufgabenScreen (TodoUiState.inboxCount, #71/#77).
     val inboxCount = todoState.inboxCount
-    val tomorrow = today.plusDays(1)
-    val dueTomorrowCount = todoState.todos.count {
-        it.status != "DONE" && Format.parseLocalDate(it.dueDate) == tomorrow
-    }
-    val doneTodayCount = todoState.todos.count {
-        it.status == "DONE" && doneLocalDate(it.doneAt) == today
-    }
+    val dueTomorrowCount = todoState.todos.count(::isDueTomorrow)
+    val doneTodayCount = todoState.todos.count(::isDoneToday)
 
     // "Heute dran" (#307): overdue (due date strictly before today, not done) belong here too —
     // they're still things to do today. Overdue first (DueGroup.order: overdue=0, today=1), each
@@ -176,12 +176,12 @@ fun HeuteScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(HbIcons.calendar, dueTodayCount.toString(), stringResource(R.string.dashboard_stat_due_today), Modifier.weight(1f))
-                    StatCard(HbIcons.inbox, inboxCount.toString(), stringResource(R.string.dashboard_stat_inbox), Modifier.weight(1f))
+                    StatCard(HbIcons.calendar, dueTodayCount.toString(), stringResource(R.string.dashboard_stat_due_today), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.TODAY) })
+                    StatCard(HbIcons.inbox, inboxCount.toString(), stringResource(R.string.dashboard_stat_inbox), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.INBOX) })
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(HbIcons.clock, dueTomorrowCount.toString(), stringResource(R.string.dashboard_stat_due_tomorrow), Modifier.weight(1f))
-                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), stringResource(R.string.dashboard_stat_done_today), Modifier.weight(1f))
+                    StatCard(HbIcons.clock, dueTomorrowCount.toString(), stringResource(R.string.dashboard_stat_due_tomorrow), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.TOMORROW) })
+                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), stringResource(R.string.dashboard_stat_done_today), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.DONE) })
                 }
             }
 
@@ -193,7 +193,8 @@ fun HeuteScreen(
                     HbCardHead(
                         stringResource(R.string.dashboard_today_card),
                         linkText = stringResource(R.string.dashboard_all_tasks),
-                        onLink = { onNavigate(HbRoute.AUFGABEN) },
+                        // "Alle Aufgaben" opens the cross-list "Alle" smart view (#256), mirroring web.
+                        onLink = { onOpenTodos(TodosFocus.ALL) },
                     )
                     if (heuteDran.isEmpty()) {
                         Text(stringResource(R.string.dashboard_nothing_today), style = HbType.meta, color = Hb.ink3)
@@ -350,13 +351,16 @@ fun HeuteScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun StatCard(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier) {
+private fun StatCard(icon: ImageVector, value: String, label: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     Box(
         modifier
             .shadow(1.dp, HbRadius, clip = false, ambientColor = Hb.ink, spotColor = Hb.ink)
             .clip(HbRadius)
             .background(Hb.surface)
             .border(1.dp, Hb.lineSoft, HbRadius)
+            // Tappable deep-link into the matching tasks view (#255/#256); clip-then-clickable so
+            // the ripple is bounded to the card's rounded shape.
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 16.dp, vertical = 15.dp),
     ) {
         Column {
@@ -467,10 +471,3 @@ private fun ShopRow(item: ShoppingItemDto, divider: Boolean, onToggle: () -> Uni
         HbAvatar(item.createdBy, size = 24.dp)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-private fun doneLocalDate(doneAt: String?): LocalDate? =
-    Format.parseInstant(doneAt)?.atZone(ZoneId.systemDefault())?.toLocalDate()

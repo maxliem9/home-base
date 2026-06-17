@@ -6,8 +6,14 @@ import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
+import com.homebase.android.ui.aufgaben.ALL_TAB_ID
+import com.homebase.android.ui.aufgaben.DONE_TAB_ID
+import com.homebase.android.ui.aufgaben.DONE_WINDOW_DAYS
 import com.homebase.android.ui.aufgaben.INBOX_TAB_ID
+import com.homebase.android.ui.aufgaben.TODAY_TAB_ID
+import com.homebase.android.ui.aufgaben.TOMORROW_TAB_ID
 import com.homebase.android.ui.aufgaben.TodoViewModel
+import com.homebase.android.ui.aufgaben.TodosFocus
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -33,8 +39,15 @@ class TodoViewModelTest {
     private val onConnectedSlot = slot<() -> Unit>()
     private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
 
-    private fun todo(id: String = "1", title: String = "Test", status: String = "INBOX", listId: String? = null) = TodoDto(
-        id = id, title = title, status = status, listId = listId,
+    private fun todo(
+        id: String = "1",
+        title: String = "Test",
+        status: String = "INBOX",
+        listId: String? = null,
+        dueDate: String? = null,
+        doneAt: String? = null,
+    ) = TodoDto(
+        id = id, title = title, status = status, listId = listId, dueDate = dueDate, doneAt = doneAt,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
     )
 
@@ -556,5 +569,141 @@ class TodoViewModelTest {
 
         // The VM wired itself to the channel's onConnected (#269) — captured by onConnectedSlot.
         assertTrue(onConnectedSlot.isCaptured)
+    }
+
+    // --- Cross-list "smart" views (#256/#263): Alle · Heute · Morgen · Erledigt ---
+    // Dates are relative to LocalDate.now() so the predicates bucket the same way every run.
+
+    private val todayIso = java.time.LocalDate.now().toString()
+    private val tomorrowIso = java.time.LocalDate.now().plusDays(1).toString()
+    private val overdueIso = java.time.LocalDate.now().minusDays(3).toString()
+    private val farIso = java.time.LocalDate.now().plusDays(10).toString()
+    // done timestamps, device-zone local day → ISO instant
+    private fun doneInstant(daysAgo: Long): String =
+        java.time.LocalDate.now().minusDays(daysAgo).atTime(9, 0)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toString()
+
+    /** A spread of todos across lists exercising every smart bucket. */
+    private fun smartTodos() = listOf(
+        todo(id = "today1", status = "PLANNED", listId = "a", dueDate = todayIso),
+        todo(id = "today2", status = "PLANNED", listId = "b", dueDate = todayIso),
+        todo(id = "tomo", status = "PLANNED", listId = "a", dueDate = tomorrowIso),
+        todo(id = "over", status = "PLANNED", listId = "b", dueDate = overdueIso),
+        todo(id = "far", status = "PLANNED", listId = "a", dueDate = farIso),
+        todo(id = "inbox", status = "INBOX"),
+        todo(id = "doneToday", status = "DONE", listId = "b", doneAt = doneInstant(0)),
+        todo(id = "doneOld", status = "DONE", listId = "a", doneAt = doneInstant((DONE_WINDOW_DAYS + 5).toLong())),
+    )
+
+    private fun smartVm(): TodoViewModel {
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a"), list("b")))
+        coEvery { repository.getTodos() } returns Result.success(smartTodos())
+        return createVm()
+    }
+
+    @Test
+    fun `smart tab counts mirror the dashboard tiles`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        val s = vm.uiState.value
+
+        assertEquals(1, s.inboxCount) // status INBOX
+        assertEquals(6, s.allOpenCount) // every non-DONE todo (2 today + tomo + over + far + inbox)
+        assertEquals(2, s.todayCount) // today1, today2
+        assertEquals(1, s.tomorrowCount) // tomo
+        assertEquals(1, s.doneTodayCount) // doneToday (doneOld is outside today)
+    }
+
+    @Test
+    fun `Alle tab spans every list including done and inbox`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        vm.selectList(ALL_TAB_ID)
+
+        val s = vm.uiState.value
+        assertEquals(TodosFocus.ALL, s.smartTab)
+        assertTrue(s.crossListActive)
+        assertNull(s.activeList)
+        // every todo is visible (open + done, both lists + inbox)
+        assertEquals(smartTodos().map { it.id }.toSet(), s.visibleTodos.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `Heute tab lists only today's open todos across lists`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        vm.selectList(TODAY_TAB_ID)
+
+        val s = vm.uiState.value
+        assertEquals(TodosFocus.TODAY, s.smartTab)
+        assertEquals(setOf("today1", "today2"), s.visibleTodos.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `Morgen tab lists only tomorrow's open todos`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        vm.selectList(TOMORROW_TAB_ID)
+
+        assertEquals(listOf("tomo"), vm.uiState.value.visibleTodos.map { it.id })
+    }
+
+    @Test
+    fun `Erledigt tab shows done within the window but not older done`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        vm.selectList(DONE_TAB_ID)
+
+        val s = vm.uiState.value
+        assertEquals(TodosFocus.DONE, s.smartTab)
+        // doneToday is in-window; doneOld (DONE_WINDOW_DAYS+5 ago) is excluded
+        assertEquals(listOf("doneToday"), s.visibleTodos.map { it.id })
+    }
+
+    @Test
+    fun `Erledigt tab includes a done todo from inside the window but before today`() = runTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
+        coEvery { repository.getTodos() } returns Result.success(
+            listOf(
+                todo(id = "recent", status = "DONE", listId = "a", doneAt = doneInstant(2)), // 2 days ago, in-window
+                todo(id = "old", status = "DONE", listId = "a", doneAt = doneInstant((DONE_WINDOW_DAYS + 1).toLong())),
+            ),
+        )
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.selectList(DONE_TAB_ID)
+
+        val s = vm.uiState.value
+        assertEquals(listOf("recent"), s.visibleTodos.map { it.id })
+        assertEquals(0, s.doneTodayCount) // the tab/tile COUNT stays "today" only (#263)
+    }
+
+    @Test
+    fun `applyFocus selects the matching smart tab`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+
+        vm.applyFocus(TodosFocus.TOMORROW)
+        assertEquals(TodosFocus.TOMORROW, vm.uiState.value.smartTab)
+
+        vm.applyFocus(TodosFocus.INBOX)
+        assertTrue(vm.uiState.value.inboxActive)
+        assertNull(vm.uiState.value.smartTab)
+    }
+
+    @Test
+    fun `a smart tab stays active even when there are no lists`() = runTest {
+        // No lists → Inbox is normally the default, but an explicit smart tab must win (deep-link).
+        coEvery { repository.getTodos() } returns Result.success(
+            listOf(todo(id = "t", status = "PLANNED", dueDate = todayIso)),
+        )
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.selectList(TODAY_TAB_ID)
+
+        val s = vm.uiState.value
+        assertFalse(s.inboxActive)
+        assertEquals(TodosFocus.TODAY, s.smartTab)
+        assertEquals(listOf("t"), s.visibleTodos.map { it.id })
     }
 }
