@@ -10,17 +10,55 @@ import com.homebase.android.data.model.UpdateSubtaskRequest
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
+import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Sentinel tab id for the built-in Inbox tab (issue #77). Real list ids are
  * UUIDs, so this can never collide — mirrors the web's `INBOX_ID`.
  */
 const val INBOX_TAB_ID = "__inbox__"
+
+/**
+ * Sentinel ids for the cross-list "smart" tabs (#255/#256, mirrors web's
+ * `ALL_ID`/`TODAY_ID`/`TOMORROW_ID`/`DONE_ID`). Like the Inbox they span every
+ * list and are reachable from the dashboard stat tiles. UUID list ids never collide.
+ */
+const val ALL_TAB_ID = "__all__"
+const val TODAY_TAB_ID = "__today__"
+const val TOMORROW_TAB_ID = "__tomorrow__"
+const val DONE_TAB_ID = "__done__"
+
+/** All virtual (non-list) tab ids — the cross-list views that show origin-list meta and no quick-add. */
+private val SMART_TAB_IDS = setOf(ALL_TAB_ID, TODAY_TAB_ID, TOMORROW_TAB_ID, DONE_TAB_ID)
+private fun isVirtualTab(id: String?): Boolean = id == INBOX_TAB_ID || id in SMART_TAB_IDS
+
+/**
+ * Done todos in the cross-list smart-views (the "Alle" done-section and the
+ * "Erledigt" tab) are limited to the last N calendar days so the section can't
+ * grow unbounded across the whole history (#263). One shared window: it caps the
+ * "Alle"/list done-sections AND widens "Erledigt" beyond just today. The
+ * badge/tile COUNTS stay deliberately on "today" (doneTodayCount), untouched.
+ */
+const val DONE_WINDOW_DAYS = 14
+
+/**
+ * Deep-link target the dashboard stat tiles can ask the tasks view to open
+ * (#255/#256, mirrors web's `TodosFocus`). Maps 1:1 onto a tab sentinel id.
+ */
+enum class TodosFocus(val tabId: String) {
+    INBOX(INBOX_TAB_ID),
+    ALL(ALL_TAB_ID),
+    TODAY(TODAY_TAB_ID),
+    TOMORROW(TOMORROW_TAB_ID),
+    DONE(DONE_TAB_ID),
+}
 
 data class TodoUiState(
     val lists: List<TodoListDto> = emptyList(),
@@ -32,33 +70,87 @@ data class TodoUiState(
     /**
      * Whether the Inbox tab is active — either explicitly selected, or as the
      * default tab when no lists exist yet (#77, same rule as the web TodosView).
+     * A smart tab being active keeps the Inbox inactive even without lists.
      */
-    val inboxActive: Boolean get() = activeListId == INBOX_TAB_ID || lists.isEmpty()
+    val inboxActive: Boolean get() = activeListId == INBOX_TAB_ID || (lists.isEmpty() && activeListId !in SMART_TAB_IDS)
 
-    /** The selected list, falling back to the first one; null while the Inbox tab is active. */
+    /** Which cross-list smart view is active, if any (#256). Null = Inbox or a real list. */
+    val smartTab: TodosFocus? get() = TodosFocus.entries.firstOrNull { it != TodosFocus.INBOX && it.tabId == activeListId }
+
+    /** Any cross-list view (Inbox + smart tabs): rows show origin-list meta and there's no quick-add target. */
+    val crossListActive: Boolean get() = inboxActive || smartTab != null
+
+    /** The selected list, falling back to the first one; null while a cross-list view is active. */
     val activeList: TodoListDto?
-        get() = if (inboxActive) null else lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
+        get() = if (crossListActive) null else lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
     /**
      * Todos shown for the active tab. Inbox = alles Unverplante (#71/#77): status-INBOX
      * todos — auch wenn sie schon in einer Liste liegen — plus alle listen-losen Todos
      * unabhängig vom Status, damit nichts unerreichbar wird. `listId` kann im JSON ganz
-     * fehlen (encodeDefaults=false, #46) und ist dann hier null. Listen-Tabs zeigen exakt
-     * ihre eigenen Todos — das frühere Catch-all-Verhalten des ersten Tabs entfällt.
+     * fehlen (encodeDefaults=false, #46) und ist dann hier null. Smart-Tabs (#256) spannen
+     * alle Listen: Alle = alle Todos, Heute/Morgen = offene mit Fälligkeit heute/morgen,
+     * Erledigt = abgehakte der letzten N Tage (#263). Listen-Tabs zeigen exakt ihre eigenen Todos.
      */
     val visibleTodos: List<TodoDto>
-        get() {
-            if (inboxActive) return todos.filter { it.status == "INBOX" || it.listId == null }
-            val id = activeList?.id ?: return emptyList()
-            return todos.filter { it.listId == id }
+        get() = when {
+            inboxActive -> todos.filter { it.status == "INBOX" || it.listId == null }
+            smartTab == TodosFocus.ALL -> todos
+            smartTab == TodosFocus.TODAY -> todos.filter(::isDueToday)
+            smartTab == TodosFocus.TOMORROW -> todos.filter(::isDueTomorrow)
+            // "Erledigt"-Tab: über alle Listen, letzte N Tage statt nur heute (#263)
+            smartTab == TodosFocus.DONE -> todos.filter(::isDoneInWindow)
+            else -> activeList?.id?.let { id -> todos.filter { it.listId == id } } ?: emptyList()
         }
 
     /** Inbox tab badge: number of status-INBOX todos — same rule as the HeuteScreen tile (#71). */
     val inboxCount: Int get() = todos.count { it.status == "INBOX" }
 
+    /** "Alle" tab badge: open todos across every list — mirrors the dashboard exactly (#256). */
+    val allOpenCount: Int get() = todos.count { it.status != "DONE" }
+
+    /** "Heute" tab badge: open, due-today todos across every list — mirrors the dashboard tile (#256). */
+    val todayCount: Int get() = todos.count(::isDueToday)
+
+    /** "Morgen" tab badge: open, due-tomorrow todos across every list — mirrors the dashboard tile (#256). */
+    val tomorrowCount: Int get() = todos.count(::isDueTomorrow)
+
+    /** "Erledigt" tab badge: todos completed today across every list — mirrors the dashboard tile (#256). */
+    val doneTodayCount: Int get() = todos.count(::isDoneToday)
+
     /** Count of open (not done) todos across all lists — used for the drawer badge. */
     val openCount: Int get() = todos.count { it.status != "DONE" }
 }
+
+// --- Cross-list smart-view predicates (#256/#263) — local-date semantics in the device zone,
+// mirroring the web (dueLabel tone / localDateIso). Shared by TodoUiState above and HeuteScreen. ---
+
+/** Open todo whose due date is today (the dashboard "Heute fällig" rule). */
+internal fun isDueToday(t: TodoDto): Boolean =
+    t.status != "DONE" && Format.dueGroup(t.dueDate) == Format.DueGroup.HEUTE
+
+/** Open todo whose due date is tomorrow (the dashboard "Morgen fällig" rule). */
+internal fun isDueTomorrow(t: TodoDto): Boolean =
+    t.status != "DONE" && Format.parseLocalDate(t.dueDate) == LocalDate.now().plusDays(1)
+
+/** Done todo completed today, in the device timezone (the dashboard "Heute erledigt" rule). */
+internal fun isDoneToday(t: TodoDto): Boolean =
+    t.status == "DONE" && doneLocalDate(t.doneAt) == LocalDate.now()
+
+/**
+ * Done todo completed within the shared "last N days" window (#263) — used by the "Erledigt"
+ * tab and the cross-list/list done-section. A done todo without doneAt (rare, pre-migration)
+ * is excluded, like the today-only filter. ISO dates compare lexically, but we compare LocalDate.
+ */
+internal fun isDoneInWindow(t: TodoDto): Boolean {
+    if (t.status != "DONE") return false
+    val done = doneLocalDate(t.doneAt) ?: return false
+    return !done.isBefore(LocalDate.now().minusDays((DONE_WINDOW_DAYS - 1).toLong()))
+}
+
+/** Local calendar date of a done timestamp, in the device timezone (not UTC). */
+internal fun doneLocalDate(doneAt: String?): LocalDate? =
+    Format.parseInstant(doneAt)?.atZone(ZoneId.systemDefault())?.toLocalDate()
 
 class TodoViewModel(
     private val repository: TodoRepository,
@@ -126,6 +218,13 @@ class TodoViewModel(
     }
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
+
+    /**
+     * Open the tab a dashboard stat tile deep-links to (#255/#256). Mirrors the web, where the
+     * tile sets the todos view's initial `activeId` to the matching sentinel — here it just
+     * selects the corresponding (virtual) tab on the shared ViewModel.
+     */
+    fun applyFocus(focus: TodosFocus) = selectList(focus.tabId)
 
     /**
      * Quick-add an undated todo to the active list. In the Inbox tab [TodoUiState.activeList]

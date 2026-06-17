@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,25 +102,64 @@ private sealed interface AufgabenSheet {
 }
 
 @Composable
-fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUsers: List<String>, onOpenDrawer: () -> Unit) {
+fun AufgabenScreen(
+    viewModel: TodoViewModel,
+    currentUser: String?,
+    householdUsers: List<String>,
+    onOpenDrawer: () -> Unit,
+    // Deep-link from the dashboard stat tiles (#255/#256). Non-null selects the matching
+    // (virtual) tab on entry; [onFocusConsumed] then clears it so a later plain nav to this
+    // screen lands on the default tab instead of re-forcing the tile's tab.
+    initialFocus: TodosFocus? = null,
+    onFocusConsumed: () -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Apply a dashboard deep-link once per delivered focus, then signal it consumed (#255/#256).
+    // Mirrors the web TodosView effect that re-applies `initialFocus` whenever it changes.
+    LaunchedEffect(initialFocus) {
+        if (initialFocus != null) {
+            viewModel.applyFocus(initialFocus)
+            onFocusConsumed()
+        }
+    }
 
     var quickAddText by remember { mutableStateOf("") }
     var sheet by remember { mutableStateOf<AufgabenSheet?>(null) }
     var expandedTaskId by remember { mutableStateOf<String?>(null) }
     var doneCollapsed by remember { mutableStateOf(true) }
 
+    val smartTab = state.smartTab
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }
-    // zuletzt erledigt oben (doneAt absteigend) — analog Web
-    val doneTodos = state.visibleTodos.filter { it.status == "DONE" }
-        .sortedByDescending { it.doneAt ?: "" }
+    // Done shown here is windowed to the last N days (#263) — caps the Inbox/Alle/list done-section
+    // and is the entire content of the "Erledigt" tab. visibleTodos already windows the DONE tab.
+    // (zuletzt erledigt oben wird an den Render-Stellen sortiert, doneAt desc.)
+    val doneTodos = if (smartTab == TodosFocus.DONE) state.visibleTodos else state.visibleTodos.filter(::isDoneInWindow)
+    // The active view's title (Inbox / smart-tab label / list name).
+    val title = when {
+        state.inboxActive -> stringResource(R.string.todo_inbox)
+        smartTab != null -> stringResource(smartTabLabelRes(smartTab))
+        else -> state.activeList?.name ?: stringResource(R.string.todo_title)
+    }
+    // "Heute"/"Morgen" are a single due-day → flat list (no buckets); the done-only "Erledigt" tab
+    // gets its own flat render below. Inbox/Alle/lists keep due-bucket grouping (mirrors web).
+    val flatOpenList = smartTab == TodosFocus.TODAY || smartTab == TodosFocus.TOMORROW
+    // Quick-add only where the add target is unambiguous (Inbox or a real list), like web.
+    val showQuickAdd = state.inboxActive || state.activeList != null
+    // The collapsible done footer rides along on Inbox/Alle/lists; the "Erledigt" tab shows done
+    // directly instead, so it must not also render the footer.
+    val showDoneSection = smartTab != TodosFocus.DONE && doneTodos.isNotEmpty()
+    // Suppress the "leer"/"keine Aufgaben" card when a cross-list view (Inbox/Alle) has only done
+    // todos — the done section below carries them (mirrors web's showOpenEmpty). List/Heute/Morgen
+    // keep their own empty card.
+    val crossListWithOnlyDone = (state.inboxActive || smartTab == TodosFocus.ALL) && doneTodos.isNotEmpty()
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
                     eyebrow = stringResource(R.string.todo_eyebrow),
-                    title = if (state.inboxActive) stringResource(R.string.todo_inbox) else state.activeList?.name ?: stringResource(R.string.todo_title),
+                    title = title,
                     onLeft = onOpenDrawer,
                     actions = { HbIconButton(HbIcons.more, {}) },
                 )
@@ -127,12 +167,17 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
             fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = stringResource(R.string.todo_fab)) },
             onRefresh = { viewModel.refresh() },
         ) {
-            // Inbox + list tabs — full-bleed scrollable strip with a bottom hairline.
+            // Inbox + smart + list tabs — full-bleed scrollable strip with a bottom hairline.
             ListTabs(
                 lists = state.lists,
                 todos = state.todos,
                 inboxActive = state.inboxActive,
                 inboxCount = state.inboxCount,
+                smartTab = smartTab,
+                allOpenCount = state.allOpenCount,
+                todayCount = state.todayCount,
+                tomorrowCount = state.tomorrowCount,
+                doneTodayCount = state.doneTodayCount,
                 activeId = state.activeList?.id,
                 onSelect = { viewModel.selectList(it) },
                 onNewList = { sheet = AufgabenSheet.NewList },
@@ -140,34 +185,68 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
 
             Spacer(Modifier.size(18.dp))
 
-            // Quick-add bar. In the Inbox tab the todo is created without a listId (#77).
-            Box(Modifier.padding(horizontal = 18.dp)) {
-                HbQuickAdd(
-                    value = quickAddText,
-                    onValueChange = { quickAddText = it },
-                    placeholder = if (state.inboxActive) stringResource(R.string.todo_quick_add_inbox) else stringResource(R.string.todo_quick_add),
-                    leading = HbIcons.plus,
-                    onSubmit = {
-                        viewModel.addTodo(quickAddText)
-                        quickAddText = ""
-                    },
+            // Quick-add bar. In the Inbox tab the todo is created without a listId (#77). The
+            // cross-list smart views are read/triage only, so they hide it (mirrors web).
+            if (showQuickAdd) {
+                Box(Modifier.padding(horizontal = 18.dp)) {
+                    HbQuickAdd(
+                        value = quickAddText,
+                        onValueChange = { quickAddText = it },
+                        placeholder = if (state.inboxActive) stringResource(R.string.todo_quick_add_inbox) else stringResource(R.string.todo_quick_add),
+                        leading = HbIcons.plus,
+                        onSubmit = {
+                            viewModel.addTodo(quickAddText)
+                            quickAddText = ""
+                        },
+                    )
+                }
+                Spacer(Modifier.size(2.dp))
+            }
+
+            val rowListName: (TodoDto) -> String? = { todo ->
+                // Cross-list views (Inbox + smart) tag each row with its origin list as meta, so a
+                // todo from another list is recognizable (#71/#256). List tabs don't (it's redundant).
+                if (state.crossListActive) {
+                    todo.listId?.let { lid -> state.lists.firstOrNull { it.id == lid }?.name }
+                } else {
+                    null
+                }
+            }
+            val taskRow: @Composable (TodoDto) -> Unit = { todo ->
+                TaskRow(
+                    todo = todo,
+                    listName = rowListName(todo),
+                    expanded = expandedTaskId == todo.id,
+                    onToggleDone = { viewModel.toggleDone(todo) },
+                    onToggleExpand = { expandedTaskId = if (expandedTaskId == todo.id) null else todo.id },
+                    onOpenEdit = { sheet = AufgabenSheet.Edit(todo) },
+                    onToggleSubtask = { sub -> viewModel.toggleSubtask(todo.id, sub) },
+                    onAddSubtask = { sub -> viewModel.addSubtask(todo.id, sub) },
                 )
             }
 
-            if (openTodos.isEmpty()) {
-                if (state.inboxActive) {
-                    HbEmpty(
-                        HbIcons.inbox,
-                        stringResource(R.string.todo_inbox_empty_title),
-                        stringResource(R.string.todo_inbox_empty_hint),
-                    )
-                } else {
+            if (smartTab == TodosFocus.DONE) {
+                // "Erledigt" tab: today's-and-recent completed todos across all lists, flat + newest
+                // first, windowed to the last N days (#263). The tab/tile COUNT stays "today".
+                if (doneTodos.isEmpty()) {
                     HbEmpty(
                         HbIcons.checkCircle,
-                        stringResource(R.string.todo_list_empty_title),
-                        stringResource(R.string.todo_list_empty_hint),
+                        stringResource(R.string.todo_done_view_empty_title),
+                        stringResource(R.string.todo_done_view_empty_hint, DONE_WINDOW_DAYS),
                     )
+                } else {
+                    DoneWindowNote()
+                    Column(Modifier.padding(horizontal = 18.dp)) {
+                        doneTodos.sortedByDescending { it.doneAt ?: "" }.forEach { taskRow(it) }
+                    }
                 }
+            } else if (openTodos.isEmpty()) {
+                // hidden when a cross-list view holds only done todos (they show in the done section)
+                if (!crossListWithOnlyDone) SmartEmpty(state.inboxActive, smartTab)
+            } else if (flatOpenList) {
+                // single due-day → flat list, no due-bucket headers
+                Spacer(Modifier.size(16.dp))
+                Column(Modifier.padding(horizontal = 18.dp)) { openTodos.forEach { taskRow(it) } }
             } else {
                 // Due-date groups, skipping empty ones. Innerhalb jeder Gruppe steht das
                 // früheste Fälligkeitsdatum oben (dueDate aufsteigend) — eine Gruppe wie
@@ -196,36 +275,15 @@ fun AufgabenScreen(viewModel: TodoViewModel, currentUser: String?, householdUser
                     }
 
                     GroupLabel(stringResource(group.labelRes), items.size)
-                    Column(Modifier.padding(horizontal = 18.dp)) {
-                        items.forEach { todo ->
-                            TaskRow(
-                                todo = todo,
-                                // Herkunfts-Liste als Meta: nur im Inbox-Tab für Status-INBOX-Todos,
-                                // die schon in einer Liste liegen (#71/#77).
-                                listName = if (state.inboxActive) {
-                                    todo.listId?.let { lid -> state.lists.firstOrNull { it.id == lid }?.name }
-                                } else {
-                                    null
-                                },
-                                expanded = expandedTaskId == todo.id,
-                                onToggleDone = { viewModel.toggleDone(todo) },
-                                onToggleExpand = {
-                                    expandedTaskId = if (expandedTaskId == todo.id) null else todo.id
-                                },
-                                onOpenEdit = { sheet = AufgabenSheet.Edit(todo) },
-                                onToggleSubtask = { sub -> viewModel.toggleSubtask(todo.id, sub) },
-                                onAddSubtask = { title -> viewModel.addSubtask(todo.id, title) },
-                            )
-                        }
-                    }
+                    Column(Modifier.padding(horizontal = 18.dp)) { items.forEach { taskRow(it) } }
                 }
             }
 
-            // "Erledigt" collapsible footer.
-            if (doneTodos.isNotEmpty()) {
+            // "Erledigt" collapsible footer — windowed to the last N days (#263).
+            if (showDoneSection) {
                 DoneSection(
                     collapsed = doneCollapsed,
-                    todos = doneTodos,
+                    todos = doneTodos.sortedByDescending { it.doneAt ?: "" },
                     onToggle = { doneCollapsed = !doneCollapsed },
                     onRestore = { viewModel.toggleDone(it) },
                 )
@@ -272,6 +330,11 @@ private fun ListTabs(
     todos: List<TodoDto>,
     inboxActive: Boolean,
     inboxCount: Int,
+    smartTab: TodosFocus?,
+    allOpenCount: Int,
+    todayCount: Int,
+    tomorrowCount: Int,
+    doneTodayCount: Int,
     activeId: String?,
     onSelect: (String) -> Unit,
     onNewList: () -> Unit,
@@ -292,8 +355,38 @@ private fun ListTabs(
             active = inboxActive,
             onClick = { onSelect(INBOX_TAB_ID) },
         )
+        // Cross-list "smart" tabs (#256): Alle · Heute · Morgen · Erledigt — counts mirror the
+        // dashboard stat tiles exactly. Sit between the Inbox and the list tabs (matches web order).
+        ListTab(
+            name = stringResource(R.string.todo_tab_all),
+            count = allOpenCount,
+            icon = HbIcons.archive,
+            active = smartTab == TodosFocus.ALL,
+            onClick = { onSelect(ALL_TAB_ID) },
+        )
+        ListTab(
+            name = stringResource(R.string.todo_tab_today),
+            count = todayCount,
+            icon = HbIcons.calendar,
+            active = smartTab == TodosFocus.TODAY,
+            onClick = { onSelect(TODAY_TAB_ID) },
+        )
+        ListTab(
+            name = stringResource(R.string.todo_tab_tomorrow),
+            count = tomorrowCount,
+            icon = HbIcons.clock,
+            active = smartTab == TodosFocus.TOMORROW,
+            onClick = { onSelect(TOMORROW_TAB_ID) },
+        )
+        ListTab(
+            name = stringResource(R.string.todo_tab_done),
+            count = doneTodayCount,
+            icon = HbIcons.checkCircle,
+            active = smartTab == TodosFocus.DONE,
+            onClick = { onSelect(DONE_TAB_ID) },
+        )
         lists.forEach { list ->
-            val active = !inboxActive && activeId == list.id
+            val active = !inboxActive && smartTab == null && activeId == list.id
             // Exactly the list's own open todos — list-less ones live in the Inbox tab now.
             val count = todos.count { it.listId == list.id && it.status != "DONE" }
             ListTab(
@@ -631,6 +724,12 @@ private fun DoneSection(
                     color = Hb.ink3,
                 )
             }
+            // The done-section is windowed to the last N days (#263) — the count reflects that.
+            Text(
+                stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS),
+                style = HbType.small,
+                color = Hb.ink3,
+            )
         }
         if (!collapsed) {
             todos.forEach { todo ->
@@ -1014,6 +1113,66 @@ private fun NewListSheet(
                 color = Hb.ink3,
             )
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Smart-view helpers (#256/#263)
+// ---------------------------------------------------------------------------
+
+/** String-resource id for a smart tab's label/title (Alle · Heute · Morgen · Erledigt). */
+private fun smartTabLabelRes(focus: TodosFocus): Int = when (focus) {
+    TodosFocus.ALL -> R.string.todo_tab_all
+    TodosFocus.TODAY -> R.string.todo_tab_today
+    TodosFocus.TOMORROW -> R.string.todo_tab_tomorrow
+    TodosFocus.DONE -> R.string.todo_tab_done
+    TodosFocus.INBOX -> R.string.todo_inbox
+}
+
+/** Empty state for a view with no open todos — Inbox, a smart tab, or a list (mirrors web copy). */
+@Composable
+private fun SmartEmpty(inboxActive: Boolean, smartTab: TodosFocus?) {
+    when {
+        inboxActive -> HbEmpty(
+            HbIcons.inbox,
+            stringResource(R.string.todo_inbox_empty_title),
+            stringResource(R.string.todo_inbox_empty_hint),
+        )
+        smartTab == TodosFocus.ALL -> HbEmpty(
+            HbIcons.checkCircle,
+            stringResource(R.string.todo_all_empty_title),
+            stringResource(R.string.todo_all_empty_hint),
+        )
+        smartTab == TodosFocus.TODAY -> HbEmpty(
+            HbIcons.calendar,
+            stringResource(R.string.todo_today_empty_title),
+            stringResource(R.string.todo_today_empty_hint),
+        )
+        smartTab == TodosFocus.TOMORROW -> HbEmpty(
+            HbIcons.clock,
+            stringResource(R.string.todo_tomorrow_empty_title),
+            stringResource(R.string.todo_tomorrow_empty_hint),
+        )
+        else -> HbEmpty(
+            HbIcons.checkCircle,
+            stringResource(R.string.todo_list_empty_title),
+            stringResource(R.string.todo_list_empty_hint),
+        )
+    }
+}
+
+/** "Letzte N Tage" hint shown above the flat "Erledigt"-tab list (#263). */
+@Composable
+private fun DoneWindowNote() {
+    Row(
+        Modifier.padding(start = 20.dp, end = 18.dp, top = 18.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS).uppercase(),
+            style = HbType.sectionLabel,
+            color = Hb.ink3,
+        )
     }
 }
 

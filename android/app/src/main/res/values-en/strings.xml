@@ -125,6 +125,20 @@
     <string name="todo_plan">Plan</string>
     <string name="todo_add_subtask">Add subtask …</string>
     <string name="todo_done_section">Done</string>
+    <!-- Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles -->
+    <string name="todo_tab_all">All</string>
+    <string name="todo_tab_today">Today</string>
+    <string name="todo_tab_tomorrow">Tomorrow</string>
+    <string name="todo_tab_done">Done</string>
+    <string name="todo_all_empty_title">No tasks yet</string>
+    <string name="todo_all_empty_hint">Add tasks in a list or the Inbox.</string>
+    <string name="todo_today_empty_title">Nothing due today</string>
+    <string name="todo_today_empty_hint">No open tasks due today.</string>
+    <string name="todo_tomorrow_empty_title">Nothing due tomorrow</string>
+    <string name="todo_tomorrow_empty_hint">No open tasks due tomorrow.</string>
+    <string name="todo_done_view_empty_title">Nothing done recently</string>
+    <string name="todo_done_view_empty_hint">Tasks completed in the last %1$d days show up here.</string>
+    <string name="todo_done_window_note">Last %1$d days</string>
     <!-- Due-date group headers (Format.DueGroup) -->
     <string name="due_group_overdue">Overdue</string>
     <string name="due_group_today">Today</string>
