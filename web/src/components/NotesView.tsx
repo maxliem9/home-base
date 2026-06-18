@@ -801,10 +801,25 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                 <div className="hb-md hb-note-preview">
                   {draft.content.trim()
                     ? renderMarkdown(draft.content, {
-                        // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery
+                        // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery.
+                        // Clicking opens the lightbox (with its download button), so inline images are
+                        // downloadable under their original name too — the original name is looked up
+                        // from the gallery by id, with the markdown alt as a fallback (#346 review).
                         resolveImage: (imageId, alt) =>
                           draft.id ? (
-                            <AuthedImage url={noteImageUrl(draft.id, imageId)} token={token} alt={alt} className="hb-md-img" />
+                            <AuthedImage
+                              url={noteImageUrl(draft.id, imageId)}
+                              token={token}
+                              alt={alt}
+                              className="hb-md-img hb-md-img--zoom"
+                              onClick={() =>
+                                setLightbox({
+                                  noteId: draft.id!,
+                                  imageId,
+                                  originalName: editImages.find((im) => im.id === imageId)?.originalName || alt || '',
+                                })
+                              }
+                            />
                           ) : (
                             alt || null
                           ),
