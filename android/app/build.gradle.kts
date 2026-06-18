@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -124,4 +125,89 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// ── Randomised-order unit-test job (issue #363) ───────────────────────────────────────────────
+// `testDebugUnitTest` runs the classes in a stable, deterministic order. That hides order-dependent
+// cross-test pollution: PR #359 fixed a leak in one test that only failed a *later*, unrelated test,
+// and main went red only because a timing shift reordered them. This task reruns the SAME compiled
+// unit tests in ONE JVM but in a RANDOMISED class order (driven by `RandomOrderSuite`, which logs the
+// seed so a failure is reproducible via -Dhomebase.testOrderSeed=<n>). It is a *separate* task — the
+// normal suite stays deterministic and is never made flaky by this. CI runs it as its own job.
+//
+// Implementation: AGP owns `testDebugUnitTest`; we register a sibling Test task that reuses its
+// classpath + compiled test classes (so no recompile/second toolchain), but points the runner at the
+// single `RandomOrderSuite` entry class and forces a single fork. The suite itself walks the compiled
+// test-classes dir (handed in via `homebase.testClassesDir`) to discover every *Test class.
+androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) {
+    // Defer until AGP has registered testDebugUnitTest so we can clone its wiring.
+    afterEvaluate {
+        val unitTest = tasks.named<Test>("testDebugUnitTest").get()
+
+        // RandomOrderSuite is an *aggregator* entry point, not a normal test: run on its own it
+        // discovers and reruns every other *Test class, and it needs the homebase.testClassesDir
+        // system property the dedicated task supplies. Exclude it from the standard unit-test tasks
+        // (which would otherwise pick it up by the *Test naming convention and fail with an
+        // initializationError), so they keep running each class exactly once in their normal
+        // deterministic order. We exclude only on the AGP-owned tasks — NOT via a blanket
+        // tasks.withType<Test> — because in Gradle's TestFilter an exclude pattern beats an include
+        // for the same class, which would gut the dedicated task's lone entry point below.
+        listOf("testDebugUnitTest", "testReleaseUnitTest").forEach { name ->
+            tasks.matching { it.name == name }.configureEach {
+                (this as Test).filter {
+                    excludeTestsMatching("com.homebase.android.testutil.RandomOrderSuite")
+                }
+            }
+        }
+
+        tasks.register<Test>("testRandomOrderUnitTest") {
+            group = "verification"
+            description =
+                "Runs the debug unit tests in a single JVM in randomised class order to surface " +
+                    "order-dependent cross-test pollution (issue #363). Seed is logged for replay."
+
+            // Reuse the real unit-test task's classpath + compiled classes — identical environment,
+            // no second compile or SDK setup.
+            testClassesDirs = unitTest.testClassesDirs
+            classpath = unitTest.classpath
+            // AGP configures the unit-test JVM (bootclasspath, android resources, system properties
+            // for Robolectric, etc.) on testDebugUnitTest; carry those over so the randomised run is a
+            // faithful clone and not subtly different.
+            jvmArgs = unitTest.jvmArgs
+            systemProperties(unitTest.systemProperties)
+            unitTest.dependsOn.forEach { dependsOn(it) }
+
+            useJUnit()
+            filter {
+                // Drive ONLY the suite entry class — JUnit (not Gradle) then runs the discovered
+                // classes in the randomised order the suite computes.
+                includeTestsMatching("com.homebase.android.testutil.RandomOrderSuite")
+            }
+
+            // Single JVM is the whole point: cross-class pollution only shows when classes share a
+            // process. Never reuse a worker across "rounds" and never parallelise.
+            maxParallelForks = 1
+            forkEvery = 0
+            // Surface each class as it runs and let the suite's stdout seed line through, so a CI
+            // failure shows the order and the replay seed.
+            testLogging {
+                events("passed", "failed", "skipped")
+                showStandardStreams = true
+            }
+
+            // Tell the suite where the compiled test classes live so it can enumerate *Test classes
+            // without a classpath-scanning dependency. Allow pinning the shuffle seed for replay.
+            doFirst {
+                // testClassesDirs can hold several roots (Kotlin + Java output); hand them all over,
+                // joined with the platform path separator, for the suite to enumerate.
+                systemProperty(
+                    "homebase.testClassesDir",
+                    unitTest.testClassesDirs.files.joinToString(File.pathSeparator) { it.absolutePath },
+                )
+                (project.findProperty("testOrderSeed") as String?)?.let {
+                    systemProperty("homebase.testOrderSeed", it)
+                }
+            }
+        }
+    }
 }
