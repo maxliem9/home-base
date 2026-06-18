@@ -185,13 +185,16 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   options,
+  ariaLabel,
 }: {
   value: T
   onChange: (v: T) => void
   options: SegOption<T>[]
+  // names the tablist for assistive tech; pass one when there's no associated visible label
+  ariaLabel?: string
 }) {
   return (
-    <div className="hb-seg" role="tablist">
+    <div className="hb-seg" role="tablist" aria-label={ariaLabel}>
       {options.map((o) => (
         <button
           key={o.value}

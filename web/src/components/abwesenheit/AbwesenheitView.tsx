@@ -82,6 +82,7 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
           <SegmentedControl
             value={layout}
             onChange={setLayout}
+            ariaLabel={t('abwesenheit.layoutAria')}
             options={[
               { value: 'raster', label: t('abwesenheit.layoutYear') },
               { value: 'monat', label: t('abwesenheit.layoutMonth') },

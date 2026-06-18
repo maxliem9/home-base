@@ -297,6 +297,7 @@ export const en: Messages = {
     headerTitle: 'HomeBase — Shopping lists',
     title: 'Shopping lists',
     open: 'open', // rendered as "{n} open"
+    listsAria: 'Shopping lists', // aria-label for the list tabs (role=tablist)
     listOne: 'list',
     listMany: 'lists',
     newList: 'New list',
@@ -799,6 +800,7 @@ export const en: Messages = {
     headerTitle: 'HomeBase — Calendar',
     eyebrow: 'Family calendar',
     title: 'Calendar',
+    layoutAria: 'View', // aria-label for the year/month switcher (role=tablist)
     layoutYear: 'Year',
     layoutMonth: 'Month',
     period: 'Period',

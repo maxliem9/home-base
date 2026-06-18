@@ -413,7 +413,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       />
 
       {/* Listen-Tabs */}
-      <div className="hb-tabs" role="tablist">
+      <div className="hb-tabs" role="tablist" aria-label={t('shopping.listsAria')}>
         {lists.map((l) => (
           <button
             key={l.id}

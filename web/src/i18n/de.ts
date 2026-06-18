@@ -294,6 +294,7 @@ export const de = {
     headerTitle: 'HomeBase — Einkaufslisten',
     title: 'Einkaufslisten',
     open: 'offen', // rendered as "{n} offen"
+    listsAria: 'Einkaufslisten', // aria-label der Listen-Tabs (role=tablist)
     listOne: 'Liste',
     listMany: 'Listen',
     newList: 'Neue Liste',
@@ -797,6 +798,7 @@ export const de = {
     headerTitle: 'HomeBase — Kalender',
     eyebrow: 'Familienkalender',
     title: 'Kalender',
+    layoutAria: 'Ansicht', // aria-label des Jahr/Monat-Umschalters (role=tablist)
     layoutYear: 'Jahr',
     layoutMonth: 'Monat',
     period: 'Zeitraum',
