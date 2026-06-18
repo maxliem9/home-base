@@ -381,6 +381,11 @@ export const en: Messages = {
     selectHint: 'Pick a note on the left or create a new one.',
     newNote: 'New note',
     editNote: 'Edit note',
+    // HB-13 — preview-first inline editor
+    emptyDoc: 'Empty note — click to write',
+    outsideSaves: 'Click outside saves',
+    escCloses: 'closes',
+    metaLine: 'by {name} · edited {time}',
     // editor-mode toggle (Markdown source ↔ rendered preview)
     editSource: 'Edit',
     preview: 'Preview',
