@@ -634,7 +634,12 @@ private fun HbBottomNavItem(
 ) {
     Column(
         modifier
-            .fillMaxHeight()
+            // NB: intentionally NOT fillMaxHeight() — the bar is the Column's non-weighted child, so
+            // the outer Column measures it FIRST with the full screen height as its max. A
+            // fillMaxHeight() item would expand to that full height, making the whole bar fill the
+            // screen and collapsing the weighted content area above it to zero (the "centred bar,
+            // blank screen" bug). Wrapping content keeps the bar at heightIn(min=58dp); the Row's
+            // verticalAlignment = CenterVertically already centres the icon+label.
             .applyNoRipple(onClick)
             // a11y (#298): nav tabs expose selected-state + the tab role (web: aria-current="page");
             // the overflow entry instead advertises that it opens a sheet via the onClick label
