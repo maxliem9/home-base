@@ -572,6 +572,32 @@ test.describe('Smart views', () => {
     await expect(page.locator('.hb-row', { hasText: 'Altlast erledigt' })).toHaveCount(0)
   })
 
+  // A *configured* done window (#356/#357) drives the Erledigt view, not the hardcoded 14.
+  // s10 is completed 2026-05-20 — >14 but ≤30 days before the pinned 2026-06-10, so it is
+  // OUTSIDE the default 14-day window yet INSIDE a configured 30-day one. The mock's
+  // GET /config/done-window stub is parameterized via seedDoneWindow(30) (TodosView fetches
+  // it on mount); no per-spec route hand-rolling.
+  test('Erledigt honours a configured (non-default) done window from /config/done-window', async ({ page }) => {
+    const olderDone = todo({ id: 's10', title: 'Vor-3-Wochen erledigt', status: 'DONE', listId: 'l1', doneAt: '2026-05-20T07:00:00Z' })
+
+    // Default 14-day window: the 3-weeks-ago todo is hidden (proves the window is what drives it).
+    await openApp(page, new MockApi([...smartTodos(), olderDone], SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Erledigt' }).click()
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible() // today, in window
+    await expect(page.locator('.hb-row', { hasText: 'Vor-3-Wochen erledigt' })).toHaveCount(0) // >14 days → hidden
+
+    // Configured 30-day window: the same todo is now visible WITHOUT toggling "Alle anzeigen".
+    const mock30 = new MockApi([...smartTodos(), olderDone], SMART_LISTS).seedDoneWindow(30)
+    await openApp(page, mock30, TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Erledigt' }).click()
+    await expect(page.locator('.hb-row--done', { hasText: 'Vor-3-Wochen erledigt' })).toBeVisible() // ≤30 days → shown
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
+    // the tab COUNT still tracks "today" (s7) — the window only governs the list, not the badge
+    await expect(tabCount(page, 'Erledigt')).toHaveText('1')
+    // the window note above the list reflects the configured number, not the hardcoded 14
+    await expect(page.locator('.hb-donewindowbar')).toContainText('Letzte 30 Tage')
+  })
+
   test('Alle buckets every list\'s open todos and keeps a collapsible done section', async ({ page }) => {
     await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Alle' }).click()
