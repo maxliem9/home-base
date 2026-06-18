@@ -311,6 +311,19 @@ jobs:
         working-directory: android
         run: ./gradlew testDebugUnitTest --no-daemon
 
+      # Issue #363: rerun the SAME unit tests in a single JVM in RANDOMISED class order to surface
+      # order-dependent cross-test pollution (PR #359's leak only broke a *later*, unrelated test, so
+      # the fixed-order suite above can't catch a regression of it). RandomOrderSuite logs the seed; on
+      # a red run, replay locally with `./gradlew :app:testRandomOrderUnitTest -PtestOrderSeed=<seed>`.
+      # Kept as its own step (not folded into the run above) so a randomised-order failure is
+      # attributable and never makes the deterministic suite itself look flaky. `if: always()` runs it
+      # even when the normal suite failed, so both signals show on one run; `--rerun-tasks` defeats
+      # Gradle's up-to-date cache so a new random seed is drawn each CI run rather than reusing outputs.
+      - name: Run unit tests in randomised order (pollution guard)
+        if: always()
+        working-directory: android
+        run: ./gradlew :app:testRandomOrderUnitTest --no-daemon --rerun-tasks
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v7
