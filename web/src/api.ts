@@ -88,3 +88,36 @@ export function noteImageUrl(noteId: string, imageId: string) {
 export function recipeImageUrl(recipeId: string, imageId: string) {
   return `${API_BASE}/recipes/${recipeId}/images/${imageId}`
 }
+
+// Download a protected image (note/recipe gallery) under its original upload name. Galleries
+// render images from in-memory blob URLs (<AuthedImage> keeps the JWT out of the src), so the
+// browser's native "Save image as…" can't see the server's Content-Disposition filename and
+// falls back to a generic name. This re-fetches the bytes with auth (responses are cached
+// immutable, so it's cheap) and triggers a download under the real name. The filename prefers
+// the caller's originalName — the clean, canonical value we already hold — over re-parsing the
+// Content-Disposition header (redundant, and quoting/encoding can vary). The header's filename
+// is kept only as a backstop for the server's "bild.<ext>" fallback when the original name was
+// blank, then a generic last resort. Returns an outcome so the caller drives logout / its UI.
+export async function downloadImage(
+  token: string,
+  url: string,
+  originalName: string,
+): Promise<'ok' | 'unauthorized' | 'error'> {
+  const result = await safeFetch(token, url)
+  if (!result.ok) return 'error'
+  const { res } = result
+  if (res.status === 401) return 'unauthorized'
+  if (!res.ok) return 'error'
+  const blob = await res.blob()
+  const headerName = res.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1]
+  const filename = originalName.trim() || headerName || 'bild'
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+  return 'ok'
+}
