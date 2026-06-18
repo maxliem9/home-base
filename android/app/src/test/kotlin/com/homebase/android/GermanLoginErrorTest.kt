@@ -15,8 +15,10 @@ import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.nio.file.Files
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -54,6 +56,15 @@ class GermanLoginErrorTest {
 
     private val prefs = mockk<SharedPreferences>(relaxed = true)
 
+    // AuthRepository.init fires a fire-and-forget `scope.launch(Dispatchers.IO){…}` (token restore)
+    // that can still be running when @After unmocks the keystore (mockkStatic/mockkConstructor) below.
+    // It would then hit the REAL EncryptedSharedPreferences/Keystore and throw; with a bare Job() and
+    // no handler that uncaught exception leaks into kotlinx-coroutines-test's global capture and gets
+    // reported by the *next* runTest (e.g. LogoutTeardownTest) as UncaughtExceptionsBeforeTest. A
+    // SupervisorJob + swallowing CoroutineExceptionHandler contains it; @After cancels it before the
+    // mocks come down so it usually never runs at all.
+    private val repoScope = CoroutineScope(SupervisorJob() + CoroutineExceptionHandler { _, _ -> })
+
     @Before
     fun mockKeystore() {
         // AuthRepository.init does `prefs.getString(KEY_TOKEN, null)` on Dispatchers.IO; without a
@@ -77,7 +88,12 @@ class GermanLoginErrorTest {
     }
 
     @After
-    fun unmock() = unmockkAll()
+    fun unmock() {
+        // Cancel the fire-and-forget init coroutine BEFORE removing the keystore mocks, so it cannot
+        // hit the real Keystore and leak an uncaught exception into the next test.
+        repoScope.cancel()
+        unmockkAll()
+    }
 
     /** A failed login response carrying the given HTTP status (body shape is irrelevant here). */
     private fun httpException(status: Int): HttpException = HttpException(
@@ -91,9 +107,10 @@ class GermanLoginErrorTest {
         // returns null for filesDir → NPE in the File ctor. Point it at a real temp dir (the legacy
         // file won't exist, so the cleanup is a harmless no-op).
         every { context.filesDir } returns Files.createTempDirectory("homebase-test").toFile()
-        // A scope with a bare Job (not the test scheduler): the constructor's fire-and-forget
-        // `scope.launch(Dispatchers.IO)` stays out of the way of the login assertion under runTest.
-        return AuthRepository(context, api, scope = CoroutineScope(Job()))
+        // A shared scope (not the test scheduler) with a swallowing exception handler so the
+        // constructor's fire-and-forget `scope.launch(Dispatchers.IO)` stays out of the way of the
+        // login assertion under runTest and can never leak past @After's unmockkAll() (see repoScope).
+        return AuthRepository(context, api, scope = repoScope)
     }
 
     /** Drives `AuthRepository.login()` against an api that fails with [status]. */
