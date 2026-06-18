@@ -579,29 +579,41 @@ class NotesViewModel(
                     val saved = result.getOrNull()
                     if (saved != null) {
                         upsert(saved)
-                        // If the editor is still on THIS queued note, reflect that the write landed.
+                        // Did the user type something newer than what this flush just re-sent? Compare
+                        // the open draft to the exact body we delivered. If it still matches (no newer
+                        // keystroke) the editor is in sync → refresh the dirty baseline + mark SAVED;
+                        // otherwise leave the status to the live save loop, which persists the newer
+                        // text. Mirrors the web flushPendingNotes — without refreshing savedSnapshot the
+                        // editor's PENDING chip would stay stuck after a queue-driven sync of an
+                        // existing note (the old isDirty check compared against the pre-edit baseline,
+                        // so it was always "dirty" and never cleared). #323/#367.
+                        val sentSnapshot = EditorSnapshot.of(pending.title, pending.content, pending.tags, pending.folder, pending.visibility)
+                        val current = _editorState.value
+                        val draftMatchesSent = current != null &&
+                            ((isCreate && current.noteId == null) || (!isCreate && current.noteId == saved.id)) &&
+                            EditorSnapshot.of(current.title, current.content, current.tags, current.folder, current.visibility) == sentSnapshot
+                        // If the editor is still on THIS queued note, reflect that the write landed (and,
+                        // for a create, capture the new id so later saves PUT it — mirrors saveOnce).
                         _editorState.update { st ->
                             when {
                                 st == null -> st
-                                // create: the open draft is still the not-yet-created one → capture the
-                                // new id so later saves PUT it (mirrors saveOnce), and mark saved if no
-                                // newer edit is pending (otherwise the live loop will re-save).
                                 isCreate && st.noteId == null -> st.copy(
                                     noteId = saved.id,
                                     images = saved.images,
-                                    status = if (isDirty(st)) SaveStatus.SAVING else SaveStatus.SAVED,
+                                    status = if (draftMatchesSent) SaveStatus.SAVED else SaveStatus.SAVING,
                                 )
                                 !isCreate && st.noteId == saved.id -> st.copy(
                                     images = saved.images,
-                                    status = if (isDirty(st)) st.status else SaveStatus.SAVED,
+                                    status = if (draftMatchesSent) SaveStatus.SAVED else st.status,
                                 )
                                 else -> st
                             }
                         }
-                        // For a create, the snapshot baseline becomes what we just sent so the editor's
-                        // dirty check is correct against the now-saved note.
-                        if (isCreate && _editorState.value?.noteId == saved.id) {
-                            savedSnapshot = EditorSnapshot.of(pending.title, pending.content, pending.tags, pending.folder, pending.visibility)
+                        // Refresh the dirty baseline to exactly what we sent — but only when the open
+                        // draft still equals it (no newer keystroke) — so the editor's isDirty check is
+                        // correct against the now-saved note (create AND update; #367).
+                        if (draftMatchesSent) {
+                            savedSnapshot = sentSnapshot
                         }
                         dequeueIfUnchanged(key, pending)
                     } else {
