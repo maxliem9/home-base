@@ -14,6 +14,19 @@ async function openNotes(page: Page, mock: MockApi) {
   await expect(page.getByRole('heading', { name: 'Notizen' })).toBeVisible()
 }
 
+// HB-13: clicking a note rests it in the rendered PREVIEW (read state) — the document title is a
+// heading, not an input. Clicking the body morphs the document into the inline editor in place
+// (the Markdown source textarea), so the image/paste tests open it via `editNote`.
+async function openNote(page: Page, titleRe: RegExp) {
+  await page.getByRole('button', { name: titleRe }).click()
+  await expect(page.locator('.hb-note-doc__title')).toBeVisible()
+}
+async function editNote(page: Page, titleRe: RegExp) {
+  await openNote(page, titleRe)
+  await page.locator('.hb-note-doc__body').click()
+  await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+}
+
 const WLAN = note({
   id: 'n1',
   title: 'WLAN Passwort',
@@ -28,17 +41,38 @@ test.describe('Notes', () => {
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
   })
 
-  test('clicking a note opens the editor directly (not a read-only view)', async ({ page }) => {
+  // HB-13: a selected note rests in the rendered preview (no textarea); clicking the body opens
+  // the inline editor in place (accent ring), pre-filled with the Markdown source.
+  test('clicking a note shows the preview; clicking the body opens the inline editor', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
 
-    // #310: a click opens the editor in place — the Markdown source textarea is shown,
-    // pre-filled with the note's content (no intermediate read-only step / pencil button).
     await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+    // preview: rendered markdown, the title is a heading, no source textarea yet
+    await expect(page.locator('.hb-note-doc__title')).toHaveText('WLAN Passwort')
+    await expect(page.locator('.hb-note-doc__body')).toContainText('Router: abc123')
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveCount(0)
 
-    // the Edit/Preview toggle flips to the rendered markdown (keeps the read capability)
-    await page.getByRole('tab', { name: 'Vorschau' }).click()
-    await expect(page.locator('.hb-note-preview')).toContainText('Router: abc123')
+    // clicking the body switches THIS document into edit mode in place
+    await page.locator('.hb-note-doc__body').click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('Router: **abc123**')
+    await expect(page.locator('.hb-note-doc.is-editing')).toBeVisible()
+  })
+
+  // A brand-new note skips the preview and opens straight in the editor, focused in the title.
+  test('a new note opens straight in the editor focused in the title', async ({ page }) => {
+    await openNotes(page, new MockApi())
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
+    await expect(page.locator('.hb-note-doc.is-editing')).toBeVisible()
+    await expect(page.getByPlaceholder('Titel…')).toBeFocused()
+  })
+
+  // An empty note's preview is a clickable placeholder that opens the editor.
+  test('empty note shows a clickable placeholder that opens the editor', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([note({ id: 'n1', title: 'Leer', content: '' })]))
+    await page.getByRole('button', { name: /Leer/ }).click()
+    await expect(page.locator('.hb-note-doc__empty')).toHaveText('Leere Notiz — klicke, um zu schreiben')
+    await page.locator('.hb-note-doc__empty').click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
   })
 
   test('searches notes by query', async ({ page }) => {
@@ -79,6 +113,7 @@ test.describe('Notes', () => {
       else if (/\/notes\/[^/]+$/.test(p) && r.method() === 'PUT') puts.push(p)
     })
 
+    // a new note opens directly in the editor (HB-13) — title + source textarea are right there
     await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
     await page.getByPlaceholder('Titel…').fill('Einkaufsidee')
     await page.getByPlaceholder('Inhalt (Markdown)…').fill('Test Inhalt')
@@ -101,8 +136,8 @@ test.describe('Notes', () => {
 
   test('editing a note auto-saves via PUT after the debounce, showing "Gespeichert"', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    // clicking opens the editor straight away (#310)
-    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    // open → preview, then click the body to edit in place (#310/HB-13)
+    await editNote(page, /WLAN Passwort/)
     await expect(page.getByPlaceholder('Titel…')).toHaveValue('WLAN Passwort')
 
     // #309: editing the content fires exactly one auto-save PUT carrying the new content,
@@ -119,6 +154,37 @@ test.describe('Notes', () => {
     await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('Router: xyz789')
   })
 
+  // HB-13: Esc saves the in-flight edit and returns the document to the rendered preview.
+  test('Esc saves the edit and returns to the preview', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await editNote(page, /WLAN Passwort/)
+
+    const put = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **changed**')
+    await put
+    await page.keyboard.press('Escape')
+
+    // back to preview: the textarea is gone and the rendered body shows the saved content
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveCount(0)
+    await expect(page.locator('.hb-note-doc__body')).toContainText('Router: changed')
+    await expect(page.locator('.hb-note-doc.is-editing')).toHaveCount(0)
+  })
+
+  // HB-13: a click outside the document saves and returns to the preview.
+  test('clicking outside the document saves and returns to the preview', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await editNote(page, /WLAN Passwort/)
+
+    const put = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **outside**')
+    // click the search box (outside the note document) → save + back to preview
+    await page.getByPlaceholder('Suchen …').click()
+    await put
+
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveCount(0)
+    await expect(page.locator('.hb-note-doc__body')).toContainText('Router: outside')
+  })
+
   // #309 regression: a keystroke typed WHILE a save is in flight must still be persisted, and
   // the status must not lie. The first auto-save PUT is artificially delayed; during that window
   // a SECOND edit is typed. The in-flight save's tail must re-fire so the FINAL PUT carries the
@@ -126,7 +192,7 @@ test.describe('Notes', () => {
   // the first PUT, whose body is already stale).
   test('persists an edit typed while a save is in flight, and "Gespeichert" only after it lands', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     // Delay every PUT to n1 by ~1.5s, then let the mock handle it. This holds the first save
     // open long enough to type a second change before it resolves.
@@ -177,20 +243,20 @@ test.describe('Notes', () => {
       const p = new URL(r.url()).pathname
       if (/\/notes\/n1$/.test(p) && r.method() === 'PUT') puts++
     })
-    // open + just toggle the Preview tab back and forth — no field edits → no PUT (#309 dirty flag)
+    // open (preview) → enter edit → leave via Esc without changing a field → no PUT (#309 dirty flag)
     await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-    await page.getByRole('tab', { name: 'Vorschau' }).click()
-    await page.getByRole('tab', { name: 'Bearbeiten' }).click()
+    await page.locator('.hb-note-doc__body').click()
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
+    await page.keyboard.press('Escape')
     // give the debounce window a chance to (wrongly) fire
     await page.waitForTimeout(1200)
     expect(puts).toBe(0)
   })
 
-  test('deletes a note from the editor header', async ({ page }) => {
+  test('deletes a note from the document header', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-
-    // delete is the trash action in the editor header now (no separate read view)
+    // the trash action sits in the document header in BOTH preview and edit (no separate view)
+    await openNote(page, /WLAN Passwort/)
     await page.getByRole('button', { name: 'Löschen' }).click()
 
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
@@ -198,7 +264,8 @@ test.describe('Notes', () => {
 
   // The note-image gallery loads each thumbnail through authFetch (Authorization
   // header) → res.blob() → URL.createObjectURL(), so the JWT never rides in the
-  // image URL. These cover that <AuthedImage> path end-to-end (issue #10).
+  // image URL. These cover that <AuthedImage> path end-to-end (issue #10). The gallery
+  // lives in edit mode (HB-13), so each opens the document and enters the editor first.
   const PHOTOS = note({
     id: 'n1',
     title: 'Urlaubsfotos',
@@ -209,7 +276,7 @@ test.describe('Notes', () => {
     await openNotes(page, new MockApi().seedNotes([PHOTOS]))
 
     const imageRequest = page.waitForRequest((r) => r.url().includes('/notes/n1/images/img1'))
-    await page.getByRole('button', { name: /Urlaubsfotos/ }).click()
+    await editNote(page, /Urlaubsfotos/)
 
     // AuthedImage resolves the blob and renders <img src="blob:…">
     await expect(page.locator('.hb-note-thumb img')).toHaveAttribute('src', /^blob:/)
@@ -223,7 +290,7 @@ test.describe('Notes', () => {
 
   test('opens the lightbox when a note image is clicked', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([PHOTOS]))
-    await page.getByRole('button', { name: /Urlaubsfotos/ }).click()
+    await editNote(page, /Urlaubsfotos/)
 
     const thumb = page.locator('.hb-note-thumb img')
     await expect(thumb).toHaveAttribute('src', /^blob:/)
@@ -234,17 +301,18 @@ test.describe('Notes', () => {
     await expect(lightbox).toBeVisible()
     await expect(lightbox.locator('img')).toHaveAttribute('src', /^blob:/)
 
-    // clicking the backdrop (not the centered image) closes it
+    // clicking the backdrop (not the centered image) closes it — and does NOT kick us out of edit
     await lightbox.click({ position: { x: 5, y: 5 } })
     await expect(lightbox).toHaveCount(0)
+    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
   })
 
-  // ---- Read-view gallery: multi-select upload (#266) ----
+  // ---- Gallery: multi-select upload (#266) ----
   // The "Bild hinzufügen" button opens a hidden <input multiple>; selecting several files
   // uploads them one after another (one POST each) and the gallery shows all thumbnails.
   test('uploads multiple selected files at once and shows every thumbnail', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    await editNote(page, /WLAN Passwort/)
 
     const uploads: string[] = []
     page.on('request', (r) => {
@@ -269,7 +337,7 @@ test.describe('Notes', () => {
     // first upload fails (415), the remaining two succeed → "1 Bild(er) …" is NOT used
     // for a single failure; here exactly one fails so the generic single-fail text shows.
     await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
-    await page.getByRole('button', { name: /WLAN Passwort/ }).click()
+    await editNote(page, /WLAN Passwort/)
 
     await page.locator('input[type="file"]').setInputFiles([
       { name: 'bad.tiff', mimeType: 'image/tiff', buffer: Buffer.from([1, 2, 3]) },
@@ -301,8 +369,11 @@ test.describe('Notes', () => {
     mime = 'image/png',
   ) =>
     page.evaluate(
-      ({ kind, filename, caret, mime }) => {
+      async ({ kind, filename, caret, mime }) => {
         const ta = document.querySelector('textarea.hb-mono-area') as HTMLTextAreaElement
+        // entering edit focuses the textarea with the caret at the end via rAF (HB-13). Let that
+        // settle first so the explicit test caret below is the last write, not clobbered by it.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
         ta.focus()
         ta.setSelectionRange(caret, caret)
         const dt = new DataTransfer()
@@ -337,16 +408,9 @@ test.describe('Notes', () => {
       { kind, payload },
     )
 
-  // Clicking a note now opens the editor directly (#310) — no intermediate read view /
-  // "Bearbeiten" button. The Markdown source textarea is the default (edit) mode.
-  const openEditorFor = async (page: Page, titleRe: RegExp) => {
-    await page.getByRole('button', { name: titleRe }).click()
-    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
-  }
-
   test('pastes an image into the editor → uploads and inserts a markdown ref', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
     await fireEditorImageEvent(page, 'paste', 'pasted.png', 0)
@@ -359,7 +423,7 @@ test.describe('Notes', () => {
 
   test('drops an image onto the editor → uploads and inserts a markdown ref', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
     // drop at the end of the existing content
@@ -372,7 +436,7 @@ test.describe('Notes', () => {
 
   test('surfaces a 415 upload error in the editor (German text, no insert)', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     await fireEditorImageEvent(page, 'paste', 'weird.tiff', 0)
 
@@ -387,7 +451,7 @@ test.describe('Notes', () => {
   // empty-type .png still uploads and inserts, on both the paste and the drop path.
   test('empty-MIME image (extension fallback) still uploads + inserts on paste', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
     await fireEditorImageEvent(page, 'paste', 'safari-screenshot.png', 0, '') // empty type
@@ -399,7 +463,7 @@ test.describe('Notes', () => {
 
   test('empty-MIME image (extension fallback) still uploads + inserts on drop', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
     await fireEditorImageEvent(page, 'drop', 'dragged.gif', 'Router: **abc123**'.length, '') // empty type
@@ -413,7 +477,7 @@ test.describe('Notes', () => {
   // an empty-type .txt is left to the browser (no preventDefault, no upload).
   test('empty-MIME non-image file (.txt) is NOT treated as an image on drop', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     let uploaded = false
     page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
@@ -432,7 +496,7 @@ test.describe('Notes', () => {
   test('keeps edits typed WHILE the upload is in flight (no stale-draft clobber)', async ({ page }) => {
     const mock = new MockApi().seedNotes([WLAN]).holdNextImageUpload()
     await openNotes(page, mock)
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     const ta = page.getByPlaceholder('Inhalt (Markdown)…')
     // paste an image at the very start; the upload is held open by the mock
@@ -459,6 +523,7 @@ test.describe('Notes', () => {
     await openNotes(page, new MockApi())
     // With no notes, the empty state also renders a "Neue Notiz" action (#228); scope the click
     // to the page header so the locator stays unambiguous (the empty-state button does the same).
+    // A new note opens directly in the editor (HB-13), so the source textarea is right there.
     await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
 
@@ -475,7 +540,7 @@ test.describe('Notes', () => {
   // textarea would break. Guards the "preventDefault only when we actually take an image".
   test('plain-text paste passes through (no upload, not preventDefault\'d)', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
-    await openEditorFor(page, /WLAN Passwort/)
+    await editNote(page, /WLAN Passwort/)
 
     let uploaded = false
     page.on('request', (r) => { if (r.url().includes('/images') && r.method() === 'POST') uploaded = true })
@@ -501,7 +566,7 @@ test.describe('Notes', () => {
       images: [noteImage({ id: 'img1', noteId: 'n1', originalName: 'Screenshot (1)].png' })],
     })
     await openNotes(page, new MockApi().seedNotes([note1]))
-    await openEditorFor(page, /Fotos/)
+    await editNote(page, /Fotos/)
 
     // click the "insert at cursor" thumbnail in the editor strip
     await page.locator('.hb-note-insert-thumb').first().click()
@@ -517,14 +582,14 @@ test.describe('Notes', () => {
     const B = note({ id: 'n2', title: 'Notiz B', content: 'BBB' })
     const mock = new MockApi().seedNotes([A, B]).holdNextImageUpload()
     await openNotes(page, mock)
-    await openEditorFor(page, /Notiz A/)
+    await editNote(page, /Notiz A/)
 
     const upload = page.waitForRequest((r) => r.url().includes('/notes/n1/images') && r.method() === 'POST')
     await fireEditorImageEvent(page, 'paste', 'switch.png', 0)
     await upload // pending in the mock
 
     // switch to editing note B while A's upload is still open
-    await openEditorFor(page, /Notiz B/)
+    await editNote(page, /Notiz B/)
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
 
     // release A's upload → the guard skips the insert; B stays untouched
@@ -533,8 +598,8 @@ test.describe('Notes', () => {
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
 
     // and A really did receive the image (ref insert skipped, upload succeeded). Switching
-    // back to A opens its editor directly; the gallery shows the uploaded attachment.
-    await page.getByRole('button', { name: /Notiz A/ }).click()
+    // back to A and entering the editor shows the uploaded attachment in the gallery.
+    await editNote(page, /Notiz A/)
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('AAA')
     await expect(page.locator('.hb-note-thumb img')).toHaveCount(1)
   })
@@ -615,8 +680,8 @@ test.describe('Notes', () => {
   })
 
   // ---- Mobile collapse + back control (#313) ----
-  // At ≤860px the list and editor are one-pane-at-a-time: browsing shows the list, opening a
-  // note collapses the list to show the full-width editor, and a back control returns to it.
+  // At ≤860px the list and document are one-pane-at-a-time: browsing shows the list, opening a
+  // note collapses the list to show the full-width document, and a back control returns to it.
   test('mobile: opening a note collapses the list; back restores it', async ({ page }) => {
     // navigate via the desktop nav first, then shrink to the mobile breakpoint
     await openNotes(page, new MockApi().seedNotes([WLAN]))
@@ -625,19 +690,19 @@ test.describe('Notes', () => {
     const list = page.locator('.hb-notes-list')
     await expect(list).toBeVisible()
 
-    // open the note → list collapses, full-width editor + mobile back bar appear
+    // open the note → list collapses, full-width document (preview) + mobile back bar appear
     await page.getByRole('button', { name: /WLAN Passwort/ }).click()
-    await expect(page.getByPlaceholder('Titel…')).toBeVisible()
+    await expect(page.locator('.hb-note-doc__title')).toHaveText('WLAN Passwort')
     await expect(list).toBeHidden()
     // the mobile back control (scoped to the editor bar to avoid the nav's "Notizen" tab)
     const back = page.locator('.hb-note-back')
     await expect(back).toBeVisible()
     await expect(back).toHaveText('Notizen')
 
-    // back → editor closes, list returns
+    // back → document closes, list returns
     await back.click()
     await expect(list).toBeVisible()
-    await expect(page.getByPlaceholder('Titel…')).toHaveCount(0)
+    await expect(page.locator('.hb-note-doc')).toHaveCount(0)
   })
 
   test('mobile: the note switcher slide-over jumps to another note', async ({ page }) => {
@@ -648,7 +713,7 @@ test.describe('Notes', () => {
     await page.setViewportSize({ width: 600, height: 900 })
 
     await page.getByRole('button', { name: /Erste Notiz/ }).click()
-    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('AAA')
+    await expect(page.locator('.hb-note-doc__body')).toContainText('AAA')
 
     // open the switcher slide-over and pick the other note (no "back" needed)
     await page.getByRole('button', { name: 'Notiz wechseln' }).click()
@@ -656,8 +721,8 @@ test.describe('Notes', () => {
     await expect(sheet).toBeVisible()
     await sheet.getByRole('button', { name: /Zweite Notiz/ }).click()
 
-    // the editor now shows the second note; the sheet has closed
-    await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('BBB')
+    // the document now shows the second note; the sheet has closed
+    await expect(page.locator('.hb-note-doc__body')).toContainText('BBB')
     await expect(sheet).toHaveCount(0)
   })
 })

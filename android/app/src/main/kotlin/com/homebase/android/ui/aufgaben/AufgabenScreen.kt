@@ -238,7 +238,7 @@ fun AufgabenScreen(
                         if (state.doneShowAll) {
                             stringResource(R.string.todo_done_view_empty_all_hint)
                         } else {
-                            stringResource(R.string.todo_done_view_empty_hint, DONE_WINDOW_DAYS)
+                            stringResource(R.string.todo_done_view_empty_hint, state.doneWindowDays)
                         },
                     )
                     // even with nothing in the window, let the user flip to/from the full history

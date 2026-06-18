@@ -42,6 +42,20 @@ const DONE_ID = '__done__'
 const SMART_IDS = [ALL_ID, TODAY_ID, TOMORROW_ID, DONE_ID]
 const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id && SMART_IDS.includes(id))
 
+// Persist the last-active tab so re-entering the view lands where the user left
+// off, aligning Web with Android (which keeps a long-lived ViewModel) — issue
+// #339. Browser-scoped like the other localStorage keys (notes collapsed folders,
+// shopping pending queue); a stored real-list UUID is validated against the
+// current lists on load and falls back to the default if that list is gone.
+const ACTIVE_TAB_KEY = 'homebase_todos_active_tab'
+function loadActiveTab(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_TAB_KEY)
+  } catch {
+    return null // private-mode / unavailable storage → no remembered tab
+  }
+}
+
 // Done todos in the cross-list smart-views (the "Alle" done-section and the
 // "Erledigt" tab) are limited to the last N calendar days so the section can't
 // grow unbounded across the whole history (#263). One shared window for both:
@@ -125,7 +139,11 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const [todos, setTodos] = useState<Todo[]>([])
   const [lists, setLists] = useState<TodoList[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeId, setActiveId] = useState<string | null>(initialFocus ? FOCUS_TO_ID[initialFocus] : null)
+  // Tab precedence on mount: an explicit dashboard deep-link wins; otherwise
+  // restore the last-active tab from localStorage (#339); otherwise the
+  // post-lists-load effect picks the default. A restored real-list UUID is
+  // validated there once the lists arrive (stale id → default).
+  const [activeId, setActiveId] = useState<string | null>(initialFocus ? FOCUS_TO_ID[initialFocus] : loadActiveTab())
   const [newTitle, setNewTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
@@ -208,7 +226,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // all (quick-add still works there, so list-less inbox todos stay reachable
   // on a fresh household — #69). An explicitly chosen Inbox tab is never
   // overridden. Gated on `loading` so the initial empty `lists` state doesn't
-  // park the view on the Inbox before the first fetch lands.
+  // park the view on the Inbox before the first fetch lands. This also validates
+  // a restored tab (#339): a virtual sentinel passes the guard, but a stored
+  // real-list UUID whose list no longer exists falls through to the default.
   useEffect(() => {
     if (loading || isVirtualTab(activeId)) return
     if (lists.length === 0) {
@@ -223,6 +243,18 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   useEffect(() => {
     if (initialFocus) setActiveId(FOCUS_TO_ID[initialFocus])
   }, [initialFocus])
+
+  // Remember the last-active tab across re-entry/reload (#339). Persisted only
+  // after the default is resolved (skip the initial null) so we never store a
+  // transient empty value over a good remembered tab.
+  useEffect(() => {
+    if (activeId === null) return
+    try {
+      localStorage.setItem(ACTIVE_TAB_KEY, activeId)
+    } catch {
+      /* quota / private mode — remembering is best-effort, the session still works */
+    }
+  }, [activeId])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {

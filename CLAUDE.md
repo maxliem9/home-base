@@ -247,10 +247,15 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
     ist umgesetzt (#187).
     Für Confirms gibt es das Primitive `<ConfirmDialog>` (primitives.tsx, #125/#129) —
     Cross-Person-Aktionen der Zeiterfassung (Partner-Timer, Partner-Einträge) laufen darüber.
-- Notizen-View (`components/NotesView.tsx`, #309–#313): Ein Klick auf eine Notiz öffnet **direkt
-  den Editor** (kein separater Lese-Schritt); ein Edit/Vorschau-Umschalter im Editor zeigt
-  wahlweise den Markdown-Quelltext oder die gerenderte Vorschau (Bild-Galerie/Insert-Strip
-  bleiben erhalten). Es gibt **keinen Speichern-Button** mehr: Änderungen **auto-speichern**
+- Notizen-View (`components/NotesView.tsx`, #309–#313/HB-13): Eine ausgewählte Notiz **ruht in der
+  gerenderten Vorschau** (Lesen); ein Klick auf **Titel oder Textkörper** verwandelt genau diesen
+  Bereich **in place** in den Editor (kein Dialog, kein Seitenwechsel; Fokus ins geklickte Feld).
+  **Esc oder ein Klick außerhalb** des Dokuments speichert und kehrt zur Vorschau zurück; eine neue
+  Notiz öffnet direkt im Edit (Fokus Titel), eine leere Notiz zeigt einen klickbaren Platzhalter.
+  Der frühere Edit/Vorschau-Umschalter entfällt (Klicken = Bearbeiten; kehrt #310s Edit-first-Default
+  bewusst um). Im Editmodus trägt das Dokument einen Akzent-Rahmen, die auto-wachsende Markdown-
+  Textarea scrollt nicht intern; die Bild-Galerie/-Verwaltung lebt im Editmodus (Vorschau rendert
+  eingebettete Bilder inline). Es gibt **keinen Speichern-Button** mehr: Änderungen **auto-speichern**
   debounced (~900 ms nach der letzten Eingabe, sofort bei Blur/Notizwechsel/Schließen/Unmount)
   per bestehendem PUT bzw. POST, mit Status-Indikator (Speichert…/Gespeichert/Fehler). Hazards:
   neue Notiz wird erst bei nicht-leerem Titel angelegt, die zurückgegebene id wandert in den
@@ -278,6 +283,11 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   listen-loser Todos eine Listen-Auswahl. Das frühere Catch-all-Verhalten des
   ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
 - Kein Hilt für MVP — manuelle DI reicht
+- **Compose-Layout-Falle (CI-Guard, #348):** In `Column { Box(weight=1f){…}; <bar> }` misst Compose
+  das nicht-gewichtete Kind zuerst mit voller Höhe — nutzt es `fillMaxHeight()`/`fillMaxSize()`,
+  frisst es die Höhe und das `weight(1f)`-Geschwister kollabiert auf 0dp (war der #347-Bottom-Nav-Bug).
+  `scripts/check-compose-layout.sh` (im Android-CI-Job) flaggt genau diese Geschwister-Konstellation;
+  Absicht (Overlay-Drawer/Sheet etc.) mit `// layout-guard:allow` auf der fillMax-Zeile ausnehmen.
 
 ## Datenbank
 - PostgreSQL 16 als Docker Container

@@ -284,6 +284,15 @@ class NotesViewModel(
         }
     }
 
+    /**
+     * Persist the current draft now WITHOUT leaving the editor — called when returning from the
+     * inline edit mode back to the rendered preview (HB-13), so the edit is saved even if the
+     * debounce hasn't fired yet. Mirrors the web client's exit-edit commit.
+     */
+    fun commitEditor() {
+        viewModelScope.launch { flushEditorSave() }
+    }
+
     /** Close the editor, flushing a final save first (back press). */
     fun closeEditor() {
         viewModelScope.launch {

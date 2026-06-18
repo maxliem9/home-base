@@ -382,9 +382,11 @@ export const de = {
     selectHint: 'Wähle links eine Notiz oder erstelle eine neue.',
     newNote: 'Neue Notiz',
     editNote: 'Notiz bearbeiten',
-    // editor-mode toggle (Markdown-Quelltext ↔ gerenderte Vorschau)
-    editSource: 'Bearbeiten',
-    preview: 'Vorschau',
+    // HB-13 — preview-first inline editor
+    emptyDoc: 'Leere Notiz — klicke, um zu schreiben',
+    outsideSaves: 'Klick außerhalb speichert',
+    escCloses: 'schließt',
+    metaLine: 'von {name} · bearbeitet {time}',
     // auto-save status indicator (replaces the manual save button)
     saving: 'Speichert…',
     saved: 'Gespeichert',

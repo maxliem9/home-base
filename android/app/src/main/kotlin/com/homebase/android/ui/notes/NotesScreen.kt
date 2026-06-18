@@ -50,6 +50,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -79,6 +81,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
@@ -174,6 +177,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             onFolderChange = { viewModel.updateEditor(folder = it) },
             onVisibilityChange = { viewModel.updateEditor(visibility = it) },
             onBack = { viewModel.closeEditor() },
+            onCommit = { viewModel.commitEditor() },
             onSwitchNote = { viewModel.switchEditorTo(it) },
             onAddImages = { items -> openEditor.noteId?.let { viewModel.uploadImages(it, items) } },
             onRemoveImage = { imageId -> openEditor.noteId?.let { viewModel.removeImage(it, imageId) } },
@@ -514,6 +518,7 @@ private fun NoteEditor(
     onFolderChange: (String) -> Unit,
     onVisibilityChange: (String) -> Unit,
     onBack: () -> Unit,
+    onCommit: () -> Unit,
     onSwitchNote: (NoteDto) -> Unit,
     onAddImages: (items: List<NoteImageUpload>) -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
@@ -521,13 +526,42 @@ private fun NoteEditor(
 ) {
     val context = LocalContext.current
     var switcherOpen by remember { mutableStateOf(false) }
-    var preview by remember { mutableStateOf(false) }
+    // HB-13: a selected note rests in the rendered preview; tapping the title/body switches into
+    // the editor in place. A brand-new note (no id yet) opens straight in edit. Reseeds per editor
+    // session (note switch) but survives the null→id transition while creating (see session docs).
+    var editing by remember(editor.session) { mutableStateOf(editor.noteId == null) }
+    // which field to focus on entering edit: title for a new note / a title tap, content otherwise
+    var focusContent by remember(editor.session) { mutableStateOf(false) }
     var lightbox by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    // Back closes the switcher first, then the editor (which flushes a final save).
-    BackHandler(enabled = switcherOpen) { switcherOpen = false }
-    BackHandler(enabled = !switcherOpen, onBack = onBack)
+    val titleFocus = remember { FocusRequester() }
+    val contentFocus = remember { FocusRequester() }
+    // Focus the chosen field once the editor form is composed (new note → title; tap → that field).
+    LaunchedEffect(editing, focusContent, editor.session) {
+        if (editing) {
+            delay(60) // let the field attach before requesting focus
+            runCatching { (if (focusContent) contentFocus else titleFocus).requestFocus() }
+        }
+    }
+
+    // Leave the current layer: switcher → preview → list. From edit, save and drop to preview; a
+    // never-touched brand-new note is discarded straight to the list (mirrors the web exit-edit).
+    fun leave() {
+        when {
+            switcherOpen -> switcherOpen = false
+            editing -> {
+                if (editor.noteId == null && editor.title.isBlank() && editor.content.isBlank()) {
+                    onBack()
+                } else {
+                    onCommit()
+                    editing = false
+                }
+            }
+            else -> onBack()
+        }
+    }
+    BackHandler(enabled = true) { leave() }
 
     // Caret-bearing content field. Keyed on the editor *session* (not the note id) so it reseeds on a
     // note switch but survives the null→id transition while typing a brand-new note (#309). The text
@@ -570,13 +604,22 @@ private fun NoteEditor(
         HbScreenScaffold(
             appBar = {
                 HbAppBar(
-                    title = if (editor.noteId == null) stringResource(R.string.notes_new_title) else stringResource(R.string.notes_edit_title),
+                    title = when {
+                        editor.noteId == null -> stringResource(R.string.notes_new_title)
+                        editing -> stringResource(R.string.notes_edit_title)
+                        else -> editor.title.ifBlank { stringResource(R.string.notes_untitled) }
+                    },
                     titleSm = true,
                     bordered = true,
                     leftIcon = HbIcons.chevronLeft,
-                    onLeft = onBack,
+                    onLeft = { leave() },
                     actions = {
-                        SaveStatusIndicator(editor.status)
+                        // edit: live save-status; preview: a pencil to enter the editor (focus body)
+                        if (editing) {
+                            SaveStatusIndicator(editor.status)
+                        } else {
+                            HbIconButton(HbIcons.edit, { focusContent = true; editing = true })
+                        }
                         // Note-switcher (#313): a left slide-over listing all notes to jump to.
                         HbIconButton(HbIcons.list, { switcherOpen = true })
                         HbIconButton(HbIcons.trash, { confirmDelete = true }, tint = Hb.danger)
@@ -585,22 +628,16 @@ private fun NoteEditor(
             },
         ) {
             Column(Modifier.padding(horizontal = 18.dp)) {
-                // Edit / Vorschau toggle — the rendered markdown + inline images live in the preview.
-                HbSegmented(
-                    options = listOf(stringResource(R.string.notes_tab_edit), stringResource(R.string.notes_tab_preview)),
-                    selectedIndex = if (preview) 1 else 0,
-                    onSelect = { preview = it == 1 },
-                    leadingIcons = listOf(HbIcons.edit, HbIcons.note),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-                )
-
-                if (!preview) {
+                Spacer(Modifier.size(4.dp))
+                if (editing) {
                     EditorForm(
                         editor = editor,
                         content = content,
                         tagsText = tagsText,
                         knownFolders = knownFolders,
                         imageUrl = imageUrl,
+                        titleFocus = titleFocus,
+                        contentFocus = contentFocus,
                         onTitleChange = onTitleChange,
                         onContentChange = { tfv -> content = tfv; onContentChange(tfv.text) },
                         onTagsTextChange = { txt ->
@@ -610,19 +647,19 @@ private fun NoteEditor(
                         onFolderChange = onFolderChange,
                         onVisibilityChange = onVisibilityChange,
                         onInsertImage = { insertImage(it) },
+                        // No id yet ⇒ nothing to attach to; the upload would be dropped silently (#309).
+                        canAddImage = editor.noteId != null,
+                        onAddImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onRemoveImage = onRemoveImage,
+                        onOpenLightbox = { lightbox = it },
                     )
                 } else {
                     EditorPreview(
                         editor = editor,
                         author = boundNote?.createdBy,
                         updatedAt = boundNote?.updatedAt,
-                        imageUrl = imageUrl,
                         resolveContentImageUrl = resolveContentImageUrl,
-                        // No id yet ⇒ nothing to attach to; the upload would be dropped silently (#309).
-                        canAddImage = editor.noteId != null,
-                        onAddImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        onRemoveImage = onRemoveImage,
-                        onOpenLightbox = { lightbox = it },
+                        onEnterEdit = { editBody -> focusContent = editBody; editing = true },
                     )
                 }
 
@@ -673,7 +710,11 @@ private fun SaveStatusIndicator(status: SaveStatus) {
     }
 }
 
-/** The editable form (Edit tab): title, body (caret-aware), insert-image chips, tags, folder, visibility. */
+/**
+ * The editable form (HB-13 edit mode): title, body (caret-aware), insert-image chips, tags, folder,
+ * visibility, and the image-attachment gallery (upload/manage). [titleFocus]/[contentFocus] let the
+ * caller focus the right field when edit mode is entered (new note / tapped region).
+ */
 @Composable
 private fun EditorForm(
     editor: NoteEditorState,
@@ -681,21 +722,33 @@ private fun EditorForm(
     tagsText: String,
     knownFolders: List<String>,
     imageUrl: (NoteImageDto) -> String,
+    titleFocus: FocusRequester,
+    contentFocus: FocusRequester,
     onTitleChange: (String) -> Unit,
     onContentChange: (TextFieldValue) -> Unit,
     onTagsTextChange: (String) -> Unit,
     onFolderChange: (String) -> Unit,
     onVisibilityChange: (String) -> Unit,
     onInsertImage: (NoteImageDto) -> Unit,
+    canAddImage: Boolean,
+    onAddImage: () -> Unit,
+    onRemoveImage: (imageId: String) -> Unit,
+    onOpenLightbox: (url: String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         HbField(stringResource(R.string.notes_field_title)) {
-            HbTextField(value = editor.title, onValueChange = onTitleChange, placeholder = stringResource(R.string.notes_title_placeholder))
+            HbTextField(
+                value = editor.title,
+                onValueChange = onTitleChange,
+                modifier = Modifier.focusRequester(titleFocus),
+                placeholder = stringResource(R.string.notes_title_placeholder),
+            )
         }
         HbField(stringResource(R.string.notes_field_content)) {
             HbTextField(
                 value = content,
                 onValueChange = onContentChange,
+                modifier = Modifier.focusRequester(contentFocus),
                 placeholder = stringResource(R.string.notes_content_placeholder),
                 singleLine = false,
                 minLines = 6,
@@ -769,12 +822,23 @@ private fun EditorForm(
                 leadingIcons = listOf(HbIcons.users, HbIcons.lock),
             )
         }
+        // Image-attachment gallery (upload / manage) — an editing action, so it lives in edit mode.
+        NoteImagesSection(
+            images = editor.images,
+            imageUrl = imageUrl,
+            canAdd = canAddImage,
+            onAdd = onAddImage,
+            onRemove = onRemoveImage,
+            onOpen = onOpenLightbox,
+        )
     }
 }
 
 /**
- * The read-only preview (Vorschau tab): the old detail body — rendered markdown with inline images,
- * visibility/folder badges, tag chips, and the image-attachment gallery (upload/manage still here).
+ * The rendered preview (HB-13 resting state): title, visibility/folder badges, author·time, tag
+ * chips and the rendered markdown body. Tapping the title or the body switches into the editor in
+ * place (via [onEnterEdit], whose flag picks the field to focus); an empty note shows a tappable
+ * placeholder. Image attachments are managed in edit mode now; inline refs still render here.
  * Uses the live draft (editor.*) so the preview reflects unsaved edits, not just the persisted note.
  */
 @Composable
@@ -782,18 +846,17 @@ private fun EditorPreview(
     editor: NoteEditorState,
     author: String?,
     updatedAt: String?,
-    imageUrl: (NoteImageDto) -> String,
     resolveContentImageUrl: (String) -> String?,
-    canAddImage: Boolean,
-    onAddImage: () -> Unit,
-    onRemoveImage: (imageId: String) -> Unit,
-    onOpenLightbox: (url: String) -> Unit,
+    onEnterEdit: (focusContent: Boolean) -> Unit,
 ) {
     Column {
         Text(
             editor.title.ifBlank { stringResource(R.string.notes_untitled) },
             style = HbType.docTitle,
             color = if (editor.title.isBlank()) Hb.ink3 else Hb.ink,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onEnterEdit(false) },
         )
 
         // Meta row: visibility badge + folder badge + author avatar + "Name · vor X" (if persisted).
@@ -831,21 +894,23 @@ private fun EditorPreview(
             }
         }
 
-        // Rendered markdown body (inline images + links)
-        if (editor.content.isBlank()) {
-            Text(stringResource(R.string.notes_preview_empty), style = HbType.body.copy(fontSize = 15.sp), color = Hb.ink3)
-        } else {
-            MarkdownText(editor.content, resolveImageUrl = resolveContentImageUrl)
+        // Rendered markdown body — tap to edit (links inside still navigate); empty → tappable hint.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onEnterEdit(true) },
+        ) {
+            if (editor.content.isBlank()) {
+                Text(
+                    stringResource(R.string.notes_empty_doc),
+                    style = HbType.body.copy(fontSize = 15.sp),
+                    color = Hb.ink3,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            } else {
+                MarkdownText(editor.content, resolveImageUrl = resolveContentImageUrl)
+            }
         }
-
-        NoteImagesSection(
-            images = editor.images,
-            imageUrl = imageUrl,
-            canAdd = canAddImage,
-            onAdd = onAddImage,
-            onRemove = onRemoveImage,
-            onOpen = onOpenLightbox,
-        )
     }
 }
 

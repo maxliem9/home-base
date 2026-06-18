@@ -589,10 +589,49 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-notes-group__count { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 1px 8px; }
 .hb-notes-group .hb-notes-items { padding-left: 11px; border-left: 2px solid var(--line-soft); }
 
-/* Editor header: Edit/Preview toggle (left) + auto-save status / delete (right) (#309/#310). */
-.hb-note-editor__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.hb-note-editor__baractions { display: flex; align-items: center; gap: 8px; }
-.hb-note-preview { min-height: 220px; padding-top: 2px; }
+/* HB-13 — note document: rendered preview (resting) ⇄ inline editor in place. The card gains an
+   accent ring while editing; both modes share the title row + corner actions. */
+.hb-note-doc { transition: border-color 0.16s, box-shadow 0.16s; }
+.hb-note-doc.is-editing { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.hb-note-doc__titlerow { display: flex; align-items: flex-start; gap: 12px; }
+.hb-note-doc__title { flex: 1; min-width: 0; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
+h2.hb-note-doc__title { cursor: text; }
+.hb-note-doc__title.is-empty { color: var(--ink-3); font-weight: 600; }
+.hb-note-doc__title--input { border: none; background: transparent; padding: 0; width: 100%; font-family: inherit; }
+.hb-note-doc__title--input:focus { outline: none; }
+.hb-note-doc__title--input::placeholder { color: var(--ink-3); font-weight: 600; }
+.hb-note-doc__actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Preview meta: visibility / folder pills + author·time. */
+.hb-note-doc__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.hb-note-doc__metatext { font-size: 13px; color: var(--ink-3); }
+.hb-note-vis-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12.5px; font-weight: 600; }
+.hb-note-doc__tags { margin-top: 12px; }
+.hb-note-doc__body { margin-top: 14px; min-height: 140px; cursor: text; }
+.hb-note-doc__empty { margin: 0; color: var(--ink-3); }
+
+/* Edit-mode controls (label-less inline document). */
+.hb-note-doc__vis { display: flex; gap: 8px; margin-top: 12px; }
+.hb-note-vis { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.14s; }
+.hb-note-vis:hover { border-color: var(--accent); color: var(--ink); }
+.hb-note-vis.is-active { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
+.hb-note-doc__inline { display: flex; align-items: center; gap: 9px; margin-top: 12px; color: var(--ink-3); }
+.hb-note-doc__inline-input { flex: 1; min-width: 0; border: none; background: transparent; padding: 2px 0; font-family: inherit; font-size: 14px; color: var(--ink); }
+.hb-note-doc__inline-input:focus { outline: none; }
+.hb-note-doc__inline-input::placeholder { color: var(--ink-3); }
+.hb-note-doc__rule { height: 1px; background: var(--line-soft); margin: 14px 0; }
+/* Auto-growing borderless Markdown source (no inner scroll). */
+.hb-note-doc__area { display: block; width: 100%; min-height: 200px; border: none; background: transparent; padding: 0; resize: none; overflow: hidden; color: var(--ink); font-size: 14.5px; line-height: 1.7; }
+.hb-note-doc__area:focus { outline: none; }
+.hb-note-doc__area::placeholder { color: var(--ink-3); }
+.hb-note-doc .hb-note-insert-strip { margin-top: 12px; }
+
+/* Exit hint: "✓ Klick außerhalb speichert · [Esc] schließt". */
+.hb-note-doc__hint { display: flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 12.5px; color: var(--ink-3); }
+.hb-note-doc__hint > svg { color: oklch(0.55 0.12 150); }
+.hb-note-doc__hint-sep { color: var(--line); }
+.hb-kbd { display: inline-block; padding: 1px 7px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--surface-2); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); }
 
 /* Auto-save status pill (#309). */
 .hb-savestatus { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
