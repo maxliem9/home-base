@@ -1,9 +1,14 @@
 package com.homebase.android
 
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
+import com.homebase.android.data.notes.NotesClock
+import com.homebase.android.data.notes.PendingNote
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.ui.notes.NoteImageUpload
@@ -16,12 +21,18 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import retrofit2.HttpException
+import retrofit2.Response
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NotesViewModelTest {
@@ -33,6 +44,14 @@ class NotesViewModelTest {
     /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#269). */
     private val onConnectedSlot = slot<() -> Unit>()
     private fun fireWsReconnect() = onConnectedSlot.captured.invoke()
+
+    // Pinned wall-clock so each queued save gets a deterministic `at` (#323), mirroring ShoppingViewModelTest.
+    private var nowMs = 1_000L
+    private val clock = NotesClock { nowMs }
+
+    /** A terminal HTTP error (e.g. a 400 validation reject) → classifyNoteFlush DROP_TERMINAL. */
+    private fun http(code: Int): HttpException =
+        HttpException(Response.error<Any>(code, "".toResponseBody("application/json".toMediaType())))
 
     private fun note(
         id: String = "1",
@@ -55,6 +74,7 @@ class NotesViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         repository = mockk(relaxed = true)
+        nowMs = 1_000L
         every { repository.incomingEvents } returns wsEvents
         // Capture the reconnect callback the VM registers (#269) so tests can fire it.
         every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
@@ -62,24 +82,52 @@ class NotesViewModelTest {
 
     @After
     fun tearDown() {
+        vmStore.clear()
         Dispatchers.resetMain()
     }
 
     /** In-memory [com.homebase.android.data.notes.NotesPendingStore] standing in for the
      *  SharedPreferences-backed one (#323), mirroring ShoppingViewModelTest.FakeStore. */
     private class FakeNotesStore : com.homebase.android.data.notes.NotesPendingStore {
-        var data: Map<String, com.homebase.android.data.notes.PendingNote> = emptyMap()
-        override suspend fun load(): Map<String, com.homebase.android.data.notes.PendingNote> = data
-        override suspend fun save(pending: Map<String, com.homebase.android.data.notes.PendingNote>) { data = pending }
+        var data: Map<String, PendingNote> = emptyMap()
+        override suspend fun load(): Map<String, PendingNote> = data
+        override suspend fun save(pending: Map<String, PendingNote>) { data = pending }
     }
 
     private val pendingStore = FakeNotesStore()
 
-    private fun createVm(networkAvailable: kotlinx.coroutines.flow.Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()) =
-        NotesViewModel(repository, "test-token", pendingStore, networkAvailable)
+    // Owns each VM so clearing the store runs onCleared() → cancels viewModelScope (the offline
+    // backstop loop and any parked flush). Cleared inside the test body (see [vmTest]) before
+    // runTest's implicit final advanceUntilIdle, which would otherwise spin on those coroutines.
+    private val vmStore = ViewModelStore()
+
+    /** runTest that always cancels the VM's coroutines before the implicit end-of-test drain (#323). */
+    private fun vmTest(body: suspend TestScope.() -> Unit) = kotlinx.coroutines.test.runTest {
+        try {
+            body()
+        } finally {
+            vmStore.clear()
+        }
+    }
+
+    private fun createVm(networkAvailable: Flow<Unit> = emptyFlow()): NotesViewModel {
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = NotesViewModel(
+                repository = repository,
+                token = "test-token",
+                pendingStore = pendingStore,
+                networkAvailable = networkAvailable,
+                clock = clock,
+                // Large interval so the backstop loop never fires inside a bounded advanceTimeBy/runCurrent.
+                flushIntervalMs = 10_000_000L,
+            ) as T
+        }
+        return ViewModelProvider(vmStore, factory)[NotesViewModel::class.java]
+    }
 
     @Test
-    fun `initial load populates notes`() = runTest {
+    fun `initial load populates notes`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(listOf(note()))
 
         val vm = createVm()
@@ -90,7 +138,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `initial load failure sets error`() = runTest {
+    fun `initial load failure sets error`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.failure(RuntimeException("Network error"))
 
         val vm = createVm()
@@ -101,7 +149,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `onQueryChange updates state and reloads with query`() = runTest {
+    fun `onQueryChange updates state and reloads with query`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         coEvery { repository.getNotes("pasta") } returns Result.success(listOf(note(title = "Pasta")))
 
@@ -117,7 +165,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `saveNote with null id creates and prepends note`() = runTest {
+    fun `saveNote with null id creates and prepends note`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         val created = note(id = "2", title = "Neu")
         coEvery { repository.createNote(any()) } returns Result.success(created)
@@ -135,7 +183,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `saveNote carries the trimmed folder on create`() = runTest {
+    fun `saveNote carries the trimmed folder on create`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         val created = note(id = "2", title = "Neu")
         coEvery { repository.createNote(any()) } returns Result.success(created)
@@ -150,7 +198,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `saveNote with blank title does nothing`() = runTest {
+    fun `saveNote with blank title does nothing`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -163,7 +211,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `saveNote with id updates note in place`() = runTest {
+    fun `saveNote with id updates note in place`() = vmTest {
         val original = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(original))
         val updated = original.copy(title = "Neu")
@@ -181,7 +229,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `deleteNote removes it from list`() = runTest {
+    fun `deleteNote removes it from list`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
         coEvery { repository.deleteNote("1") } returns Result.success(Unit)
 
@@ -195,7 +243,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `clearError removes error from state`() = runTest {
+    fun `clearError removes error from state`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.failure(RuntimeException("oops"))
 
         val vm = createVm()
@@ -207,7 +255,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS NoteCreated adds note without duplicate`() = runTest {
+    fun `WS NoteCreated adds note without duplicate`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -222,7 +270,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS NoteUpdated upserts unseen note`() = runTest {
+    fun `WS NoteUpdated upserts unseen note`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -237,7 +285,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS NoteUpdated replaces existing note`() = runTest {
+    fun `WS NoteUpdated replaces existing note`() = vmTest {
         val original = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(original))
 
@@ -252,7 +300,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `uploadImage upserts the returned note`() = runTest {
+    fun `uploadImage upserts the returned note`() = vmTest {
         val original = note(id = "1")
         coEvery { repository.getNotes("") } returns Result.success(listOf(original))
         coEvery { repository.uploadImage(eq("1"), any(), any(), any()) } returns
@@ -268,7 +316,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `removeImage upserts the returned note`() = runTest {
+    fun `removeImage upserts the returned note`() = vmTest {
         val withImage = note(id = "1").copy(images = listOf(image()))
         coEvery { repository.getNotes("") } returns Result.success(listOf(withImage))
         coEvery { repository.deleteImage("1", "img-1") } returns Result.success(note(id = "1"))
@@ -283,7 +331,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `uploadImages uploads each file and upserts every returned note`() = runTest {
+    fun `uploadImages uploads each file and upserts every returned note`() = vmTest {
         val original = note(id = "1")
         coEvery { repository.getNotes("") } returns Result.success(listOf(original))
         // each upload returns the note with one more image; the latest call's note wins in state
@@ -310,7 +358,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `uploadImages surfaces the first failure but keeps the successful uploads`() = runTest {
+    fun `uploadImages surfaces the first failure but keeps the successful uploads`() = vmTest {
         val original = note(id = "1")
         coEvery { repository.getNotes("") } returns Result.success(listOf(original))
         coEvery { repository.uploadImage(eq("1"), any(), any(), any()) } returnsMany listOf(
@@ -336,7 +384,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `uploadImages with no items does nothing`() = runTest {
+    fun `uploadImages with no items does nothing`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
 
         val vm = createVm()
@@ -349,7 +397,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `uploadImage failure sets error`() = runTest {
+    fun `uploadImage failure sets error`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
         coEvery { repository.uploadImage(any(), any(), any(), any()) } returns
             Result.failure(RuntimeException("image exceeds the 10 MB limit"))
@@ -364,7 +412,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS NoteDeleted removes note`() = runTest {
+    fun `WS NoteDeleted removes note`() = vmTest {
         val existing = note(id = "1")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
 
@@ -380,7 +428,7 @@ class NotesViewModelTest {
     // --- #269: re-sync on WS reconnect / app resume / pull-to-refresh ---
 
     @Test
-    fun `WS reconnect refetches the notes list`() = runTest {
+    fun `WS reconnect refetches the notes list`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -395,7 +443,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS reconnect refetches with the active query`() = runTest {
+    fun `WS reconnect refetches with the active query`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         coEvery { repository.getNotes("pasta") } returns Result.success(listOf(note(title = "Pasta")))
 
@@ -413,7 +461,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `WS reconnect re-sync keeps existing notes on a transient failure`() = runTest {
+    fun `WS reconnect re-sync keeps existing notes on a transient failure`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1", title = "Da")))
 
         val vm = createVm()
@@ -429,7 +477,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `ensureConnected reconnects and re-syncs from the server`() = runTest {
+    fun `ensureConnected reconnects and re-syncs from the server`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -444,7 +492,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `refresh refetches without ever setting the loading flag`() = runTest {
+    fun `refresh refetches without ever setting the loading flag`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -461,7 +509,7 @@ class NotesViewModelTest {
     // --- #309/#310: editor auto-save (debounce, id-capture, no-duplicate-create, dirty-check) ---
 
     @Test
-    fun `editing a new note debounces then creates exactly once and captures the id`() = runTest {
+    fun `editing a new note debounces then creates exactly once and captures the id`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         val created = note(id = "srv-1", title = "Neu")
         coEvery { repository.createNote(any()) } returns Result.success(created)
@@ -486,7 +534,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `a second edit after the first create updates the captured id (no duplicate note)`() = runTest {
+    fun `a second edit after the first create updates the captured id (no duplicate note)`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
         coEvery { repository.createNote(any()) } returns Result.success(note(id = "srv-1", title = "Neu"))
         coEvery { repository.updateNote(eq("srv-1"), any()) } returns
@@ -508,7 +556,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `a blank-title new note is never created`() = runTest {
+    fun `a blank-title new note is never created`() = vmTest {
         coEvery { repository.getNotes("") } returns Result.success(emptyList())
 
         val vm = createVm()
@@ -526,7 +574,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `opening an existing note and leaving without changes saves nothing (dirty check)`() = runTest {
+    fun `opening an existing note and leaving without changes saves nothing (dirty check)`() = vmTest {
         val existing = note(id = "1", title = "Da", content = "Body", tags = listOf("a"), folder = "Reisen")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
 
@@ -544,7 +592,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `leaving the editor flushes a pending edit immediately`() = runTest {
+    fun `leaving the editor flushes a pending edit immediately`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
         coEvery { repository.updateNote(eq("1"), any()) } returns Result.success(existing.copy(title = "Neu"))
@@ -565,7 +613,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `a WS update for the open note does not clobber the unsaved draft`() = runTest {
+    fun `a WS update for the open note does not clobber the unsaved draft`() = vmTest {
         val existing = note(id = "1", title = "Alt", content = "Original")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
         // The eventual (debounced) auto-save just needs to succeed so teardown stays clean; this
@@ -587,7 +635,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `switching notes flushes the current draft then opens the target`() = runTest {
+    fun `switching notes flushes the current draft then opens the target`() = vmTest {
         val a = note(id = "a", title = "A")
         val b = note(id = "b", title = "B")
         coEvery { repository.getNotes("") } returns Result.success(listOf(a, b))
@@ -608,7 +656,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `deleteEditorNote deletes the open note and closes the editor`() = runTest {
+    fun `deleteEditorNote deletes the open note and closes the editor`() = vmTest {
         val existing = note(id = "1")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
         coEvery { repository.deleteNote("1") } returns Result.success(Unit)
@@ -626,7 +674,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `an edit during an in-flight save is not lost — the loop re-saves the latest`() = runTest {
+    fun `an edit during an in-flight save is not lost — the loop re-saves the latest`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
         // First update suspends (in flight) long enough for a second edit to land; both must persist.
@@ -651,7 +699,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `closing during an in-flight save still persists the final edit`() = runTest {
+    fun `closing during an in-flight save still persists the final edit`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
         coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
@@ -675,7 +723,7 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `abandonEditor closes without saving or deleting`() = runTest {
+    fun `abandonEditor closes without saving or deleting`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
 
@@ -693,19 +741,101 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun `a failed save surfaces an error and an ERROR status`() = runTest {
+    fun `a terminal 4xx save surfaces an error and an ERROR status`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
-        coEvery { repository.updateNote(eq("1"), any()) } returns Result.failure(RuntimeException("down"))
+        // A 400 is a terminal client error — retrying can never succeed, so the edit is dropped and
+        // surfaced as a plain ERROR (classifyNoteFlush DROP_TERMINAL), NOT queued for retry.
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.failure(http(400))
 
         val vm = createVm()
         advanceUntilIdle()
 
         vm.openEditor(existing)
         vm.updateEditor(title = "Neu")
-        advanceUntilIdle()
+        advanceUntilIdle() // queue stays empty (terminal drop) → no backstop, safe to drain fully
 
         assertEquals(SaveStatus.ERROR, vm.editorState.value?.status)
-        assertEquals("down", vm.uiState.value.error)
+        assertNotNull("a terminal failure is surfaced as a blocking error", vm.uiState.value.error)
+        assertFalse("a terminal failure is not queued", vm.uiState.value.isPending("1"))
+        assertTrue("nothing persisted for a dropped terminal save", pendingStore.data.isEmpty())
+    }
+
+    // --- #323: offline-resilient auto-save (durable pending queue, retry, not-synced marker) ---
+
+    @Test
+    fun `a failed offline save keeps the edit queued and marks it pending`() = vmTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Neu")
+        // Debounce fires and the save attempt fails offline. advanceTimeBy + runCurrent (NOT
+        // advanceUntilIdle): the queue stays non-empty, so advancing past the backstop interval
+        // would spin its retry loop forever in virtual time.
+        advanceTimeBy(NotesViewModel.AUTOSAVE_DEBOUNCE_MS)
+        runCurrent()
+
+        assertEquals(SaveStatus.PENDING, vm.editorState.value?.status)
+        assertTrue("note shows the not-synced marker", vm.uiState.value.isPending("1"))
+        assertEquals("the edit survives in the durable store", "Neu", pendingStore.data["1"]?.title)
+        assertNull("offline is not surfaced as a blocking error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a queued offline note save is re-sent and cleared when connectivity returns`() = vmTest {
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        var online = false
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            if (online) Result.success(existing.copy(title = "Neu")) else Result.failure(java.io.IOException("offline"))
+        }
+        val network = MutableSharedFlow<Unit>()
+
+        val vm = createVm(networkAvailable = network)
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Neu")
+        advanceTimeBy(NotesViewModel.AUTOSAVE_DEBOUNCE_MS)
+        runCurrent() // first (offline) save attempt fails → queued + pending
+        assertTrue("still pending after the offline attempt", vm.uiState.value.isPending("1"))
+
+        // Connectivity returns → the network-available trigger flushes again, now succeeding. The
+        // queue drains here, so advanceUntilIdle is safe (the backstop loop exits once empty).
+        online = true
+        network.emit(Unit)
+        advanceUntilIdle()
+
+        assertFalse("pending marker gone after the retry lands", vm.uiState.value.isPending("1"))
+        assertTrue("durable store cleared after the retry lands", pendingStore.data.isEmpty())
+        assertEquals("the note list reflects the synced edit", "Neu", vm.uiState.value.notes.first().title)
+        coVerify(atLeast = 2) { repository.updateNote(eq("1"), any()) } // offline attempt + the retry that lands
+    }
+
+    @Test
+    fun `a pending note save restored from the store on init is re-sent and cleared`() = vmTest {
+        // Previous session left a queued save on disk; this session must actually re-send it.
+        pendingStore.data = mapOf(
+            "1" to PendingNote(
+                id = "1", title = "Wiederhergestellt", content = "", tags = emptyList(),
+                folder = "", visibility = "SHARED", at = 500L,
+            ),
+        )
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1")))
+        coEvery { repository.updateNote(eq("1"), any()) } returns Result.success(note(id = "1", title = "Wiederhergestellt"))
+
+        val vm = createVm()
+        advanceUntilIdle() // restore → flush re-sends the entry → lands → queue drains
+
+        coVerify(exactly = 1) {
+            repository.updateNote("1", UpdateNoteRequest("Wiederhergestellt", "", emptyList(), "", "SHARED"))
+        }
+        assertFalse("restored entry no longer pending once re-sent", vm.uiState.value.isPending("1"))
+        assertTrue("durable store cleared after the restored entry lands", pendingStore.data.isEmpty())
     }
 }
