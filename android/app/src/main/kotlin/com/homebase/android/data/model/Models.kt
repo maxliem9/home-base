@@ -77,6 +77,16 @@ data class UpdateDigestRequest(
 @JsonClass(generateAdapter = true)
 data class RecurringConfigResponse(val time: String)
 
+/**
+ * GET/PUT /config/done-window (#356): how many calendar days the "Erledigt" history window spans
+ * (`app_settings.done_window_days`, default 14). Household-shared; the tasks view reads it and
+ * applies it to the Erledigt tab / done-section, while the per-device "Alle anzeigen" toggle (#340)
+ * still overrides it. Serves as both the GET response and the PUT body (the backend echoes the
+ * persisted, validated value; 1..3650).
+ */
+@JsonClass(generateAdapter = true)
+data class DoneWindowConfigResponse(val days: Int)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
 // avatarHue (Teil von #100): the member's chosen avatar hue (0..359), or null/absent for

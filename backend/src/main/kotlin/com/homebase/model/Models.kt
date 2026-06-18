@@ -50,6 +50,16 @@ data class RecurringConfigResponse(val time: String)
 @Serializable
 data class UpdateRecurringRequest(val time: String)
 
+// "Erledigt"-history window length in calendar days (#356, follows #340). Household-wide,
+// stored in app_settings; the clients read it (default 14 when unset) and apply it to the
+// Erledigt tab / done-section. Mirrors the recurring-time single-value shape. The per-device
+// "Alle anzeigen" toggle (#340) overrides this; the badge/tile counts stay on "today".
+@Serializable
+data class DoneWindowConfigResponse(val days: Int)
+
+@Serializable
+data class UpdateDoneWindowRequest(val days: Int)
+
 // Per-user preference write (#100). The key is in the path; this is just the value.
 // GET /user-prefs returns a plain Map<String, String> (no wrapper DTO) so new keys
 // surface without a model change. First consumer: 'theme' (light|dark|system).

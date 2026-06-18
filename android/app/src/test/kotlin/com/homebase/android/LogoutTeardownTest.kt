@@ -3,6 +3,8 @@ package com.homebase.android
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import com.homebase.android.data.model.DoneWindowConfigResponse
+import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.ui.aufgaben.TodoViewModel
@@ -54,6 +56,12 @@ class LogoutTeardownTest {
         coEvery { getTodos() } returns Result.success(emptyList())
     }
 
+    // The TodoViewModel now also reads the configurable done-window (#356) on init; a relaxed
+    // ConfigRepository with a valid getDoneWindow() result keeps these teardown tests focused on WS.
+    private fun relaxedConfigRepository(): ConfigRepository = mockk(relaxed = true) {
+        coEvery { getDoneWindow() } returns Result.success(DoneWindowConfigResponse(14))
+    }
+
     @Test
     fun `clearing the ViewModelStore disconnects the WebSocket`() = runTest {
         val repository = relaxedTodoRepository()
@@ -61,7 +69,7 @@ class LogoutTeardownTest {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                TodoViewModel(repository, "token-A") as T
+                TodoViewModel(repository, relaxedConfigRepository(), "token-A") as T
         }
 
         // Materialise the ViewModel into the store the same way the Compose `viewModel()` helper does.
@@ -82,7 +90,7 @@ class LogoutTeardownTest {
 
         fun factory(repo: TodoRepository) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = TodoViewModel(repo, "k") as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = TodoViewModel(repo, relaxedConfigRepository(), "k") as T
         }
 
         // First session: connect, then logout clears the store (socket A closed).

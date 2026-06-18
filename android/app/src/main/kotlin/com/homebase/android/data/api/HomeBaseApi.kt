@@ -36,6 +36,14 @@ interface HomeBaseApi {
     @PUT("config/recurring")
     suspend fun updateRecurring(@Body request: RecurringConfigResponse): RecurringConfigResponse
 
+    @GET("config/done-window")
+    suspend fun getDoneWindow(): DoneWindowConfigResponse
+
+    // Body is just {days}, the same shape the GET returns — so DoneWindowConfigResponse doubles
+    // as the request (matching the backend's UpdateDoneWindowRequest(days)).
+    @PUT("config/done-window")
+    suspend fun updateDoneWindow(@Body request: DoneWindowConfigResponse): DoneWindowConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 

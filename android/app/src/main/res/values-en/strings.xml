@@ -496,6 +496,8 @@
     <string name="settings_account_sub">Change password</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_sub">Digests (morning &amp; evening) and recurring scheduler</string>
+    <string name="settings_todos">Tasks</string>
+    <string name="settings_todos_sub">Display options, e.g. the done window</string>
     <string name="settings_time">Time tracking</string>
     <string name="settings_time_sub">Weekly target</string>
     <string name="settings_absence">Absence</string>
@@ -548,6 +550,12 @@
     <string name="settings_changes_next_run">Changes take effect from the next scheduled run.</string>
     <string name="settings_recurring_title">Recurring scheduler</string>
     <string name="settings_recurring_hint">Daily safety net: rolls missed, still-open recurring tasks forward to the current period.</string>
+
+    <!-- Tasks → Done window (#356) — wording mirrors web settings.doneWindow* -->
+    <string name="settings_done_window_title">Done window</string>
+    <string name="settings_done_window_hint">How many days of completed tasks the "Done" tab and the done section show. "Show all" (per device) still overrides this; the counts stay on "today".</string>
+    <string name="settings_done_window_label">Days</string>
+    <string name="settings_done_window_applies">Changes take effect the next time tasks load.</string>
 
     <string name="digest_section_evening_done_today">Done today</string>
     <string name="digest_section_evening_new_inbox">New in inbox</string>

@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -99,7 +100,7 @@ import kotlinx.coroutines.launch
  * Benachrichtigungen · Zeiterfassung · Abwesenheit. The list is built to grow.
  */
 
-private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, ZEITERFASSUNG, ABWESENHEIT }
+private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, AUFGABEN, ZEITERFASSUNG, ABWESENHEIT }
 
 @Composable
 fun SettingsScreen(
@@ -137,6 +138,10 @@ fun SettingsScreen(
             onBack = { sub = null },
         )
         SettingsSub.NOTIFICATIONS -> NotificationsPage(
+            configRepository = configRepository,
+            onBack = { sub = null },
+        )
+        SettingsSub.AUFGABEN -> AufgabenSettingsPage(
             configRepository = configRepository,
             onBack = { sub = null },
         )
@@ -183,6 +188,12 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
                 title = stringResource(R.string.settings_notifications),
                 subtitle = stringResource(R.string.settings_notifications_sub),
                 onClick = { onPick(SettingsSub.NOTIFICATIONS) },
+            )
+            SettingsNavRow(
+                icon = HbIcons.checkCircle,
+                title = stringResource(R.string.settings_todos),
+                subtitle = stringResource(R.string.settings_todos_sub),
+                onClick = { onPick(SettingsSub.AUFGABEN) },
             )
             SettingsNavRow(
                 icon = HbIcons.clock,
@@ -735,6 +746,109 @@ private fun NotificationsPage(configRepository: ConfigRepository, onBack: () -> 
                 save = configRepository::updateDigest,
             )
             RecurringCard(configRepository = configRepository)
+        }
+    }
+}
+
+/**
+ * Einstellungen → Aufgaben (#356). The Android pendant of the web's `TodosSettings`: household-wide
+ * task-display options. Currently just the configurable "Erledigt"-window length; built to grow.
+ */
+@Composable
+private fun AufgabenSettingsPage(configRepository: ConfigRepository, onBack: () -> Unit) {
+    HbScreenScaffold(
+        appBar = {
+            HbAppBar(eyebrow = stringResource(R.string.settings_eyebrow), title = stringResource(R.string.settings_todos), leftIcon = HbIcons.chevronLeft, onLeft = onBack, bordered = true)
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Spacer(Modifier.size(10.dp))
+            DoneWindowCard(configRepository = configRepository)
+        }
+    }
+}
+
+/**
+ * "Erledigt"-history window length in days (#356). Mirrors the web's DoneWindowCard and the
+ * RecurringCard plumbing: load-then-enable guard, client-side range validation (1..3650, same as
+ * the backend), single-value PUT. The tasks view reads this value and applies it; the per-device
+ * "Alle anzeigen" toggle (#340) still overrides it, and the counts stay on "today".
+ * Labels mirror web/src/i18n/de.ts → settings.doneWindow*.
+ */
+@Composable
+private fun DoneWindowCard(configRepository: ConfigRepository) {
+    val scope = rememberCoroutineScope()
+    // Kept as text so the number field can be cleared mid-edit; parsed + range-checked on save.
+    var days by remember { mutableStateOf("") }
+    var loaded by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val saveFailed = stringResource(R.string.common_save_failed)
+
+    // Enable editing only after the GET lands, so a late response can't clobber a freshly-typed
+    // value (same guard as the recurring + digest cards). A failed GET falls back to 14.
+    LaunchedEffect(Unit) {
+        configRepository.getDoneWindow()
+            .onSuccess { days = it.days.toString() }
+            .onFailure { days = "14" }
+        loaded = true
+    }
+    LaunchedEffect(saved) { if (saved) { delay(2500); saved = false } }
+
+    val dirty = { error = null; saved = false }
+    val parsed = days.toIntOrNull()
+    val valid = parsed != null && parsed in 1..3650
+    val doSave = {
+        if (loaded && valid && !saving) {
+            saving = true
+            error = null
+            saved = false
+            scope.launch {
+                configRepository.updateDoneWindow(parsed!!)
+                    .onSuccess { cfg -> days = cfg.days.toString(); saved = true }
+                    .onFailure { e -> error = e.message ?: saveFailed }
+                saving = false
+            }
+        }
+        Unit
+    }
+
+    HbCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    stringResource(R.string.settings_done_window_title),
+                    style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                    color = Hb.ink,
+                )
+                Text(
+                    stringResource(R.string.settings_done_window_hint),
+                    style = HbType.small.copy(fontSize = 12.5.sp),
+                    color = Hb.ink3,
+                )
+            }
+
+            HbField(stringResource(R.string.settings_done_window_label)) {
+                HbTextField(
+                    value = days,
+                    onValueChange = { input -> days = input.filter { it.isDigit() }.take(4); dirty() },
+                    placeholder = "14",
+                    mono = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HbButton(stringResource(R.string.action_save), onClick = doSave, enabled = loaded && valid && !saving)
+                if (saved) SavedHint()
+            }
+            Text(
+                stringResource(R.string.settings_done_window_applies),
+                style = HbType.small.copy(fontSize = 12.sp),
+                color = Hb.ink3,
+            )
+            if (error != null) ErrorText(error!!)
         }
     }
 }

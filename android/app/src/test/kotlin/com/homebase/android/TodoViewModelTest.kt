@@ -4,6 +4,8 @@ import com.homebase.android.data.model.CreateTodoRequest
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateTodoRequest
+import com.homebase.android.data.model.DoneWindowConfigResponse
+import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.ui.aufgaben.ALL_TAB_ID
@@ -33,6 +35,7 @@ class TodoViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: TodoRepository
+    private lateinit var configRepository: ConfigRepository
     private val wsEvents = MutableSharedFlow<TodoWebSocketClient.WsEvent>()
 
     /** Captures the WS "(re)connected" callback the VM registers, so a test can fire it like a reconnect (#269). */
@@ -65,6 +68,10 @@ class TodoViewModelTest {
         every { repository.setWebSocketOnConnected(capture(onConnectedSlot)) } returns Unit
         // load() fetches both lists and todos; default lists to empty unless a test overrides.
         coEvery { repository.getLists() } returns Result.success(emptyList())
+        // The VM reads the configurable done-window (#356) on init; default to 14 so the windowed
+        // smart-view tests keep their original boundaries (DONE_WINDOW_DAYS-relative fixtures).
+        configRepository = mockk(relaxed = true)
+        coEvery { configRepository.getDoneWindow() } returns Result.success(DoneWindowConfigResponse(DONE_WINDOW_DAYS))
     }
 
     @After
@@ -72,7 +79,7 @@ class TodoViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm(): TodoViewModel = TodoViewModel(repository, "test-token")
+    private fun createVm(): TodoViewModel = TodoViewModel(repository, configRepository, "test-token")
 
     @Test
     fun `initial load populates todos`() = runTest {

@@ -8,7 +8,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import com.homebase.android.data.model.DoneWindowConfigResponse
 import com.homebase.android.data.repository.AuthState
+import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import io.mockk.coEvery
@@ -53,12 +55,18 @@ class LogoutTeardownComposeTest {
         coEvery { getTodos() } returns Result.success(emptyList())
     }
 
+    // The TodoViewModel now also reads the configurable done-window (#356) on init; a relaxed
+    // ConfigRepository with a valid getDoneWindow() result keeps this teardown test focused on WS.
+    private fun relaxedConfigRepository(): ConfigRepository = mockk(relaxed = true) {
+        coEvery { getDoneWindow() } returns Result.success(DoneWindowConfigResponse(14))
+    }
+
     /** Materialise a real [TodoViewModel] into [store] the way the Compose `viewModel()` helper does. */
     private fun seedSession(store: ViewModelStore, repository: TodoRepository) {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                TodoViewModel(repository, "token-A") as T
+                TodoViewModel(repository, relaxedConfigRepository(), "token-A") as T
         }
         ViewModelProvider(store, factory)[TodoViewModel::class.java]
     }

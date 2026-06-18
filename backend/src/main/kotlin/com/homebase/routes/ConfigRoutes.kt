@@ -4,10 +4,12 @@ import com.homebase.db.AppSettingsTable
 import com.homebase.digest.DigestSection
 import com.homebase.model.AppConfigResponse
 import com.homebase.model.DigestConfigResponse
+import com.homebase.model.DoneWindowConfigResponse
 import com.homebase.model.ErrorResponse
 import com.homebase.model.RecurringConfigResponse
 import com.homebase.model.UpdateConfigRequest
 import com.homebase.model.UpdateDigestRequest
+import com.homebase.model.UpdateDoneWindowRequest
 import com.homebase.model.UpdateRecurringRequest
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -25,6 +27,12 @@ import java.time.format.DateTimeFormatter
 private const val HOUSEHOLD_NAME_KEY = "household_name"
 private const val HOUSEHOLD_NAME_MAX = 60
 private val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+// "Erledigt"-history window (#356). Default mirrors the clients' historical constant; the
+// bounds keep the value sane (≥ 1 day, ≤ ~10 years) so a typo can't produce an absurd window.
+const val DONE_WINDOW_DEFAULT_DAYS = 14
+private const val DONE_WINDOW_MIN_DAYS = 1
+private const val DONE_WINDOW_MAX_DAYS = 3650
 
 /**
  * App-level config, shared by both users (#100; not owner-restricted, like the shared
@@ -101,6 +109,35 @@ fun Route.configRoutes(
         upsertSetting(AppSettingsTable.RECURRING_TIME, normalized)
         call.respond(RecurringConfigResponse(time = normalized))
     }
+
+    // "Erledigt"-history window length in days (#356). Single-value config like the recurring
+    // time; the clients read it each load (falling back to the default when unset) and apply it
+    // to the Erledigt tab / done-section. A malformed/out-of-range stored value falls back to the
+    // default on read, so a bad row can never make the window unusable.
+    get("/config/done-window") {
+        call.respond(DoneWindowConfigResponse(days = readDoneWindowDays()))
+    }
+
+    put("/config/done-window") {
+        val days = call.receive<UpdateDoneWindowRequest>().days
+        if (days !in DONE_WINDOW_MIN_DAYS..DONE_WINDOW_MAX_DAYS) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_DAYS", "days must be between $DONE_WINDOW_MIN_DAYS and $DONE_WINDOW_MAX_DAYS"),
+            )
+        }
+        upsertSetting(AppSettingsTable.DONE_WINDOW_DAYS, days.toString())
+        call.respond(DoneWindowConfigResponse(days = days))
+    }
+}
+
+/**
+ * Reads the configured "Erledigt"-window length, defaulting to [DONE_WINDOW_DEFAULT_DAYS] when
+ * unset and clamping a stored value into the valid range (defensive against a hand-edited row).
+ */
+private fun readDoneWindowDays(): Int {
+    val stored = readSetting(AppSettingsTable.DONE_WINDOW_DAYS)?.toIntOrNull() ?: return DONE_WINDOW_DEFAULT_DAYS
+    return stored.coerceIn(DONE_WINDOW_MIN_DAYS, DONE_WINDOW_MAX_DAYS)
 }
 
 /**

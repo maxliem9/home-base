@@ -638,6 +638,17 @@ export const en: Messages = {
     recurringSaved: 'Saved',
     recurringSaveFailed: 'Time could not be saved.',
     recurringApplies: 'Changes take effect from the next scheduled run.',
+    // Aufgaben-Unterseite (#356): household-wide display options for tasks.
+    todos: 'Tasks',
+    // "Done" window (#356, follows #340): how many days the done history shows before it's capped.
+    // The per-device "Show all" toggle still overrides it.
+    doneWindowTitle: 'Done window',
+    doneWindowHint: 'How many days of completed tasks the "Done" tab and the done section show. "Show all" (per device) still overrides this; the counts stay on "today".',
+    doneWindowLabel: 'Days',
+    doneWindowSaved: 'Saved',
+    doneWindowSaveFailed: 'Value could not be saved.',
+    doneWindowInvalid: 'Please enter a whole number between {{min}} and {{max}}.',
+    doneWindowApplies: 'Changes take effect the next time tasks load.',
     // Abwesenheit-Unterseite (#99): Kalender-Konfiguration im Hub.
     absence: 'Absences',
     absenceTitle: 'Allowances & calendar',

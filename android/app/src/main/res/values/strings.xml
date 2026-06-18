@@ -508,6 +508,8 @@
     <string name="settings_account_sub">Passwort ändern</string>
     <string name="settings_notifications">Benachrichtigungen</string>
     <string name="settings_notifications_sub">Digests (morgens &amp; abends) und Wiederholungs-Planer</string>
+    <string name="settings_todos">Aufgaben</string>
+    <string name="settings_todos_sub">Anzeige-Optionen, z. B. das Erledigt-Fenster</string>
     <string name="settings_time">Zeiterfassung</string>
     <string name="settings_time_sub">Wochensoll</string>
     <string name="settings_absence">Abwesenheit</string>
@@ -560,6 +562,12 @@
     <string name="settings_changes_next_run">Änderungen greifen ab dem nächsten geplanten Lauf.</string>
     <string name="settings_recurring_title">Wiederholungs-Planer</string>
     <string name="settings_recurring_hint">Tägliches Sicherheitsnetz: rollt verpasste, noch offene wiederkehrende Aufgaben auf die aktuelle Periode vor.</string>
+
+    <!-- Aufgaben → Erledigt-Fenster (#356) — wording mirrors web settings.doneWindow* -->
+    <string name="settings_done_window_title">Erledigt-Fenster</string>
+    <string name="settings_done_window_hint">Wie viele Tage erledigte Aufgaben im „Erledigt"-Tab und im Erledigt-Bereich angezeigt werden. „Alle anzeigen" pro Gerät überschreibt das weiterhin; die Zähler bleiben auf „heute".</string>
+    <string name="settings_done_window_label">Tage</string>
+    <string name="settings_done_window_applies">Änderungen greifen beim nächsten Laden der Aufgaben.</string>
 
     <string name="digest_section_evening_done_today">Heute erledigt</string>
     <string name="digest_section_evening_new_inbox">Neu in der Inbox</string>

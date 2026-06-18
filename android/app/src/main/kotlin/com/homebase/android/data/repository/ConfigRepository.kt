@@ -2,6 +2,7 @@ package com.homebase.android.data.repository
 
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.DigestConfigResponse
+import com.homebase.android.data.model.DoneWindowConfigResponse
 import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.model.SetAvatarColorRequest
 import com.homebase.android.data.model.UpdateConfigRequest
@@ -100,6 +101,25 @@ class ConfigRepository(private val api: HomeBaseApi) {
         apiCatching(mapHttpError = ::digestSaveError) {
             api.updateRecurring(RecurringConfigResponse(time = time))
         }
+
+    /**
+     * "Erledigt"-history window length in days (#356) — how many days the tasks view's Erledigt tab
+     * and done-section span before they're capped (`app_settings.done_window_days`, default 14).
+     * Household-shared; the per-device "Alle anzeigen" toggle (#340) still overrides it. Falls back
+     * gracefully (the ViewModel keeps its default 14 on failure).
+     */
+    suspend fun getDoneWindow(): Result<DoneWindowConfigResponse> =
+        apiCatching { api.getDoneWindow() }
+
+    /**
+     * Patch the "Erledigt"-window length (PUT /config/done-window, #356). Returns the persisted,
+     * validated value. The only 400 is an out-of-range value (the UI pre-validates 1..3650), mapped
+     * to German text.
+     */
+    suspend fun updateDoneWindow(days: Int): Result<DoneWindowConfigResponse> =
+        apiCatching(mapHttpError = {
+            if (it.code() == 400) "Wert muss zwischen 1 und 3650 liegen." else "Wert konnte nicht gespeichert werden."
+        }) { api.updateDoneWindow(DoneWindowConfigResponse(days = days)) }
 }
 
 /**

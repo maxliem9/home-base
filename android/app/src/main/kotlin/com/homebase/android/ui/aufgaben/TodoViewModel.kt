@@ -8,6 +8,7 @@ import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateSubtaskRequest
 import com.homebase.android.data.model.UpdateTodoRequest
+import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.ui.util.Format
@@ -45,6 +46,11 @@ private fun isVirtualTab(id: String?): Boolean = id == INBOX_TAB_ID || id in SMA
  * grow unbounded across the whole history (#263). One shared window: it caps the
  * "Alle"/list done-sections AND widens "Erledigt" beyond just today. The
  * badge/tile COUNTS stay deliberately on "today" (doneTodayCount), untouched.
+ *
+ * N is now household-configurable in-app (#356, app_settings 'done_window_days'),
+ * fetched by the ViewModel into [TodoUiState.doneWindowDays]; this constant is the
+ * fallback used before that GET lands (and by HeuteScreen, which has no config read).
+ * The per-device "Alle anzeigen" toggle (#340) can still lift the cap entirely.
  */
 const val DONE_WINDOW_DAYS = 14
 
@@ -78,6 +84,13 @@ data class TodoUiState(
      * Maintainer-Entscheidung (Session zu #340).
      */
     val doneShowAll: Boolean = false,
+    /**
+     * Household-configured "Erledigt"-window length in calendar days (#356, app_settings
+     * `done_window_days`, default [DONE_WINDOW_DAYS] = 14). Applied to the Erledigt tab + the
+     * done-sections; the per-device [doneShowAll] toggle still overrides it, and the COUNTS
+     * (doneTodayCount …) stay on "today". Replaced by the fetched value once it loads.
+     */
+    val doneWindowDays: Int = DONE_WINDOW_DAYS,
 ) {
     /**
      * Whether the Inbox tab is active — either explicitly selected, or as the
@@ -110,9 +123,9 @@ data class TodoUiState(
             smartTab == TodosFocus.ALL -> todos
             smartTab == TodosFocus.TODAY -> todos.filter(::isDueToday)
             smartTab == TodosFocus.TOMORROW -> todos.filter(::isDueTomorrow)
-            // "Erledigt"-Tab: über alle Listen, letzte N Tage (#263) bzw. die ganze
-            // Historie bei "Alle anzeigen" (#340). Die Tab-/Kachel-Zählung bleibt "heute".
-            smartTab == TodosFocus.DONE -> todos.filter { isDoneShown(it, doneShowAll) }
+            // "Erledigt"-Tab: über alle Listen, letzte N Tage (#263, N konfigurierbar #356) bzw.
+            // die ganze Historie bei "Alle anzeigen" (#340). Die Tab-/Kachel-Zählung bleibt "heute".
+            smartTab == TodosFocus.DONE -> todos.filter { isDoneShown(it, doneShowAll, doneWindowDays) }
             else -> activeList?.id?.let { id -> todos.filter { it.listId == id } } ?: emptyList()
         }
 
@@ -152,23 +165,24 @@ internal fun isDoneToday(t: TodoDto): Boolean =
 
 /**
  * Done todo completed within the shared "last N days" window (#263) — used by the "Erledigt"
- * tab and the cross-list/list done-section. A done todo without doneAt (rare, pre-migration)
- * is excluded, like the today-only filter. ISO dates compare lexically, but we compare LocalDate.
+ * tab and the cross-list/list done-section. [windowDays] is the household-configured length
+ * (#356), defaulting to [DONE_WINDOW_DAYS] for callers without a config read (HeuteScreen, tests).
+ * A done todo without doneAt (rare, pre-migration) is excluded, like the today-only filter.
  */
-internal fun isDoneInWindow(t: TodoDto): Boolean {
+internal fun isDoneInWindow(t: TodoDto, windowDays: Int = DONE_WINDOW_DAYS): Boolean {
     if (t.status != "DONE") return false
     val done = doneLocalDate(t.doneAt) ?: return false
-    return !done.isBefore(LocalDate.now().minusDays((DONE_WINDOW_DAYS - 1).toLong()))
+    return !done.isBefore(LocalDate.now().minusDays((windowDays - 1).toLong()))
 }
 
 /**
  * What the "Erledigt" tab and the cross-list/list done-section actually show: the
- * windowed set ([isDoneInWindow]) by default, or — when "Alle anzeigen" is on (#340,
- * [showAll]) — every DONE todo regardless of age (incl. ones without doneAt, which
- * sort last by the empty-string key). The COUNTS stay on "today" and are untouched.
+ * windowed set ([isDoneInWindow], length [windowDays]) by default, or — when "Alle anzeigen" is
+ * on (#340, [showAll]) — every DONE todo regardless of age (incl. ones without doneAt, which sort
+ * last by the empty-string key). The COUNTS stay on "today" and are untouched.
  */
-internal fun isDoneShown(t: TodoDto, showAll: Boolean): Boolean =
-    if (showAll) t.status == "DONE" else isDoneInWindow(t)
+internal fun isDoneShown(t: TodoDto, showAll: Boolean, windowDays: Int = DONE_WINDOW_DAYS): Boolean =
+    if (showAll) t.status == "DONE" else isDoneInWindow(t, windowDays)
 
 /** Local calendar date of a done timestamp, in the device timezone (not UTC). */
 internal fun doneLocalDate(doneAt: String?): LocalDate? =
@@ -176,6 +190,7 @@ internal fun doneLocalDate(doneAt: String?): LocalDate? =
 
 class TodoViewModel(
     private val repository: TodoRepository,
+    private val configRepository: ConfigRepository,
     private val token: String,
 ) : ViewModel() {
 
@@ -184,7 +199,22 @@ class TodoViewModel(
 
     init {
         load()
+        loadDoneWindow()
         observeWebSocket()
+    }
+
+    /**
+     * Fetch the household-configured "Erledigt"-window length (#356) into the UI state. Best-effort:
+     * any failure leaves the default [DONE_WINDOW_DAYS] in place, so the view behaves exactly as
+     * before this setting existed. Re-read on resume via [ensureConnected] so a change made on the
+     * web/another device is picked up without a logout.
+     */
+    private fun loadDoneWindow() {
+        viewModelScope.launch {
+            configRepository.getDoneWindow().onSuccess { cfg ->
+                _uiState.update { it.copy(doneWindowDays = cfg.days) }
+            }
+        }
     }
 
     fun load() {
@@ -436,6 +466,8 @@ class TodoViewModel(
     fun ensureConnected() {
         repository.ensureWebSocketConnected()
         syncFromServer()
+        // also pick up an out-of-band change to the configurable done-window (#356) made elsewhere.
+        loadDoneWindow()
     }
 
     override fun onCleared() {
