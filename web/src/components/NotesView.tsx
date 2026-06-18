@@ -9,7 +9,7 @@ import {
   type FocusEvent as ReactFocusEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { API_BASE, authFetch, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
+import { API_BASE, authFetch, downloadImage, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -116,7 +116,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // progress of a multi-file gallery upload (null = no batch in flight); drives the button label
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
-  const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string } | null>(null)
+  const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string; originalName: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
   // The note-document container (for outside-click detection while editing) and the title input
@@ -659,6 +659,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     }
   }
 
+  // Download an attachment under its original upload name (the lightbox renders a blob URL, so
+  // the browser's "Save image as…" loses the server's filename — see downloadImage in api.ts, #346).
+  const handleDownloadImage = async (noteId: string, imageId: string, originalName: string) => {
+    const outcome = await downloadImage(token, noteImageUrl(noteId, imageId), originalName)
+    if (outcome === 'unauthorized') onLogout()
+    else if (outcome === 'error') flashError(errorText(null, t('notes.imageDownloadFailed')))
+  }
+
   // Insert an inline reference to an already-uploaded attachment at the editor caret.
   // The snippet `![name](image:id)` replaces the current selection / lands at the cursor;
   // renderMarkdown resolves it to the authed image on the preview side. Caret is restored
@@ -972,7 +980,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                                 url={noteImageUrl(editNote.id, img.id)}
                                 token={token}
                                 alt={img.originalName}
-                                onClick={() => setLightbox({ noteId: editNote.id, imageId: img.id })}
+                                onClick={() => setLightbox({ noteId: editNote.id, imageId: img.id, originalName: img.originalName })}
                               />
                               <button
                                 type="button"
@@ -1050,10 +1058,25 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   >
                     {draft.content.trim()
                       ? renderMarkdown(draft.content, {
-                          // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery
+                          // inline `![](image:<id>)` refs resolve to the same authed loader as the gallery;
+                          // clicking opens the lightbox (with its download button), so inline images are
+                          // downloadable under their original name too — name looked up from the gallery
+                          // by id, with the markdown alt as a fallback (#346).
                           resolveImage: (imageId, alt) =>
                             draft.id ? (
-                              <AuthedImage url={noteImageUrl(draft.id, imageId)} token={token} alt={alt} className="hb-md-img" />
+                              <AuthedImage
+                                url={noteImageUrl(draft.id, imageId)}
+                                token={token}
+                                alt={alt}
+                                className="hb-md-img hb-md-img--zoom"
+                                onClick={() =>
+                                  setLightbox({
+                                    noteId: draft.id!,
+                                    imageId,
+                                    originalName: editImages.find((im) => im.id === imageId)?.originalName || alt || '',
+                                  })
+                                }
+                              />
                             ) : (
                               alt || null
                             ),
@@ -1078,6 +1101,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
       {lightbox && (
         <div className="hb-lightbox" onClick={() => setLightbox(null)}>
+          <button
+            type="button"
+            className="hb-lightbox__download"
+            title={t('notes.downloadImage')}
+            aria-label={t('notes.downloadImage')}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDownloadImage(lightbox.noteId, lightbox.imageId, lightbox.originalName)
+            }}
+          >
+            <Icon name="download" size={18} stroke={2.2} />
+          </button>
           <AuthedImage url={noteImageUrl(lightbox.noteId, lightbox.imageId)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
