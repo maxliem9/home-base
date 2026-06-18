@@ -70,7 +70,12 @@ data class TodoUiState(
      * "Alle anzeigen" für die Erledigt-Historie (#340): false = die letzten N Tage
      * (DONE_WINDOW_DAYS, Default), true = die ganze Historie. Betrifft nur die
      * angezeigten DONE-Inhalte (Erledigt-Tab + Done-Section); die Zählungen
-     * (doneTodayCount …) bleiben bewusst auf "heute". Per-Device-Anzeigezustand.
+     * (doneTodayCount …) bleiben bewusst auf "heute".
+     *
+     * Bewusst nur In-Memory (kein DataStore/SharedPreferences, anders als der Web-Toggle
+     * in localStorage homebase_todos_done_show_all): die „Erledigt"-Historie ist ein
+     * seltener Browse-Vorgang, der Toggle darf pro Session zurücksetzen.
+     * Maintainer-Entscheidung (Session zu #340).
      */
     val doneShowAll: Boolean = false,
 ) {
