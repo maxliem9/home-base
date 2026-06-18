@@ -219,6 +219,14 @@ export class MockApi {
     return this
   }
 
+  /** Override the "Erledigt"-history window length GET /config/done-window serves (#356).
+   *  Default is 14 (mirrors backend + clients); set a different value to exercise a
+   *  configured window without hand-rolling a route in the spec. */
+  seedDoneWindow(days: number): this {
+    this.doneWindowDays = days
+    return this
+  }
+
   seedAbsence(seed: AbsenceSeed): this {
     this.absUsers = [...(seed.users ?? [])]
     this.absences = (seed.absences ?? []).map((a) => ({ ...a }))

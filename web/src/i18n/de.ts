@@ -377,6 +377,9 @@ export const de = {
     allTags: 'Alle',
     allFolders: 'Alle Ordner',
     noFolder: 'Ohne Ordner',
+    // bulk collapse/expand control above the folder-grouped list (#345)
+    collapseAll: 'Alle einklappen',
+    expandAll: 'Alle ausklappen',
     noResults: 'Keine Treffer',
     empty: 'Noch keine Notizen',
     emptyHint: 'Erstelle eine Notiz',
