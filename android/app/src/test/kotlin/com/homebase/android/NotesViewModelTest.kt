@@ -804,6 +804,7 @@ class NotesViewModelTest {
         advanceTimeBy(NotesViewModel.AUTOSAVE_DEBOUNCE_MS)
         runCurrent() // first (offline) save attempt fails → queued + pending
         assertTrue("still pending after the offline attempt", vm.uiState.value.isPending("1"))
+        assertEquals(SaveStatus.PENDING, vm.editorState.value?.status)
 
         // Connectivity returns → the network-available trigger flushes again, now succeeding. The
         // queue drains here, so advanceUntilIdle is safe (the backstop loop exits once empty).
@@ -814,7 +815,45 @@ class NotesViewModelTest {
         assertFalse("pending marker gone after the retry lands", vm.uiState.value.isPending("1"))
         assertTrue("durable store cleared after the retry lands", pendingStore.data.isEmpty())
         assertEquals("the note list reflects the synced edit", "Neu", vm.uiState.value.notes.first().title)
+        // #367: the OPEN editor's chip must clear to SAVED too — not stay stuck on PENDING after a
+        // queue-driven sync (the draft still equals what we sent, so the baseline is refreshed).
+        assertEquals(SaveStatus.SAVED, vm.editorState.value?.status)
         coVerify(atLeast = 2) { repository.updateNote(eq("1"), any()) } // offline attempt + the retry that lands
+    }
+
+    @Test
+    fun `a newer keystroke during a queue-driven sync keeps the editor unsaved (#367 guard)`() = vmTest {
+        // Guard the #367 fix's "only when the draft still equals what landed" condition: if the user
+        // typed something newer (NOT yet re-queued) between the offline failure and the flush, the chip
+        // must NOT flip to SAVED — that newer text is still unsaved; the live save loop owns it.
+        val existing = note(id = "1", title = "Alt")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
+        var online = false
+        coEvery { repository.updateNote(eq("1"), any()) } coAnswers {
+            if (online) Result.success(existing.copy(title = "Neu")) else Result.failure(java.io.IOException("offline"))
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(existing)
+        vm.updateEditor(title = "Neu")
+        advanceTimeBy(NotesViewModel.AUTOSAVE_DEBOUNCE_MS)
+        runCurrent() // "Neu" queued offline + PENDING
+        assertTrue(vm.uiState.value.isPending("1"))
+
+        // User types MORE; its debounce has NOT fired (no time advance), so the queue still holds "Neu".
+        vm.updateEditor(title = "Noch neuer")
+
+        // Connectivity returns and a reconnect flushes the queued "Neu" (online → succeeds). runCurrent
+        // (not advanceUntilIdle) so the "Noch neuer" debounce never fires here. The landed body ("Neu")
+        // ≠ the draft ("Noch neuer"), so the chip must stay PENDING — not flip to SAVED.
+        online = true
+        fireWsReconnect()
+        runCurrent()
+
+        assertNotEquals(SaveStatus.SAVED, vm.editorState.value?.status)
+        assertEquals("Noch neuer", vm.editorState.value?.title)
     }
 
     @Test
