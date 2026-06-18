@@ -679,6 +679,46 @@ test.describe('Notes', () => {
     await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
   })
 
+  // The "Alle ein-/ausklappen" toolbar control (#345) collapses/expands every visible folder
+  // group at once and persists via the same localStorage key as the per-folder toggle.
+  test('collapse-all / expand-all toggles every folder group and persists', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({ id: 'n1', title: 'Steuer 2025', folder: 'Finanzen' }),
+      note({ id: 'n2', title: 'Rezept-Notiz', folder: 'Küche' }),
+      note({ id: 'n3', title: 'Geschenkideen' }), // no folder → the '' bucket
+    ]))
+
+    const control = page.locator('.hb-notes-collapseall')
+    // all expanded by default → the control offers "collapse all"
+    await expect(control).toHaveText(/Alle einklappen/)
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Rezept-Notiz/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Geschenkideen/ })).toBeVisible()
+
+    // collapse all → every group's notes hide (incl. the no-folder bucket) and the label flips
+    await control.click()
+    await expect(control).toHaveText(/Alle ausklappen/)
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Rezept-Notiz/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Geschenkideen/ })).toHaveCount(0)
+    // every header now reads collapsed
+    for (const head of await page.locator('.hb-notes-group__head').all()) {
+      await expect(head).toHaveAttribute('aria-expanded', 'false')
+    }
+
+    // persisted: a reload keeps everything collapsed and the label on "expand all"
+    await page.reload()
+    await page.getByRole('button', { name: 'Notizen' }).click()
+    await expect(page.locator('.hb-notes-collapseall')).toHaveText(/Alle ausklappen/)
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toHaveCount(0)
+
+    // expand all → the set is cleared and every group's notes return
+    await page.locator('.hb-notes-collapseall').click()
+    await expect(page.locator('.hb-notes-collapseall')).toHaveText(/Alle einklappen/)
+    await expect(page.getByRole('button', { name: /Steuer 2025/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Geschenkideen/ })).toBeVisible()
+  })
+
   // ---- Mobile collapse + back control (#313) ----
   // At ≤860px the list and document are one-pane-at-a-time: browsing shows the list, opening a
   // note collapses the list to show the full-width document, and a back control returns to it.
