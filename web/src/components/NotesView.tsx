@@ -718,8 +718,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   }
 
   // The grouped, clickable note list — rendered in the left column AND inside the mobile
-  // switcher Sheet. `onPick` lets the Sheet close itself after a jump.
-  const renderNoteGroups = (onPick?: () => void) => {
+  // switcher Sheet. `onPick` lets the Sheet close itself after a jump. `idScope` namespaces
+  // the per-group region ids so the two render sites (column + sheet) can't produce duplicate
+  // DOM ids.
+  const renderNoteGroups = (onPick?: () => void, idScope = 'col') => {
     // "Alle ein-/ausklappen" derives its action from the visible groups: when every one is
     // already collapsed it offers expand-all, otherwise collapse-all. Only meaningful with
     // 2+ groups (a lone group is toggled by its own header). (#345)
@@ -739,8 +741,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           </button>
         </div>
       )}
-      {groups.map((g) => {
+      {groups.map((g, i) => {
         const collapsed = collapsedFolders.has(g.folder)
+        // stable, collision-free region id: scope + group index. The index is unique per render
+        // (so two folders whose names sanitize to the same string can't share an id) and stable
+        // across renders for a given group order; idScope keeps the column/sheet renders distinct.
+        const regionId = `hb-notes-items-${idScope}-${i}`
         return (
           // the no-folder bucket has folder==='' → prefix keys so a real folder can't collide
           <div key={g.folder ? `f:${g.folder}` : 'nofolder'} className="hb-notes-group">
@@ -749,6 +755,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               type="button"
               className="hb-notes-group__head"
               aria-expanded={!collapsed}
+              aria-controls={regionId}
               onClick={() => toggleFolder(g.folder)}
             >
               <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} stroke={2.4} className="hb-notes-group__chevron" />
@@ -757,7 +764,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
               <span className="hb-notes-group__count">{g.notes.length}</span>
             </button>
             {!collapsed && (
-              <div className="hb-notes-items">
+              <div id={regionId} className="hb-notes-items">
                 {g.notes.map((n) => (
                   <button
                     key={n.id}
@@ -1127,7 +1134,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       <Sheet open={switcherOpen} onClose={() => setSwitcherOpen(false)} title={t('notes.switchNote')}>
         {listed.length === 0
           ? <EmptyState icon="note" title={t('notes.empty')} />
-          : renderNoteGroups(() => setSwitcherOpen(false))}
+          : renderNoteGroups(() => setSwitcherOpen(false), 'sheet')}
       </Sheet>
 
       {lightbox && (

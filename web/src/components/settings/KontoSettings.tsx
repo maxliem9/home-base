@@ -85,6 +85,7 @@ export function KontoSettings({ token, onLogout, theme, themeLoaded, onChangeThe
           <SegmentedControl<Theme>
             value={theme}
             onChange={pickTheme}
+            ariaLabel={t('settings.themeLabel')}
             options={[
               { value: 'light', label: t('settings.themeLight') },
               { value: 'dark', label: t('settings.themeDark') },
@@ -162,6 +163,7 @@ function LanguageCard() {
         <SegmentedControl<LangPref>
           value={pref}
           onChange={(next) => { if (next !== pref) setLangPref(next) }}
+          ariaLabel={t('settings.languageLabel')}
           options={[
             { value: 'de', label: t('settings.languageGerman') },
             { value: 'en', label: t('settings.languageEnglish') },
