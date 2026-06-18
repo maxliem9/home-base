@@ -469,7 +469,17 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 .hb-md-h.hb-md-h1 { font-size: 21px; } .hb-md-h.hb-md-h2 { font-size: 18px; } .hb-md-h.hb-md-h3 { font-size: 16px; color: var(--ink-2); }
 .hb-md-h:first-child { margin-top: 0; }
 .hb-md-p { margin: 9px 0; }
-.hb-md-list { margin: 8px 0; padding-left: 22px; display: flex; flex-direction: column; gap: 5px; }
+/* Normal list flow (not flex) so native <li> markers render. The previous `display:flex`
+   suppressed markers (flex items never paint `list-style`). The marker is driven by the
+   element type — <ul>→disc, <ol>→decimal — restated explicitly because Tailwind's Preflight
+   resets `ul,ol { list-style: none }`, so without this the reset would still blank them out.
+   The flex `gap: 5px` that used to space items is replaced by `li` margins (same rhythm). */
+.hb-md-list { margin: 8px 0; padding-left: 22px; list-style-position: outside; }
+ul.hb-md-list { list-style-type: disc; }
+ol.hb-md-list { list-style-type: decimal; }
+.hb-md-list > li { margin: 5px 0; }
+.hb-md-list > li:first-child { margin-top: 0; }
+.hb-md-list > li:last-child { margin-bottom: 0; }
 .hb-md-quote { margin: 12px 0; padding: 8px 16px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--ink-2); }
 .hb-md-code { font-family: var(--font-mono); font-size: 0.9em; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
 .hb-md-img { display: block; max-width: 100%; height: auto; border-radius: 10px; margin: 10px 0; }

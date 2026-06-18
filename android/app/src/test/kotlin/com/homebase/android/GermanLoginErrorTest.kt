@@ -8,6 +8,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.LoginRequest
 import com.homebase.android.data.repository.ApiException
 import com.homebase.android.data.repository.AuthRepository
+import com.homebase.android.testutil.leakSafeScope
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -15,9 +16,6 @@ import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.nio.file.Files
-import kotlinx.coroutines.CoroutineExceptionHandler
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,12 +56,11 @@ class GermanLoginErrorTest {
 
     // AuthRepository.init fires a fire-and-forget `scope.launch(Dispatchers.IO){…}` (token restore)
     // that can still be running when @After unmocks the keystore (mockkStatic/mockkConstructor) below.
-    // It would then hit the REAL EncryptedSharedPreferences/Keystore and throw; with a bare Job() and
-    // no handler that uncaught exception leaks into kotlinx-coroutines-test's global capture and gets
-    // reported by the *next* runTest (e.g. LogoutTeardownTest) as UncaughtExceptionsBeforeTest. A
-    // SupervisorJob + swallowing CoroutineExceptionHandler contains it; @After cancels it before the
-    // mocks come down so it usually never runs at all.
-    private val repoScope = CoroutineScope(SupervisorJob() + CoroutineExceptionHandler { _, _ -> })
+    // It would then hit the REAL EncryptedSharedPreferences/Keystore and throw; an unguarded scope
+    // would let that uncaught exception leak into the *next* runTest as UncaughtExceptionsBeforeTest.
+    // leakSafeScope() (SupervisorJob + swallowing handler) contains it; @After cancels it before the
+    // mocks come down so it usually never runs at all. See leakSafeScope's docs + issue #363.
+    private val repoScope = leakSafeScope()
 
     @Before
     fun mockKeystore() {

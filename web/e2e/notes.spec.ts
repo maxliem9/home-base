@@ -859,4 +859,49 @@ test.describe('Notes', () => {
     await expect(page.locator('.hb-note-doc__body')).toContainText('BBB')
     await expect(sheet).toHaveCount(0)
   })
+
+  // ---- Markdown list markers (#355) ----
+  // Regression guard: rendered markdown lists must show their native markers (bullets for
+  // <ul>, numbers for <ol>). The bug was `.hb-md-list { display:flex }`, under which flex
+  // items never paint `list-style` markers, so `- a` / `1. b` rendered indented but blank.
+  // CSS markers can't be asserted by visible text, so we read the computed style instead:
+  // list-style-type must stay non-`none` and the box must use list flow (not flex).
+  test('renders markdown lists with native markers (bullets + numbers, #355)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([
+      note({
+        id: 'n1',
+        title: 'Listen',
+        // a `-` bullet list followed by a `1.` numbered list → <ul> then <ol>, both .hb-md-list
+        content: '- Apfel\n- Birne\n\n1. Erste\n2. Zweite',
+      }),
+    ]))
+
+    // clicking the note rests in the rendered preview (HB-13) — the lists render there
+    await page.getByRole('button', { name: /Listen/ }).click()
+    const body = page.locator('.hb-note-doc__body')
+    const ul = body.locator('ul.hb-md-list')
+    const ol = body.locator('ol.hb-md-list')
+    await expect(ul.locator('li')).toHaveText(['Apfel', 'Birne'])
+    await expect(ol.locator('li')).toHaveText(['Erste', 'Zweite'])
+
+    // <ul> → disc bullets, in list flow (not flex) so the marker actually paints
+    const ulStyle = await ul.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { listStyleType: s.listStyleType, display: s.display }
+    })
+    expect(ulStyle.listStyleType).toBe('disc')
+    expect(ulStyle.display).not.toBe('flex')
+
+    // <ol> → decimal numbers, likewise in list flow — the type drives the marker, not a hardcode
+    const olStyle = await ol.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { listStyleType: s.listStyleType, display: s.display }
+    })
+    expect(olStyle.listStyleType).toBe('decimal')
+    expect(olStyle.display).not.toBe('flex')
+
+    // and the per-item vertical rhythm is preserved (the old flex `gap: 5px` → li margins)
+    const liMargin = await ul.locator('li').nth(1).evaluate((el) => getComputedStyle(el).marginTop)
+    expect(liMargin).toBe('5px')
+  })
 })
