@@ -145,7 +145,12 @@
     <string name="todo_tomorrow_empty_hint">Keine offenen Aufgaben mit Fälligkeit morgen.</string>
     <string name="todo_done_view_empty_title">Zuletzt nichts erledigt</string>
     <string name="todo_done_view_empty_hint">Aufgaben der letzten %1$d Tage erscheinen hier.</string>
+    <string name="todo_done_view_empty_all_hint">Es wurde noch nichts erledigt.</string>
     <string name="todo_done_window_note">Letzte %1$d Tage</string>
+    <!-- "Alle anzeigen"-Umschalter für die Erledigt-Historie (#340) -->
+    <string name="todo_done_show_all">Alle anzeigen</string>
+    <string name="todo_done_show_window">Nur letzte %1$d Tage</string>
+    <string name="todo_done_showing_all">Gesamte Historie</string>
     <!-- Due-date group headers (Format.DueGroup) -->
     <string name="due_group_overdue">Überfällig</string>
     <string name="due_group_today">Heute</string>

@@ -66,6 +66,18 @@ data class TodoUiState(
     val activeListId: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
+    /**
+     * "Alle anzeigen" für die Erledigt-Historie (#340): false = die letzten N Tage
+     * (DONE_WINDOW_DAYS, Default), true = die ganze Historie. Betrifft nur die
+     * angezeigten DONE-Inhalte (Erledigt-Tab + Done-Section); die Zählungen
+     * (doneTodayCount …) bleiben bewusst auf "heute".
+     *
+     * Bewusst nur In-Memory (kein DataStore/SharedPreferences, anders als der Web-Toggle
+     * in localStorage homebase_todos_done_show_all): die „Erledigt"-Historie ist ein
+     * seltener Browse-Vorgang, der Toggle darf pro Session zurücksetzen.
+     * Maintainer-Entscheidung (Session zu #340).
+     */
+    val doneShowAll: Boolean = false,
 ) {
     /**
      * Whether the Inbox tab is active — either explicitly selected, or as the
@@ -98,8 +110,9 @@ data class TodoUiState(
             smartTab == TodosFocus.ALL -> todos
             smartTab == TodosFocus.TODAY -> todos.filter(::isDueToday)
             smartTab == TodosFocus.TOMORROW -> todos.filter(::isDueTomorrow)
-            // "Erledigt"-Tab: über alle Listen, letzte N Tage statt nur heute (#263)
-            smartTab == TodosFocus.DONE -> todos.filter(::isDoneInWindow)
+            // "Erledigt"-Tab: über alle Listen, letzte N Tage (#263) bzw. die ganze
+            // Historie bei "Alle anzeigen" (#340). Die Tab-/Kachel-Zählung bleibt "heute".
+            smartTab == TodosFocus.DONE -> todos.filter { isDoneShown(it, doneShowAll) }
             else -> activeList?.id?.let { id -> todos.filter { it.listId == id } } ?: emptyList()
         }
 
@@ -147,6 +160,15 @@ internal fun isDoneInWindow(t: TodoDto): Boolean {
     val done = doneLocalDate(t.doneAt) ?: return false
     return !done.isBefore(LocalDate.now().minusDays((DONE_WINDOW_DAYS - 1).toLong()))
 }
+
+/**
+ * What the "Erledigt" tab and the cross-list/list done-section actually show: the
+ * windowed set ([isDoneInWindow]) by default, or — when "Alle anzeigen" is on (#340,
+ * [showAll]) — every DONE todo regardless of age (incl. ones without doneAt, which
+ * sort last by the empty-string key). The COUNTS stay on "today" and are untouched.
+ */
+internal fun isDoneShown(t: TodoDto, showAll: Boolean): Boolean =
+    if (showAll) t.status == "DONE" else isDoneInWindow(t)
 
 /** Local calendar date of a done timestamp, in the device timezone (not UTC). */
 internal fun doneLocalDate(doneAt: String?): LocalDate? =
@@ -218,6 +240,13 @@ class TodoViewModel(
     }
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
+
+    /**
+     * Flip "Alle anzeigen" für die Erledigt-Historie (#340): lifts/restores the 14-day
+     * cap on the displayed DONE content. In-memory per-session view state (the counts
+     * stay on "today"); mirrors the web toggle, which additionally persists per-device.
+     */
+    fun toggleDoneShowAll() = _uiState.update { it.copy(doneShowAll = !it.doneShowAll) }
 
     /**
      * Open the tab a dashboard stat tile deep-links to (#255/#256). Mirrors the web, where the

@@ -356,6 +356,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-donehead .hb-sectionlabel { transition: color 0.12s; }
 .hb-donehead:hover .hb-sectionlabel { color: var(--ink); }
 .hb-donehead__c { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 1px 9px; }
+/* Erledigt-Tab: Fenster-Hinweis links, "Alle anzeigen"-Umschalter rechts (#340) */
+.hb-donewindowbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px 2px; flex-wrap: wrap; }
 
 /* ---------- Todo + subtasks ---------- */
 .hb-todo { border-bottom: 1px solid var(--line-soft); }

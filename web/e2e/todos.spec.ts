@@ -546,6 +546,32 @@ test.describe('Smart views', () => {
     await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toHaveCount(0)
   })
 
+  // "Alle anzeigen" lifts the 14-day done window to reveal the full history (#340).
+  // s9 is completed 2026-05-01 (>14 days before the pinned 2026-06-10) → hidden by default.
+  test('Erledigt "Alle anzeigen" reveals done todos older than the 14-day window', async ({ page }) => {
+    const todos = [
+      ...smartTodos(),
+      todo({ id: 's9', title: 'Altlast erledigt', status: 'DONE', listId: 'l1', doneAt: '2026-05-01T07:00:00Z' }),
+    ]
+    await openApp(page, new MockApi(todos, SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Erledigt' }).click()
+
+    // within-window done shows; the old one is hidden behind the 14-day cap
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Altlast erledigt' })).toHaveCount(0)
+    // the tab COUNT stays on "today" (s7) — unaffected by show-all
+    await expect(tabCount(page, 'Erledigt')).toHaveText('1')
+
+    await page.getByRole('button', { name: 'Alle anzeigen' }).click()
+    await expect(page.locator('.hb-row--done', { hasText: 'Altlast erledigt' })).toBeVisible()
+    await expect(page.locator('.hb-row--done', { hasText: 'Mails beantworten' })).toBeVisible()
+    await expect(tabCount(page, 'Erledigt')).toHaveText('1') // still today-only
+
+    // toggling back re-applies the window
+    await page.getByRole('button', { name: 'Nur letzte 14 Tage' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Altlast erledigt' })).toHaveCount(0)
+  })
+
   test('Alle buckets every list\'s open todos and keeps a collapsible done section', async ({ page }) => {
     await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
     await page.getByRole('tab', { name: 'Alle' }).click()

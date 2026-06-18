@@ -47,8 +47,14 @@ const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id &&
 // grow unbounded across the whole history (#263). One shared window for both:
 // it caps the "Alle" done-section AND widens "Erledigt" beyond just today. The
 // badge/tile COUNTS stay deliberately on "today" (doneTodayCount) and are not
-// touched. N is a named constant (configurable later if needed — issue note).
+// touched. N is the default; a per-device "show all" toggle (#340) can lift the
+// cap to reveal the full history (see DONE_SHOW_ALL_KEY).
 const DONE_WINDOW_DAYS = 14
+// Per-device "Alle anzeigen" preference (#340): when on, the Erledigt tab and the
+// collapsible done-section show the FULL done history instead of the last N days.
+// Browser-local like the other UI prefs (homebase_lang, homebase_notes_*); the
+// COUNTS stay on "today" regardless. Default (absent/anything-but-"1") = windowed.
+const DONE_SHOW_ALL_KEY = 'homebase_todos_done_show_all'
 
 // Secondary sort key within a due-date bucket: higher priority first, no
 // priority last. Kept in sync with the Android client (Format.prioRank).
@@ -124,10 +130,33 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
   const [doneOpen, setDoneOpen] = useState(false)
+  // "Alle anzeigen" für die Erledigt-Historie (#340): per-device, lifts the 14-day
+  // cap on the Erledigt tab + done-section. Seeded from localStorage; counts unchanged.
+  const [doneShowAll, setDoneShowAll] = useState(() => {
+    try {
+      return localStorage.getItem(DONE_SHOW_ALL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const [newListOpen, setNewListOpen] = useState(false)
   const [editListOpen, setEditListOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { flashError, errorToast } = useErrorToast()
+
+  // Flip the "Alle anzeigen" preference and persist it per-device (#340). Best-effort:
+  // a write failure (private mode/quota) still toggles for this session.
+  const toggleDoneShowAll = useCallback(() => {
+    setDoneShowAll((v) => {
+      const next = !v
+      try {
+        localStorage.setItem(DONE_SHOW_ALL_KEY, next ? '1' : '0')
+      } catch {
+        /* storage unavailable → in-memory only for this session */
+      }
+      return next
+    })
+  }, [])
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -471,10 +500,14 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
   const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso
   const isDoneToday = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso
-  // Done within the shared "last N days" window (#263) — used by the "Erledigt"
-  // tab and the cross-list/list done-section. A done todo without doneAt (rare,
-  // pre-migration) is excluded from the window, like the today-only filter above.
+  // Done within the shared "last N days" window (#263). A done todo without doneAt
+  // (rare, pre-migration) is excluded from the window, like the today-only filter above.
   const isDoneInWindow = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) >= doneWindowStartIso
+  // What the "Erledigt" tab and the cross-list/list done-section actually show:
+  // the windowed set by default, or — when "Alle anzeigen" is on (#340) — every DONE
+  // todo regardless of age. (A DONE todo without doneAt still appears in show-all mode;
+  // it just sorts last by the empty-string doneAt key.) The COUNTS stay on "today".
+  const isDoneShown = (x: Todo) => (doneShowAll ? x.status === 'DONE' : isDoneInWindow(x))
 
   // Inbox = alles Unverplante: Status INBOX zählt auch dann, wenn das Todo schon
   // in einer Liste liegt (Entscheidung #71 — gleiche Semantik wie die
@@ -500,16 +533,17 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         : tomorrowActive
           ? todos.filter(isDueTomorrow)
           : doneActive
-            ? todos.filter(isDoneInWindow) // "Erledigt"-Tab: letzte N Tage statt nur heute (#263)
+            ? todos.filter(isDoneShown) // "Erledigt"-Tab: letzte N Tage (#263) bzw. alles bei "Alle anzeigen" (#340)
             : active
               ? todos.filter((x) => x.listId === active.id)
               : []
   const openTodos = viewTodos.filter((x) => x.status !== 'DONE')
-  // Done section/tab is limited to the shared "last N days" window (#263): caps the
-  // "Alle" (and per-list) collapsible done-section and is the Erledigt tab's content.
-  // doneTodayCount above stays on "today" — counts are intentionally unchanged.
+  // Done section/tab content: the shared "last N days" window (#263), or — with
+  // "Alle anzeigen" (#340) — the full history. Caps the "Alle" (and per-list)
+  // collapsible done-section and is the Erledigt tab's content. Sorted by doneAt
+  // desc (newest first). doneTodayCount above stays on "today" — counts unchanged.
   const done = viewTodos
-    .filter(isDoneInWindow)
+    .filter(isDoneShown)
     .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
 
   // view-shape flags
@@ -550,6 +584,20 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // the todo currently in the plan modal — inbox todos (no listId) additionally
   // get a list picker there, so planning can file them into a list (#69)
   const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
+
+  // "Alle anzeigen" ↔ "Nur letzte N Tage" toggle for the done UI (#340). Rendered both
+  // in the Erledigt tab (next to the window note) and the collapsible done-section header.
+  const doneShowAllToggle = (
+    <button
+      type="button"
+      className="hb-link"
+      onClick={toggleDoneShowAll}
+      title={doneShowAll ? t('todos.doneShowWindow', { n: DONE_WINDOW_DAYS }) : t('todos.doneShowAll')}
+    >
+      <Icon name="chevronDown" size={14} stroke={2.2} style={doneShowAll ? { transform: 'rotate(180deg)' } : undefined} />
+      {doneShowAll ? t('todos.doneShowWindow', { n: DONE_WINDOW_DAYS }) : t('todos.doneShowAll')}
+    </button>
+  )
 
   // One row renderer for every section (buckets, flat smart lists, done) so the
   // long prop wiring lives in a single place. Cross-list views tag each row with
@@ -645,15 +693,27 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
           )}
 
           {doneActive ? (
-            // "Erledigt"-Tab: über alle Listen abgehakte Todos der letzten N Tage,
-            // flach + neueste zuerst (#263; die Tab-/Kachel-Zählung bleibt "heute")
+            // "Erledigt"-Tab: über alle Listen abgehakte Todos der letzten N Tage —
+            // bzw. die ganze Historie bei "Alle anzeigen" (#340) — flach + neueste
+            // zuerst (#263; die Tab-/Kachel-Zählung bleibt bewusst "heute").
             done.length === 0 ? (
               <Card className="hb-card--pad">
-                <EmptyState icon="checkCircle" title={t('todos.doneViewEmpty')} hint={t('todos.doneViewEmptyHint', { n: DONE_WINDOW_DAYS })} />
+                <EmptyState
+                  icon="checkCircle"
+                  title={t('todos.doneViewEmpty')}
+                  hint={doneShowAll ? t('todos.doneViewEmptyAllHint') : t('todos.doneViewEmptyHint', { n: DONE_WINDOW_DAYS })}
+                />
+                {/* even with nothing in the window, let the user flip to/from the full history */}
+                <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center' }}>{doneShowAllToggle}</div>
               </Card>
             ) : (
               <>
-                <div className="hb-sectionlabel">{t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}</div>
+                <div className="hb-donewindowbar">
+                  <span className="hb-sectionlabel" style={{ margin: 0 }}>
+                    {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}
+                  </span>
+                  {doneShowAllToggle}
+                </div>
                 <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
                   <div className="hb-list">{done.map(renderRow)}</div>
                 </Card>
@@ -700,13 +760,19 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 <Icon name="chevronDown" size={16} stroke={2.4} className="hb-donehead__chev" />
                 <span className="hb-sectionlabel" style={{ margin: 0 }}>{t('todos.doneSection')}</span>
                 <span className="hb-donehead__c">{done.length}</span>
-                {/* the done-section is windowed to the last N days (#263) — count reflects that */}
-                <span className="hb-muted" style={{ fontSize: 12 }}>{t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}</span>
+                {/* windowed to the last N days (#263), or the full history when "Alle anzeigen" is on (#340) */}
+                <span className="hb-muted" style={{ fontSize: 12 }}>
+                  {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}
+                </span>
               </button>
               {doneOpen && (
-                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6, marginTop: 12 }}>
-                  <div className="hb-list">{done.map(renderRow)}</div>
-                </Card>
+                <>
+                  {/* sibling of the collapse button (a button can't nest a button) (#340) */}
+                  <div style={{ margin: '8px 0 0 2px' }}>{doneShowAllToggle}</div>
+                  <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6, marginTop: 12 }}>
+                    <div className="hb-list">{done.map(renderRow)}</div>
+                  </Card>
+                </>
               )}
             </div>
           )}

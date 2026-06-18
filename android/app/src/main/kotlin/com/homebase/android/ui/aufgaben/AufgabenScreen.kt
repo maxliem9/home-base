@@ -132,9 +132,11 @@ fun AufgabenScreen(
     val smartTab = state.smartTab
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }
     // Done shown here is windowed to the last N days (#263) — caps the Inbox/Alle/list done-section
-    // and is the entire content of the "Erledigt" tab. visibleTodos already windows the DONE tab.
-    // (zuletzt erledigt oben wird an den Render-Stellen sortiert, doneAt desc.)
-    val doneTodos = if (smartTab == TodosFocus.DONE) state.visibleTodos else state.visibleTodos.filter(::isDoneInWindow)
+    // and is the entire content of the "Erledigt" tab. "Alle anzeigen" (#340) lifts the cap to the
+    // full history. visibleTodos already applies the rule to the DONE tab; for the done-section on
+    // the other tabs we apply isDoneShown here. (zuletzt erledigt oben wird an den Render-Stellen
+    // sortiert, doneAt desc.)
+    val doneTodos = if (smartTab == TodosFocus.DONE) state.visibleTodos else state.visibleTodos.filter { isDoneShown(it, state.doneShowAll) }
     // The active view's title (Inbox / smart-tab label / list name).
     val title = when {
         state.inboxActive -> stringResource(R.string.todo_inbox)
@@ -227,15 +229,24 @@ fun AufgabenScreen(
 
             if (smartTab == TodosFocus.DONE) {
                 // "Erledigt" tab: today's-and-recent completed todos across all lists, flat + newest
-                // first, windowed to the last N days (#263). The tab/tile COUNT stays "today".
+                // first, windowed to the last N days (#263) — or the full history with "Alle anzeigen"
+                // (#340). The tab/tile COUNT stays "today".
                 if (doneTodos.isEmpty()) {
                     HbEmpty(
                         HbIcons.checkCircle,
                         stringResource(R.string.todo_done_view_empty_title),
-                        stringResource(R.string.todo_done_view_empty_hint, DONE_WINDOW_DAYS),
+                        if (state.doneShowAll) {
+                            stringResource(R.string.todo_done_view_empty_all_hint)
+                        } else {
+                            stringResource(R.string.todo_done_view_empty_hint, DONE_WINDOW_DAYS)
+                        },
                     )
+                    // even with nothing in the window, let the user flip to/from the full history
+                    Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+                        DoneShowAllToggle(state.doneShowAll, viewModel::toggleDoneShowAll)
+                    }
                 } else {
-                    DoneWindowNote()
+                    DoneWindowNote(state.doneShowAll, viewModel::toggleDoneShowAll)
                     Column(Modifier.padding(horizontal = 18.dp)) {
                         doneTodos.sortedByDescending { it.doneAt ?: "" }.forEach { taskRow(it) }
                     }
@@ -284,12 +295,15 @@ fun AufgabenScreen(
                 }
             }
 
-            // "Erledigt" collapsible footer — windowed to the last N days (#263).
+            // "Erledigt" collapsible footer — windowed to the last N days (#263),
+            // or the full history with "Alle anzeigen" (#340).
             if (showDoneSection) {
                 DoneSection(
                     collapsed = doneCollapsed,
                     todos = doneTodos.sortedByDescending { it.doneAt ?: "" },
+                    showAll = state.doneShowAll,
                     onToggle = { doneCollapsed = !doneCollapsed },
+                    onToggleShowAll = viewModel::toggleDoneShowAll,
                     onRestore = { viewModel.toggleDone(it) },
                 )
             }
@@ -700,7 +714,9 @@ private fun SubtasksPanel(
 private fun DoneSection(
     collapsed: Boolean,
     todos: List<TodoDto>,
+    showAll: Boolean,
     onToggle: () -> Unit,
+    onToggleShowAll: () -> Unit,
     onRestore: (TodoDto) -> Unit,
 ) {
     Column(Modifier.padding(horizontal = 18.dp)) {
@@ -729,14 +745,22 @@ private fun DoneSection(
                     color = Hb.ink3,
                 )
             }
-            // The done-section is windowed to the last N days (#263) — the count reflects that.
+            // Windowed to the last N days (#263), or the full history with "Alle anzeigen" (#340).
             Text(
-                stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS),
+                if (showAll) {
+                    stringResource(R.string.todo_done_showing_all)
+                } else {
+                    stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS)
+                },
                 style = HbType.small,
                 color = Hb.ink3,
             )
         }
         if (!collapsed) {
+            // "Alle anzeigen" ↔ "Nur letzte N Tage" toggle, only while the section is open (#340).
+            Box(Modifier.padding(start = 2.dp, bottom = 8.dp)) {
+                DoneShowAllToggle(showAll, onToggleShowAll)
+            }
             todos.forEach { todo ->
                 Row(
                     Modifier
@@ -1166,19 +1190,50 @@ private fun SmartEmpty(inboxActive: Boolean, smartTab: TodosFocus?) {
     }
 }
 
-/** "Letzte N Tage" hint shown above the flat "Erledigt"-tab list (#263). */
+/**
+ * Hint above the flat "Erledigt"-tab list: "Letzte N Tage" (#263) or "Gesamte Historie"
+ * with "Alle anzeigen" on (#340), plus the toggle on the right.
+ */
 @Composable
-private fun DoneWindowNote() {
+private fun DoneWindowNote(showAll: Boolean, onToggleShowAll: () -> Unit) {
     Row(
-        Modifier.padding(start = 20.dp, end = 18.dp, top = 18.dp, bottom = 11.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 14.dp, top = 18.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS).uppercase(),
+            if (showAll) {
+                stringResource(R.string.todo_done_showing_all).uppercase()
+            } else {
+                stringResource(R.string.todo_done_window_note, DONE_WINDOW_DAYS).uppercase()
+            },
             style = HbType.sectionLabel,
             color = Hb.ink3,
         )
+        DoneShowAllToggle(showAll, onToggleShowAll)
     }
+}
+
+/**
+ * "Alle anzeigen" ↔ "Nur letzte N Tage" toggle for the Erledigt history (#340). A subtle
+ * ghost button; flips the displayed done content between the 14-day window and the full
+ * history. The COUNTS are unaffected.
+ */
+@Composable
+private fun DoneShowAllToggle(showAll: Boolean, onToggle: () -> Unit) {
+    HbButton(
+        text = if (showAll) {
+            stringResource(R.string.todo_done_show_window, DONE_WINDOW_DAYS)
+        } else {
+            stringResource(R.string.todo_done_show_all)
+        },
+        onClick = onToggle,
+        variant = HbButtonVariant.Ghost,
+        size = HbButtonSize.Sm,
+        icon = if (showAll) HbIcons.chevronUp else HbIcons.chevronDown,
+    )
 }
 
 // ---------------------------------------------------------------------------

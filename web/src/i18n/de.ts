@@ -270,7 +270,12 @@ export const de = {
     tomorrowEmptyHint: 'Keine offenen Aufgaben mit Fälligkeit morgen.',
     doneViewEmpty: 'Zuletzt nichts erledigt',
     doneViewEmptyHint: 'Aufgaben der letzten {n} Tage erscheinen hier.',
+    doneViewEmptyAllHint: 'Es wurde noch nichts erledigt.', // bei aktivem "Alle anzeigen" (#340)
     doneWindowNote: 'Letzte {n} Tage', // Hinweis über der Erledigt-Liste (#263)
+    // "Alle anzeigen"-Umschalter für die Erledigt-Historie (#340)
+    doneShowAll: 'Alle anzeigen',
+    doneShowWindow: 'Nur letzte {n} Tage',
+    doneShowingAll: 'Gesamte Historie',
     // Subtasks
     subtasks: 'Unteraufgaben',
     addSubtask: 'Unteraufgabe hinzufügen …',
