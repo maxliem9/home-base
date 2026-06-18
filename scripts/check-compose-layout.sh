@@ -13,12 +13,13 @@
 #   via any future bar/header/footer added to a Column.
 #
 # WHAT IT FLAGS:
-#   Inside a `Column { … }` body, a DIRECT child that applies `.fillMaxHeight()` or
-#   `.fillMaxSize()` while a DIFFERENT direct child of the SAME Column uses `.weight(1f` —
-#   i.e. exactly the height-eating-sibling shape. Detection is brace-depth aware (only true
-#   *siblings* in the same Column count); weighted Row children, fills nested inside the
-#   weighted child, and overlay Boxes that are siblings of the Column (scrims/drawers/sheets)
-#   are NOT flagged.
+#   Inside a `Column { … }` body — written either as a bare trailing lambda (`Column { … }`)
+#   or with an arg-list (`Column(Modifier.…) { … }`) — a DIRECT child that applies
+#   `.fillMaxHeight()` or `.fillMaxSize()` while a DIFFERENT direct child of the SAME Column
+#   uses `.weight(1f` — i.e. exactly the height-eating-sibling shape. Detection is brace-depth
+#   aware (only true *siblings* in the same Column count); weighted Row children, fills nested
+#   inside the weighted child, and overlay Boxes that are siblings of the Column
+#   (scrims/drawers/sheets) are NOT flagged.
 #
 # HEURISTIC LIMITS (it is a grep-grade static scan, not the Kotlin compiler — deliberately
 # CONSERVATIVE to avoid false positives, so it can MISS some real cases):
@@ -84,7 +85,8 @@ findings="$(
       pdepth = 0          # paren depth
       delete owner; delete colW; delete colFillLine; delete colFillText
       owner[0] = ""
-      pendingOwner = ""   # identifier seen right before a `{` (becomes that block`s owner)
+      pendingOwner = ""   # identifier from a `Word( … )` arg-list right before a `{`
+      lastWord = ""       # most recent identifier seen (owner of a bare, parens-free `{`)
       capturing = 0       # 1 while buffering a direct child`s paren group
       capDepth = 0        # paren depth at which the captured child opened
       capBrace = 0        # brace depth (= Column body depth) the child belongs to
@@ -111,6 +113,7 @@ findings="$(
         if (isW) {
           word = word c
         } else {
+          if (word != "") lastWord = word   # an identifier just ended; remember it
           if (c == "(") {
             pdepth++
             # Only STATEMENT-LEVEL calls (pdepth just became 1 inside this brace block) name a
@@ -138,11 +141,16 @@ findings="$(
             }
           } else if (c == "{") {
             bdepth++
-            owner[bdepth] = pendingOwner
+            # A `Word(args) {` block names its owner via pendingOwner; a bare, parens-free
+            # `Word {` (the more common Compose shape) has no arg-list, so fall back to the
+            # identifier immediately before the brace — so `Column {` registers as a Column
+            # block exactly like `Column(...) {` does.
+            owner[bdepth] = (pendingOwner != "") ? pendingOwner : lastWord
             colW[bdepth] = 0
             colFillLine[bdepth] = 0
             colFillText[bdepth] = ""
             pendingOwner = ""
+            lastWord = ""
           } else if (c == "}") {
             if (bdepth > 0) {
               delete owner[bdepth]; delete colW[bdepth]
@@ -154,6 +162,7 @@ findings="$(
         }
         i++
       }
+      if (word != "") lastWord = word           # identifier ending the line (e.g. `Column` then `{` on the next)
       if (capturing && lineAllow) callowed = 1   # marker on any line of the span counts
     }
 
