@@ -288,6 +288,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Fast, toolchain-free tripwire against the Compose "non-weighted fillMax child starves its
+      # weight(1f) sibling" layout trap (the PR #347 bottom-nav bug). Pure shell — runs before the
+      # expensive Gradle/SDK setup so a violation fails in seconds. See scripts/check-compose-layout.sh.
+      - name: Check Compose layout guard
+        run: bash scripts/check-compose-layout.sh
+
       # AGP 8.7 targets JDK 17.
       - name: Set up JDK 17
         uses: actions/setup-java@v5
