@@ -65,7 +65,18 @@ class NotesViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm() = NotesViewModel(repository, "test-token")
+    /** In-memory [com.homebase.android.data.notes.NotesPendingStore] standing in for the
+     *  SharedPreferences-backed one (#323), mirroring ShoppingViewModelTest.FakeStore. */
+    private class FakeNotesStore : com.homebase.android.data.notes.NotesPendingStore {
+        var data: Map<String, com.homebase.android.data.notes.PendingNote> = emptyMap()
+        override suspend fun load(): Map<String, com.homebase.android.data.notes.PendingNote> = data
+        override suspend fun save(pending: Map<String, com.homebase.android.data.notes.PendingNote>) { data = pending }
+    }
+
+    private val pendingStore = FakeNotesStore()
+
+    private fun createVm(networkAvailable: kotlinx.coroutines.flow.Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()) =
+        NotesViewModel(repository, "test-token", pendingStore, networkAvailable)
 
     @Test
     fun `initial load populates notes`() = runTest {
