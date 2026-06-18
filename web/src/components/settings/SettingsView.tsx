@@ -12,15 +12,17 @@ import { HouseholdSettings } from './HouseholdSettings'
 import { KontoSettings } from './KontoSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { TimeSettings } from './TimeSettings'
+import { TodosSettings } from './TodosSettings'
 import { AbwesenheitSettings } from './AbwesenheitSettings'
 
-export type SettingsTab = 'household' | 'account' | 'notifications' | 'time' | 'absence'
+export type SettingsTab = 'household' | 'account' | 'notifications' | 'todos' | 'time' | 'absence'
 
 // Built with the reactive `t` inside the hub so the tab labels follow a language switch.
 const buildSubnav = (t: TFunction): { id: SettingsTab; label: string; icon: string }[] => [
   { id: 'household', label: t('settings.household'), icon: 'home' },
   { id: 'account', label: t('settings.account'), icon: 'lock' },
   { id: 'notifications', label: t('settings.notifications'), icon: 'send' },
+  { id: 'todos', label: t('settings.todos'), icon: 'check' },
   { id: 'time', label: t('settings.time'), icon: 'clock' },
   { id: 'absence', label: t('settings.absence'), icon: 'calendar' },
 ]
@@ -74,6 +76,7 @@ export function SettingsView({
             />
           )}
           {active === 'notifications' && <NotificationsSettings token={token} onLogout={onLogout} />}
+          {active === 'todos' && <TodosSettings token={token} onLogout={onLogout} />}
           {active === 'time' && <TimeSettings token={token} onLogout={onLogout} />}
           {active === 'absence' && <AbwesenheitSettings token={token} onLogout={onLogout} />}
         </div>

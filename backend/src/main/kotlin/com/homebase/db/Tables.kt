@@ -34,6 +34,13 @@ object AppSettingsTable : Table("app_settings") {
     const val DIGEST_MORNING_ENABLED = "digest_morning_enabled"
     const val DIGEST_EVENING_SECTIONS = "digest_evening_sections"
     const val DIGEST_MORNING_SECTIONS = "digest_morning_sections"
+
+    // How many calendar days the clients' "Erledigt" history window spans (#356, follows #340).
+    // Editable in-app like the digest time; the clients read it (falling back to the code default
+    // when unset) and apply it to the Erledigt tab / done-section. The per-device "Alle anzeigen"
+    // toggle (#340) still overrides this to reveal the full history. Stored as a plain integer
+    // string (e.g. "14"); the badge/tile COUNTS stay on "today" and ignore this value.
+    const val DONE_WINDOW_DAYS = "done_window_days"
 }
 
 // Generic PER-USER key/value preferences (#100). Personal (each user reads/writes

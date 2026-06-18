@@ -95,6 +95,9 @@ export class MockApi {
   private evening = { time: '20:00', enabled: true, sections: [...this.eveningSectionsAll] }
   private morning = { time: '07:00', enabled: true, sections: [...this.morningSectionsAll] }
   private recurringTime = '00:30'
+  // "Erledigt"-history window length in days (#356). Default mirrors the backend + clients;
+  // TodosView reads it on mount. Kept at 14 so the #340 show-all window test stays accurate.
+  private doneWindowDays = 14
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
   // upserts via PUT /user-prefs/{key}.
   private userPrefs: Record<string, string> = {}
@@ -549,6 +552,21 @@ export class MockApi {
       if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
       this.recurringTime = `${m[1]}:${m[2]}`
       return this.json(route, { time: this.recurringTime })
+    }
+
+    // "Erledigt"-history window length (#356). Mirrors /config/done-window: GET returns {days},
+    // PUT validates an integer in [1, 3650] (INVALID_DAYS) and stores it. TodosView reads this on
+    // mount; the default 14 keeps the #340 "Alle anzeigen" window test green without a stub change.
+    if (path.endsWith('/config/done-window') && method === 'GET') {
+      return this.json(route, { days: this.doneWindowDays })
+    }
+    if (path.endsWith('/config/done-window') && method === 'PUT') {
+      const days = JSON.parse(req.postData() ?? '{}').days
+      if (!Number.isInteger(days) || days < 1 || days > 3650) {
+        return this.json(route, { code: 'INVALID_DAYS', message: 'out of range' }, 400)
+      }
+      this.doneWindowDays = days
+      return this.json(route, { days: this.doneWindowDays })
     }
 
     // Change own password (#100). Mirrors UserRoutes: WEAK_PASSWORD (<8 chars),

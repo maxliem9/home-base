@@ -638,6 +638,17 @@ export const de = {
     recurringSaved: 'Gespeichert',
     recurringSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
     recurringApplies: 'Änderungen greifen ab dem nächsten geplanten Lauf.',
+    // Aufgaben-Unterseite (#356): haushaltsweite Anzeige-Optionen für Aufgaben.
+    todos: 'Aufgaben',
+    // „Erledigt"-Fenster (#356, Folge aus #340): wie viele Tage die Erledigt-Historie zeigt,
+    // bevor sie gekappt wird. Der „Alle anzeigen"-Schalter pro Gerät überschreibt das weiterhin.
+    doneWindowTitle: 'Erledigt-Fenster',
+    doneWindowHint: 'Wie viele Tage erledigte Aufgaben im „Erledigt"-Tab und im Erledigt-Bereich angezeigt werden. „Alle anzeigen" pro Gerät überschreibt das weiterhin; die Zähler bleiben auf „heute".',
+    doneWindowLabel: 'Tage',
+    doneWindowSaved: 'Gespeichert',
+    doneWindowSaveFailed: 'Wert konnte nicht gespeichert werden.',
+    doneWindowInvalid: 'Bitte eine ganze Zahl zwischen {{min}} und {{max}} angeben.',
+    doneWindowApplies: 'Änderungen greifen beim nächsten Laden der Aufgaben.',
     // Abwesenheit-Unterseite (#99): Kalender-Konfiguration im Hub.
     absence: 'Abwesenheit',
     absenceTitle: 'Kontingente & Kalender',

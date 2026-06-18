@@ -61,9 +61,11 @@ function loadActiveTab(): string | null {
 // grow unbounded across the whole history (#263). One shared window for both:
 // it caps the "Alle" done-section AND widens "Erledigt" beyond just today. The
 // badge/tile COUNTS stay deliberately on "today" (doneTodayCount) and are not
-// touched. N is the default; a per-device "show all" toggle (#340) can lift the
-// cap to reveal the full history (see DONE_SHOW_ALL_KEY).
-const DONE_WINDOW_DAYS = 14
+// touched. N is now household-configurable in-app (#356, app_settings
+// 'done_window_days', fetched below); this constant is only the fallback used
+// before the GET lands or when it's absent. A per-device "show all" toggle (#340)
+// can still lift the cap to reveal the full history (see DONE_SHOW_ALL_KEY).
+const DONE_WINDOW_DAYS_DEFAULT = 14
 // Per-device "Alle anzeigen" preference (#340): when on, the Erledigt tab and the
 // collapsible done-section show the FULL done history instead of the last N days.
 // Browser-local like the other UI prefs (homebase_lang, homebase_notes_*); the
@@ -148,7 +150,10 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
   const [doneOpen, setDoneOpen] = useState(false)
-  // "Alle anzeigen" für die Erledigt-Historie (#340): per-device, lifts the 14-day
+  // Household-configurable "Erledigt"-window length (#356, app_settings). Starts at the
+  // fallback and is replaced by the fetched value; "Alle anzeigen" still overrides it.
+  const [doneWindowDays, setDoneWindowDays] = useState(DONE_WINDOW_DAYS_DEFAULT)
+  // "Alle anzeigen" für die Erledigt-Historie (#340): per-device, lifts the windowed
   // cap on the Erledigt tab + done-section. Seeded from localStorage; counts unchanged.
   const [doneShowAll, setDoneShowAll] = useState(() => {
     try {
@@ -201,6 +206,20 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchTodos() }, [fetchTodos])
+
+  // Load the household-configured "Erledigt"-window length (#356) once on mount. Best-effort:
+  // any failure (transport, 401-handled-elsewhere, absent field) leaves the fallback in place,
+  // so the view behaves exactly as before this setting existed. encodeDefaults=false means the
+  // `days` field can be missing → `?? DONE_WINDOW_DAYS_DEFAULT`.
+  useEffect(() => {
+    let alive = true
+    safeFetch(token, `${API_BASE}/config/done-window`).then(async (result) => {
+      if (!alive || !result.ok || !result.res.ok) return
+      const data: { days?: number } = await result.res.json()
+      if (typeof data.days === 'number') setDoneWindowDays(data.days)
+    })
+    return () => { alive = false }
+  }, [token])
 
   // Keep an active tab selected as lists load / change. The first list stays
   // the default tab; the Inbox is only auto-selected when there is no list at
@@ -527,7 +546,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // of N days spans today and the previous N-1 calendar days. Local-date semantics
   // throughout (localDateIso), and ISO YYYY-MM-DD strings compare lexically.
   const doneWindowStart = new Date()
-  doneWindowStart.setDate(doneWindowStart.getDate() - (DONE_WINDOW_DAYS - 1))
+  doneWindowStart.setDate(doneWindowStart.getDate() - (doneWindowDays - 1))
   const doneWindowStartIso = localDateIso(doneWindowStart)
   const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
   const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso
@@ -624,10 +643,10 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       type="button"
       className="hb-link"
       onClick={toggleDoneShowAll}
-      title={doneShowAll ? t('todos.doneShowWindow', { n: DONE_WINDOW_DAYS }) : t('todos.doneShowAll')}
+      title={doneShowAll ? t('todos.doneShowWindow', { n: doneWindowDays }) : t('todos.doneShowAll')}
     >
       <Icon name="chevronDown" size={14} stroke={2.2} style={doneShowAll ? { transform: 'rotate(180deg)' } : undefined} />
-      {doneShowAll ? t('todos.doneShowWindow', { n: DONE_WINDOW_DAYS }) : t('todos.doneShowAll')}
+      {doneShowAll ? t('todos.doneShowWindow', { n: doneWindowDays }) : t('todos.doneShowAll')}
     </button>
   )
 
@@ -733,7 +752,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 <EmptyState
                   icon="checkCircle"
                   title={t('todos.doneViewEmpty')}
-                  hint={doneShowAll ? t('todos.doneViewEmptyAllHint') : t('todos.doneViewEmptyHint', { n: DONE_WINDOW_DAYS })}
+                  hint={doneShowAll ? t('todos.doneViewEmptyAllHint') : t('todos.doneViewEmptyHint', { n: doneWindowDays })}
                 />
                 {/* even with nothing in the window, let the user flip to/from the full history */}
                 <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center' }}>{doneShowAllToggle}</div>
@@ -742,7 +761,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
               <>
                 <div className="hb-donewindowbar">
                   <span className="hb-sectionlabel" style={{ margin: 0 }}>
-                    {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}
+                    {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: doneWindowDays })}
                   </span>
                   {doneShowAllToggle}
                 </div>
@@ -794,7 +813,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 <span className="hb-donehead__c">{done.length}</span>
                 {/* windowed to the last N days (#263), or the full history when "Alle anzeigen" is on (#340) */}
                 <span className="hb-muted" style={{ fontSize: 12 }}>
-                  {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: DONE_WINDOW_DAYS })}
+                  {doneShowAll ? t('todos.doneShowingAll') : t('todos.doneWindowNote', { n: doneWindowDays })}
                 </span>
               </button>
               {doneOpen && (

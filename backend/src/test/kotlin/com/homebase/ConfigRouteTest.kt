@@ -305,4 +305,75 @@ class ConfigRouteTest {
             Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
         )
     }
+
+    // --- "Erledigt"-history window length (#356) ---
+
+    private suspend fun ApplicationTestBuilder.doneWindowDays(token: String): Int =
+        Json.parseToJsonElement(client.get("/api/v1/config/done-window") { bearerAuth(token) }.bodyAsText())
+            .jsonObject["days"]!!.jsonPrimitive.int
+
+    @Test
+    fun `GET done-window without token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/config/done-window").status)
+    }
+
+    @Test
+    fun `GET done-window falls back to the default 14 when unset`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // a fresh DB has no stored value → the code default applies
+        assertEquals(14, doneWindowDays(token))
+    }
+
+    @Test
+    fun `PUT done-window persists the value and GET returns it`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val res = client.put("/api/v1/config/done-window") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"days":30}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertEquals(30, Json.parseToJsonElement(res.bodyAsText()).jsonObject["days"]!!.jsonPrimitive.int)
+        assertEquals(30, doneWindowDays(token))
+
+        // a second PUT overwrites rather than inserting a duplicate
+        client.put("/api/v1/config/done-window") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"days":7}""")
+        }
+        assertEquals(7, doneWindowDays(token))
+    }
+
+    @Test
+    fun `PUT done-window rejects a value below 1 with 400 INVALID_DAYS`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/done-window") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"days":0}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_DAYS",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `PUT done-window rejects a value above the upper bound with 400 INVALID_DAYS`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/done-window") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"days":3651}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_DAYS",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
 }

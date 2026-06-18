@@ -305,3 +305,38 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
     await expect(card.getByText('Gespeichert')).toBeVisible()
   })
 })
+
+test.describe('Settings — Aufgaben (#356)', () => {
+  async function openTodos(page: Page, mock: MockApi) {
+    await openApp(page, mock)
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Aufgaben' }).click()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Erledigt-Fenster' })).toBeVisible()
+  }
+
+  test('shows the configured done-window length and saves a change (#356)', async ({ page }) => {
+    await openTodos(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Erledigt-Fenster' })
+    // the mock defaults to 14, mirroring the backend default
+    await expect(card.getByLabel('Tage', { exact: true })).toHaveValue('14')
+
+    await card.getByLabel('Tage', { exact: true }).fill('30')
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/config/done-window') && r.method() === 'PUT')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toEqual({ days: 30 })
+    await expect(card.getByText('Gespeichert')).toBeVisible()
+  })
+
+  test('rejects a value below 1 client-side, without a request (#356)', async ({ page }) => {
+    await openTodos(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Erledigt-Fenster' })
+
+    let sawRequest = false
+    page.on('request', (r) => { if (r.url().endsWith('/config/done-window') && r.method() === 'PUT') sawRequest = true })
+
+    await card.getByLabel('Tage', { exact: true }).fill('0')
+    // an out-of-range value disables Save (no PUT fired)
+    await expect(card.getByRole('button', { name: 'Speichern' })).toBeDisabled()
+    expect(sawRequest).toBe(false)
+  })
+})
