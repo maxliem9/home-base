@@ -186,6 +186,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
     } else {
         NoteList(
             notes = state.notes,
+            pendingIds = state.pendingIds,
             selectedTag = selectedTag,
             onSelectTag = { selectedTag = it },
             selectedFolder = selectedFolder,
@@ -205,6 +206,7 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
 @Composable
 private fun NoteList(
     notes: List<NoteDto>,
+    pendingIds: Set<String> = emptySet(),
     selectedTag: String?,
     onSelectTag: (String?) -> Unit,
     selectedFolder: String?,
@@ -340,7 +342,7 @@ private fun NoteList(
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     group.notes.forEach { note ->
-                                        NoteCard(note = note, onClick = { onOpenNote(note) })
+                                        NoteCard(note = note, isPending = note.id in pendingIds, onClick = { onOpenNote(note) })
                                     }
                                 }
                             }
@@ -404,7 +406,7 @@ private fun FolderSectionHeader(label: String, count: Int) {
 }
 
 @Composable
-private fun NoteCard(note: NoteDto, onClick: () -> Unit) {
+private fun NoteCard(note: NoteDto, isPending: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -431,6 +433,11 @@ private fun NoteCard(note: NoteDto, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // Offline-queued marker (#323): this note has an edit parked in the durable store
+                // awaiting retry — a muted clock mirrors the editor's PENDING SaveStatus chip.
+                if (isPending) {
+                    HbIcon(HbIcons.clock, size = 13.dp, tint = Hb.ink3)
+                }
             }
 
             val preview = plainPreview(note.content)
@@ -698,6 +705,9 @@ private fun SaveStatusIndicator(status: SaveStatus) {
         SaveStatus.SAVING -> Triple(HbIcons.repeat, stringResource(R.string.notes_saving), Hb.ink3)
         SaveStatus.SAVED -> Triple(HbIcons.check, stringResource(R.string.notes_saved), Hb.ink3)
         SaveStatus.ERROR -> Triple(HbIcons.x, stringResource(R.string.notes_save_error), Hb.danger)
+        // Offline-queued (#323): the save failed and the edit is parked in the durable store for
+        // retry — softer than ERROR (it will resync), so a muted clock rather than the red x.
+        SaveStatus.PENDING -> Triple(HbIcons.clock, stringResource(R.string.notes_save_pending), Hb.ink3)
         SaveStatus.IDLE -> return
     }
     Row(

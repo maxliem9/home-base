@@ -253,6 +253,100 @@ test.describe('Notes', () => {
     expect(puts).toBe(0)
   })
 
+  // #323: a failed auto-save must NOT be silently lost. When the PUT fails (offline/flaky), the edit
+  // is persisted to a durable localStorage queue (homebase_notes_pending), the note shows a "not
+  // synced" marker, and it is retried on the next connectivity signal until it lands — then the
+  // marker clears and the content is saved. Mirrors the shopping check-off queue (#170/#179).
+  test('a failed auto-save is queued (not-synced marker + persisted) and retried on the next signal', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await editNote(page, /WLAN Passwort/)
+
+    // Fail every PUT to n1 with a transport-level reject while `offline` is set; once cleared the
+    // route falls through to the MockApi which persists it (a restored-connectivity retry).
+    let offline = true
+    await page.route('**/api/v1/notes/n1', async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      if (offline) return route.abort('failed')
+      return route.fallback()
+    })
+
+    // edit the body → the debounced save fires, the PUT rejects → the edit is queued, not lost.
+    // Plain text (no markdown chars) so the stripped list-preview is a clean, assertable substring.
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router OFFLINEEDIT')
+
+    // the editor shows the "not synced" marker (German), and the collective banner appears
+    await expect(page.locator('.hb-savestatus.is-pending')).toHaveText(/Noch nicht synchronisiert/)
+    await expect(page.locator('.hb-syncbar')).toContainText('wird nachgeholt')
+
+    // the body was persisted to the durable queue keyed by the note id (survives a reload)
+    const queued = await page.evaluate(() => {
+      const raw = localStorage.getItem('homebase_notes_pending')
+      return raw ? JSON.parse(raw) : null
+    })
+    expect(queued).not.toBeNull()
+    expect(queued.n1).toBeTruthy()
+    expect(JSON.parse(queued.n1.body).content).toBe('Router OFFLINEEDIT')
+
+    // restore connectivity and fire a flush trigger (the manual "Jetzt versuchen" retry); the PUT
+    // now lands, the marker + banner clear, and the queue entry is gone.
+    const put = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    offline = false
+    await page.locator('.hb-syncbar').getByRole('button', { name: 'Jetzt versuchen' }).click()
+    const req = await put
+    expect(JSON.parse(req.postData() ?? '{}').content).toBe('Router OFFLINEEDIT')
+
+    await expect(page.locator('.hb-savestatus.is-pending')).toHaveCount(0)
+    await expect(page.locator('.hb-syncbar')).toHaveCount(0)
+    const after = await page.evaluate(() => localStorage.getItem('homebase_notes_pending'))
+    expect(after).toBeNull()
+    // the list preview reflects the now-saved content, proving the queued write actually landed
+    await expect(page.locator('.hb-noteitem.is-active .hb-noteitem__preview')).toContainText('OFFLINEEDIT')
+  })
+
+  // #323: a brand-new note whose CREATE fails offline parks under a sentinel key (no id yet). Each
+  // edit while offline retries the create (so several POST *attempts* are fine — only one can ever
+  // land, since the in-flight create guard blocks concurrent ones), and once one succeeds it captures
+  // the returned id, so the note is NOT double-created and later edits PUT it.
+  test('a failed create is queued under the sentinel and captures its id on a successful retry', async ({ page }) => {
+    await openNotes(page, new MockApi())
+
+    // Reject the create POST while offline; fall through once restored. Only the successful POST
+    // creates a note in the mock, so the list size is the real "no duplicate" invariant.
+    let offline = true
+    await page.route('**/api/v1/notes', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      if (offline) return route.abort('failed')
+      return route.fallback()
+    })
+
+    // a new note opens in the editor; type a title+body → the create POST fires and rejects
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Neue Notiz' }).click()
+    await page.getByPlaceholder('Titel…').fill('Offline Notiz')
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('entworfen offline')
+
+    // marker shows; the queue holds the create under the sentinel key (no id yet)
+    await expect(page.locator('.hb-savestatus.is-pending')).toBeVisible()
+    const queued = await page.evaluate(() => JSON.parse(localStorage.getItem('homebase_notes_pending') ?? '{}'))
+    expect(queued.__new__).toBeTruthy()
+    expect(queued.__new__.id).toBeUndefined()
+
+    // restore + retry → the create lands, marker clears, queue empties, the note appears exactly once
+    offline = false
+    await page.locator('.hb-savestatus.is-pending').click()
+    await expect(page.locator('.hb-savestatus.is-pending')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Offline Notiz/ })).toHaveCount(1) // no double-create
+    const after = await page.evaluate(() => localStorage.getItem('homebase_notes_pending'))
+    expect(after).toBeNull()
+
+    // the id was captured into the draft → a follow-up edit auto-saves via PUT (not a new POST), and
+    // it lands (no marker), proving the sentinel→id migration produced a real, editable note
+    const put = page.waitForRequest((r) => /\/notes\/[^/]+$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
+    await page.getByPlaceholder('Inhalt (Markdown)…').fill('entworfen offline — mehr')
+    await put
+    await expect(page.locator('.hb-savestatus.is-saved')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Offline Notiz/ })).toHaveCount(1)
+  })
+
   test('deletes a note from the document header', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
     // the trash action sits in the document header in BOTH preview and edit (no separate view)

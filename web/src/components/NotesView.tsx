@@ -37,6 +37,42 @@ const AUTOSAVE_DELAY = 900
 // the user has collapsed in the grouped note list ('' = the no-folder bucket).
 const COLLAPSED_FOLDERS_KEY = 'homebase_notes_collapsed_folders'
 
+// Offline-resilient auto-save (#323), mirroring the shopping check-off queue (#170/#179):
+// if the last save fails (offline / flaky / 5xx), the edit must not be silently lost. Each
+// failed save persists its serialized body into a small, durable queue that survives a reload
+// and is retried on every connectivity signal until it lands. The note shows a "not synced"
+// marker until then. Keyed by note id; a not-yet-created draft (no id) parks under NEW_KEY and
+// migrates to its real id once the create finally succeeds.
+const PENDING_KEY = 'homebase_notes_pending'
+const FLUSH_INTERVAL_MS = 15000
+// Sentinel key for a brand-new note that has not been created on the server yet (no id). There is
+// only ever one open draft, so a single slot is enough; a later create reuses/clears it by id.
+const NEW_KEY = '__new__'
+
+// One queued, not-yet-acknowledged save. `body` is the exact serialized payload saveDraft would
+// have sent (so the flush re-POSTs/PUTs it verbatim); `id` is the note id, or undefined for a
+// not-yet-created draft (then stored under NEW_KEY). `at` is the wall-clock of the failed save —
+// the latest-wins tiebreaker and the guard against a stale flush clobbering a newer queued edit.
+interface PendingSave { body: string; id?: string; at: number }
+
+function loadPendingNotes(): Record<string, PendingSave> {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, PendingSave>) : {}
+  } catch {
+    return {} // private-mode / corrupt value → start clean
+  }
+}
+
+function savePendingNotes(pending: Record<string, PendingSave>) {
+  try {
+    if (Object.keys(pending).length === 0) localStorage.removeItem(PENDING_KEY)
+    else localStorage.setItem(PENDING_KEY, JSON.stringify(pending))
+  } catch {
+    /* quota / private mode — the in-memory queue still works for this session */
+  }
+}
+
 interface Draft {
   id?: string
   title: string
@@ -146,7 +182,44 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const savingRef = useRef(false)
   const creatingRef = useRef(false)
   const autosaveTimer = useRef<ReturnType<typeof setTimeout>>()
+  // ---- Offline pending-save queue (#323) ----
+  // Durable queue of saves the backend hasn't acknowledged (offline-safe). The marker/banner mirror
+  // its keys; the flush re-sends them on every connectivity signal. pendingRef gives async callbacks
+  // the current queue; flushingNotesRef serializes flush passes so two triggers can't double-send.
+  const [pendingNotes, setPendingNotes] = useState<Record<string, PendingSave>>(loadPendingNotes)
+  const pendingNotesRef = useRef(pendingNotes)
+  pendingNotesRef.current = pendingNotes
+  const flushingNotesRef = useRef(false)
+  // Stable handle to the latest flushPendingNotes, so the WS onOpen (wired before that callback is
+  // declared) can trigger a queue drain without a forward reference (#323).
+  const flushNotesRef = useRef<(() => void) | null>(null)
   const { flashError, errorToast } = useErrorToast()
+
+  // Enqueue a failed/undelivered save (latest-wins). A draft with an id keys by it; a not-yet-created
+  // draft parks under NEW_KEY. Stamping the SAME `at` lets the flush detect a newer queued edit.
+  const enqueuePending = useCallback((entry: PendingSave) => {
+    setPendingNotes((prev) => ({ ...prev, [entry.id ?? NEW_KEY]: entry }))
+  }, [])
+
+  // Drop a queue entry by note id (or NEW_KEY) — idempotent. Used when the open note is deleted (a
+  // queued save for a gone note can never land).
+  const dequeuePending = useCallback((key: string) => {
+    setPendingNotes((prev) => {
+      if (!(key in prev)) return prev
+      const { [key]: _drop, ...rest } = prev
+      return rest
+    })
+  }, [])
+
+  // Drop the entry for `key` only if it still carries `at` — i.e. the user did not type a newer edit
+  // (queued with a fresh `at`) while a save/flush for the old body was in flight. Latest-wins (#323).
+  const dequeuePendingIfUnchanged = useCallback((key: string, at: number) => {
+    setPendingNotes((prev) => {
+      if (prev[key]?.at !== at) return prev // newer queued intent — keep it
+      const { [key]: _drop, ...rest } = prev
+      return rest
+    })
+  }, [])
 
   const fetchNotes = useCallback(async (q: string) => {
     try {
@@ -195,11 +268,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       } else if (msg.type === 'NOTE_DELETED') {
         setNotes((prev) => prev.filter((n) => n.id !== msg.payload.id))
         setSelectedId((cur) => (cur === msg.payload.id ? null : cur))
+        dequeuePending(msg.payload.id) // a queued save for a now-deleted note can never land (#323)
       }
     } catch {
       // ignore malformed frames
     }
-  })
+    // onOpen: a (re)connected socket means the server is reachable — drain the pending-save queue.
+    // Routed through a ref so this (declared before flushPendingNotes) always calls the latest one.
+  }, () => void flushNotesRef.current?.())
 
   // Persist the given draft (POST for a new note, PUT for an existing one). Reads from an
   // explicit `d` snapshot so it can run against the OUTGOING note when the user is already
@@ -213,6 +289,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
       // Skip when nothing changed since the last save (e.g. a stray blur right after load).
       const body = serializeDraft(d)
       if (body === savedSnapshotRef.current) return
+      // Wall-clock of this attempt — the latest-wins tiebreaker for the durable queue (#323): a
+      // success/failure only touches the queue entry if it still carries THIS `at` (no newer edit
+      // queued meanwhile).
+      const at = Date.now()
       // Don't start a second create while the first is still in flight (#309 double-POST).
       if (!d.id && creatingRef.current) return
       if (savingRef.current) return
@@ -233,8 +313,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         const result = d.id
           ? await safeFetch(token, `${API_BASE}/notes/${d.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
           : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-        // transport reject → surface the inline error so the user notices (edits are NOT lost)
+        // transport reject (offline) → surface the inline error AND persist the body to the durable
+        // queue so the edit is retried on the next connectivity signal, not lost (#323).
         if (!result.ok) {
+          enqueuePending({ body, id: d.id, at })
           setSaveError(errorText(null, t('notes.saveFailed')))
           setSaveState('error')
           return
@@ -248,6 +330,14 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
           // Remember exactly what we persisted so the next change is detected as dirty.
           savedSnapshotRef.current = body
+          // The save landed → drop any queued entry for this note (#323). Saves are serialized
+          // (savingRef) and always send the LATEST draft, so a success means the newest write is on
+          // the server and ANY entry queued by an earlier failed attempt (a different, older `at`) is
+          // now obsolete — clear it unconditionally rather than by-`at` (a stale older `at` would
+          // otherwise orphan the entry and leave the marker stuck). A genuinely newer edit typed
+          // during the in-flight window is handled by the trailing-edit re-fire below, which
+          // re-queues only if ITS save fails. Keyed by id, or NEW_KEY for a create.
+          dequeuePending(d.id ?? NEW_KEY)
           // On the FIRST create, capture the new id INTO the draft so subsequent autosaves
           // PUT it — but only if we're still editing the same (still-unsaved) session, so a
           // switch/new-note mid-create can't get stamped with the wrong id (#309).
@@ -265,6 +355,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           const trailingDirty = sessionRef.current === session && !!live && serializeDraft(live) !== savedSnapshotRef.current
           setSaveState(trailingDirty ? 'saving' : 'saved')
         } else {
+          // A transient 5xx (backend/proxy hiccup) is the "silently lost edit" the queue prevents —
+          // persist + retry like an offline reject. A terminal 4xx (e.g. validation) can never
+          // succeed on retry, so we only surface it inline and leave the queue untouched (#323).
+          if (res.status >= 500) enqueuePending({ body, id: d.id, at })
           setSaveError(errorText(await errorCode(res), t('notes.saveFailed')))
           setSaveState('error')
         }
@@ -288,6 +382,93 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     },
     [onLogout, t, token],
   )
+
+  // Drain the durable pending-save queue (#323), the offline twin of the live auto-save. Re-sends
+  // each queued body (POST for a NEW_KEY create, PUT for a known id) and is kept-and-retried on a
+  // transport reject (offline) or a 5xx — both the "silently lost edit" this exists to prevent. Only
+  // a success or a terminal 4xx drops the entry, and even then not if a newer edit was queued
+  // meanwhile (a newer `at` survives). It re-sends the WRITE only: it never rehydrates `draft`, so
+  // the in-progress text/caret is never clobbered (the same hazard the live save guards). It does
+  // fold the server response into the `notes` list and, for a create, stamp the new id into the live
+  // draft when that draft is STILL the same not-yet-created note (session-guarded, like saveDraft).
+  const flushPendingNotes = useCallback(async () => {
+    if (flushingNotesRef.current) return
+    // Don't race the live save: while saveDraft is in flight it owns this note and re-queues on
+    // failure, so a concurrent flush would risk a duplicate create / out-of-order PUT.
+    if (savingRef.current) return
+    const entries = Object.entries(pendingNotesRef.current)
+    if (entries.length === 0) return
+    flushingNotesRef.current = true
+    try {
+      for (const [key, p] of entries) {
+        const isCreate = key === NEW_KEY
+        // A NEW_KEY create needs the same double-POST guard as the live path: if a create is already
+        // in flight, skip — its success will dequeue (or its failure re-queue) this slot.
+        if (isCreate && creatingRef.current) continue
+        if (isCreate) creatingRef.current = true
+        try {
+          const result = p.id
+            ? await safeFetch(token, `${API_BASE}/notes/${p.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: p.body })
+            : await safeFetch(token, `${API_BASE}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: p.body })
+          if (!result.ok) break // transport reject (offline) → keep the queue, retry later
+          if (result.res.status === 401) return onLogout()
+          if (result.res.status >= 500) break // transient server error → keep, retry later
+          if (result.res.ok) {
+            const saved: Note = await result.res.json()
+            setNotes((prev) => (prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...prev]))
+            // If the live draft is still THIS queued note, mark its status saved (the edit landed)
+            // and refresh the dirty baseline — but only if the user hasn't typed something newer
+            // since (then keep "saving" and let the live debounce persist the newer text).
+            const live = draftRef.current
+            const sameDraft = !!live && ((isCreate && !live.id) || (!isCreate && live.id === p.id))
+            if (sameDraft) {
+              // For a create, stamp the new id into the still-unsaved draft so later saves PUT it
+              // (mirrors saveDraft's id-capture). selectedId follows so the list highlights it.
+              if (isCreate && live && !live.id) {
+                setSelectedId(saved.id)
+                setDraft((prev) => (prev && !prev.id ? { ...prev, id: saved.id } : prev))
+              }
+              if (live && serializeDraft(live) === p.body) {
+                savedSnapshotRef.current = p.body
+                setSaveError(null)
+                setSaveState('saved')
+              }
+            }
+          }
+          // Success or terminal 4xx → drop the entry (unless re-queued newer meanwhile). A create
+          // that just got an id also clears its NEW_KEY slot here (we keyed it under NEW_KEY).
+          dequeuePendingIfUnchanged(key, p.at)
+        } finally {
+          if (isCreate) creatingRef.current = false
+        }
+      }
+    } finally {
+      flushingNotesRef.current = false
+    }
+  }, [onLogout, token, dequeuePendingIfUnchanged])
+  flushNotesRef.current = flushPendingNotes
+
+  // Persist the queue on every change and attempt a flush right away (covers a freshly failed save
+  // and leftovers restored from a previous session on mount).
+  useEffect(() => {
+    savePendingNotes(pendingNotes)
+    if (Object.keys(pendingNotes).length > 0) void flushPendingNotes()
+  }, [pendingNotes, flushPendingNotes])
+
+  // Retry on connectivity signals beyond the immediate attempt: the OS `online` event and a periodic
+  // backstop (flaky wifi often regains internet without ever firing `online`). The WS `onOpen` below
+  // adds a third, server-reachable signal. Mirrors the shopping queue's three triggers (#170/#323).
+  useEffect(() => {
+    const onOnline = () => void flushPendingNotes()
+    window.addEventListener('online', onOnline)
+    const interval = window.setInterval(() => {
+      if (Object.keys(pendingNotesRef.current).length > 0) void flushPendingNotes()
+    }, FLUSH_INTERVAL_MS)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      clearInterval(interval)
+    }
+  }, [flushPendingNotes])
 
   // Cancel any pending debounce and flush an immediate save of the CURRENT draft. Called
   // when leaving the editor (switch note / close / blur / unmount) so nothing is dropped.
@@ -417,6 +598,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const handleDelete = async (id: string) => {
     // a delete supersedes any pending auto-save of this note
     clearTimeout(autosaveTimer.current)
+    dequeuePending(id) // drop any queued save for the note we're deleting (#323)
     setNotes((prev) => prev.filter((n) => n.id !== id))
     setDraft(null)
     setSelectedId(null)
@@ -512,6 +694,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // caret-insertion. Only existing (saved) notes have images; a brand-new draft has none.
   const editNote = draft?.id ? notes.find((n) => n.id === draft.id) ?? null : null
   const editImages = editNote?.images ?? []
+
+  // Offline-marker helpers (#323): a note is "not synced" while it has a queued save. The open draft
+  // is keyed by its id, or NEW_KEY when it has not been created yet. A note-list item only ever
+  // matches by id (NEW_KEY is the draft alone, so it never shows in the list).
+  const isNotePending = useCallback((id: string) => id in pendingNotes, [pendingNotes])
+  const draftPending = draft ? (draft.id ? draft.id in pendingNotes : NEW_KEY in pendingNotes) : false
+  const pendingCount = Object.keys(pendingNotes).length
 
   // clear any stale image upload error when the editor opens/closes/switches notes —
   // paste/drop errors must not leak across views (#146)
@@ -774,6 +963,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     <div className="hb-noteitem__top">
                       <Icon name={n.visibility === 'PRIVATE' ? 'lock' : 'users'} size={14} stroke={2} style={{ color: 'var(--ink-3)' }} />
                       <span className="hb-noteitem__title">{n.title}</span>
+                      {isNotePending(n.id) && (
+                        <span className="hb-syncbadge" title={t('notes.notSynced')} aria-label={t('notes.notSynced')}>
+                          <Icon name="repeat" size={12} stroke={2} />
+                        </span>
+                      )}
                     </div>
                     {n.content && <div className="hb-noteitem__preview">{n.content.replace(/[#*`>_-]/g, '').trim()}</div>}
                     <div className="hb-noteitem__meta">
@@ -802,6 +996,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         title={t('notes.title')}
         actions={<Button icon="plus" onClick={() => openEditor(null)}>{t('notes.newNote')}</Button>}
       />
+
+      {/* Collective offline banner (#323): some edits couldn't be saved and are queued for retry.
+          Tap to retry now; otherwise the three signals (WS reconnect / online / interval) drain it. */}
+      {pendingCount > 0 && (
+        <div className="hb-syncbar" role="status">
+          <Icon name="repeat" size={15} stroke={2} />
+          <span>
+            {pendingCount === 1 ? t('notes.offlineQueuedOne') : t('notes.offlineQueuedMany', { n: String(pendingCount) })}
+          </span>
+          <button className="hb-link" onClick={() => void flushPendingNotes()}>{t('notes.retryNow')}</button>
+        </div>
+      )}
 
       <div className={`hb-notes-layout${draft ? ' is-editing' : ''}`}>
         <div className="hb-notes-list">
@@ -889,13 +1095,27 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                   </h2>
                 )}
                 <div className="hb-note-doc__actions">
+                  {/* "Not synced" marker (#323): a failed save is queued for retry — make it visible
+                      (and tappable to retry now) above the plain save-status, in edit AND preview. */}
+                  {draftPending && (
+                    <button
+                      type="button"
+                      className="hb-savestatus is-pending"
+                      title={t('notes.notSynced')}
+                      onClick={() => void flushPendingNotes()}
+                    >
+                      <Icon name="repeat" size={14} stroke={2} /> {t('notes.notSynced')}
+                    </button>
+                  )}
                   {editing ? (
-                    <SaveStatus
-                      state={saveState}
-                      savingLabel={t('notes.saving')}
-                      savedLabel={t('notes.saved')}
-                      errorLabel={t('notes.saveFailed')}
-                    />
+                    !draftPending && (
+                      <SaveStatus
+                        state={saveState}
+                        savingLabel={t('notes.saving')}
+                        savedLabel={t('notes.saved')}
+                        errorLabel={t('notes.saveFailed')}
+                      />
+                    )
                   ) : (
                     <IconButton icon="edit" label={t('notes.editNote')} onClick={() => enterEdit('content')} />
                   )}
