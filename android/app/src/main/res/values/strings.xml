@@ -263,6 +263,7 @@
     <string name="notes_saving">Speichert …</string>
     <string name="notes_saved">Gespeichert</string>
     <string name="notes_save_error">Nicht gespeichert</string>
+    <string name="notes_save_pending">Nicht synchronisiert</string>
     <string name="notes_switch_note">Notiz wechseln</string>
     <string name="notes_untitled">Ohne Titel</string>
     <string name="notes_empty_doc">Leere Notiz — tippe, um zu schreiben</string>

@@ -251,6 +251,7 @@
     <string name="notes_saving">Saving …</string>
     <string name="notes_saved">Saved</string>
     <string name="notes_save_error">Not saved</string>
+    <string name="notes_save_pending">Not synced</string>
     <string name="notes_switch_note">Switch note</string>
     <string name="notes_untitled">Untitled</string>
     <string name="notes_empty_doc">Empty note — tap to write</string>
