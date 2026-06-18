@@ -408,7 +408,12 @@ class MainActivity : AppCompatActivity() {
     private fun notesFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return NotesViewModel(container.notesRepository, token) as T
+            return NotesViewModel(
+                repository = container.notesRepository,
+                token = token,
+                pendingStore = container.notesPendingStore,
+                networkAvailable = container.connectivityObserver.onAvailable,
+            ) as T
         }
     }
 

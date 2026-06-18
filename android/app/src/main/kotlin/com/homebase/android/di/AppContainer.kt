@@ -14,6 +14,8 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.notes.NotesPendingStore
+import com.homebase.android.data.notes.SharedPrefsNotesPendingStore
 import com.homebase.android.data.shopping.ConnectivityObserver
 import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingPendingStore
@@ -88,6 +90,9 @@ class AppContainer(context: Context) {
         api = api,
         wsClient = NotesWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
+
+    /** Durable backing store for the notes offline auto-save queue (issue #323). */
+    val notesPendingStore: NotesPendingStore = SharedPrefsNotesPendingStore(context, moshi)
 
     val timeRepository = TimeRepository(
         api = api,

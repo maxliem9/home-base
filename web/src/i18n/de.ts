@@ -426,6 +426,13 @@ export const de = {
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',
     imageDeleteFailed: 'Bild konnte nicht gelöscht werden.',
     imageDownloadFailed: 'Bild konnte nicht heruntergeladen werden.',
+    // Offline-resilientes Auto-Save (#323): ein fehlgeschlagener Save wird in einer dauerhaften
+    // Queue gehalten und nachgeholt, sobald wieder online; bis dahin trägt die Notiz den
+    // notSynced-Marker (Notiz ohne WLAN bearbeiten, analog Einkauf).
+    notSynced: 'Noch nicht synchronisiert',
+    offlineQueuedOne: '1 Änderung wird nachgeholt, sobald wieder online.',
+    offlineQueuedMany: '{n} Änderungen werden nachgeholt, sobald wieder online.',
+    retryNow: 'Jetzt versuchen',
   },
   // Inbox tab in the todos view: all todos without a list (issue #69) —
   // Dashboard quick-add and the Android FAB create these.

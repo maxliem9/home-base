@@ -7,28 +7,49 @@ import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
+import com.homebase.android.data.notes.NEW_KEY
+import com.homebase.android.data.notes.NoteFlushDecision
+import com.homebase.android.data.notes.NotesClock
+import com.homebase.android.data.notes.NotesPendingStore
+import com.homebase.android.data.notes.PendingNote
+import com.homebase.android.data.notes.PendingNoteQueue
+import com.homebase.android.data.notes.classifyNoteFlush
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class NotesUiState(
     val notes: List<NoteDto> = emptyList(),
     val query: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-)
+    /** Note ids whose last auto-save has not yet been acknowledged by the backend (offline queue,
+     *  #323) — drives the "not synced" marker in the note list. A not-yet-created draft is queued
+     *  under NEW_KEY (not a real id), so it never appears here; the editor marker covers that case. */
+    val pendingIds: Set<String> = emptySet(),
+) {
+    fun isPending(id: String): Boolean = id in pendingIds
+}
 
 /** One picked image to upload to a note: its bytes + the original filename and MIME type. */
 data class NoteImageUpload(val bytes: ByteArray, val filename: String, val contentType: String)
 
-/** Auto-save status shown in the editor app bar (#309). */
-enum class SaveStatus { IDLE, SAVING, SAVED, ERROR }
+/**
+ * Auto-save status shown in the editor app bar (#309). [PENDING] (#323) is the offline-resilient
+ * state: a save failed and the edit is queued in the durable store for retry — distinct from [ERROR]
+ * (a terminal failure that won't be retried), so the UI can show a "not synced" marker.
+ */
+enum class SaveStatus { IDLE, SAVING, SAVED, ERROR, PENDING }
 
 /**
  * In-progress editor draft (#309/#310). Lives in the ViewModel — **not** sourced from
@@ -56,6 +77,12 @@ data class NoteEditorState(
 class NotesViewModel(
     private val repository: NotesRepository,
     private val token: String,
+    /** Durable backing store for the offline auto-save queue (#323). */
+    private val pendingStore: NotesPendingStore,
+    /** Emits whenever the device regains a default network (the web `online`-event analog). */
+    networkAvailable: Flow<Unit>,
+    private val clock: NotesClock = NotesClock.System,
+    private val flushIntervalMs: Long = FLUSH_INTERVAL_MS,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotesUiState(isLoading = true))
@@ -67,6 +94,31 @@ class NotesViewModel(
 
     /** Debounce job: cancelled on each keystroke, fires the save after [AUTOSAVE_DEBOUNCE_MS]. */
     private var autosaveJob: Job? = null
+
+    // --- Offline-resilient auto-save queue (#323, parity with the shopping check-off queue) ---
+    /**
+     * Source of truth for the durable save queue; the UI mirrors its key set via [NotesUiState
+     * .pendingIds] (note-list marker) and the open draft's [SaveStatus.PENDING] (editor marker).
+     * Starts empty and is seeded from [pendingStore] off-main in [init]. Live failures win over the
+     * restore — see [restored].
+     */
+    private var queue = PendingNoteQueue()
+
+    /** Serializes flush passes so two triggers can't double-send the same entry. */
+    private val flushMutex = Mutex()
+
+    /** Serializes the off-main durable writes so two saves can't reorder and persist a stale map. */
+    private val persistMutex = Mutex()
+
+    /**
+     * Completes once the previous session's queue has been loaded and merged. [flush] awaits it so a
+     * trigger that fires during the async restore re-sends the restored entries instead of racing an
+     * empty queue.
+     */
+    private val restored = CompletableDeferred<Unit>()
+
+    /** Periodic backstop loop; runs only while the queue is non-empty, restarted on enqueue. */
+    private var backstopJob: Job? = null
 
     /**
      * The single in-flight save coroutine, or null/!isActive when idle. Saves are **serialized**
@@ -85,6 +137,20 @@ class NotesViewModel(
     init {
         load()
         observeWebSocket()
+        observeConnectivity(networkAvailable)
+        // Restore the previous session's queue off-main, then drain it. A save that failed before this
+        // finishes already lives in `queue`; we merge the restored entries *under* it so a live (later)
+        // failure is never clobbered, then flush + arm the backstop.
+        viewModelScope.launch {
+            val persisted = pendingStore.load()
+            if (persisted.isNotEmpty()) {
+                queue = PendingNoteQueue(persisted + queue.entries) // live (later) entries override restored
+                persistAndReflect()
+            }
+            restored.complete(Unit)
+            flush()
+            ensureBackstop()
+        }
     }
 
     fun load() {
@@ -310,7 +376,9 @@ class NotesViewModel(
         val id = _editorState.value?.noteId
         _editorState.value = null
         savedSnapshot = null
-        if (id != null) deleteNote(id)
+        // Drop any queued save for this note: an existing note via deleteNote(id) below; a never-created
+        // draft's NEW_KEY entry here, so a stale offline create can't resurrect it (#323).
+        if (id != null) deleteNote(id) else dequeue(NEW_KEY)
     }
 
     /**
@@ -352,6 +420,13 @@ class NotesViewModel(
         if (id == null && title.isBlank()) return false // never create an untitled note
         // Snapshot of exactly what we send, so a no-op repeat is skipped and a change mid-flight stays dirty.
         val sentSnapshot = EditorSnapshot.of(draft.title, draft.content, draft.tags, draft.folder, draft.visibility)
+        // The pending entry to persist if this save fails (#323): the exact fields we send, so a later
+        // flush re-creates the request verbatim. `at` is the latest-wins tiebreaker.
+        val at = clock.nowMillis()
+        val pending = PendingNote(
+            id = id, title = draft.title, content = draft.content, tags = draft.tags,
+            folder = draft.folder, visibility = draft.visibility, at = at,
+        )
         setEditorStatus(SaveStatus.SAVING)
         val folderValue = draft.folder.trim()
         val result = if (id == null) {
@@ -380,6 +455,14 @@ class NotesViewModel(
             onSuccess = { note ->
                 upsert(note)
                 savedSnapshot = sentSnapshot
+                // The save landed → drop any queued entry for this note (#323). Saves are serialized
+                // (the single saveJob loop), so a success means the newest write is on the server and
+                // ANY entry queued by an earlier failed attempt (a different, older `at`) is now
+                // obsolete — clear it unconditionally rather than by-`at`, or a stale older `at` would
+                // orphan it and leave the marker stuck. A newer edit typed during the in-flight window
+                // re-dirties the draft and the loop re-saves (re-queuing only if THAT save fails). For
+                // a create the entry sits under NEW_KEY (id was null when we sent it).
+                dequeue(queue.keyFor(id))
                 // Capture the new id (first create) + refresh server-owned fields, but keep the live
                 // text draft so in-flight keystrokes survive.
                 _editorState.update { st ->
@@ -388,8 +471,18 @@ class NotesViewModel(
                 true
             },
             onFailure = { e ->
-                setEditorStatus(SaveStatus.ERROR)
-                _uiState.update { it.copy(error = e.message) }
+                // Persist the edit for retry (offline / 5xx) instead of losing it; a terminal 4xx can
+                // never succeed on retry, so surface a plain error and leave the queue untouched (#323).
+                when (classifyNoteFlush(e)) {
+                    NoteFlushDecision.KEEP_RETRY -> {
+                        enqueue(pending)
+                        setEditorStatus(SaveStatus.PENDING)
+                    }
+                    NoteFlushDecision.DROP_TERMINAL -> {
+                        setEditorStatus(SaveStatus.ERROR)
+                        _uiState.update { it.copy(error = e.message) }
+                    }
+                }
                 false
             },
         )
@@ -399,7 +492,155 @@ class NotesViewModel(
         _editorState.update { it?.copy(status = status) }
     }
 
+    // --- Offline auto-save queue (#323) --------------------------------------------------------
+
+    /** Manual "retry now" from the editor's not-synced marker. */
+    fun retryPending() = flush()
+
+    private fun enqueue(pending: PendingNote) {
+        queue = queue.enqueue(pending)
+        persistAndReflect()
+        ensureBackstop()
+    }
+
+    private fun dequeue(key: String) {
+        val next = queue.dequeue(key)
+        if (next !== queue) {
+            queue = next
+            persistAndReflect()
+        }
+    }
+
+    private fun dequeueIfUnchanged(key: String, expected: PendingNote) {
+        val next = queue.dequeueIfUnchanged(key, expected)
+        if (next !== queue) {
+            queue = next
+            persistAndReflect()
+        }
+    }
+
+    /**
+     * Mirror the queue's real-note keys into the UI (synchronous, so the marker updates on the same
+     * frame as the save) and persist the queue off-main. NEW_KEY is excluded from [pendingIds] — it
+     * is the open draft alone, surfaced by the editor's [SaveStatus.PENDING], not a note-list row.
+     * The snapshot is captured here, before launching, and writes are serialized by [persistMutex] so
+     * concurrent mutations can't reorder and leave a stale map on disk.
+     */
+    private fun persistAndReflect() {
+        val snapshot = queue.entries
+        _uiState.update { it.copy(pendingIds = snapshot.keys.filter { k -> k != NEW_KEY }.toSet()) }
+        viewModelScope.launch {
+            persistMutex.withLock { pendingStore.save(snapshot) }
+        }
+    }
+
+    /**
+     * Drain the queue (#323), the offline twin of the live auto-save. Re-sends each queued body (POST
+     * for a NEW_KEY create, PUT for a known id) and is kept-and-retried on a transport reject (offline)
+     * or a 5xx — both the "silently lost edit" this prevents. A success or a terminal 4xx drops the
+     * entry, but not if it was re-edited meanwhile (a newer `at` survives). One pass at a time, guarded
+     * by [flushMutex]. It re-sends the WRITE only — it never rehydrates the editor draft, so the live
+     * text/caret is never clobbered. On a create success it folds the new id into the open draft when
+     * that draft is STILL the same not-yet-created note, so later saves UPDATE it (no duplicate).
+     */
+    private fun flush() {
+        viewModelScope.launch {
+            // Wait for the restore so a trigger firing during it re-sends those entries, not an empty queue.
+            restored.await()
+            if (!flushMutex.tryLock()) return@launch
+            try {
+                // Snapshot under the lock; new failures appending meanwhile get their own flush() and the
+                // dequeueIfUnchanged guard below protects a re-edited entry.
+                for ((key, pending) in queue.entries) {
+                    val isCreate = pending.id == null
+                    val folderValue = pending.folder.trim()
+                    val result = if (isCreate) {
+                        repository.createNote(
+                            CreateNoteRequest(
+                                title = pending.title.trim(),
+                                content = pending.content,
+                                tags = pending.tags,
+                                folder = folderValue,
+                                visibility = pending.visibility,
+                            ),
+                        )
+                    } else {
+                        repository.updateNote(
+                            pending.id!!,
+                            UpdateNoteRequest(
+                                title = pending.title.trim(),
+                                content = pending.content,
+                                tags = pending.tags,
+                                folder = folderValue,
+                                visibility = pending.visibility,
+                            ),
+                        )
+                    }
+                    val saved = result.getOrNull()
+                    if (saved != null) {
+                        upsert(saved)
+                        // If the editor is still on THIS queued note, reflect that the write landed.
+                        _editorState.update { st ->
+                            when {
+                                st == null -> st
+                                // create: the open draft is still the not-yet-created one → capture the
+                                // new id so later saves PUT it (mirrors saveOnce), and mark saved if no
+                                // newer edit is pending (otherwise the live loop will re-save).
+                                isCreate && st.noteId == null -> st.copy(
+                                    noteId = saved.id,
+                                    images = saved.images,
+                                    status = if (isDirty(st)) SaveStatus.SAVING else SaveStatus.SAVED,
+                                )
+                                !isCreate && st.noteId == saved.id -> st.copy(
+                                    images = saved.images,
+                                    status = if (isDirty(st)) st.status else SaveStatus.SAVED,
+                                )
+                                else -> st
+                            }
+                        }
+                        // For a create, the snapshot baseline becomes what we just sent so the editor's
+                        // dirty check is correct against the now-saved note.
+                        if (isCreate && _editorState.value?.noteId == saved.id) {
+                            savedSnapshot = EditorSnapshot.of(pending.title, pending.content, pending.tags, pending.folder, pending.visibility)
+                        }
+                        dequeueIfUnchanged(key, pending)
+                    } else {
+                        when (classifyNoteFlush(result.exceptionOrNull() ?: RuntimeException())) {
+                            NoteFlushDecision.KEEP_RETRY -> break // offline / transient — stop, retry later
+                            NoteFlushDecision.DROP_TERMINAL -> dequeueIfUnchanged(key, pending)
+                        }
+                    }
+                }
+            } finally {
+                flushMutex.unlock()
+            }
+        }
+    }
+
+    private fun observeConnectivity(networkAvailable: Flow<Unit>) {
+        viewModelScope.launch {
+            networkAvailable.collect { flush() }
+        }
+    }
+
+    /**
+     * Periodic backstop: flaky wifi often regains internet without ever firing a network or socket
+     * callback, so poll while the queue is non-empty. The loop exits once the queue drains (and is
+     * re-armed on the next [enqueue]), so it never spins when there is nothing to send.
+     */
+    private fun ensureBackstop() {
+        if (queue.isEmpty) return
+        if (backstopJob?.isActive == true) return
+        backstopJob = viewModelScope.launch {
+            while (!queue.isEmpty) {
+                delay(flushIntervalMs)
+                if (!queue.isEmpty) flush()
+            }
+        }
+    }
+
     fun deleteNote(id: String) {
+        dequeue(id) // a queued save for a note we're deleting can never land — drop it (#323)
         viewModelScope.launch {
             repository.deleteNote(id)
                 .onSuccess {
@@ -475,20 +716,24 @@ class NotesViewModel(
 
     private fun observeWebSocket() {
         repository.connectWebSocket(token)
-        // Re-sync on every (re)connect — the "server reachable again" signal (#269, mirrors the time
-        // channel + shopping queue flush). The first connect also fires this; that one re-sync
-        // overlaps load()'s fetch (harmless — a cheap GET at cold start), and every later reconnect
-        // then reliably re-syncs without bespoke state.
-        repository.setWebSocketOnConnected { syncFromServer() }
+        // On every (re)connect the server is reachable again (web WS `onOpen`): re-sync the list (#269)
+        // AND drain the offline auto-save queue (#323) — one of the queue's three retry triggers
+        // alongside connectivity + the periodic backstop. The first connect also fires this (harmless).
+        repository.setWebSocketOnConnected {
+            syncFromServer()
+            flush()
+        }
         viewModelScope.launch {
             repository.incomingEvents.collect { event ->
                 when (event) {
                     is NotesWebSocketClient.WsEvent.NoteCreated -> upsert(event.note)
                     is NotesWebSocketClient.WsEvent.NoteUpdated -> upsert(event.note)
-                    is NotesWebSocketClient.WsEvent.NoteDeleted ->
+                    is NotesWebSocketClient.WsEvent.NoteDeleted -> {
                         _uiState.update { state ->
                             state.copy(notes = state.notes.filter { it.id != event.note.id })
                         }
+                        dequeue(event.note.id) // a queued save for a now-deleted note can never land (#323)
+                    }
                 }
             }
         }
@@ -496,19 +741,21 @@ class NotesViewModel(
 
     /**
      * Called from the UI when the app returns to the foreground (#269). Reconnects the channel if it
-     * dropped **and** re-syncs from the server: a reconnect fires `onConnected` → [syncFromServer],
-     * but if the socket survived the background no callback fires, so we also refetch here. Either way
-     * the list matches the server after a backgrounded change elsewhere.
+     * dropped, **re-syncs** the list and **flushes** the offline auto-save queue. A reconnect fires
+     * `onConnected` (which does both), but if the socket survived the background no callback fires, so
+     * we also do it here. Either way the list matches the server and any pending edits retry (#323).
      */
     fun ensureConnected() {
         repository.ensureWebSocketConnected()
         syncFromServer()
+        flush()
     }
 
     override fun onCleared() {
         super.onCleared()
         autosaveJob?.cancel()
         saveJob?.cancel()
+        backstopJob?.cancel()
         repository.setWebSocketOnConnected(null)
         repository.disconnectWebSocket()
     }
@@ -516,6 +763,9 @@ class NotesViewModel(
     companion object {
         /** Idle delay after the last keystroke before an auto-save fires (#309). */
         const val AUTOSAVE_DEBOUNCE_MS = 1000L
+
+        /** Periodic backstop interval for retrying queued saves when no callback fires (#323). */
+        const val FLUSH_INTERVAL_MS = 15_000L
     }
 }
 

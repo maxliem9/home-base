@@ -428,6 +428,12 @@ export const en: Messages = {
     deleteFailed: 'Note could not be deleted.',
     imageDeleteFailed: 'Image could not be deleted.',
     imageDownloadFailed: 'Image could not be downloaded.',
+    // Offline-resilient auto-save (#323): a failed save is held in a durable queue and retried once
+    // back online; until then the note carries the notSynced marker (editing a note without wifi).
+    notSynced: 'Not synced yet',
+    offlineQueuedOne: '1 change will be retried once back online.',
+    offlineQueuedMany: '{n} changes will be retried once back online.',
+    retryNow: 'Retry now',
   },
   // Inbox tab in the todos view: all todos without a list (issue #69) —
   // Dashboard quick-add and the Android FAB create these.
