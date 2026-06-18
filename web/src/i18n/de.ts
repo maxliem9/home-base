@@ -382,9 +382,6 @@ export const de = {
     outsideSaves: 'Klick außerhalb speichert',
     escCloses: 'schließt',
     metaLine: 'von {name} · bearbeitet {time}',
-    // editor-mode toggle (Markdown-Quelltext ↔ gerenderte Vorschau)
-    editSource: 'Bearbeiten',
-    preview: 'Vorschau',
     // auto-save status indicator (replaces the manual save button)
     saving: 'Speichert…',
     saved: 'Gespeichert',

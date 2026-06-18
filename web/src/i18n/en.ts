@@ -386,9 +386,6 @@ export const en: Messages = {
     outsideSaves: 'Click outside saves',
     escCloses: 'closes',
     metaLine: 'by {name} · edited {time}',
-    // editor-mode toggle (Markdown source ↔ rendered preview)
-    editSource: 'Edit',
-    preview: 'Preview',
     // auto-save status indicator (replaces the manual save button)
     saving: 'Saving…',
     saved: 'Saved',
