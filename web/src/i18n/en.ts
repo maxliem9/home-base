@@ -273,7 +273,12 @@ export const en: Messages = {
     tomorrowEmptyHint: 'No open tasks due tomorrow.',
     doneViewEmpty: 'Nothing done recently',
     doneViewEmptyHint: 'Tasks completed in the last {n} days show up here.',
+    doneViewEmptyAllHint: 'Nothing has been completed yet.', // when "show all" is on (#340)
     doneWindowNote: 'Last {n} days', // hint above the Done list (#263)
+    // "Show all" toggle for the Done history (#340)
+    doneShowAll: 'Show all',
+    doneShowWindow: 'Only last {n} days',
+    doneShowingAll: 'Full history',
     // Subtasks
     subtasks: 'Subtasks',
     addSubtask: 'Add subtask …',
