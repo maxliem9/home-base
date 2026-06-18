@@ -496,6 +496,18 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     })
   }, [])
 
+  // "Alle ein-/ausklappen" (#345): collapse-all seeds the set with every currently visible
+  // folder key (incl. '' = the no-folder bucket); expand-all clears it. Persisted exactly like
+  // the per-folder toggle (same key/write path). Keys not currently visible are dropped on
+  // collapse-all, which is fine — only visible groups can be toggled anyway.
+  const setAllCollapsed = useCallback((collapsed: boolean, keys: string[]) => {
+    const next = collapsed ? new Set(keys) : new Set<string>()
+    try {
+      localStorage.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify([...next]))
+    } catch { /* ignore quota/availability errors — collapse still works this session */ }
+    setCollapsedFolders(next)
+  }, [])
+
   // the note currently being edited (live, from `notes`) — source for the image gallery +
   // caret-insertion. Only existing (saved) notes have images; a brand-new draft has none.
   const editNote = draft?.id ? notes.find((n) => n.id === draft.id) ?? null : null
@@ -707,8 +719,26 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
 
   // The grouped, clickable note list — rendered in the left column AND inside the mobile
   // switcher Sheet. `onPick` lets the Sheet close itself after a jump.
-  const renderNoteGroups = (onPick?: () => void) => (
+  const renderNoteGroups = (onPick?: () => void) => {
+    // "Alle ein-/ausklappen" derives its action from the visible groups: when every one is
+    // already collapsed it offers expand-all, otherwise collapse-all. Only meaningful with
+    // 2+ groups (a lone group is toggled by its own header). (#345)
+    const folderKeys = groups.map((g) => g.folder)
+    const allCollapsed = folderKeys.length > 0 && folderKeys.every((k) => collapsedFolders.has(k))
+    return (
     <div className="hb-notes-groups">
+      {groups.length > 1 && (
+        <div className="hb-notes-groups__toolbar">
+          <button
+            type="button"
+            className="hb-notes-collapseall"
+            onClick={() => setAllCollapsed(!allCollapsed, folderKeys)}
+          >
+            <Icon name={allCollapsed ? 'chevronDown' : 'chevronRight'} size={13} stroke={2.4} />
+            {allCollapsed ? t('notes.expandAll') : t('notes.collapseAll')}
+          </button>
+        </div>
+      )}
       {groups.map((g) => {
         const collapsed = collapsedFolders.has(g.folder)
         return (
@@ -755,7 +785,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
         )
       })}
     </div>
-  )
+    )
+  }
 
   return (
     <div className="hb-page">

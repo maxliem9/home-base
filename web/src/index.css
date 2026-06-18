@@ -581,6 +581,11 @@ input[type="date"].hb-input, input[type="time"].hb-input { color: var(--ink); }
 /* Folder-grouped note list (#311): a header per folder, its notes indented beneath.
    The header is a button that collapses/expands its section (chevron indicates state). */
 .hb-notes-groups { display: flex; flex-direction: column; gap: 18px; }
+/* "Alle ein-/ausklappen" — subtle right-aligned text button above the folder groups (#345). */
+.hb-notes-groups__toolbar { display: flex; justify-content: flex-end; margin: -4px 2px 0; }
+.hb-notes-collapseall { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 2px 4px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink-3); cursor: pointer; transition: color 0.14s; }
+.hb-notes-collapseall:hover { color: var(--ink); }
+.hb-notes-collapseall > svg { flex-shrink: 0; }
 .hb-notes-group__head { display: flex; align-items: center; gap: 7px; width: 100%; padding: 2px 2px 7px; background: none; border: none; font-family: inherit; text-align: left; color: var(--ink-2); cursor: pointer; transition: color 0.14s; }
 .hb-notes-group__head:hover { color: var(--ink); }
 .hb-notes-group__head > svg { color: var(--ink-3); flex-shrink: 0; }

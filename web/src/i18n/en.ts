@@ -380,6 +380,9 @@ export const en: Messages = {
     allTags: 'All',
     allFolders: 'All folders',
     noFolder: 'No folder',
+    // bulk collapse/expand control above the folder-grouped list (#345)
+    collapseAll: 'Collapse all',
+    expandAll: 'Expand all',
     noResults: 'No matches',
     empty: 'No notes yet',
     emptyHint: 'Create a note',
