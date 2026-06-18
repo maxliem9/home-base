@@ -278,6 +278,11 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   listen-loser Todos eine Listen-Auswahl. Das frühere Catch-all-Verhalten des
   ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
 - Kein Hilt für MVP — manuelle DI reicht
+- **Compose-Layout-Falle (CI-Guard, #348):** In `Column { Box(weight=1f){…}; <bar> }` misst Compose
+  das nicht-gewichtete Kind zuerst mit voller Höhe — nutzt es `fillMaxHeight()`/`fillMaxSize()`,
+  frisst es die Höhe und das `weight(1f)`-Geschwister kollabiert auf 0dp (war der #347-Bottom-Nav-Bug).
+  `scripts/check-compose-layout.sh` (im Android-CI-Job) flaggt genau diese Geschwister-Konstellation;
+  Absicht (Overlay-Drawer/Sheet etc.) mit `// layout-guard:allow` auf der fillMax-Zeile ausnehmen.
 
 ## Datenbank
 - PostgreSQL 16 als Docker Container
