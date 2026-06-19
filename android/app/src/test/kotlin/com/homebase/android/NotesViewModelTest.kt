@@ -741,6 +741,38 @@ class NotesViewModelTest {
     }
 
     @Test
+    fun `saveOnce success does not stamp id-SAVED onto a draft switched to another note (#369)`() = vmTest {
+        // Latent-inconsistency guard: if the editor switches notes WHILE a save is in flight (today the
+        // join/cancel discipline prevents this, but openEditor itself does not join the running save),
+        // the completing save must NOT stamp its id/SAVED onto the now-different draft. We force the
+        // switch by calling openEditor mid-save, bypassing switchEditorTo's join.
+        val a = note(id = "a", title = "A")
+        val b = note(id = "b", title = "B")
+        coEvery { repository.getNotes("") } returns Result.success(listOf(a, b))
+        // A's update suspends long enough for us to switch the editor to B before it resolves.
+        coEvery { repository.updateNote(eq("a"), any()) } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success(a.copy(title = "A2"))
+        }
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openEditor(a)
+        vm.updateEditor(title = "A2")
+        advanceTimeBy(1000) // debounce elapses → A's save starts and suspends in the mock
+        runCurrent()
+        // Switch the editor to B WHILE A's save is in flight (openEditor does not join the save).
+        vm.openEditor(b)
+        advanceUntilIdle() // A's save now completes
+
+        // The editor still shows B — A's save did not stamp its id onto B (noteId stays "b") nor
+        // force the status to SAVED (the load-bearing assertions; the buggy .copy never touched title).
+        assertEquals("b", vm.editorState.value?.noteId)
+        assertNotEquals(SaveStatus.SAVED, vm.editorState.value?.status)
+    }
+
+    @Test
     fun `a terminal 4xx save surfaces an error and an ERROR status`() = vmTest {
         val existing = note(id = "1", title = "Alt")
         coEvery { repository.getNotes("") } returns Result.success(listOf(existing))
