@@ -147,8 +147,8 @@ test.describe('Wochenplan', () => {
 
     await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
     await expect(page.locator('.hb-sheet')).toBeVisible()
-    // summary interpolates the counts (4 ingredients across 2 dishes) — guards the {placeholder} format
-    await expect(page.locator('.hb-sheet')).toContainText('4 Zutaten aus 2')
+    // summary interpolates + pluralizes both counts (4 ingredients across 2 dishes) — plural/plural (#337)
+    await expect(page.locator('.hb-sheet')).toContainText('4 Zutaten aus 2 geplanten Gerichten')
     await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
 
     // 4 distinct ingredient lines across the two dishes → "4 hinzugefügt"
@@ -180,7 +180,8 @@ test.describe('Wochenplan', () => {
     await page.locator('.hb-pagehead').getByRole('button', { name: 'In Einkaufsliste' }).click()
     await expect(page.locator('.hb-sheet')).toBeVisible()
     // …but the summary counts only the recipe dish: 2 ingredients from 1 dish (not 2).
-    await expect(page.locator('.hb-sheet')).toContainText('2 Zutaten aus 1')
+    // Singular „1 geplantem Gericht" (not „…Gerichten") guards the plural fix (#337).
+    await expect(page.locator('.hb-sheet')).toContainText('2 Zutaten aus 1 geplantem Gericht')
     await page.locator('.hb-sheet').getByRole('button', { name: 'Hinzufügen' }).click()
 
     // the batch payload carries ONLY the recipe's ingredients — the free-text dish contributes none.

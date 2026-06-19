@@ -795,7 +795,14 @@ export const de = {
     // "in Einkaufsliste"
     addToShopping: 'In Einkaufsliste',
     addToShoppingTitle: 'Zutaten der Woche zur Einkaufsliste',
-    addToShoppingSummary: '{items} Zutaten aus {dishes} geplanten Gerichten',
+    // Zwei unabhängige Zähler in einem Satz → je ein pluralisiertes Fragment
+    // (i18next `_one`/`_other`, count-getrieben), zusammengefügt im Summary.
+    // So stimmt der Singular: „1 Zutat aus 1 geplantem Gericht".
+    addToShoppingItems_one: '{count} Zutat',
+    addToShoppingItems_other: '{count} Zutaten',
+    addToShoppingDishes_one: '{count} geplantem Gericht',
+    addToShoppingDishes_other: '{count} geplanten Gerichten',
+    addToShoppingSummary: '{items} aus {dishes}',
     addToShoppingFailed: 'Zutaten konnten nicht hinzugefügt werden.',
     targetList: 'Liste',
     noList: 'Lege zuerst eine Einkaufsliste an.',
