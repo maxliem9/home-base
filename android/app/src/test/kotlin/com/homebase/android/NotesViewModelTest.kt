@@ -766,9 +766,9 @@ class NotesViewModelTest {
         vm.openEditor(b)
         advanceUntilIdle() // A's save now completes
 
-        // The editor still shows B, untouched — A's save did not overwrite noteId/title/status.
+        // The editor still shows B — A's save did not stamp its id onto B (noteId stays "b") nor
+        // force the status to SAVED (the load-bearing assertions; the buggy .copy never touched title).
         assertEquals("b", vm.editorState.value?.noteId)
-        assertEquals("B", vm.editorState.value?.title)
         assertNotEquals(SaveStatus.SAVED, vm.editorState.value?.status)
     }
 

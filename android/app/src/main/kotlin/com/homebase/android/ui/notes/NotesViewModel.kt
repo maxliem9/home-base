@@ -430,7 +430,7 @@ class NotesViewModel(
         )
         setEditorStatus(SaveStatus.SAVING)
         val folderValue = draft.folder.trim()
-        val result = if (id == null) {
+        val result = if (isCreate) {
             repository.createNote(
                 CreateNoteRequest(
                     title = title,
