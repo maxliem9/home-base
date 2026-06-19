@@ -417,7 +417,8 @@ class NotesViewModel(
     private suspend fun saveOnce(draft: NoteEditorState): Boolean {
         val title = draft.title.trim()
         val id = draft.noteId
-        if (id == null && title.isBlank()) return false // never create an untitled note
+        val isCreate = id == null
+        if (isCreate && title.isBlank()) return false // never create an untitled note
         // Snapshot of exactly what we send, so a no-op repeat is skipped and a change mid-flight stays dirty.
         val sentSnapshot = EditorSnapshot.of(draft.title, draft.content, draft.tags, draft.folder, draft.visibility)
         // The pending entry to persist if this save fails (#323): the exact fields we send, so a later
@@ -454,7 +455,6 @@ class NotesViewModel(
         return result.fold(
             onSuccess = { note ->
                 upsert(note)
-                savedSnapshot = sentSnapshot
                 // The save landed → drop any queued entry for this note (#323). Saves are serialized
                 // (the single saveJob loop), so a success means the newest write is on the server and
                 // ANY entry queued by an earlier failed attempt (a different, older `at`) is now
@@ -463,10 +463,31 @@ class NotesViewModel(
                 // re-dirties the draft and the loop re-saves (re-queuing only if THAT save fails). For
                 // a create the entry sits under NEW_KEY (id was null when we sent it).
                 dequeue(queue.keyFor(id))
-                // Capture the new id (first create) + refresh server-owned fields, but keep the live
-                // text draft so in-flight keystrokes survive.
-                _editorState.update { st ->
-                    st?.copy(noteId = note.id, images = note.images, status = SaveStatus.SAVED)
+                // Reflect the landed write into the editor ONLY when the open draft still refers to THIS
+                // save's note — create: noteId == null; update: noteId == note.id — mirroring the identity
+                // check in [flush]. Today the join/cancel discipline (switchEditorTo/closeEditor join,
+                // abandon/deleteEditorNote cancel) means the editor can't switch notes during a running
+                // save, so this guard is currently always true; it keeps the path robust if that
+                // discipline ever changes — neither the id/SAVED stamp NOR the dirty baseline must be
+                // applied to a different note's draft (a stale savedSnapshot would mis-fire the dirty
+                // check on the switched-to note). See #369.
+                val current = _editorState.value
+                val draftIsThisNote = current != null &&
+                    ((isCreate && current.noteId == null) || (!isCreate && current.noteId == note.id))
+                if (draftIsThisNote) {
+                    // Refresh the dirty baseline to exactly what we sent, so the save loop sees a clean
+                    // draft (and a fresh keystroke re-dirties it).
+                    savedSnapshot = sentSnapshot
+                    // Capture the new id (first create) + refresh server-owned fields, but keep the live
+                    // text draft so in-flight keystrokes survive.
+                    _editorState.update { st ->
+                        when {
+                            st == null -> st
+                            isCreate && st.noteId == null -> st.copy(noteId = note.id, images = note.images, status = SaveStatus.SAVED)
+                            !isCreate && st.noteId == note.id -> st.copy(images = note.images, status = SaveStatus.SAVED)
+                            else -> st
+                        }
+                    }
                 }
                 true
             },
