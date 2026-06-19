@@ -796,7 +796,14 @@ export const en: Messages = {
     // "add to shopping list"
     addToShopping: 'Add to shopping list',
     addToShoppingTitle: 'Add this week’s ingredients to a list',
-    addToShoppingSummary: '{items} ingredients from {dishes} planned dishes',
+    // Two independent counters in one sentence → one pluralized fragment each
+    // (i18next `_one`/`_other`, count-driven), combined in the summary, so the
+    // singular reads correctly: "1 ingredient from 1 planned dish".
+    addToShoppingItems_one: '{count} ingredient',
+    addToShoppingItems_other: '{count} ingredients',
+    addToShoppingDishes_one: '{count} planned dish',
+    addToShoppingDishes_other: '{count} planned dishes',
+    addToShoppingSummary: '{items} from {dishes}',
     addToShoppingFailed: 'Could not add the ingredients.',
     targetList: 'List',
     noList: 'Create a shopping list first.',

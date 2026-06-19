@@ -519,7 +519,10 @@ function AddToShoppingSheet({
       ) : (
         <>
           <p className="hb-muted" style={{ marginTop: 0 }}>
-            {t('wochenplan.addToShoppingSummary', { items: itemCount, dishes: dishCount })}
+            {t('wochenplan.addToShoppingSummary', {
+              items: t('wochenplan.addToShoppingItems', { count: itemCount }),
+              dishes: t('wochenplan.addToShoppingDishes', { count: dishCount }),
+            })}
           </p>
           {lists.length > 1 && (
             <Field label={t('wochenplan.targetList')}>
