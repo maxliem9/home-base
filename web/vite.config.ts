@@ -6,8 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/ws': { target: 'ws://localhost:8080', ws: true },
+      // Proxies both HTTP requests and WebSocket upgrades (/api/v1/ws/*) to the
+      // backend. ws: true is required, otherwise the WS upgrade is dropped and
+      // live-sync stays dead in dev (issue #376).
+      '/api': { target: 'http://localhost:8080', changeOrigin: true, ws: true },
     },
   },
 })
