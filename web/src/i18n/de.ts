@@ -421,6 +421,11 @@ export const de = {
     imageUploadFailed: 'Upload fehlgeschlagen.',
     // shown when some images of a multi-select upload failed ({count} of them)
     imagesSomeFailed: '{count} Bild(er) konnten nicht hochgeladen werden.',
+    // delete confirm (destruktive Aktion über ConfirmDialog, #125/#129/#378)
+    deleteTitle: 'Notiz löschen?',
+    deleteConfirmTitled: '„{title}" wird gelöscht. Angehängte Bilder werden mitgelöscht. Das kann nicht rückgängig gemacht werden.',
+    deleteConfirmUntitled: 'Die Notiz wird gelöscht. Angehängte Bilder werden mitgelöscht. Das kann nicht rückgängig gemacht werden.',
+    deleteBtn: 'Endgültig löschen',
     // write-error fallbacks (issue #96)
     saveFailed: 'Notiz konnte nicht gespeichert werden.',
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',
