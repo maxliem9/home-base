@@ -325,7 +325,14 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   }
 
   const handleAdd = async () => {
-    if (!newTitle.trim() || (!active && !inboxActive)) return
+    const title = newTitle.trim()
+    if (!title || (!active && !inboxActive)) return
+    // Clear the input *before* the await — the field is controlled, so leaving the old
+    // text in it lets fast follow-up keystrokes append and the next Enter post the merged
+    // value (#384, sibling of #377). Each add captures its own `title`, so a quick second
+    // Enter starts an independent POST instead of re-posting the first; restore below only
+    // on a genuine failure (and only if the field is still untouched).
+    setNewTitle('')
     setSubmitting(true)
     try {
       const result = await safeFetch(token, `${API_BASE}/todos`, {
@@ -334,9 +341,12 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         // In the Inbox tab the POST carries no listId at all — the backend
         // then creates a plain INBOX todo (same contract as the Dashboard
         // quick-add and the Android FAB).
-        body: JSON.stringify({ title: newTitle.trim(), ...(active ? { listId: active.id } : {}) }),
+        body: JSON.stringify({ title, ...(active ? { listId: active.id } : {}) }),
       })
-      if (!result.ok) return flashError(errorText(null, t('todos.addFailed')))
+      if (!result.ok) {
+        restoreTitle(title)
+        return flashError(errorText(null, t('todos.addFailed')))
+      }
       const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
@@ -345,14 +355,18 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         // response is applied, the todo is already in the list and would show
         // twice until the next reload (#61).
         setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
-        setNewTitle('')
       } else {
+        restoreTitle(title)
         flashError(errorText(await errorCode(res), t('todos.addFailed')))
       }
     } finally {
       setSubmitting(false)
     }
   }
+
+  // Put a failed add's text back so it isn't lost — but only if the user hasn't already
+  // started typing the next todo into the now-empty field (don't clobber their input).
+  const restoreTitle = (title: string) => setNewTitle((cur) => (cur ? cur : title))
 
   const toggleDone = (todo: Todo) => {
     if (todo.status === 'DONE') {
