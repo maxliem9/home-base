@@ -127,7 +127,14 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
 
   const submitQuick = async () => {
     const title = quick.trim()
-    if (!title || submitting) return
+    if (!title) return
+    // Clear the input *before* the await — the field is controlled, so leaving the old
+    // text in it lets fast follow-up keystrokes append and the next Enter post the merged
+    // value (#384, sibling of #377). No `submitting` re-entrancy guard: each add captures
+    // its own `title`, so a quick second Enter starts an independent POST rather than being
+    // silently dropped on a slow connection. Restore below only on a genuine failure (and
+    // only if the field is still untouched).
+    setQuick('')
     setSubmitting(true)
     try {
       // no listId → the backend creates an INBOX todo (TodoRoutes always sets INBOX)
@@ -136,19 +143,26 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
       })
-      if (!result.ok) return flashError(errorText(null, t('dashboard.addFailed')))
+      if (!result.ok) {
+        restoreQuick(title)
+        return flashError(errorText(null, t('dashboard.addFailed')))
+      }
       if (result.res.status === 401) return onLogout()
       if (result.res.ok) {
         const created: Todo = await result.res.json()
         setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
-        setQuick('')
       } else {
+        restoreQuick(title)
         flashError(errorText(await errorCode(result.res), t('dashboard.addFailed')))
       }
     } finally {
       setSubmitting(false)
     }
   }
+
+  // Put a failed add's text back so it isn't lost — but only if the user hasn't already
+  // started typing the next todo into the now-empty field (don't clobber their input).
+  const restoreQuick = (title: string) => setQuick((cur) => (cur ? cur : title))
 
   const markDone = async (todo: Todo) => {
     // optimistic — drop it out of "Heute dran" immediately

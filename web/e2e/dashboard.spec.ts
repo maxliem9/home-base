@@ -97,6 +97,49 @@ test.describe('Dashboard (Heute)', () => {
     await expect(input).toHaveValue('')
   })
 
+  // #384 (sibling of #377): hitting Enter, then immediately typing + Enter for a second
+  // todo (before the first POST resolves) must yield two inbox todos — not one merged
+  // "Windeln kaufenBrei kochen". The field has to clear on submit, not only after the
+  // await, and there is deliberately no `submitting` re-entrancy guard that would drop
+  // the fast second add on a slow connection. We hold the first POST open and type the
+  // second todo character-by-character so it would *append* to an uncleared field.
+  test('quick-add accepts two todos typed in quick succession without merging them', async ({ page }) => {
+    await openDashboard(page, new MockApi())
+    await expect(tile(page, 'In der Inbox')).toHaveText('0')
+
+    // hold the first POST open so the second add starts while it's still in flight,
+    // and record every posted title to prove neither carried the merged value
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    let first = true
+    const postedTitles: string[] = []
+    await page.route('**/api/v1/todos', async (route) => {
+      if (route.request().method() === 'POST') {
+        postedTitles.push(route.request().postDataJSON().title)
+        if (first) {
+          first = false
+          await gate
+        }
+      }
+      return route.fallback()
+    })
+
+    const input = page.getByPlaceholder('Schnell erfassen – landet in der Inbox …')
+    await input.pressSequentially('Windeln kaufen')
+    await input.press('Enter')          // first POST is now pending behind the gate
+    // the field must already be empty (cleared on submit, not after the await) — otherwise
+    // these keystrokes append and the next Enter posts the merged title
+    await expect(input).toHaveValue('')
+    await input.pressSequentially('Brei kochen')
+    await input.press('Enter')
+    release()                           // let the first POST complete
+
+    // both land in the inbox (counted once each despite the pre-frame echo, #61) …
+    await expect(tile(page, 'In der Inbox')).toHaveText('2')
+    // … and each POST carried its own captured title — no merged "Windeln kaufenBrei kochen"
+    expect(postedTitles).toEqual(['Windeln kaufen', 'Brei kochen'])
+  })
+
   test('checking off in "Heute dran" completes optimistically and moves the counts', async ({ page }) => {
     // real clock: the mock stamps doneAt with Node's `new Date()`, which must
     // land on the same local day the page judges "today" by

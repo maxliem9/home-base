@@ -73,6 +73,43 @@ test.describe('Todos', () => {
     await expect(page.getByText('Alles erledigt')).toHaveCount(0)
   })
 
+  // #384 (sibling of #377): hitting Enter, then immediately typing + Enter for a second
+  // todo (before the first POST resolves) must yield two todos — not one merged
+  // "Pflanzen gießenMüll rausbringen". The field has to clear on submit, not only after
+  // the await. We hold the first POST open and type the second todo character-by-character
+  // so it would *append* to an uncleared field.
+  test('adds two todos typed in quick succession without merging them', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+
+    // hold the first POST open so the second add starts while it's still in flight
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    let first = true
+    await page.route('**/api/v1/todos', async (route) => {
+      if (route.request().method() === 'POST' && first) {
+        first = false
+        await gate
+      }
+      return route.fallback()
+    })
+
+    const input = page.getByPlaceholder('Neue Aufgabe in „Haushalt" …')
+    await input.pressSequentially('Pflanzen gießen')
+    await input.press('Enter')          // first POST is now pending behind the gate
+    // the field must already be empty (cleared on submit, not after the await) — otherwise
+    // these keystrokes append and the next Enter posts the merged title
+    await expect(input).toHaveValue('')
+    await input.pressSequentially('Müll rausbringen')
+    await input.press('Enter')
+    release()                           // let the first POST complete
+
+    await expect(page.locator('.hb-row', { hasText: 'Pflanzen gießen' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toBeVisible()
+    // crucially: no merged todo, and "Pflanzen gießen" stands alone
+    await expect(page.getByText('Pflanzen gießenMüll rausbringen')).toHaveCount(0)
+    await expect(page.locator('.hb-row')).toHaveCount(2)
+  })
+
   // Regression #61: the server's own TODO_CREATED echo can reach the client
   // before the REST response is applied (the mock delivers it synchronously via
   // x-ws-frames-pre). The todo must end up in the list exactly once —
