@@ -428,6 +428,10 @@ export const en: Messages = {
     deleteConfirmTitled: '"{title}" will be deleted. Attached images are removed too. This cannot be undone.',
     deleteConfirmUntitled: 'The note will be deleted. Attached images are removed too. This cannot be undone.',
     deleteBtn: 'Delete permanently',
+    // delete a single attached image — also via ConfirmDialog (#385, sibling of #378)
+    imageDeleteTitle: 'Delete image?',
+    imageDeleteConfirmNamed: '"{name}" will be deleted. This cannot be undone.',
+    imageDeleteConfirmUnnamed: 'The image will be deleted. This cannot be undone.',
     // write-error fallbacks (issue #96)
     saveFailed: 'Note could not be saved.',
     deleteFailed: 'Note could not be deleted.',

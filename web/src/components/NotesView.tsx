@@ -156,6 +156,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string; originalName: string } | null>(null)
   // pending delete confirmation — destructive deletes go through <ConfirmDialog>, never silently (#125/#129/#378)
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null)
+  // same for deleting a single attached image (#385, sibling of #378); name = original upload name
+  const [confirmDeleteImage, setConfirmDeleteImage] = useState<{ id: string; name: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
   // The note-document container (for outside-click detection while editing) and the title input
@@ -1253,7 +1255,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                                 className="hb-note-thumb__del"
                                 title={t('notes.removeImage')}
                                 aria-label={t('notes.removeImage')}
-                                onClick={() => handleDeleteImage(img.id)}
+                                onClick={() => setConfirmDeleteImage({ id: img.id, name: img.originalName })}
                               >
                                 <Icon name="x" size={14} stroke={2.4} />
                               </button>
@@ -1395,6 +1397,21 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           danger
           onConfirm={() => handleDelete(confirmDelete.id)}
           onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {confirmDeleteImage && (
+        <ConfirmDialog
+          title={t('notes.imageDeleteTitle')}
+          message={
+            confirmDeleteImage.name
+              ? t('notes.imageDeleteConfirmNamed', { name: confirmDeleteImage.name })
+              : t('notes.imageDeleteConfirmUnnamed')
+          }
+          confirmLabel={t('notes.deleteBtn')}
+          danger
+          onConfirm={() => handleDeleteImage(confirmDeleteImage.id)}
+          onClose={() => setConfirmDeleteImage(null)}
         />
       )}
 
