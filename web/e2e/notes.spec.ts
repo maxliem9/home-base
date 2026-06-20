@@ -1,5 +1,18 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { MockApi, note, noteImage, TOKEN } from './helpers/mockApi'
+
+// #383: deterministically replace the text of a controlled React <textarea> (value={draft.content}).
+// A bare `.fill(newValue)` can concatenate onto the existing value under parallel load: Playwright
+// clears the DOM and fires one input event, but React's value-tracker can be desynced from the
+// freshly-applied controlled value and reconcile by APPENDING ("…abc123…xyz789"). `.fill('')` is
+// reverted the same way. The robust path is to select the existing text and type OVER it with real
+// per-character key events (React's onChange observes every one), then assert the final value.
+async function replaceTextarea(ta: Locator, value: string) {
+  await ta.focus()
+  await ta.selectText() // highlight the whole field so the first typed char replaces it
+  await ta.pressSequentially(value)
+  await expect(ta).toHaveValue(value)
+}
 
 // `Buffer` is a Node global present in the Playwright runtime; the e2e tsconfig has no
 // @types/node, so declare just the call we use for synthetic upload file bytes (#266).
@@ -145,7 +158,14 @@ test.describe('Notes', () => {
     const put = page.waitForRequest(
       (r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT',
     )
-    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **xyz789**')
+    // #383: the content textarea is a controlled React input (value={draft.content}). Under
+    // parallel load a bare `fill('…xyz789')` would occasionally concatenate onto the seed instead
+    // of replacing it ("…abc123…xyz789") — Playwright's single input event races React's controlled
+    // value-tracker, which reconciles by appending. `replaceTextarea` waits for the seed, selects it,
+    // and types the replacement with real per-character key events React fully observes.
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue('Router: **abc123**')
+    await replaceTextarea(ta, 'Router: **xyz789**')
     const req = await put
     expect(JSON.parse(req.postData() ?? '{}').content).toBe('Router: **xyz789**')
     await expect(page.locator('.hb-savestatus.is-saved')).toHaveText('Gespeichert')
@@ -160,7 +180,9 @@ test.describe('Notes', () => {
     await editNote(page, /WLAN Passwort/)
 
     const put = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
-    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **changed**')
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue('Router: **abc123**')
+    await replaceTextarea(ta, 'Router: **changed**') // #383: type-over, else the seed can concatenate
     await put
     await page.keyboard.press('Escape')
 
@@ -176,7 +198,9 @@ test.describe('Notes', () => {
     await editNote(page, /WLAN Passwort/)
 
     const put = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
-    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router: **outside**')
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue('Router: **abc123**')
+    await replaceTextarea(ta, 'Router: **outside**') // #383: type-over, else the seed can concatenate
     // click the search box (outside the note document) → save + back to preview
     await page.getByPlaceholder('Suchen …').click()
     await put
@@ -211,10 +235,11 @@ test.describe('Notes', () => {
     })
 
     const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue('Router: **abc123**')
 
     // first edit → after the debounce the (delayed) first PUT starts and stays in flight
     const firstPut = page.waitForRequest((r) => /\/notes\/n1$/.test(new URL(r.url()).pathname) && r.method() === 'PUT')
-    await ta.fill('FIRST change')
+    await replaceTextarea(ta, 'FIRST change') // #383: type-over, else the seed can concatenate
     await firstPut
 
     // while that PUT is held open the status shows "Speichert…", NOT "Gespeichert"
@@ -222,7 +247,7 @@ test.describe('Notes', () => {
     await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
 
     // type the SECOND change during the in-flight window — the bug dropped exactly this edit
-    await ta.fill('SECOND change')
+    await replaceTextarea(ta, 'SECOND change') // #383: type-over, else FIRST can concatenate
     // status must stay truthful: still saving, never flashing "Gespeichert" with stale content
     await expect(page.locator('.hb-savestatus.is-saved')).toHaveCount(0)
 
@@ -272,7 +297,9 @@ test.describe('Notes', () => {
 
     // edit the body → the debounced save fires, the PUT rejects → the edit is queued, not lost.
     // Plain text (no markdown chars) so the stripped list-preview is a clean, assertable substring.
-    await page.getByPlaceholder('Inhalt (Markdown)…').fill('Router OFFLINEEDIT')
+    const ta = page.getByPlaceholder('Inhalt (Markdown)…')
+    await expect(ta).toHaveValue('Router: **abc123**')
+    await replaceTextarea(ta, 'Router OFFLINEEDIT') // #383: type-over, else the seed can concatenate
 
     // the editor shows the "not synced" marker (German), and the collective banner appears
     await expect(page.locator('.hb-savestatus.is-pending')).toHaveText(/Noch nicht synchronisiert/)
