@@ -239,28 +239,42 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }, () => void flushPending()) // onOpen: a (re)connected socket means the server is reachable — drain the queue
 
   const handleAdd = async () => {
-    if (!newName.trim() || !active) return
+    const name = newName.trim()
+    if (!name || !active) return
+    // Clear the input *before* the await — the field is controlled, so leaving the old
+    // text in it lets fast follow-up keystrokes append and the next Enter post the merged
+    // value (#377). Each add captures its own `name`, so a quick second Enter starts an
+    // independent POST instead of re-posting the first; restore below only on a genuine
+    // failure (and only if the field is still untouched).
+    setNewName('')
     setSubmitting(true)
     try {
       const result = await safeFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), listId: active.id }),
+        body: JSON.stringify({ name, listId: active.id }),
       })
-      if (!result.ok) return flashError(errorText(null, t('shopping.addFailed')))
+      if (!result.ok) {
+        restoreName(name)
+        return flashError(errorText(null, t('shopping.addFailed')))
+      }
       const { res } = result
       if (res.status === 401) return onLogout()
       if (res.ok) {
         const created: ShoppingItem = await res.json()
         setItems((prev) => (prev.some((i) => i.id === created.id) ? prev : [created, ...prev]))
-        setNewName('')
       } else {
+        restoreName(name)
         flashError(errorText(await errorCode(res), t('shopping.addFailed')))
       }
     } finally {
       setSubmitting(false)
     }
   }
+
+  // Put a failed add's text back so it isn't lost — but only if the user hasn't already
+  // started typing the next item into the now-empty field (don't clobber their input).
+  const restoreName = (name: string) => setNewName((cur) => (cur ? cur : name))
 
   // Toggle a check-off optimistically and queue it for delivery. The queue (not an
   // inline fetch) does the network work, so a tap in a dead zone is remembered and
