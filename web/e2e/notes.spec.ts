@@ -347,11 +347,16 @@ test.describe('Notes', () => {
     await expect(page.getByRole('button', { name: /Offline Notiz/ })).toHaveCount(1)
   })
 
-  test('deletes a note from the document header', async ({ page }) => {
+  test('deletes a note from the document header after confirming', async ({ page }) => {
     await openNotes(page, new MockApi().seedNotes([WLAN]))
     // the trash action sits in the document header in BOTH preview and edit (no separate view)
     await openNote(page, /WLAN Passwort/)
     await page.getByRole('button', { name: 'Löschen' }).click()
+
+    // destructive delete is gated behind a ConfirmDialog (#125/#129/#378), not a silent delete
+    await expect(page.getByRole('heading', { name: 'Notiz löschen?' })).toBeVisible()
+    await expect(page.getByText('Noch keine Notizen')).toHaveCount(0) // not yet deleted
+    await page.locator('.hb-modal').getByRole('button', { name: 'Endgültig löschen' }).click()
 
     await expect(page.getByText('Noch keine Notizen')).toBeVisible()
   })

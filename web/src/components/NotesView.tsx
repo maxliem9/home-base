@@ -19,6 +19,7 @@ import { useErrorToast } from '../ui/ErrorToast'
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   IconButton,
   PageHead,
@@ -153,6 +154,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string; originalName: string } | null>(null)
+  // pending delete confirmation — destructive deletes go through <ConfirmDialog>, never silently (#125/#129/#378)
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
   // The note-document container (for outside-click detection while editing) and the title input
@@ -1120,7 +1123,12 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     <IconButton icon="edit" label={t('notes.editNote')} onClick={() => enterEdit('content')} />
                   )}
                   {draft.id && (
-                    <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(draft.id!)} />
+                    <IconButton
+                      icon="trash"
+                      label={t('common.delete')}
+                      danger
+                      onClick={() => setConfirmDelete({ id: draft.id!, title: draft.title.trim() })}
+                    />
                   )}
                 </div>
               </div>
@@ -1373,6 +1381,21 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           </button>
           <AuthedImage url={noteImageUrl(lightbox.noteId, lightbox.imageId)} token={token} alt="" onClick={(e) => e.stopPropagation()} />
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={t('notes.deleteTitle')}
+          message={
+            confirmDelete.title
+              ? t('notes.deleteConfirmTitled', { title: confirmDelete.title })
+              : t('notes.deleteConfirmUntitled')
+          }
+          confirmLabel={t('notes.deleteBtn')}
+          danger
+          onConfirm={() => handleDelete(confirmDelete.id)}
+          onClose={() => setConfirmDelete(null)}
+        />
       )}
 
       {errorToast}

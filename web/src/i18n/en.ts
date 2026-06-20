@@ -423,6 +423,11 @@ export const en: Messages = {
     imageBadType: 'Only JPEG, PNG, WebP or GIF allowed.',
     imageUploadFailed: 'Upload failed.',
     imagesSomeFailed: '{count} image(s) could not be uploaded.',
+    // delete confirm (destructive action via ConfirmDialog, #125/#129/#378)
+    deleteTitle: 'Delete note?',
+    deleteConfirmTitled: '"{title}" will be deleted. Attached images are removed too. This cannot be undone.',
+    deleteConfirmUntitled: 'The note will be deleted. Attached images are removed too. This cannot be undone.',
+    deleteBtn: 'Delete permanently',
     // write-error fallbacks (issue #96)
     saveFailed: 'Note could not be saved.',
     deleteFailed: 'Note could not be deleted.',
