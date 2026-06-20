@@ -38,6 +38,42 @@ test.describe('Shopping lists', () => {
     await expect(page.getByText('Brot')).toBeVisible()
   })
 
+  // #377: hitting Enter, then immediately typing + Enter for a second item (before the
+  // first POST resolves) must yield two items — not one merged "BananenMilch". The field
+  // has to clear on submit, not only after the await. We hold the first POST open and type
+  // the second item character-by-character so it would *append* to an uncleared field.
+  test('adds two items typed in quick succession without merging them', async ({ page }) => {
+    await openShopping(page, new MockApi([], [], [WOCHE], []))
+
+    // hold the first POST open so the second add starts while it's still in flight
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    let first = true
+    await page.route('**/api/v1/shopping', async (route) => {
+      if (route.request().method() === 'POST' && first) {
+        first = false
+        await gate
+      }
+      return route.fallback()
+    })
+
+    const input = page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …')
+    await input.pressSequentially('Bananen')
+    await input.press('Enter')          // first POST is now pending behind the gate
+    // the field must already be empty (cleared on submit, not after the await) — otherwise
+    // these keystrokes append and the next Enter posts the merged "BananenMilch"
+    await expect(input).toHaveValue('')
+    await input.pressSequentially('Milch')
+    await input.press('Enter')
+    release()                           // let the first POST complete
+
+    await expect(page.locator('.hb-row', { hasText: 'Bananen' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Milch' })).toBeVisible()
+    // crucially: no merged item, and "Bananen" stands alone (not "BananenMilch")
+    await expect(page.getByText('BananenMilch')).toHaveCount(0)
+    await expect(page.locator('.hb-row')).toHaveCount(2)
+  })
+
   test('checking an item moves it into the cart section', async ({ page }) => {
     const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Butter', listId: 'sl1' })])
     await openShopping(page, mock)
