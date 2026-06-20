@@ -1137,6 +1137,19 @@ export class MockApi {
       if (!img) return this.json(route, { message: 'not found' }, 404)
       return route.fulfill({ status: 200, contentType: img.contentType || 'image/png', body: TINY_PNG })
     }
+    // Delete a single attached image (mirrors DELETE /notes/{id}/images/{imageId});
+    // like the real backend it removes the image and returns the updated note.
+    if (noteImageMatch && method === 'DELETE') {
+      const [, noteId, imageId] = noteImageMatch
+      const idx = this.notes.findIndex((n) => n.id === noteId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      this.notes[idx] = {
+        ...this.notes[idx],
+        images: this.notes[idx].images.filter((i) => i.id !== imageId),
+        updatedAt: new Date().toISOString(),
+      }
+      return this.json(route, this.notes[idx])
+    }
 
     const noteIdMatch = path.match(/\/notes\/([^/]+)$/)
     if (noteIdMatch) {

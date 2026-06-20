@@ -426,6 +426,10 @@ export const de = {
     deleteConfirmTitled: '„{title}" wird gelöscht. Angehängte Bilder werden mitgelöscht. Das kann nicht rückgängig gemacht werden.',
     deleteConfirmUntitled: 'Die Notiz wird gelöscht. Angehängte Bilder werden mitgelöscht. Das kann nicht rückgängig gemacht werden.',
     deleteBtn: 'Endgültig löschen',
+    // einzelnes Bild löschen — ebenfalls über ConfirmDialog (#385, Geschwister von #378)
+    imageDeleteTitle: 'Bild löschen?',
+    imageDeleteConfirmNamed: '„{name}" wird gelöscht. Das kann nicht rückgängig gemacht werden.',
+    imageDeleteConfirmUnnamed: 'Das Bild wird gelöscht. Das kann nicht rückgängig gemacht werden.',
     // write-error fallbacks (issue #96)
     saveFailed: 'Notiz konnte nicht gespeichert werden.',
     deleteFailed: 'Notiz konnte nicht gelöscht werden.',

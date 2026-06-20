@@ -406,6 +406,29 @@ test.describe('Notes', () => {
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toBeVisible()
   })
 
+  // Deleting a single attached image is gated behind a ConfirmDialog (#385, sibling of #378) —
+  // the trash control opens the dialog; only confirming actually fires the DELETE.
+  test('deletes a note image only after confirming', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([PHOTOS]))
+    await editNote(page, /Urlaubsfotos/)
+    await expect(page.locator('.hb-note-thumb')).toHaveCount(1)
+
+    // a DELETE must NOT fire just from clicking the trash button
+    let deleted = false
+    page.on('request', (r) => {
+      if (r.url().includes('/notes/n1/images/img1') && r.method() === 'DELETE') deleted = true
+    })
+
+    await page.locator('.hb-note-thumb__del').click()
+    await expect(page.getByRole('heading', { name: 'Bild löschen?' })).toBeVisible()
+    await expect(page.locator('.hb-note-thumb')).toHaveCount(1) // not yet deleted
+    expect(deleted).toBe(false)
+
+    await page.locator('.hb-modal').getByRole('button', { name: 'Endgültig löschen' }).click()
+    await expect(page.locator('.hb-note-thumb')).toHaveCount(0) // thumbnail gone after confirm
+    expect(deleted).toBe(true)
+  })
+
   // ---- Gallery: multi-select upload (#266) ----
   // The "Bild hinzufügen" button opens a hidden <input multiple>; selecting several files
   // uploads them one after another (one POST each) and the gallery shows all thumbnails.
