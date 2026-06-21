@@ -5,7 +5,7 @@ import type { Page, Route } from '@playwright/test'
 // `npm run typecheck:e2e` instead of failing at runtime. Re-exported so the spec
 // files can keep importing these names from this helper.
 import type {
-  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingSuggestion, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
@@ -14,7 +14,7 @@ import type {
 } from '../../src/types'
 
 export type {
-  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingTemplate, ShoppingTemplateItem,
+  Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingSuggestion, ShoppingTemplate, ShoppingTemplateItem,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
@@ -109,6 +109,7 @@ export class MockApi {
   private shoppingLists: ShoppingList[]
   private shoppingItems: ShoppingItem[]
   private shoppingTemplates: ShoppingTemplate[] = []
+  private shoppingSuggestions: ShoppingSuggestion[] = []
   private recipes: Recipe[] = []
   private mealPlan: MealPlanEntry[] = []
   private notes: Note[] = []
@@ -165,6 +166,12 @@ export class MockApi {
 
   seedShoppingTemplates(templates: ShoppingTemplate[]): this {
     this.shoppingTemplates = templates.map((tpl) => ({ ...tpl, items: tpl.items.map((i) => ({ ...i })) }))
+    return this
+  }
+
+  // Seed the "most used" autocomplete suggestions GET /shopping/suggestions serves (#389).
+  seedShoppingSuggestions(suggestions: ShoppingSuggestion[]): this {
+    this.shoppingSuggestions = suggestions.map((s) => ({ ...s }))
     return this
   }
 
@@ -889,6 +896,12 @@ export class MockApi {
         this.shoppingTemplates.splice(idx, 1)
         return this.jsonWithFrames(route, '', 204, 'shopping', [{ type: 'SHOPPING_TEMPLATE_DELETED', payload: removed }])
       }
+    }
+
+    // Autocomplete suggestions (#389) — matched BEFORE the generic /shopping/{id} item matcher,
+    // which would otherwise treat "suggestions" as an item id. Returns the seeded list (default []).
+    if (path.endsWith('/shopping/suggestions') && method === 'GET') {
+      return this.json(route, this.shoppingSuggestions)
     }
 
     const shopItemMatch = path.match(/\/shopping\/([^/]+)$/)

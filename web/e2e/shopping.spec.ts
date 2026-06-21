@@ -323,3 +323,89 @@ test.describe('Shopping templates', () => {
     await expect(page.getByText('Noch keine Vorlagen')).toBeVisible()
   })
 })
+
+// Category grouping, per-item emoji, "most used" autocomplete, and the category-move
+// override menu (#389).
+test.describe('Shopping categories & suggestions', () => {
+  test('groups open items into category sections in route order, with emoji', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      shoppingItem({ id: 'i1', name: 'Milch', listId: 'sl1', category: 'DAIRY', icon: '🥛' }),
+      shoppingItem({ id: 'i2', name: 'Tomaten', listId: 'sl1', category: 'PRODUCE', icon: '🍅' }),
+    ])
+    await openShopping(page, mock)
+
+    const heads = page.locator('.hb-cathead')
+    await expect(heads).toHaveCount(2)
+    // fixed shopping-route order: Obst & Gemüse (PRODUCE) before Milchprodukte (DAIRY)
+    await expect(heads.nth(0)).toContainText('Obst & Gemüse')
+    await expect(heads.nth(1)).toContainText('Milchprodukte & Eier')
+    // the item carries its emoji
+    await expect(page.locator('.hb-row', { hasText: 'Tomaten' }).locator('.hb-row__emoji')).toHaveText('🍅')
+  })
+
+  test('an item with no category falls into Sonstiges', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Wunderdings', listId: 'sl1' })])
+    await openShopping(page, mock)
+    await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toBeVisible()
+    await expect(page.locator('.hb-row', { hasText: 'Wunderdings' })).toBeVisible()
+  })
+
+  test('autocomplete ranks suggestions by frequency and adds the picked one', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], []).seedShoppingSuggestions([
+      { name: 'Milch', category: 'DAIRY', icon: '🥛', count: 31 },
+      { name: 'Tomaten', category: 'PRODUCE', icon: '🍅', count: 24 },
+      { name: 'Toastbrot', category: 'BAKERY', icon: '🍞', count: 11 },
+      { name: 'Tofu', category: 'PANTRY', icon: '🥡', count: 6 },
+    ])
+    await openShopping(page, mock)
+
+    await page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …').fill('to')
+    const ac = page.locator('.hb-ac')
+    await expect(ac).toBeVisible()
+    // only the "to…" matches, ranked by count desc (Tomaten 24 > Toastbrot 11 > Tofu 6); not Milch
+    const items = ac.locator('.hb-ac__item')
+    await expect(items).toHaveCount(3)
+    await expect(items.nth(0)).toContainText('Tomaten')
+    await expect(items.nth(2)).toContainText('Tofu')
+    await expect(ac.getByText('Milch')).toHaveCount(0)
+
+    await items.filter({ hasText: 'Toastbrot' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Toastbrot' })).toBeVisible()
+  })
+
+  test('Enter adds the highlighted suggestion', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], []).seedShoppingSuggestions([
+      { name: 'Bananen', category: 'PRODUCE', icon: '🍌', count: 12 },
+    ])
+    await openShopping(page, mock)
+
+    const input = page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …')
+    await input.fill('ban')
+    await expect(page.locator('.hb-ac__item', { hasText: 'Bananen' })).toBeVisible()
+    await input.press('Enter')
+    await expect(page.locator('.hb-row', { hasText: 'Bananen' })).toBeVisible()
+  })
+
+  test('moves an item to another category via the override menu', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      shoppingItem({ id: 'i1', name: 'Pizza', listId: 'sl1', category: 'OTHER', icon: '🍕' }),
+    ])
+    await openShopping(page, mock)
+    await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toBeVisible()
+
+    const row = page.locator('.hb-row', { hasText: 'Pizza' })
+    await row.hover() // reveal the row actions
+    await row.getByRole('button', { name: 'In Kategorie verschieben' }).click()
+    const menu = page.locator('.hb-catmenu')
+    await expect(menu).toBeVisible()
+
+    const putPromise = page.waitForRequest((r) => r.url().includes('/shopping/i1') && r.method() === 'PUT')
+    await menu.getByRole('menuitemradio', { name: /Tiefkühl/ }).click()
+    const put = await putPromise
+    expect(JSON.parse(put.postData() || '{}').category).toBe('FROZEN')
+
+    // the item jumps to the Tiefkühl section; the now-empty Sonstiges section is gone
+    await expect(page.locator('.hb-cathead', { hasText: 'Tiefkühl' })).toBeVisible()
+    await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toHaveCount(0)
+  })
+})

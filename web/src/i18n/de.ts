@@ -320,6 +320,10 @@ export const de = {
     namePlaceholder: 'Was fehlt in „{name}"? …', // quick-add placeholder, {name} = aktive Liste
     inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
     clearChecked: 'Abgehakte entfernen',
+    // Kategorien, Emoji-Icons & „Meist genutzt"-Autocomplete (#389)
+    suggestionsHint: 'Häufig gekauft',
+    moveCategory: 'In Kategorie verschieben',
+    moveFailed: 'Kategorie konnte nicht geändert werden.',
     // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
     // nachgeholt; bis dahin trägt das Produkt den notSynced-Marker (Einkaufen ohne WLAN).
     notSynced: 'Noch nicht synchronisiert',
