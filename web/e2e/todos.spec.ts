@@ -148,7 +148,7 @@ test.describe('Todos', () => {
     await openApp(page, mock)
 
     await page.getByRole('button', { name: 'Planen' }).click()
-    const dialog = page.locator('.hb-modal')
+    const dialog = page.locator('.hb-sheet')
     // assignee is now a chip picker (names from /config) instead of a text field
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()
@@ -159,18 +159,18 @@ test.describe('Todos', () => {
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
   })
 
-  test('edits a todo description in the plan modal and shows it in the row', async ({ page }) => {
+  test('edits a todo description in the plan sheet and shows it in the row', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)
 
     await page.getByRole('button', { name: 'Planen' }).click()
-    const dialog = page.locator('.hb-modal')
+    const dialog = page.locator('.hb-sheet')
     await dialog.getByPlaceholder('Optionale Notiz …').fill('Belege sammeln')
     // planning still needs an assignee or due date — pick one so the save is allowed
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
-    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the saved description renders in the row meta
     await expect(page.locator('.hb-row', { hasText: 'Steuer machen' })).toContainText('Belege sammeln')
   })
@@ -438,14 +438,14 @@ test.describe('Inbox', () => {
     await page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' }).click()
     await page.locator('.hb-row', { hasText: 'Versicherung kündigen' }).getByRole('button', { name: 'Planen' }).click()
 
-    const dialog = page.locator('.hb-modal')
-    // inbox todos get an extra list picker in the plan modal
+    const dialog = page.locator('.hb-sheet')
+    // inbox todos get an extra list picker in the plan sheet
     await dialog.getByLabel('Liste').selectOption({ label: 'Haushalt' })
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
     // gone from the inbox …
-    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
     await expect(page.getByText('Versicherung kündigen')).toHaveCount(0)
     await expect(page.getByText('Inbox ist leer')).toBeVisible()
 
@@ -514,7 +514,7 @@ test.describe('Inbox', () => {
 
     // planning it (no list picker — it already has one) releases it from the inbox …
     await listRow.getByRole('button', { name: 'Planen' }).click()
-    const dialog = page.locator('.hb-modal')
+    const dialog = page.locator('.hb-sheet')
     await expect(dialog.getByLabel('Liste')).toHaveCount(0)
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()

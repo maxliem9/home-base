@@ -21,6 +21,7 @@ import {
   PRIO,
   PriorityDot,
   Select,
+  Sheet,
   TextInput,
 } from '../ui/primitives'
 import { dueLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
@@ -868,7 +869,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         </>
       )}
 
-      <Modal
+      <Sheet
         open={!!plan}
         onClose={() => setPlan(null)}
         title={t('todos.planTitle')}
@@ -953,7 +954,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             </Field>
           </>
         )}
-      </Modal>
+      </Sheet>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
 
