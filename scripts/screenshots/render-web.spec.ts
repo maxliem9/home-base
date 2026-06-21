@@ -68,7 +68,11 @@ test.describe('web screenshots', () => {
 
   test('web-aufgaben', async ({ page }) => {
     await boot(page)
-    await page.getByRole('button', { name: 'Aufgaben' }).click()
+    // Scope to the desktop sidebar: the mobile tabbar renders a second button
+    // whose short label is also exactly "Aufgaben" (Einkauf/Zeit differ from the
+    // sidebar's full labels, so only this nav collides). Both can be in the a11y
+    // tree before the responsive CSS settles → strict-mode violation in CI.
+    await page.locator('.hb-nav').getByRole('button', { name: 'Aufgaben' }).click()
     // Land on the "Haushalt" list tab — richest content (due-date groups,
     // priorities, assignees, subtasks).
     const haushalt = page.getByRole('tab', { name: 'Haushalt' })
