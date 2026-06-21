@@ -1068,7 +1068,7 @@ private fun QuickAddBar(
     var priority by remember { mutableStateOf<String?>(null) }
 
     // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
-    val hasDetails = !description.isBlank() || assignee != null || dueDate != null || priority != null
+    val hasDetails = description.isNotBlank() || assignee != null || dueDate != null || priority != null
 
     fun resetDetails() {
         description = ""
