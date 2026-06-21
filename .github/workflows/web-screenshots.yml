@@ -1,0 +1,89 @@
+name: Web Screenshots
+
+# Renders the README web screenshots from the *real* app (issue #300/#375) — the
+# same Playwright renderer humans run via scripts/screenshots/render-web.sh. It
+# needs neither a backend nor a DB: the e2e `MockApi` fakes the server, so it runs
+# fully headless on a plain runner.
+#
+# Two purposes:
+#  - DRIFT-CHECK: the renderer is its own smoke test. Each `test` in
+#    render-web.spec.ts drives one view and writes a PNG; if a selector/screen
+#    breaks after a UI refactor the render times out, Playwright exits non-zero and
+#    this job goes red — so a broken web view is caught here.
+#  - ARTIFACT: the freshly rendered PNGs are uploaded so the current screenshots
+#    are downloadable from the run (no commit needed).
+#
+# NOT done: a `git diff --exit-code` gate against the committed PNGs. The shots
+# render real fonts with anti-aliasing; font hinting/AA differs between the Linux
+# runner and the macOS machine the checked-in PNGs were rendered on, so a byte
+# diff would flake on every run. Drift is caught by the render failing, not by
+# pixel equality. The Android half of the pipeline needs an emulator and stays
+# out of CI (see scripts/screenshots/README.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'scripts/screenshots/**'
+      - '.github/workflows/web-screenshots.yml'
+
+# Least-privilege: this workflow only checks out, builds and renders — it never
+# writes to the repo. Artifact upload uses the Actions runtime token, not
+# GITHUB_TOKEN's contents scope.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: web-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render web screenshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # package-lock.json is committed → clean, reproducible install. The renderer
+      # config + spec live in scripts/screenshots/ but resolve @playwright/test and
+      # the e2e helpers from web/node_modules (render-web.sh sets NODE_PATH), so the
+      # deps must be installed here in web/.
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      # Install the Chromium browser *and* its OS libraries (--with-deps) the runner
+      # lacks; mirrors web-e2e.yml. The renderer also runs `npx playwright install
+      # chromium` internally, but that wouldn't pull the apt deps — so do it here.
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      # The renderer is the drift check: it builds web/, serves a production
+      # `vite preview` (the config forces a fresh server because CI is set), drives
+      # every view and writes docs/screenshots/*.png. A broken selector/screen makes
+      # Playwright exit non-zero → this job fails. Invoke the same wrapper humans use
+      # so CI and local stay in lockstep (it sets NODE_PATH and runs from web/).
+      - name: Render screenshots (drift check)
+        run: scripts/screenshots/render-web.sh
+
+      # Upload the rendered PNGs as a build artifact. `!cancelled()` so a partial
+      # render still uploads whatever rendered before the failing view — useful for
+      # seeing which screen broke.
+      - name: Upload rendered screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-screenshots
+          path: docs/screenshots/web-*.png
+          if-no-files-found: warn
+          retention-days: 7
