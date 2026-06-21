@@ -14,6 +14,7 @@ import com.homebase.db.ProjectsTable
 import com.homebase.db.RecipeImagesTable
 import com.homebase.db.RecipeStepsTable
 import com.homebase.db.RecipesTable
+import com.homebase.db.ShoppingItemStatsTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.ShoppingListsTable
 import com.homebase.db.ShoppingTemplateItemsTable
@@ -70,7 +71,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
             SchemaUtils.create(
                 AppSettingsTable, UserPrefsTable,
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
-                ShoppingTemplatesTable, ShoppingTemplateItemsTable,
+                ShoppingItemStatsTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
                 NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
