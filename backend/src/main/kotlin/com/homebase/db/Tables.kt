@@ -125,7 +125,24 @@ object ShoppingItemsTable : Table("shopping_items") {
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     val checkedAt = timestamp("checked_at").nullable()
+    // Resolved grocery category key + emoji icon (#389/#390), a denormalized cache of GroceryCatalog
+    // resolution; nullable for legacy rows. Overridable per item (PUT), remembered in the stats table.
+    val category = varchar("category", 40).nullable()
+    val icon = varchar("icon", 32).nullable()
     override val primaryKey = PrimaryKey(id)
+}
+
+// Per-name usage tally for the shopping autocomplete ("most used", #389/#390) plus remembered
+// category/icon corrections. Keyed by the normalized item name (GroceryCatalog.normalize) so it
+// outlives item deletion / clear-checked. Household-shared like the lists themselves.
+object ShoppingItemStatsTable : Table("shopping_item_stats") {
+    val normalizedName = varchar("normalized_name", 200)
+    val displayName = text("display_name")
+    val category = varchar("category", 40).nullable()
+    val icon = varchar("icon", 32).nullable()
+    val useCount = integer("use_count")
+    val lastUsedAt = timestamp("last_used_at")
+    override val primaryKey = PrimaryKey(normalizedName)
 }
 
 // Named "standard/template shopping lists" (#215): a saved, reusable list of item names the
