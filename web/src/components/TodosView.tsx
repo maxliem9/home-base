@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
@@ -1010,6 +1010,7 @@ function QuickAdd({
   onAdd: (title: string, extra: QuickAddExtra) => Promise<boolean>
 }) {
   const { t } = useTranslation()
+  const panelId = useId()
   const [title, setTitle] = useState('')
   const [open, setOpen] = useState(false)
   const [assignee, setAssignee] = useState('')
@@ -1070,6 +1071,7 @@ function QuickAdd({
           className={`hb-qa__toggle${open ? ' is-active' : ''}${hasDetails ? ' has-set' : ''}`}
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls={panelId}
           title={t('todos.quickAddDetails')}
         >
           <Icon name="calendar" size={15} stroke={2} />
@@ -1083,7 +1085,7 @@ function QuickAdd({
       </div>
 
       {open && (
-        <div className="hb-qa__panel">
+        <div className="hb-qa__panel" id={panelId}>
           <Field label={t('todos.description')}>
             <textarea
               className="hb-input"

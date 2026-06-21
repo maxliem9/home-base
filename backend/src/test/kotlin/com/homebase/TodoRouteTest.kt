@@ -126,6 +126,48 @@ class TodoRouteTest {
     }
 
     @Test
+    fun `POST todo with an assignee but no due date is created PLANNED`() = testApplication {
+        // exercises the left branch of the assignee-OR-dueDate status derivation on its own
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Anrufen","assignee":"bob"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+        assertEquals("bob", body["assignee"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT clearing the description sets it back to null`() = testApplication {
+        // description follows the #265 blank→null convention like the other optional fields:
+        // "" clears it, and encodeDefaults=false then omits it from the payload entirely.
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Notiz","description":"alt"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val updated = client.put("/api/v1/todos/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"description":""}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        assertEquals(null, body["description"])
+    }
+
+    @Test
     fun `POST todo with blank title returns 400`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

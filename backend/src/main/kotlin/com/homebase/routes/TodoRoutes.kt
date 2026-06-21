@@ -249,6 +249,7 @@ fun Route.todoRoutes() {
                 val nextStatus = req.status ?: existing[TodosTable.status]
                 // optional text fields follow the listId convention (#265): null = unchanged,
                 // "" = clear to null, else set. `if present, blank→null` captures all three.
+                val nextDescription = if (req.description != null) req.description.ifBlank { null } else existing[TodosTable.description]
                 val nextAssignee = if (req.assignee != null) req.assignee.ifBlank { null } else existing[TodosTable.assignee]
                 val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
                 val nextPriority = if (req.priority != null) req.priority.ifBlank { null } else existing[TodosTable.priority]
@@ -279,8 +280,8 @@ fun Route.todoRoutes() {
 
                 TodosTable.update({ TodosTable.id eq id }) {
                     req.title?.let { v -> it[title] = v }
-                    req.description?.let { v -> it[description] = v }
-                    // null = unchanged, "" = clear to null, else set (mirrors listId, #265)
+                    // null = unchanged, "" = clear to null, else set (mirrors assignee/listId, #265)
+                    req.description?.let { _ -> it[description] = nextDescription }
                     req.assignee?.let { _ -> it[assignee] = nextAssignee }
                     req.dueDate?.let { _ -> it[dueDate] = nextDueDate?.let { d -> LocalDate.parse(d) } }
                     req.priority?.let { _ -> it[priority] = nextPriority }
@@ -312,7 +313,7 @@ fun Route.todoRoutes() {
                     TodosTable.insert {
                         it[TodosTable.id] = newId
                         it[title] = req.title ?: existing[TodosTable.title]
-                        it[description] = req.description ?: existing[TodosTable.description]
+                        it[description] = nextDescription
                         it[status] = "PLANNED" // always has a dueDate, so PLANNED is valid
                         it[assignee] = nextAssignee
                         it[dueDate] = successorDue
