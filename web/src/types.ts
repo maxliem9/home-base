@@ -56,6 +56,19 @@ export interface ShoppingItem {
   createdBy: string
   createdAt: string
   checkedAt?: string
+  // Resolved grocery category key (e.g. "PRODUCE") + emoji icon (#389). Both omitted by the
+  // backend when null (encodeDefaults=false) and on legacy rows — treated as the OTHER bucket.
+  category?: string
+  icon?: string
+}
+
+// One autocomplete suggestion from GET /shopping/suggestions, ranked by how often the
+// household adds it (the catalog baseline has count 0). #389.
+export interface ShoppingSuggestion {
+  name: string
+  category: string
+  icon: string
+  count: number
 }
 
 // Named "standard/template shopping list" (#215): a saved set of item names the

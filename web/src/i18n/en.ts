@@ -319,6 +319,10 @@ export const en: Messages = {
     namePlaceholder: 'What is missing in "{name}"? …', // quick-add placeholder, {name} = active list
     inCart: 'In cart', // rendered as "In cart · {n}"
     clearChecked: 'Remove checked',
+    // Categories, emoji icons & "most used" autocomplete (#389)
+    suggestionsHint: 'Frequently bought',
+    moveCategory: 'Move to category',
+    moveFailed: 'Category could not be changed.',
     // Offline sync: checking an item off without a connection is remembered locally
     // and replayed automatically; until then the item carries the notSynced marker
     // (shopping without Wi-Fi).

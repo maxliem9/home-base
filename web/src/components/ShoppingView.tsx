@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { ShoppingItem, ShoppingList, ShoppingTemplate } from '../types'
+import { ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
+import { CATEGORIES, categoryMeta, groupByCategory, ItemIcon, DEFAULT_ITEM_ICON } from './shoppingCategories'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
@@ -66,6 +67,10 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const pendingRef = useRef(pending)
   pendingRef.current = pending
   const flushingRef = useRef(false)
+  // Autocomplete "most used" suggestions (#389), preloaded once and filtered client-side.
+  const [suggestions, setSuggestions] = useState<ShoppingSuggestion[]>([])
+  // Item id whose "In Kategorie verschieben" menu is open (one at a time).
+  const [menuFor, setMenuFor] = useState<string | null>(null)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchAll = useCallback(async () => {
@@ -108,6 +113,16 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
+
+  // Preload the most-used items once for the quick-add autocomplete; filtered client-side as the
+  // user types (#389). Non-fatal — an empty list just means no suggestions are shown.
+  const fetchSuggestions = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/shopping/suggestions`)
+    if (!result.ok || !result.res.ok) return
+    setSuggestions((await result.res.json()) as ShoppingSuggestion[])
+  }, [token])
+
+  useEffect(() => { void fetchSuggestions() }, [fetchSuggestions])
 
   const dequeue = useCallback((id: string) => {
     setPending((prev) => {
@@ -238,8 +253,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     }
   }, () => void flushPending()) // onOpen: a (re)connected socket means the server is reachable — drain the queue
 
-  const handleAdd = async () => {
-    const name = newName.trim()
+  const handleAdd = async (nameArg?: string) => {
+    const name = (nameArg ?? newName).trim()
     if (!name || !active) return
     // Clear the input *before* the await — the field is controlled, so leaving the old
     // text in it lets fast follow-up keystrokes append and the next Enter post the merged
@@ -275,6 +290,29 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // Put a failed add's text back so it isn't lost — but only if the user hasn't already
   // started typing the next item into the now-empty field (don't clobber their input).
   const restoreName = (name: string) => setNewName((cur) => (cur ? cur : name))
+
+  // Reassign an item's category via the "In Kategorie verschieben" menu (#389). Optimistic; the
+  // backend also remembers the choice for future adds of that name. On failure, refetch to resync.
+  const moveItem = async (item: ShoppingItem, category: string) => {
+    setMenuFor(null)
+    if (item.category === category) return
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, category } : i)))
+    const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category }),
+    })
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t('shopping.moveFailed')))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t('shopping.moveFailed')))
+    }
+  }
 
   // Toggle a check-off optimistically and queue it for delivery. The queue (not an
   // inline fetch) does the network work, so a tap in a dead zone is remembered and
@@ -418,6 +456,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // visible on screen (queued items on other lists still retry silently in the
   // background and surface their banner when that list is open).
   const pendingCount = listItems.filter((i) => pending[i.id]).length
+  // Open items bucketed into category sections in fixed shopping-route order (#389).
+  const groups = groupByCategory(open)
 
   return (
     <div className="hb-page">
@@ -456,18 +496,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.noLists')} hint={t('shopping.noListsHint')} action={<Button size="sm" icon="plus" onClick={() => setNewListOpen(true)}>{t('shopping.newList')}</Button>} /></Card>
       ) : (
         <>
-          <div className="hb-shop-add">
-            <div className="hb-quickadd" style={{ flex: 1 }}>
-              <Icon name="cart" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
-              <input
-                value={newName}
-                placeholder={t('shopping.namePlaceholder', { name: active.name })}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              />
-            </div>
-            <Button icon="plus" onClick={handleAdd} disabled={submitting || !newName.trim()}>{t('common.add')}</Button>
-          </div>
+          <ShoppingQuickAdd
+            value={newName}
+            onChange={setNewName}
+            onAdd={(name) => handleAdd(name)}
+            suggestions={suggestions}
+            placeholder={t('shopping.namePlaceholder', { name: active.name })}
+            submitting={submitting}
+          />
 
           {pendingCount > 0 && (
             <div className="hb-syncbar" role="status">
@@ -481,29 +517,46 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
           {open.length === 0 && checked.length === 0 ? (
             <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.emptyTitle')} hint={t('shopping.emptyHint')} /></Card>
+          ) : open.length === 0 ? (
+            <Card className="hb-card--pad"><div className="hb-muted" style={{ padding: '8px 4px', fontSize: 14 }}>{t('shopping.allChecked')}</div></Card>
           ) : (
-            <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-              <div className="hb-list">
-                {open.map((item) => (
-                  <div key={item.id} className="hb-row" style={{ padding: '11px 4px' }}>
-                    <Checkbox checked={false} onChange={() => toggleChecked(item)} />
-                    <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
-                    <div className="hb-row__right">
-                      {pending[item.id] && (
-                        <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
-                          <Icon name="repeat" size={13} stroke={2} />
-                        </span>
-                      )}
-                      <Avatar user={item.createdBy} size={22} />
-                      <div className="hb-row__actions">
-                        <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
-                      </div>
-                    </div>
+            <div className="hb-shop-grid">
+              {groups.map((group) => (
+                <Card key={group.category.key} className="hb-card--pad">
+                  <div className="hb-cardhead">
+                    <span className="hb-cathead">
+                      <span className="hb-cathead__emoji" aria-hidden="true">{group.category.emoji}</span>
+                      {group.category.label}
+                    </span>
+                    <span className="hb-catcount">{group.items.length}</span>
                   </div>
-                ))}
-                {open.length === 0 && <div className="hb-muted" style={{ padding: '14px 4px', fontSize: 14 }}>{t('shopping.allChecked')}</div>}
-              </div>
-            </Card>
+                  <div className="hb-list">
+                    {group.items.map((item) => (
+                      <div key={item.id} className="hb-row" style={{ padding: '11px 4px' }}>
+                        <Checkbox checked={false} onChange={() => toggleChecked(item)} />
+                        <ItemIcon item={item} />
+                        <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                        <div className="hb-row__right">
+                          {pending[item.id] && (
+                            <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
+                              <Icon name="repeat" size={13} stroke={2} />
+                            </span>
+                          )}
+                          <Avatar user={item.createdBy} size={22} />
+                          <div className="hb-row__actions">
+                            <IconButton icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
+                            <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
+                          </div>
+                          {menuFor === item.id && (
+                            <CategoryMenu current={item.category} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              ))}
+            </div>
           )}
 
           {checked.length > 0 && (
@@ -519,6 +572,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                   {checked.map((item) => (
                     <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
                       <Checkbox checked onChange={() => toggleChecked(item)} />
+                      <ItemIcon item={item} muted />
                       <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
                       {pending[item.id] && (
                         <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
@@ -594,6 +648,151 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
       {errorToast}
     </div>
+  )
+}
+
+// Quick-add pill with a "most used" autocomplete dropdown (#389). Suggestions are filtered
+// client-side from the preloaded list as the user types (prefix matches first, then substring),
+// ranked by purchase frequency. Enter / click / the Add button add the highlighted suggestion or
+// the raw typed text; the field is controlled by the parent so the #377 clear-on-submit holds.
+function ShoppingQuickAdd({
+  value, onChange, onAdd, suggestions, placeholder, submitting,
+}: {
+  value: string
+  onChange: (v: string) => void
+  onAdd: (name: string) => void
+  suggestions: ShoppingSuggestion[]
+  placeholder: string
+  submitting: boolean
+}) {
+  const { t } = useTranslation()
+  const [focused, setFocused] = useState(false)
+  const [acIndex, setAcIndex] = useState(0)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const q = value.trim().toLowerCase()
+  const matches = useMemo(() => {
+    if (!q) return []
+    const pre: ShoppingSuggestion[] = []
+    const sub: ShoppingSuggestion[] = []
+    for (const s of suggestions) {
+      const n = s.name.toLowerCase()
+      if (n.startsWith(q)) pre.push(s)
+      else if (n.includes(q)) sub.push(s)
+    }
+    return [...pre, ...sub].slice(0, 6)
+  }, [suggestions, q])
+  const maxCount = useMemo(() => suggestions.reduce((m, s) => Math.max(m, s.count), 1), [suggestions])
+  const open = focused && matches.length > 0
+
+  // reset the highlight whenever the query (and thus the match set) changes
+  useEffect(() => { setAcIndex(0) }, [q])
+
+  // close the dropdown on an outside click
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setFocused(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const submit = (name: string) => {
+    const n = name.trim()
+    if (!n) return
+    onAdd(n)
+    setAcIndex(0)
+  }
+
+  const highlight = (name: string) => {
+    const i = q ? name.toLowerCase().indexOf(q) : -1
+    if (i < 0) return name
+    return (
+      <>
+        {name.slice(0, i)}
+        <mark>{name.slice(i, i + q.length)}</mark>
+        {name.slice(i + q.length)}
+      </>
+    )
+  }
+
+  return (
+    <div className="hb-shop-add">
+      <div className="hb-addwrap" ref={wrapRef}>
+        <div className="hb-quickadd">
+          <Icon name="cart" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
+          <input
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            onChange={(e) => onChange(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onKeyDown={(e) => {
+              if (open && e.key === 'ArrowDown') { e.preventDefault(); setAcIndex((i) => Math.min(i + 1, matches.length - 1)) }
+              else if (open && e.key === 'ArrowUp') { e.preventDefault(); setAcIndex((i) => Math.max(i - 1, 0)) }
+              else if (e.key === 'Enter') { e.preventDefault(); submit(open && matches[acIndex] ? matches[acIndex].name : value) }
+              else if (e.key === 'Escape') setFocused(false)
+            }}
+          />
+        </div>
+        {open && (
+          <div className="hb-ac" role="listbox">
+            <div className="hb-ac__hint">
+              <Icon name="sparkle" size={13} stroke={2} style={{ color: 'var(--accent)' }} />
+              {t('shopping.suggestionsHint')}
+            </div>
+            {matches.map((s, i) => (
+              <div
+                key={s.name}
+                role="option"
+                aria-selected={i === acIndex}
+                className={`hb-ac__item${i === acIndex ? ' is-active' : ''}`}
+                onMouseEnter={() => setAcIndex(i)}
+                onMouseDown={(e) => { e.preventDefault(); submit(s.name) }}
+              >
+                <span className="hb-ac__emoji" aria-hidden="true">{s.icon || DEFAULT_ITEM_ICON}</span>
+                <span className="hb-ac__name">{highlight(s.name)}</span>
+                <span className="hb-ac__cat">{categoryMeta(s.category).label}</span>
+                <span className="hb-ac__count">
+                  <span className="hb-ac__bar"><i style={{ width: `${Math.round((s.count / maxCount) * 100)}%` }} /></span>
+                  {s.count}×
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <Button icon="plus" onClick={() => submit(value)} disabled={submitting || !value.trim()}>{t('common.add')}</Button>
+    </div>
+  )
+}
+
+// "In Kategorie verschieben" popover anchored to a row. An invisible full-screen backdrop captures
+// the outside click to close (so re-clicking the trigger can't immediately reopen it).
+function CategoryMenu({ current, onPick, onClose }: { current?: string; onPick: (key: string) => void; onClose: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <div className="hb-menu-backdrop" onClick={onClose} />
+      <div className="hb-catmenu" role="menu">
+        <div className="hb-catmenu__title">{t('shopping.moveCategory')}</div>
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            role="menuitemradio"
+            aria-checked={c.key === current}
+            className={`hb-catmenu__item${c.key === current ? ' is-current' : ''}`}
+            onClick={() => onPick(c.key)}
+          >
+            <span className="em" aria-hidden="true">{c.emoji}</span>
+            <span className="hb-catmenu__label">{c.label}</span>
+            {c.key === current && <span className="ck"><Icon name="check" size={15} stroke={2.6} /></span>}
+          </button>
+        ))}
+      </div>
+    </>
   )
 }
 
