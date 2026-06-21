@@ -207,6 +207,10 @@ export const de = {
     dueDate: 'Fällig am',
     priority: 'Priorität',
     priorityNone: '—',
+    // Quick-add „Details"-Panel: Felder direkt beim Erfassen setzen
+    description: 'Beschreibung',
+    descriptionPlaceholder: 'Optionale Notiz …',
+    quickAddDetails: 'Details',
     // Recurrence
     recurrence: 'Wiederholung',
     recurrenceNone: 'Keine',

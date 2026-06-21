@@ -18,6 +18,7 @@ import {
   IconButton,
   Modal,
   PageHead,
+  PRIO,
   PriorityDot,
   Select,
   TextInput,
@@ -106,12 +107,22 @@ const buildBuckets = (t: TFunction): { key: string; label: string }[] => [
 
 interface PlanDraft {
   id: string
+  description: string
   assignee: string
   dueDate: string
   priority: '' | TodoPriority
   listId: string // target list for an inbox todo; '' = stays without a list (#69)
   recurrenceFreq: '' | RecurrenceFreq // '' = no recurrence
   recurrenceInterval: number
+}
+
+// Optional planning fields the quick-add "Details" panel can carry on create. Each is omitted from
+// the POST when empty; an assignee or dueDate makes the backend create the todo as PLANNED.
+interface QuickAddExtra {
+  assignee?: string
+  dueDate?: string
+  priority?: TodoPriority
+  description?: string
 }
 
 // short label for the recurrence badge on a todo row, e.g. "wöchentl." or "alle 2 Wochen"
@@ -144,7 +155,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // post-lists-load effect picks the default. A restored real-list UUID is
   // validated there once the lists arrive (stale id → default).
   const [activeId, setActiveId] = useState<string | null>(initialFocus ? FOCUS_TO_ID[initialFocus] : loadActiveTab())
-  const [newTitle, setNewTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -324,49 +334,52 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     return false
   }
 
-  const handleAdd = async () => {
-    const title = newTitle.trim()
-    if (!title || (!active && !inboxActive)) return
-    // Clear the input *before* the await — the field is controlled, so leaving the old
-    // text in it lets fast follow-up keystrokes append and the next Enter post the merged
-    // value (#384, sibling of #377). Each add captures its own `title`, so a quick second
-    // Enter starts an independent POST instead of re-posting the first; restore below only
-    // on a genuine failure (and only if the field is still untouched).
-    setNewTitle('')
+  // Create a todo from the quick-add bar. `extra` carries the optional planning fields set in the
+  // expandable Details panel; the backend promotes the todo to PLANNED when an assignee or due date
+  // is present, else it stays INBOX. Returns true on success so QuickAdd can reset its
+  // fields; the title-clear/restore for the #384 fast-capture race lives in QuickAdd.submit().
+  const addTodo = async (title: string, extra: QuickAddExtra): Promise<boolean> => {
+    if (!active && !inboxActive) return false
     setSubmitting(true)
     try {
       const result = await safeFetch(token, `${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // In the Inbox tab the POST carries no listId at all — the backend
-        // then creates a plain INBOX todo (same contract as the Dashboard
-        // quick-add and the Android FAB).
-        body: JSON.stringify({ title, ...(active ? { listId: active.id } : {}) }),
+        // In the Inbox tab the POST carries no listId at all — the backend then creates a plain
+        // INBOX todo (same contract as the Dashboard quick-add and the Android FAB). A list tab
+        // files it into that list. Planning fields are only sent when set.
+        body: JSON.stringify({
+          title,
+          ...(active ? { listId: active.id } : {}),
+          ...(extra.assignee ? { assignee: extra.assignee } : {}),
+          ...(extra.dueDate ? { dueDate: extra.dueDate } : {}),
+          ...(extra.priority ? { priority: extra.priority } : {}),
+          ...(extra.description ? { description: extra.description } : {}),
+        }),
       })
       if (!result.ok) {
-        restoreTitle(title)
-        return flashError(errorText(null, t('todos.addFailed')))
+        flashError(errorText(null, t('todos.addFailed')))
+        return false
       }
       const { res } = result
-      if (res.status === 401) return onLogout()
+      if (res.status === 401) {
+        onLogout()
+        return false
+      }
       if (res.ok) {
         const created: Todo = await res.json()
         // Dedupe against the WS echo: when TODO_CREATED lands before this REST
         // response is applied, the todo is already in the list and would show
         // twice until the next reload (#61).
         setTodos((prev) => (prev.some((x) => x.id === created.id) ? prev : [created, ...prev]))
-      } else {
-        restoreTitle(title)
-        flashError(errorText(await errorCode(res), t('todos.addFailed')))
+        return true
       }
+      flashError(errorText(await errorCode(res), t('todos.addFailed')))
+      return false
     } finally {
       setSubmitting(false)
     }
   }
-
-  // Put a failed add's text back so it isn't lost — but only if the user hasn't already
-  // started typing the next todo into the now-empty field (don't clobber their input).
-  const restoreTitle = (title: string) => setNewTitle((cur) => (cur ? cur : title))
 
   const toggleDone = (todo: Todo) => {
     if (todo.status === 'DONE') {
@@ -383,6 +396,8 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     if (plan.recurrenceFreq && !plan.dueDate) return
     const ok = await patchTodo(plan.id, {
       status: 'PLANNED',
+      // sent every save (null = unchanged on the backend); a blank value clears it back to empty
+      description: plan.description.trim(),
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
@@ -676,7 +691,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
       onToggleDone={() => toggleDone(todo)}
       onToggleExpand={() => toggleExpand(todo.id)}
-      onPlan={() => setPlan({ id: todo.id, assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onPlan={() => setPlan({ id: todo.id, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
       onDelete={() => deleteTodo(todo.id)}
       onToggleSub={(s) => toggleSubtask(todo.id, s)}
       onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -743,18 +758,12 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       ) : !active && !crossList ? null : ( // the effect above always selects a tab right after loading
         <>
           {showQuickAdd && (
-            <div className="hb-quickadd" style={{ marginBottom: 24 }}>
-              <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
-              <input
-                value={newTitle}
-                placeholder={active ? `${t('todos.quickAddPlaceholder').replace(' …', '')} in „${active.name}" …` : t('inbox.quickAddPlaceholder')}
-                onChange={(e) => setNewTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              />
-              <Button size="sm" icon="plus" onClick={handleAdd} disabled={submitting || !newTitle.trim()}>
-                {t('todos.addTask')}
-              </Button>
-            </div>
+            <QuickAdd
+              placeholder={active ? `${t('todos.quickAddPlaceholder').replace(' …', '')} in „${active.name}" …` : t('inbox.quickAddPlaceholder')}
+              users={householdUsers}
+              submitting={submitting}
+              onAdd={addTodo}
+            />
           )}
 
           {doneActive ? (
@@ -888,6 +897,16 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 </Select>
               </Field>
             )}
+            <Field label={t('todos.description')}>
+              <textarea
+                className="hb-input"
+                rows={2}
+                value={plan.description}
+                placeholder={t('todos.descriptionPlaceholder')}
+                onChange={(e) => setPlan({ ...plan, description: e.target.value })}
+                style={{ resize: 'vertical', lineHeight: 1.5 }}
+              />
+            </Field>
             <Field label={t('todos.assignee')}>
               <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>
@@ -970,6 +989,136 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       </Modal>
 
       {errorToast}
+    </div>
+  )
+}
+
+// Quick-add bar with an opt-in "Details" panel (design handoff). The title input is
+// always visible for fast title-only capture (Enter or "Erfassen" → INBOX). Expanding Details lets
+// the user set assignee/due/priority/description inline before capturing, so the todo is created
+// already PLANNED. An accent dot on the toggle signals that hidden fields are set even when the panel
+// is collapsed; everything resets after a successful capture.
+function QuickAdd({
+  placeholder,
+  users,
+  submitting,
+  onAdd,
+}: {
+  placeholder: string
+  users: string[]
+  submitting: boolean
+  onAdd: (title: string, extra: QuickAddExtra) => Promise<boolean>
+}) {
+  const { t } = useTranslation()
+  const [title, setTitle] = useState('')
+  const [open, setOpen] = useState(false)
+  const [assignee, setAssignee] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [priority, setPriority] = useState<'' | TodoPriority>('')
+  const [description, setDescription] = useState('')
+
+  // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
+  const hasDetails = !!(assignee || dueDate || priority || description.trim())
+
+  const resetDetails = () => {
+    setAssignee('')
+    setDueDate('')
+    setPriority('')
+    setDescription('')
+    setOpen(false)
+  }
+
+  const submit = async () => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    // Clear the title synchronously, BEFORE the await — the field is controlled, so leaving the old
+    // text in lets fast follow-up keystrokes append and the next Enter post the merged value (#384).
+    // Deliberately not gated on `submitting`: an in-flight first POST must not block a quick second
+    // capture. Each submit captures its own `title`, so the two POSTs stay independent.
+    setTitle('')
+    const ok = await onAdd(trimmed, {
+      assignee: assignee || undefined,
+      dueDate: dueDate || undefined,
+      priority: priority || undefined,
+      description: description.trim() || undefined,
+    })
+    // success: clear the panel fields too; failure: restore the title only if still untouched.
+    if (ok) resetDetails()
+    else setTitle((cur) => (cur ? cur : trimmed))
+  }
+
+  return (
+    <div
+      className={`hb-qa${open ? ' is-open' : ''}`}
+      style={{ marginBottom: 24 }}
+      // Escape closes the Details panel without clearing the title (handoff spec). On the outer
+      // container so it also fires from the description textarea / chips, not just the title input.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) setOpen(false)
+      }}
+    >
+      <div className="hb-quickadd">
+        <Icon name="plus" size={19} stroke={2} style={{ color: 'var(--ink-3)' }} />
+        <input
+          value={title}
+          placeholder={placeholder}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        <button
+          type="button"
+          className={`hb-qa__toggle${open ? ' is-active' : ''}${hasDetails ? ' has-set' : ''}`}
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          title={t('todos.quickAddDetails')}
+        >
+          <Icon name="calendar" size={15} stroke={2} />
+          {t('todos.quickAddDetails')}
+          {hasDetails && <span className="hb-qa__dot" />}
+          <Icon name="chevronDown" size={13} stroke={2.4} className="hb-qa__chev" />
+        </button>
+        <Button size="sm" icon="plus" onClick={submit} disabled={submitting || !title.trim()}>
+          {t('todos.addTask')}
+        </Button>
+      </div>
+
+      {open && (
+        <div className="hb-qa__panel">
+          <Field label={t('todos.description')}>
+            <textarea
+              className="hb-input"
+              rows={2}
+              value={description}
+              placeholder={t('todos.descriptionPlaceholder')}
+              onChange={(e) => setDescription(e.target.value)}
+              style={{ resize: 'vertical', lineHeight: 1.5 }}
+            />
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label={t('todos.assignee')}>
+              <AssigneePicker value={assignee} users={users} onChange={setAssignee} />
+            </Field>
+            <Field label={t('todos.dueDate')}>
+              <TextInput type="date" value={dueDate} onChange={setDueDate} />
+            </Field>
+          </div>
+          <Field label={t('todos.priority')}>
+            <div className="hb-pickrow">
+              {(Object.keys(PRIO) as TodoPriority[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={`hb-pick${priority === k ? ' is-active' : ''}`}
+                  onClick={() => setPriority(priority === k ? '' : k)}
+                >
+                  <span className="hb-prio__dot" style={{ background: `oklch(0.6 0.13 ${PRIO[k].hue})` }} />
+                  {PRIO[k].label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </div>
+      )}
     </div>
   )
 }

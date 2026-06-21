@@ -84,6 +84,45 @@ class TodoRouteTest {
         assertEquals("bob", body["assignee"]?.jsonPrimitive?.content)
         assertEquals("2026-06-15", body["dueDate"]?.jsonPrimitive?.content)
         assertEquals("HIGH", body["priority"]?.jsonPrimitive?.content)
+        // assignee/dueDate present on create ⇒ the todo is born PLANNED (quick-add "all-at-once" flow)
+        assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST todo with a due date but no assignee is created PLANNED`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Zahnarzt","dueDate":"2026-07-01"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+        assertEquals("2026-07-01", body["dueDate"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST todo with only a description or priority stays in the inbox`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        // description + priority alone can't satisfy PLANNED (needs assignee or dueDate) → INBOX,
+        // but the fields are still stored.
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Idee","description":"später ausarbeiten","priority":"LOW"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("INBOX", body["status"]?.jsonPrimitive?.content)
+        assertEquals("später ausarbeiten", body["description"]?.jsonPrimitive?.content)
+        assertEquals("LOW", body["priority"]?.jsonPrimitive?.content)
     }
 
     @Test

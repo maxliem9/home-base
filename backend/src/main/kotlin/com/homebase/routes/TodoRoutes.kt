@@ -165,9 +165,15 @@ fun Route.todoRoutes() {
         post {
             val username = call.username()
             val req = call.receive<CreateTodoRequest>()
+            // Capturing an assignee or due date plants the todo straight into PLANNED — the domain
+            // rule is that PLANNED needs at least one of them. A bare title (or only a
+            // description/priority, which alone can't satisfy PLANNED) stays in the INBOX. This lets
+            // the quick-add "all-at-once" flow create a planned todo in a single POST instead of a
+            // POST-then-PUT dance.
+            val status = if (!req.assignee.isNullOrBlank() || !req.dueDate.isNullOrBlank()) "PLANNED" else "INBOX"
             val validationError = validateTodoInput(
                 title = req.title,
-                status = "INBOX",
+                status = status,
                 assignee = req.assignee,
                 dueDate = req.dueDate,
                 priority = req.priority,
@@ -196,7 +202,7 @@ fun Route.todoRoutes() {
                     it[TodosTable.id] = id
                     it[title] = req.title
                     it[description] = req.description
-                    it[status] = "INBOX"
+                    it[TodosTable.status] = status
                     it[assignee] = req.assignee
                     it[dueDate] = req.dueDate?.let { d -> LocalDate.parse(d) }
                     it[priority] = req.priority
@@ -628,15 +634,17 @@ private fun validateTodoInput(
     if (priority != null && priority !in VALID_TODO_PRIORITIES) {
         return ErrorResponse("INVALID_PRIORITY", "priority must be LOW, MEDIUM or HIGH")
     }
-    if (status == "PLANNED" && assignee.isNullOrBlank() && dueDate.isNullOrBlank()) {
-        return ErrorResponse("INVALID_TODO", "PLANNED todos need an assignee or dueDate")
-    }
     if (dueDate != null) {
         runCatching { LocalDate.parse(dueDate) }.getOrElse {
             return ErrorResponse("INVALID_DUE_DATE", "dueDate must be in YYYY-MM-DD format")
         }
     }
     // recurrenceFreq/Interval are the *merged* (post-update) values; null means "no recurrence".
+    // Validated BEFORE the PLANNED rule below: a recurring todo missing its dueDate anchor should
+    // report the specific INVALID_RECURRENCE (its root cause), not the generic "needs assignee or
+    // dueDate". Both would reject, but the recurrence message is the precise one — and this ordering
+    // matters now that an assignee/dueDate on create makes a todo PLANNED (so a recurring todo is
+    // born PLANNED and would otherwise trip the PLANNED check first when its anchor is cleared).
     if (recurrenceFreq != null) {
         if (recurrenceFreq !in Recurrence.FREQUENCIES) {
             return ErrorResponse("INVALID_RECURRENCE", "recurrence.freq must be DAILY, WEEKLY or MONTHLY")
@@ -647,6 +655,9 @@ private fun validateTodoInput(
         if (dueDate.isNullOrBlank()) {
             return ErrorResponse("INVALID_RECURRENCE", "a recurring todo needs a dueDate as its schedule anchor")
         }
+    }
+    if (status == "PLANNED" && assignee.isNullOrBlank() && dueDate.isNullOrBlank()) {
+        return ErrorResponse("INVALID_TODO", "PLANNED todos need an assignee or dueDate")
     }
     return null
 }
