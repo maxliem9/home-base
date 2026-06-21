@@ -688,12 +688,19 @@ export class MockApi {
       return this.json(route, this.todos)
     }
     if (path.endsWith('/todos') && method === 'POST') {
-      const { title, listId } = JSON.parse(req.postData() ?? '{}')
+      const { title, listId, assignee, dueDate, priority, description } = JSON.parse(req.postData() ?? '{}')
+      // Mirror TodoRoutes.kt: an assignee or due date on create makes the todo PLANNED (the
+      // quick-add "all-at-once" flow); a bare title — or only description/priority — stays INBOX.
+      const status = assignee || dueDate ? 'PLANNED' : 'INBOX'
       const todo: Todo = {
         id: `todo-${this.nextId++}`,
         title,
-        status: 'INBOX',
+        status,
         listId: listId || undefined,
+        assignee: assignee || undefined,
+        dueDate: dueDate || undefined,
+        priority: priority || undefined,
+        description: description || undefined,
         subtasks: [],
         createdBy: 'alice',
         createdAt: new Date().toISOString(),

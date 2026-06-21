@@ -210,6 +210,10 @@ export const en: Messages = {
     dueDate: 'Due on',
     priority: 'Priority',
     priorityNone: '—',
+    // Quick-add "Details" panel: set fields inline while capturing
+    description: 'Description',
+    descriptionPlaceholder: 'Optional note …',
+    quickAddDetails: 'Details',
     // Recurrence
     recurrence: 'Recurrence',
     recurrenceNone: 'None',

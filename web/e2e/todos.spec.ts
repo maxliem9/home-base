@@ -159,6 +159,22 @@ test.describe('Todos', () => {
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
   })
 
+  test('edits a todo description in the plan modal and shows it in the row', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-modal')
+    await dialog.getByPlaceholder('Optionale Notiz …').fill('Belege sammeln')
+    // planning still needs an assignee or due date — pick one so the save is allowed
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    // the saved description renders in the row meta
+    await expect(page.locator('.hb-row', { hasText: 'Steuer machen' })).toContainText('Belege sammeln')
+  })
+
   test('completes a todo so it appears under the Erledigt section', async ({ page }) => {
     const mock = new MockApi(
       [todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignee: 'alice', listId: 'l1' })],
@@ -188,6 +204,63 @@ test.describe('Todos', () => {
 
     await expect(page.getByText('Löschen')).toHaveCount(0)
     await expect(page.getByText('Behalten')).toBeVisible()
+  })
+})
+
+// Quick-add with an expandable "Details" panel (design handoff): one capture
+// control supports fast title-only INBOX capture AND all-at-once PLANNED capture.
+test.describe('Quick-add details', () => {
+  test('captures a planned todo with assignee and due date via the Details panel', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]), TOKEN, PINNED)
+
+    await page.getByPlaceholder('Neue Aufgabe in „Haushalt" …').fill('Auto anmelden')
+
+    // expand the panel and set an assignee + due date
+    const qa = page.locator('.hb-qa')
+    await qa.getByRole('button', { name: 'Details' }).click()
+    await expect(qa.locator('.hb-qa__panel')).toBeVisible()
+    await qa.locator('.hb-pick', { hasText: 'Max' }).click()
+    await qa.locator('input[type="date"]').fill('2026-06-15')
+    // a set field lights the accent dot on the toggle even while the panel is open
+    await expect(qa.locator('.hb-qa__dot')).toBeVisible()
+
+    const post = page.waitForRequest((r) => r.url().endsWith('/api/v1/todos') && r.method() === 'POST')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+    // the POST carries the planning fields (backend then creates it PLANNED)
+    const body = JSON.parse((await post).postData() ?? '{}')
+    expect(body).toMatchObject({ title: 'Auto anmelden', listId: 'l1', assignee: 'max', dueDate: '2026-06-15' })
+
+    // born PLANNED → the row shows the assignee avatar, not a "Planen" button
+    const row = page.locator('.hb-row', { hasText: 'Auto anmelden' })
+    await expect(row).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
+    // panel collapses + the dot clears after a successful capture
+    await expect(qa.locator('.hb-qa__panel')).toHaveCount(0)
+    await expect(qa.locator('.hb-qa__dot')).toHaveCount(0)
+  })
+
+  test('toggles a priority chip and closes the panel with Escape, keeping the title', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]))
+    const titleInput = page.getByPlaceholder('Neue Aufgabe in „Haushalt" …')
+    await titleInput.fill('Reifen wechseln')
+
+    const qa = page.locator('.hb-qa')
+    await qa.getByRole('button', { name: 'Details' }).click()
+    await expect(qa.locator('.hb-qa__panel')).toBeVisible()
+
+    // a priority chip toggles on, then off again on re-click (clears it)
+    const hoch = qa.locator('.hb-pick', { hasText: 'Hoch' })
+    await hoch.click()
+    await expect(hoch).toHaveClass(/is-active/)
+    await expect(qa.locator('.hb-qa__dot')).toBeVisible()
+    await hoch.click()
+    await expect(hoch).not.toHaveClass(/is-active/)
+    await expect(qa.locator('.hb-qa__dot')).toHaveCount(0)
+
+    // Escape closes the panel but must not clear the typed title
+    await titleInput.press('Escape')
+    await expect(qa.locator('.hb-qa__panel')).toHaveCount(0)
+    await expect(titleInput).toHaveValue('Reifen wechseln')
   })
 })
 
