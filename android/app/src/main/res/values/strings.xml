@@ -124,6 +124,8 @@
     <string name="todo_new_list_tab">Neue Liste</string>
     <string name="todo_quick_add_inbox">Neue Aufgabe in der Inbox …</string>
     <string name="todo_quick_add">Aufgabe hinzufügen …</string>
+    <!-- Quick-Add „Details"-Panel (#393): Beschreibung/Zuständig/Fällig/Priorität beim Erfassen -->
+    <string name="todo_quick_add_details">Details</string>
     <string name="todo_inbox_empty_title">Inbox ist leer</string>
     <string name="todo_inbox_empty_hint">Füge eine Aufgabe hinzu</string>
     <string name="todo_list_empty_title">Alles erledigt</string>

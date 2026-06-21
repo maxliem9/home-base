@@ -117,6 +117,8 @@
     <string name="todo_new_list_tab">New list</string>
     <string name="todo_quick_add_inbox">New task in the inbox …</string>
     <string name="todo_quick_add">Add task …</string>
+    <!-- Quick-add "Details" panel (#393): set description/assignee/due/priority while capturing -->
+    <string name="todo_quick_add_details">Details</string>
     <string name="todo_inbox_empty_title">Inbox is empty</string>
     <string name="todo_inbox_empty_hint">Add a task</string>
     <string name="todo_list_empty_title">All done</string>

@@ -371,6 +371,69 @@ class TodoViewModelTest {
         coVerify { repository.createTodo(CreateTodoRequest(title = "Neu", listId = "a")) }
     }
 
+    // --- Quick-Add „Details"-Panel (issue #393) ---
+
+    @Test
+    fun `addPlannedTodo sends the Details fields in one create and returns true`() = runTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        val created = todo(id = "2", title = "Steuer", status = "PLANNED", listId = "a", dueDate = "2026-07-01")
+        coEvery { repository.createTodo(any()) } returns Result.success(created)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // addPlannedTodo is suspend and sequential (no child coroutine), so awaiting it directly in
+        // the runTest body returns the success flag.
+        val ok = vm.addPlannedTodo("Steuer", description = "ELSTER", assignee = "alice", dueDate = "2026-07-01", priority = "HIGH")
+
+        assertTrue(ok)
+        // single create carrying all the Details fields + the active list; status is server-derived
+        coVerify {
+            repository.createTodo(
+                CreateTodoRequest(
+                    title = "Steuer",
+                    description = "ELSTER",
+                    assignee = "alice",
+                    dueDate = "2026-07-01",
+                    priority = "HIGH",
+                    listId = "a",
+                ),
+            )
+        }
+        assertEquals("Steuer", vm.uiState.value.todos[0].title)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `addPlannedTodo blank or empty Details collapse to a title-only inbox create`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "2", title = "Neu"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+        vm.selectList(INBOX_TAB_ID)
+
+        // blank description / empty strings must be dropped, not sent as "" → plain INBOX create
+        vm.addPlannedTodo("Neu", description = "   ", assignee = "", dueDate = "", priority = "")
+
+        coVerify { repository.createTodo(CreateTodoRequest(title = "Neu", listId = null)) }
+    }
+
+    @Test
+    fun `addPlannedTodo failure surfaces the global error and returns false`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Quick-add kaputt"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        val ok = vm.addPlannedTodo("Neu", assignee = "alice")
+
+        assertFalse(ok)
+        assertEquals("Quick-add kaputt", vm.uiState.value.error)
+    }
+
     // --- Planen aus der Inbox (issue #77) ---
 
     @Test
