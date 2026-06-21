@@ -307,6 +307,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-row--done .hb-row__title { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line); }
 .hb-row__actions { opacity: 0; transition: opacity 0.14s; display: flex; gap: 2px; }
 .hb-row:hover .hb-row__actions { opacity: 1; }
+/* Touch devices have no hover — keep the row actions (move/delete) reachable on a phone (#389),
+   and reveal them on keyboard focus too. */
+@media (hover: none) { .hb-row__actions { opacity: 1; } }
+.hb-row:focus-within .hb-row__actions { opacity: 1; }
 .hb-clickable { cursor: pointer; border-radius: var(--radius-sm); }
 .hb-clickable:hover { background: var(--surface-2); }
 
