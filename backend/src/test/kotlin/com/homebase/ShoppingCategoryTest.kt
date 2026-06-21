@@ -159,6 +159,17 @@ class ShoppingCategoryRouteTest {
     }
 
     @Test
+    fun `item whose name normalizes to blank is still created`() = testApplication {
+        // "+++" has no usable stats key; resolveForItem/recordUsages must skip it gracefully, not 500.
+        configureTestApplication()
+        val token = token()
+
+        val item = addItem(token, "+++")
+        assertEquals("+++", item["name"]?.jsonPrimitive?.content)
+        assertEquals("OTHER", item["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `batch add categorizes each created item`() = testApplication {
         configureTestApplication()
         val token = token()

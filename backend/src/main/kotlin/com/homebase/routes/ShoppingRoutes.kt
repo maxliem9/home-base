@@ -116,17 +116,20 @@ fun Route.shoppingRoutes() {
                     merged[e.normalized] = ShoppingSuggestionDto(e.name, e.category, e.icon, 0)
                 }
                 ShoppingItemStatsTable.selectAll().forEach { row ->
-                    val name = row[ShoppingItemStatsTable.displayName]
-                    val resolved = GroceryCatalog.resolve(name)
-                    merged[row[ShoppingItemStatsTable.normalizedName]] = ShoppingSuggestionDto(
-                        name = name,
-                        category = row[ShoppingItemStatsTable.category] ?: resolved.category,
-                        icon = row[ShoppingItemStatsTable.icon] ?: resolved.icon,
+                    val key = row[ShoppingItemStatsTable.normalizedName]
+                    val display = row[ShoppingItemStatsTable.displayName]
+                    val resolved = GroceryCatalog.resolve(display)
+                    val baseline = merged[key] // the catalog entry, if this is a known item
+                    merged[key] = ShoppingSuggestionDto(
+                        // prefer the catalog's canonical name so a lowercase add can't downgrade "Milch"
+                        name = baseline?.name ?: display,
+                        category = row[ShoppingItemStatsTable.category] ?: baseline?.category ?: resolved.category,
+                        icon = row[ShoppingItemStatsTable.icon] ?: baseline?.icon ?: resolved.icon,
                         count = row[ShoppingItemStatsTable.useCount],
                     )
                 }
                 merged.values.asSequence()
-                    .filter { s -> q == null || GroceryCatalog.normalize(s.name).let { it.startsWith(q) || it.contains(q) } }
+                    .filter { s -> q == null || GroceryCatalog.normalize(s.name).contains(q) }
                     .sortedWith(compareByDescending<ShoppingSuggestionDto> { it.count }.thenBy { it.name.lowercase() })
                     .take(limit)
                     .toList()
@@ -155,6 +158,7 @@ fun Route.shoppingRoutes() {
 
             val created = mutableListOf<ShoppingItemDto>()
             val updated = mutableListOf<ShoppingItemDto>()
+            val usedNames = mutableListOf<String>() // bare names to tally after the tx (best-effort)
             var skipped = 0
 
             val listExists = transaction {
@@ -184,7 +188,7 @@ fun Route.shoppingRoutes() {
                         val mergedName = formatLine(p.amount!! + amount!!, p.unit ?: unit, p.name)
                         ShoppingItemsTable.update({ ShoppingItemsTable.id eq target.id }) { it[ShoppingItemsTable.name] = mergedName }
                         target.name = mergedName
-                        resolveAndRecord(name) // count the re-add toward "most used"
+                        usedNames += name // count the re-add toward "most used"
                         updated += ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq target.id }.single().toDto()
                         continue
                     }
@@ -197,7 +201,7 @@ fun Route.shoppingRoutes() {
 
                     // 3. Otherwise add a new item.
                     val id = UUID.randomUUID()
-                    val (resolvedCategory, resolvedIcon) = resolveAndRecord(name)
+                    val (resolvedCategory, resolvedIcon) = resolveForItem(name)
                     ShoppingItemsTable.insert {
                         it[ShoppingItemsTable.id] = id
                         it[ShoppingItemsTable.name] = display
@@ -208,6 +212,7 @@ fun Route.shoppingRoutes() {
                         it[ShoppingItemsTable.category] = resolvedCategory
                         it[ShoppingItemsTable.icon] = resolvedIcon
                     }
+                    usedNames += name
                     working += WorkingItem(id, display)
                     created += ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
                 }
@@ -219,6 +224,7 @@ fun Route.shoppingRoutes() {
                 return@post
             }
 
+            recordUsages(usedNames) // best-effort tally in a separate tx (never rolls back the batch)
             created.forEach { broadcastItem("SHOPPING_CREATED", it) }
             updated.forEach { broadcastItem("SHOPPING_UPDATED", it) }
             call.respond(
@@ -256,7 +262,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveAndRecord(req.name)
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name)
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -274,6 +280,7 @@ fun Route.shoppingRoutes() {
                 call.respond(HttpStatusCode.BadRequest, item)
                 return@post
             }
+            recordUsages(listOf(req.name)) // best-effort tally in a separate tx (never rolls back the item)
             broadcastItem("SHOPPING_CREATED", item as ShoppingItemDto)
             call.respond(HttpStatusCode.Created, item)
         }
@@ -300,7 +307,7 @@ fun Route.shoppingRoutes() {
             }
 
             val item = transaction {
-                val existingRow = ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
+                ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
                     ?: return@transaction null
                 if (targetListId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq targetListId }.empty()) {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
@@ -316,10 +323,6 @@ fun Route.shoppingRoutes() {
                     newCategory?.let { v -> it[category] = v }
                     newIcon?.let { v -> it[icon] = v }
                 }
-                // Remember the correction so future adds of this name pick it up.
-                if (newCategory != null || newIcon != null) {
-                    rememberStatsPreference(req.name ?: existingRow[ShoppingItemsTable.name], newCategory, newIcon)
-                }
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
             }
 
@@ -332,6 +335,10 @@ fun Route.shoppingRoutes() {
                 return@put
             }
 
+            // Remember the correction (best-effort, separate tx) so future adds of this name pick it up.
+            if (newCategory != null || newIcon != null) {
+                rememberStatsPreference((item as ShoppingItemDto).name, newCategory, newIcon)
+            }
             broadcastItem("SHOPPING_UPDATED", item as ShoppingItemDto)
             call.respond(item)
         }
@@ -387,66 +394,89 @@ private fun ResultRow.toDto() = ShoppingItemDto(
 )
 
 // ---- Categorization + usage stats (#389/#390) --------------------------------------------------
+//
+// Stats writes are intentionally split from the item write: resolveForItem() only READS (safe inside
+// the item transaction), while recordUsages()/rememberStatsPreference() WRITE in their own, best-effort
+// transactions. Under the prod REPEATABLE_READ isolation a concurrent stats write could raise a
+// serialization/duplicate-key error; keeping it in a separate try/catch'd tx ensures that can never
+// roll back the user's actual item create/update. Mirrors the update-then-insert idiom of upsertPref().
 
 /**
- * Resolve an item's category + icon and record one "use" in shopping_item_stats. Must run inside a
- * transaction. A remembered household override (stats row) wins over the catalog, which falls back
- * to OTHER + cart. A fresh stats row is seeded with the resolved values; an existing row's count is
- * bumped, last_used stamped, and any missing category/icon backfilled. Returns (category, icon) to
- * store on the item row.
+ * The category + icon to show on a freshly added item: a remembered household override (stats row)
+ * wins over the catalog, which falls back to OTHER + cart. Read-only — safe inside any transaction.
  */
-private fun resolveAndRecord(rawName: String): Pair<String, String> {
+private fun resolveForItem(rawName: String): Pair<String, String> {
     val resolved = GroceryCatalog.resolve(rawName)
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return resolved.category to resolved.icon
     val existing = ShoppingItemStatsTable.selectAll()
         .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
-    val effectiveCategory = existing?.get(ShoppingItemStatsTable.category) ?: resolved.category
-    val effectiveIcon = existing?.get(ShoppingItemStatsTable.icon) ?: resolved.icon
-    if (existing == null) {
-        ShoppingItemStatsTable.insert {
-            it[normalizedName] = key
-            it[displayName] = rawName.trim()
-            it[category] = effectiveCategory
-            it[icon] = effectiveIcon
-            it[useCount] = 1
-            it[lastUsedAt] = Instant.now()
-        }
-    } else {
-        ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
-            it[useCount] = existing[ShoppingItemStatsTable.useCount] + 1
-            it[lastUsedAt] = Instant.now()
-            it[displayName] = rawName.trim()
-            if (existing[ShoppingItemStatsTable.category] == null) it[category] = effectiveCategory
-            if (existing[ShoppingItemStatsTable.icon] == null) it[icon] = effectiveIcon
-        }
-    }
-    return effectiveCategory to effectiveIcon
+    return (existing?.get(ShoppingItemStatsTable.category) ?: resolved.category) to
+        (existing?.get(ShoppingItemStatsTable.icon) ?: resolved.icon)
 }
 
 /**
- * Remember a manual category/icon override for [rawName] in shopping_item_stats without counting a
- * use, so future adds of that name pick it up. Must run inside a transaction.
+ * Bump the autocomplete usage tally for each added name. Own transaction, failures swallowed (the
+ * tally is non-critical and must never roll back the caller's item write). New row seeded from the
+ * catalog; existing row incremented. Call AFTER the item transaction has committed.
+ */
+private fun recordUsages(rawNames: List<String>) {
+    val entries = rawNames.mapNotNull { raw ->
+        val key = GroceryCatalog.normalize(raw)
+        if (key.isBlank()) null else key to raw.trim()
+    }
+    if (entries.isEmpty()) return
+    runCatching {
+        transaction {
+            for ((key, display) in entries) {
+                val existing = ShoppingItemStatsTable.selectAll()
+                    .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
+                if (existing == null) {
+                    val resolved = GroceryCatalog.resolve(display)
+                    ShoppingItemStatsTable.insert {
+                        it[normalizedName] = key
+                        it[displayName] = display
+                        it[category] = resolved.category
+                        it[icon] = resolved.icon
+                        it[useCount] = 1
+                        it[lastUsedAt] = Instant.now()
+                    }
+                } else {
+                    ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
+                        it[useCount] = existing[ShoppingItemStatsTable.useCount] + 1
+                        it[lastUsedAt] = Instant.now()
+                        it[displayName] = display
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Remember a manual category/icon override for [rawName] so future adds of that name pick it up.
+ * Own transaction, failures swallowed (same rationale as [recordUsages]); does not count a use.
  */
 private fun rememberStatsPreference(rawName: String, categoryOverride: String?, iconOverride: String?) {
     if (categoryOverride == null && iconOverride == null) return
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return
-    val existing = ShoppingItemStatsTable.selectAll()
-        .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
-    if (existing == null) {
-        ShoppingItemStatsTable.insert {
-            it[normalizedName] = key
-            it[displayName] = rawName.trim()
-            it[category] = categoryOverride
-            it[icon] = iconOverride
-            it[useCount] = 0
-            it[lastUsedAt] = Instant.now()
-        }
-    } else {
-        ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
-            categoryOverride?.let { v -> it[category] = v }
-            iconOverride?.let { v -> it[icon] = v }
+    runCatching {
+        transaction {
+            val updated = ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
+                categoryOverride?.let { v -> it[category] = v }
+                iconOverride?.let { v -> it[icon] = v }
+            }
+            if (updated == 0) {
+                ShoppingItemStatsTable.insert {
+                    it[normalizedName] = key
+                    it[displayName] = rawName.trim()
+                    it[category] = categoryOverride
+                    it[icon] = iconOverride
+                    it[useCount] = 0
+                    it[lastUsedAt] = Instant.now()
+                }
+            }
         }
     }
 }
