@@ -124,7 +124,6 @@ fun AufgabenScreen(
         }
     }
 
-    var quickAddText by remember { mutableStateOf("") }
     var sheet by remember { mutableStateOf<AufgabenSheet?>(null) }
     var expandedTaskId by remember { mutableStateOf<String?>(null) }
     var doneCollapsed by remember { mutableStateOf(true) }
@@ -187,18 +186,16 @@ fun AufgabenScreen(
 
             Spacer(Modifier.size(18.dp))
 
-            // Quick-add bar. In the Inbox tab the todo is created without a listId (#77). The
-            // cross-list smart views are read/triage only, so they hide it (mirrors web).
+            // Quick-add bar with an opt-in "Details" panel (#393, mirrors the web QuickAdd). In the
+            // Inbox tab the todo is created without a listId (#77). The cross-list smart views are
+            // read/triage only, so they hide it (mirrors web).
             if (showQuickAdd) {
                 Box(Modifier.padding(horizontal = 18.dp)) {
-                    HbQuickAdd(
-                        value = quickAddText,
-                        onValueChange = { quickAddText = it },
+                    QuickAddBar(
                         placeholder = if (state.inboxActive) stringResource(R.string.todo_quick_add_inbox) else stringResource(R.string.todo_quick_add),
-                        leading = HbIcons.plus,
-                        onSubmit = {
-                            viewModel.addTodo(quickAddText)
-                            quickAddText = ""
+                        householdUsers = householdUsers,
+                        onAdd = { title, description, assignee, dueDate, priority ->
+                            viewModel.addPlannedTodo(title, description, assignee, dueDate, priority)
                         },
                     )
                 }
@@ -932,33 +929,7 @@ private fun EditSheet(
             }
         }
         HbField(stringResource(R.string.todo_field_assignee)) {
-            // A current assignee that isn't a household member (legacy free-text) stays
-            // shown so it remains selectable and isn't silently dropped on save.
-            val chipUsers = assignee
-                ?.takeIf { a -> householdUsers.none { it.equals(a, ignoreCase = true) } }
-                ?.let { householdUsers + it }
-                ?: householdUsers
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                chipUsers.forEach { user ->
-                    val active = assignee?.lowercase() == user.lowercase()
-                    // tapping the active chip clears the assignee, mirroring the web picker
-                    HbPick(active = active, onClick = { assignee = if (active) null else user }) {
-                        HbAvatar(user, size = 20.dp)
-                        Text(
-                            displayName(user),
-                            style = HbType.label.copy(fontSize = 13.5.sp),
-                            color = if (active) Hb.accentInk else Hb.ink2,
-                        )
-                    }
-                }
-                HbPick(active = assignee == null, onClick = { assignee = null }) {
-                    Text(
-                        stringResource(R.string.todo_assignee_nobody),
-                        style = HbType.label.copy(fontSize = 13.5.sp),
-                        color = if (assignee == null) Hb.accentInk else Hb.ink2,
-                    )
-                }
-            }
+            AssigneeChips(assignee = assignee, householdUsers = householdUsers, onChange = { assignee = it })
         }
         HbField(stringResource(R.string.todo_field_due)) {
             DueDateField(value = dueDate, onChange = { dueDate = it })
@@ -1029,6 +1000,163 @@ private fun PriorityPick(
             style = HbType.label.copy(fontSize = 13.5.sp),
             color = if (active) Hb.accentInk else Hb.ink2,
         )
+    }
+}
+
+/**
+ * Assignee picker chips shared by the edit sheet and the quick-add Details panel (#393): one
+ * avatar+name chip per household user plus a "Niemand" chip; tapping the active chip clears the
+ * assignee (mirrors the web AssigneePicker). A current assignee that isn't a household member
+ * (legacy free-text) stays shown so it remains selectable and isn't silently dropped.
+ */
+@Composable
+private fun AssigneeChips(assignee: String?, householdUsers: List<String>, onChange: (String?) -> Unit) {
+    val chipUsers = assignee
+        ?.takeIf { a -> householdUsers.none { it.equals(a, ignoreCase = true) } }
+        ?.let { householdUsers + it }
+        ?: householdUsers
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        chipUsers.forEach { user ->
+            val active = assignee?.lowercase() == user.lowercase()
+            // tapping the active chip clears the assignee, mirroring the web picker
+            HbPick(active = active, onClick = { onChange(if (active) null else user) }) {
+                HbAvatar(user, size = 20.dp)
+                Text(
+                    displayName(user),
+                    style = HbType.label.copy(fontSize = 13.5.sp),
+                    color = if (active) Hb.accentInk else Hb.ink2,
+                )
+            }
+        }
+        HbPick(active = assignee == null, onClick = { onChange(null) }) {
+            Text(
+                stringResource(R.string.todo_assignee_nobody),
+                style = HbType.label.copy(fontSize = 13.5.sp),
+                color = if (assignee == null) Hb.accentInk else Hb.ink2,
+            )
+        }
+    }
+}
+
+/**
+ * Quick-add bar with an opt-in "Details" panel (#393, mirrors the web `QuickAdd`). The title pill is
+ * always visible for fast title-only capture (submit → Inbox). The "Details" toggle reveals an
+ * inline panel to set Beschreibung/Zuständig/Fällig/Priorität before capturing, so the todo is
+ * created already PLANNED (the backend derives the status from assignee/dueDate). An accent dot on
+ * the toggle signals that fields are set even while the panel is collapsed; everything resets after
+ * a successful capture.
+ *
+ * [onAdd] suspends and returns whether the create succeeded (the VM owns the error toast). Like the
+ * web, the title is cleared synchronously before the await so a fast second capture starts its own
+ * POST instead of re-posting the first; on failure the title is restored if still untouched.
+ */
+@Composable
+private fun QuickAddBar(
+    placeholder: String,
+    householdUsers: List<String>,
+    onAdd: suspend (title: String, description: String?, assignee: String?, dueDate: String?, priority: String?) -> Boolean,
+) {
+    val scope = rememberCoroutineScope()
+    var title by remember { mutableStateOf("") }
+    var open by remember { mutableStateOf(false) }
+    var description by remember { mutableStateOf("") }
+    var assignee by remember { mutableStateOf<String?>(null) }
+    var dueDate by remember { mutableStateOf<LocalDate?>(null) }
+    var priority by remember { mutableStateOf<String?>(null) }
+
+    // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
+    val hasDetails = !description.isBlank() || assignee != null || dueDate != null || priority != null
+
+    fun resetDetails() {
+        description = ""
+        assignee = null
+        dueDate = null
+        priority = null
+        open = false
+    }
+
+    fun submit() {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return
+        // Clear the title synchronously, BEFORE the suspend — leaving the old text in lets fast
+        // follow-up keystrokes append and the next submit post the merged value (mirrors web #384).
+        // Each submit captures its own snapshot, so the two POSTs stay independent.
+        val desc = description
+        val asg = assignee
+        val due = dueDate?.toString()
+        val prio = priority
+        title = ""
+        scope.launch {
+            val ok = onAdd(trimmed, desc, asg, due, prio)
+            // success: clear the panel fields too; failure: restore the title only if still untouched.
+            if (ok) resetDetails() else if (title.isBlank()) title = trimmed
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HbQuickAdd(
+            value = title,
+            onValueChange = { title = it },
+            placeholder = placeholder,
+            leading = HbIcons.plus,
+            onSubmit = { submit() },
+        )
+        // "Details" toggle: reveals the optional planning fields. Accent dot when any is set.
+        Row(
+            Modifier
+                .clip(HbPill)
+                .clickable { open = !open }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            HbIcon(HbIcons.calendar, size = 14.dp, tint = if (open || hasDetails) Hb.accentInk else Hb.ink3)
+            Text(
+                stringResource(R.string.todo_quick_add_details),
+                style = HbType.label.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
+                color = if (open || hasDetails) Hb.accentInk else Hb.ink3,
+            )
+            if (hasDetails) Box(Modifier.size(6.dp).clip(HbPill).background(Hb.accent))
+            HbIcon(if (open) HbIcons.chevronUp else HbIcons.chevronDown, size = 13.dp, tint = if (open || hasDetails) Hb.accentInk else Hb.ink3)
+        }
+
+        if (open) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .background(Hb.surface, HbRadiusSm)
+                    .border(1.dp, Hb.line, HbRadiusSm)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                HbField(stringResource(R.string.common_field_description)) {
+                    HbTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        placeholder = stringResource(R.string.common_field_description),
+                        singleLine = false,
+                        minLines = 2,
+                    )
+                }
+                HbField(stringResource(R.string.todo_field_assignee)) {
+                    AssigneeChips(assignee = assignee, householdUsers = householdUsers, onChange = { assignee = it })
+                }
+                HbField(stringResource(R.string.todo_field_due)) {
+                    DueDateField(value = dueDate, onChange = { dueDate = it })
+                }
+                HbField(stringResource(R.string.todo_field_priority)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PriorityPick("LOW", stringResource(R.string.priority_low), Hb.prioLow, priority) { priority = it }
+                        PriorityPick("MEDIUM", stringResource(R.string.priority_medium), Hb.prioMedium, priority) { priority = it }
+                        PriorityPick("HIGH", stringResource(R.string.priority_high), Hb.prioHigh, priority) { priority = it }
+                    }
+                }
+            }
+        }
     }
 }
 

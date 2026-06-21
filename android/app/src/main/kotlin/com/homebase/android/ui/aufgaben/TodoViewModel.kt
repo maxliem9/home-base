@@ -308,11 +308,50 @@ class TodoViewModel(
      * **not** set the global `_uiState.error` — the edit sheet surfaces the returned message itself;
      * the fire-and-forget [addTodo] wrapper sets the global error for the quick-add bars so the
      * screen toast covers them without the sheet path double-notifying (#288).
+     *
+     * The optional planning fields ([description]/[assignee]/[dueDate]/[priority]) carry the
+     * quick-add "Details" panel (#393, mirrors the web QuickAdd). Each is only sent when set; the
+     * backend derives the status from them (assignee OR dueDate ⇒ PLANNED, else INBOX), so a plain
+     * title-only call still creates an INBOX todo.
      */
-    suspend fun createTodo(title: String): Result<TodoDto> {
+    suspend fun createTodo(
+        title: String,
+        description: String? = null,
+        assignee: String? = null,
+        dueDate: String? = null,
+        priority: String? = null,
+    ): Result<TodoDto> {
         val listId = _uiState.value.activeList?.id
-        return repository.createTodo(CreateTodoRequest(title = title.trim(), listId = listId))
-            .onSuccess { upsertTodo(it) }
+        return repository.createTodo(
+            CreateTodoRequest(
+                title = title.trim(),
+                description = description?.trim()?.ifBlank { null },
+                assignee = assignee?.ifBlank { null },
+                dueDate = dueDate?.ifBlank { null },
+                priority = priority?.ifBlank { null },
+                listId = listId,
+            ),
+        ).onSuccess { upsertTodo(it) }
+    }
+
+    /**
+     * Quick-add with the optional "Details" planning fields set (#393, mirrors the web
+     * `QuickAdd.submit`). Fire-and-forget like [addTodo] — it owns the global error so a failed
+     * capture surfaces via the screen toast — but suspends and returns whether the create succeeded
+     * so the quick-add UI can reset its fields/panel only on success (and keep the typed value on
+     * failure). A plain title-only capture still lands in the Inbox (no fields ⇒ backend INBOX).
+     */
+    suspend fun addPlannedTodo(
+        title: String,
+        description: String? = null,
+        assignee: String? = null,
+        dueDate: String? = null,
+        priority: String? = null,
+    ): Boolean {
+        if (title.isBlank()) return false
+        return createTodo(title, description, assignee, dueDate, priority)
+            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .isSuccess
     }
 
     /**
