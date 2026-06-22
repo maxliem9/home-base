@@ -88,6 +88,26 @@ export interface ShoppingTemplate {
   createdAt: string
 }
 
+// Editable grocery category catalog (#411): the category list (managed under Settings). `key` is the
+// stable id stored on items; `isBuiltin` flags the seeded set (builtins are editable + deletable too,
+// except OTHER). Served by GET /shopping/categories, mutated via POST/PUT/DELETE /shopping/categories.
+export interface ShoppingCategory {
+  key: string
+  label: string
+  emoji: string
+  sortOrder: number
+  isBuiltin: boolean
+}
+
+// Editable auto-resolve rule (#411): a written item name → category + emoji that new items auto-fill.
+// Keyed by the normalized name (server-derived). GET /shopping/category-rules, PUT (upsert), DELETE.
+export interface ShoppingCategoryRule {
+  normalizedName: string
+  displayName: string
+  category: string
+  icon: string
+}
+
 export interface Project {
   id: string
   name: string

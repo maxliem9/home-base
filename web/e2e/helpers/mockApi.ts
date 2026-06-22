@@ -6,6 +6,7 @@ import type { Page, Route } from '@playwright/test'
 // files can keep importing these names from this helper.
 import type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingSuggestion, ShoppingTemplate, ShoppingTemplateItem,
+  ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
@@ -15,6 +16,7 @@ import type {
 
 export type {
   Subtask, TodoList, Todo, ShoppingList, ShoppingItem, ShoppingSuggestion, ShoppingTemplate, ShoppingTemplateItem,
+  ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
   NoteVisibility, NoteImage, Note,
@@ -110,6 +112,26 @@ export class MockApi {
   private shoppingItems: ShoppingItem[]
   private shoppingTemplates: ShoppingTemplate[] = []
   private shoppingSuggestions: ShoppingSuggestion[] = []
+  // Editable grocery category catalog + auto-assignment rules (#411). Seeded with the 10 builtins
+  // (mirrors BUILTIN_CATEGORIES / GroceryCatalog) and a couple of rules so the settings page and the
+  // existing shopping spec (which now GETs /shopping/categories) have data without a seed* call.
+  private shoppingCategories: ShoppingCategory[] = [
+    { key: 'PRODUCE', label: 'Obst & Gemüse', emoji: '🥦', sortOrder: 0, isBuiltin: true },
+    { key: 'BAKERY', label: 'Backwaren', emoji: '🥐', sortOrder: 1, isBuiltin: true },
+    { key: 'DAIRY', label: 'Milchprodukte & Eier', emoji: '🧀', sortOrder: 2, isBuiltin: true },
+    { key: 'MEAT_FISH', label: 'Fleisch & Fisch', emoji: '🥩', sortOrder: 3, isBuiltin: true },
+    { key: 'FROZEN', label: 'Tiefkühl', emoji: '🧊', sortOrder: 4, isBuiltin: true },
+    { key: 'PANTRY', label: 'Vorrat', emoji: '🥫', sortOrder: 5, isBuiltin: true },
+    { key: 'SNACKS', label: 'Snacks & Süßes', emoji: '🍫', sortOrder: 6, isBuiltin: true },
+    { key: 'DRINKS', label: 'Getränke', emoji: '🥤', sortOrder: 7, isBuiltin: true },
+    { key: 'HOUSEHOLD', label: 'Haushalt & Hygiene', emoji: '🧽', sortOrder: 8, isBuiltin: true },
+    { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
+  ]
+  private shoppingCategoryRules: ShoppingCategoryRule[] = [
+    { normalizedName: 'milch', displayName: 'Milch', category: 'DAIRY', icon: '🥛' },
+    { normalizedName: 'pizza', displayName: 'Pizza', category: 'FROZEN', icon: '🍕' },
+  ]
+  private nextShopCategoryId = 100
   private recipes: Recipe[] = []
   private mealPlan: MealPlanEntry[] = []
   private notes: Note[] = []
@@ -172,6 +194,18 @@ export class MockApi {
   // Seed the "most used" autocomplete suggestions GET /shopping/suggestions serves (#389).
   seedShoppingSuggestions(suggestions: ShoppingSuggestion[]): this {
     this.shoppingSuggestions = suggestions.map((s) => ({ ...s }))
+    return this
+  }
+
+  // Override the seeded grocery category catalog GET /shopping/categories serves (#411).
+  seedShoppingCategories(categories: ShoppingCategory[]): this {
+    this.shoppingCategories = categories.map((c) => ({ ...c }))
+    return this
+  }
+
+  // Override the seeded auto-assignment rules GET /shopping/category-rules serves (#411).
+  seedShoppingCategoryRules(rules: ShoppingCategoryRule[]): this {
+    this.shoppingCategoryRules = rules.map((r) => ({ ...r }))
     return this
   }
 
@@ -902,6 +936,84 @@ export class MockApi {
     // which would otherwise treat "suggestions" as an item id. Returns the seeded list (default []).
     if (path.endsWith('/shopping/suggestions') && method === 'GET') {
       return this.json(route, this.shoppingSuggestions)
+    }
+
+    // ---- Shopping category-rules (#411) — matched BEFORE /shopping/categories AND the generic
+    // /shopping/{id} matcher. PUT upserts by normalized display name (category must be a live key);
+    // DELETE removes by display-or-normalized name. Both broadcast SHOPPING_CATEGORY_RULE_CHANGED.
+    if (path.endsWith('/shopping/category-rules') && method === 'GET') {
+      return this.json(route, [...this.shoppingCategoryRules].sort((a, b) => a.displayName.localeCompare(b.displayName)))
+    }
+    if (path.endsWith('/shopping/category-rules') && method === 'PUT') {
+      const b = JSON.parse(req.postData() ?? '{}') as { displayName?: string; category?: string; icon?: string }
+      const displayName = (b.displayName ?? '').trim()
+      if (!displayName) return this.json(route, { code: 'INVALID_RULE', message: 'blank name' }, 400)
+      if (!this.shoppingCategories.some((c) => c.key === b.category)) {
+        return this.json(route, { code: 'INVALID_CATEGORY', message: 'unknown category' }, 400)
+      }
+      const normalizedName = displayName.toLowerCase()
+      const existing = this.shoppingCategoryRules.find((r) => r.normalizedName === normalizedName)
+      const icon = b.icon != null && b.icon.trim() ? b.icon.trim() : existing?.icon ?? '🛒'
+      const rule: ShoppingCategoryRule = { normalizedName, displayName, category: b.category as string, icon }
+      if (existing) Object.assign(existing, rule)
+      else this.shoppingCategoryRules.push(rule)
+      return this.jsonWithFrames(route, rule, 200, 'shopping', [{ type: 'SHOPPING_CATEGORY_RULE_CHANGED', payload: rule }])
+    }
+    const ruleMatch = path.match(/\/shopping\/category-rules\/([^/]+)$/)
+    if (ruleMatch && method === 'DELETE') {
+      const name = decodeURIComponent(ruleMatch[1]).trim().toLowerCase()
+      const idx = this.shoppingCategoryRules.findIndex((r) => r.normalizedName === name)
+      if (idx !== -1) this.shoppingCategoryRules.splice(idx, 1)
+      return this.jsonWithFrames(route, '', 204, 'shopping', [{ type: 'SHOPPING_CATEGORY_RULE_CHANGED' }])
+    }
+
+    // ---- Shopping categories (#411) — matched BEFORE the generic /shopping/{id} item matcher.
+    // POST derives the key from the label (slug, uppercased); PUT patches label/emoji/sortOrder;
+    // DELETE protects OTHER (400 CATEGORY_PROTECTED) and reassigns its items to OTHER. Each mutation
+    // broadcasts SHOPPING_CATEGORY_CHANGED. GET returns the catalog sorted by sortOrder.
+    if (path.endsWith('/shopping/categories') && method === 'GET') {
+      return this.json(route, [...this.shoppingCategories].sort((a, b) => a.sortOrder - b.sortOrder))
+    }
+    if (path.endsWith('/shopping/categories') && method === 'POST') {
+      const b = JSON.parse(req.postData() ?? '{}') as { label?: string; emoji?: string; sortOrder?: number }
+      const label = (b.label ?? '').trim()
+      if (!label) return this.json(route, { code: 'INVALID_CATEGORY', message: 'blank label' }, 400)
+      const base = label.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `CAT_${this.nextShopCategoryId}`
+      let key = base
+      let n = 2
+      while (this.shoppingCategories.some((c) => c.key === key)) key = `${base}_${n++}`
+      const sortOrder = b.sortOrder ?? Math.max(-1, ...this.shoppingCategories.map((c) => c.sortOrder)) + 1
+      const cat: ShoppingCategory = { key, label, emoji: (b.emoji ?? '').trim() || '🛒', sortOrder, isBuiltin: false }
+      this.nextShopCategoryId++
+      this.shoppingCategories.push(cat)
+      return this.jsonWithFrames(route, cat, 201, 'shopping', [{ type: 'SHOPPING_CATEGORY_CHANGED', payload: cat }])
+    }
+    const catMatch = path.match(/\/shopping\/categories\/([^/]+)$/)
+    if (catMatch) {
+      const key = decodeURIComponent(catMatch[1])
+      const idx = this.shoppingCategories.findIndex((c) => c.key === key)
+      if (method === 'PUT') {
+        if (idx === -1) return this.json(route, { code: 'NOT_FOUND', message: 'not found' }, 404)
+        const b = JSON.parse(req.postData() ?? '{}') as { label?: string; emoji?: string; sortOrder?: number }
+        const cur = this.shoppingCategories[idx]
+        if (b.label != null && !b.label.trim()) return this.json(route, { code: 'INVALID_CATEGORY', message: 'blank label' }, 400)
+        this.shoppingCategories[idx] = {
+          ...cur,
+          label: b.label != null ? b.label.trim() : cur.label,
+          emoji: b.emoji != null ? (b.emoji.trim() || cur.emoji) : cur.emoji,
+          sortOrder: b.sortOrder != null ? b.sortOrder : cur.sortOrder,
+        }
+        return this.jsonWithFrames(route, this.shoppingCategories[idx], 200, 'shopping', [{ type: 'SHOPPING_CATEGORY_CHANGED', payload: this.shoppingCategories[idx] }])
+      }
+      if (method === 'DELETE') {
+        if (key === 'OTHER') return this.json(route, { code: 'CATEGORY_PROTECTED', message: 'OTHER is protected' }, 400)
+        if (idx !== -1) {
+          this.shoppingCategories.splice(idx, 1)
+          // Reassign items of the deleted category to OTHER (mirrors the backend).
+          for (const it of this.shoppingItems) if (it.category === key) it.category = 'OTHER'
+        }
+        return this.jsonWithFrames(route, '', 204, 'shopping', [{ type: 'SHOPPING_CATEGORY_CHANGED' }])
+      }
     }
 
     const shopItemMatch = path.match(/\/shopping\/([^/]+)$/)

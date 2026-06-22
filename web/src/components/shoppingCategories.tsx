@@ -1,36 +1,40 @@
-import { ShoppingItem } from '../types'
+import { ShoppingCategory, ShoppingItem } from '../types'
 
-// Presentation metadata for the grocery categories (#389). The backend's GroceryCatalog is the
-// source of truth for which item lands in which category; it stores the resolved category *key*
-// (e.g. "PRODUCE") on each item. This small, fixed mirror only maps that key → German header label
-// + emoji + shopping-route order, exactly like the recipe categories are known to the client. Keep
-// it in sync with GroceryCatalog.kt's `categories` list.
+// Presentation metadata for a grocery category: the header label + emoji + (route) order. The live,
+// editable catalog (#411) is fetched from GET /shopping/categories and threaded into the helpers
+// below as the `categories` argument; [BUILTIN_CATEGORIES] is the seed mirror used as the initial
+// state / offline fallback until that fetch returns. The backend stores the resolved category *key*
+// on each item; this only maps key → header presentation.
 export interface CategoryMeta {
   key: string
   label: string
   emoji: string
 }
 
-export const CATEGORIES: CategoryMeta[] = [
-  { key: 'PRODUCE', label: 'Obst & Gemüse', emoji: '🥦' },
-  { key: 'BAKERY', label: 'Backwaren', emoji: '🥐' },
-  { key: 'DAIRY', label: 'Milchprodukte & Eier', emoji: '🧀' },
-  { key: 'MEAT_FISH', label: 'Fleisch & Fisch', emoji: '🥩' },
-  { key: 'FROZEN', label: 'Tiefkühl', emoji: '🧊' },
-  { key: 'PANTRY', label: 'Vorrat', emoji: '🥫' },
-  { key: 'SNACKS', label: 'Snacks & Süßes', emoji: '🍫' },
-  { key: 'DRINKS', label: 'Getränke', emoji: '🥤' },
-  { key: 'HOUSEHOLD', label: 'Haushalt & Hygiene', emoji: '🧽' },
-  { key: 'OTHER', label: 'Sonstiges', emoji: '❓' },
+// Seed mirror of GroceryCatalog.categories — initial state / offline fallback only. Keep in sync with
+// GroceryCatalog.kt's `categories` (it seeds the same rows into shopping_categories on first startup).
+export const BUILTIN_CATEGORIES: ShoppingCategory[] = [
+  { key: 'PRODUCE', label: 'Obst & Gemüse', emoji: '🥦', sortOrder: 0, isBuiltin: true },
+  { key: 'BAKERY', label: 'Backwaren', emoji: '🥐', sortOrder: 1, isBuiltin: true },
+  { key: 'DAIRY', label: 'Milchprodukte & Eier', emoji: '🧀', sortOrder: 2, isBuiltin: true },
+  { key: 'MEAT_FISH', label: 'Fleisch & Fisch', emoji: '🥩', sortOrder: 3, isBuiltin: true },
+  { key: 'FROZEN', label: 'Tiefkühl', emoji: '🧊', sortOrder: 4, isBuiltin: true },
+  { key: 'PANTRY', label: 'Vorrat', emoji: '🥫', sortOrder: 5, isBuiltin: true },
+  { key: 'SNACKS', label: 'Snacks & Süßes', emoji: '🍫', sortOrder: 6, isBuiltin: true },
+  { key: 'DRINKS', label: 'Getränke', emoji: '🥤', sortOrder: 7, isBuiltin: true },
+  { key: 'HOUSEHOLD', label: 'Haushalt & Hygiene', emoji: '🧽', sortOrder: 8, isBuiltin: true },
+  { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
 ]
 
-const OTHER: CategoryMeta = CATEGORIES[CATEGORIES.length - 1]
-const BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]))
-const ORDER = new Map(CATEGORIES.map((c, i) => [c.key, i]))
+const FALLBACK_OTHER: CategoryMeta = { key: 'OTHER', label: 'Sonstiges', emoji: '❓' }
 
-/** Header label + emoji for a category key; unknown/missing → the OTHER bucket. */
-export function categoryMeta(key?: string): CategoryMeta {
-  return (key && BY_KEY.get(key)) || OTHER
+/** The OTHER/fallback bucket within a catalog (or a hardcoded default if the catalog lacks it). */
+const otherOf = (categories: CategoryMeta[]): CategoryMeta =>
+  categories.find((c) => c.key === 'OTHER') ?? FALLBACK_OTHER
+
+/** Header label + emoji for a category key against [categories]; unknown/missing → the OTHER bucket. */
+export function categoryMeta(key: string | undefined, categories: CategoryMeta[]): CategoryMeta {
+  return (key ? categories.find((c) => c.key === key) : undefined) ?? otherOf(categories)
 }
 
 /** Neutral fallback when an item carries no resolved emoji (legacy rows / unknown items). */
@@ -42,21 +46,24 @@ export interface CategoryGroup {
 }
 
 /**
- * Bucket items by their category key and return non-empty groups in fixed shopping-route order.
- * Items with no/unknown category fall into OTHER (rendered last). Within a group the input order is
- * preserved (callers pass newest-first).
+ * Bucket items by their category key against [categories] and return non-empty groups in catalog
+ * order. Items with no/unknown category fall into OTHER (rendered last). Within a group the input
+ * order is preserved (callers pass newest-first).
  */
-export function groupByCategory(items: ShoppingItem[]): CategoryGroup[] {
+export function groupByCategory(items: ShoppingItem[], categories: CategoryMeta[]): CategoryGroup[] {
+  const order = new Map(categories.map((c, i) => [c.key, i]))
+  const known = new Set(categories.map((c) => c.key))
+  const otherKey = otherOf(categories).key
   const buckets = new Map<string, ShoppingItem[]>()
   for (const item of items) {
-    const key = item.category && BY_KEY.has(item.category) ? item.category : OTHER.key
+    const key = item.category && known.has(item.category) ? item.category : otherKey
     const bucket = buckets.get(key)
     if (bucket) bucket.push(item)
     else buckets.set(key, [item])
   }
   return [...buckets.entries()]
-    .sort((a, b) => (ORDER.get(a[0]) ?? 99) - (ORDER.get(b[0]) ?? 99))
-    .map(([key, list]) => ({ category: categoryMeta(key), items: list }))
+    .sort((a, b) => (order.get(a[0]) ?? 99) - (order.get(b[0]) ?? 99))
+    .map(([key, list]) => ({ category: categoryMeta(key, categories), items: list }))
 }
 
 /**
