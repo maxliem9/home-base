@@ -1,6 +1,7 @@
 package com.homebase.routes
 
 import com.homebase.db.ShoppingCategoriesTable
+import com.homebase.db.ShoppingCategoryRulesTable
 import com.homebase.db.ShoppingItemStatsTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.ShoppingListsTable
@@ -33,6 +34,9 @@ fun Route.shoppingRoutes() {
 
     suspend fun broadcastCategory(type: String, category: ShoppingCategoryDto?) =
         WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingCategoryWsMessage(type, category)))
+
+    suspend fun broadcastRule(type: String, rule: ShoppingCategoryRuleDto?) =
+        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingCategoryRuleWsMessage(type, rule)))
 
     route("/shopping") {
         // ---- Lists (registered before /{id} so the static segment wins) ----
@@ -185,6 +189,7 @@ fun Route.shoppingRoutes() {
                     // Reassign this category's items + remembered stats to OTHER so nothing dangles.
                     ShoppingItemsTable.update({ ShoppingItemsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
                     ShoppingItemStatsTable.update({ ShoppingItemStatsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
+                    ShoppingCategoryRulesTable.update({ ShoppingCategoryRulesTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
                     ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.key eq key }
                     existing.toCategoryDto()
                 }
@@ -192,6 +197,71 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Category not found")); return@delete
                 }
                 broadcastCategory("SHOPPING_CATEGORY_CHANGED", deleted)
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
+
+        // ---- Category rules (editable auto-resolve dictionary, #411 PR B): name → category/icon that
+        // new items auto-fill. PUT upserts by normalized name; DELETE removes. Shared like the lists. ----
+        route("/category-rules") {
+            get {
+                val rules = transaction {
+                    ShoppingCategoryRulesTable.selectAll()
+                        .orderBy(ShoppingCategoryRulesTable.displayName to SortOrder.ASC)
+                        .map { it.toCategoryRuleDto() }
+                }
+                call.respond(rules)
+            }
+
+            put {
+                val req = call.receive<UpsertCategoryRuleRequest>()
+                val display = req.displayName.trim()
+                val normalized = GroceryCatalog.normalize(display)
+                if (display.isBlank() || normalized.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RULE", "displayName must not be blank")); return@put
+                }
+                val iconProvided = req.icon?.trim()?.takeIf { it.isNotBlank() }
+                val saved = transaction {
+                    if (req.category !in ShoppingCatalog.liveKeys()) return@transaction null
+                    val updated = ShoppingCategoryRulesTable.update({ ShoppingCategoryRulesTable.normalizedName eq normalized }) {
+                        it[displayName] = display
+                        it[category] = req.category
+                        // category-only edit keeps the existing icon; only overwrite when one is given
+                        if (iconProvided != null) it[ShoppingCategoryRulesTable.icon] = iconProvided
+                    }
+                    if (updated == 0) {
+                        ShoppingCategoryRulesTable.insert {
+                            it[normalizedName] = normalized
+                            it[displayName] = display
+                            it[category] = req.category
+                            it[ShoppingCategoryRulesTable.icon] = iconProvided ?: GroceryCatalog.DEFAULT_ICON
+                        }
+                    }
+                    ShoppingCategoryRulesTable.selectAll().where { ShoppingCategoryRulesTable.normalizedName eq normalized }.single().toCategoryRuleDto()
+                }
+                if (saved == null) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "category must be a known key")); return@put
+                }
+                broadcastRule("SHOPPING_CATEGORY_RULE_CHANGED", saved)
+                call.respond(saved)
+            }
+
+            delete("/{name}") {
+                val raw = call.parameters["name"]?.takeIf { it.isNotBlank() } ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "name required")); return@delete
+                }
+                val normalized = GroceryCatalog.normalize(raw)
+                val deleted = transaction {
+                    val existing = ShoppingCategoryRulesTable.selectAll()
+                        .where { ShoppingCategoryRulesTable.normalizedName eq normalized }.singleOrNull()
+                        ?: return@transaction null
+                    ShoppingCategoryRulesTable.deleteWhere { ShoppingCategoryRulesTable.normalizedName eq normalized }
+                    existing.toCategoryRuleDto()
+                }
+                if (deleted == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Rule not found")); return@delete
+                }
+                broadcastRule("SHOPPING_CATEGORY_RULE_CHANGED", deleted)
                 call.respond(HttpStatusCode.NoContent)
             }
         }
@@ -204,15 +274,16 @@ fun Route.shoppingRoutes() {
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
             val suggestions = transaction {
                 val liveKeys = ShoppingCatalog.liveKeys()
+                val rules = ShoppingCatalog.loadRules()
                 fun liveCat(cat: String) = if (cat in liveKeys) cat else GroceryCatalog.OTHER
                 val merged = LinkedHashMap<String, ShoppingSuggestionDto>()
-                GroceryCatalog.allEntries().forEach { e ->
+                rules.allEntries().forEach { e ->
                     merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
                 }
                 ShoppingItemStatsTable.selectAll().forEach { row ->
                     val key = row[ShoppingItemStatsTable.normalizedName]
                     val display = row[ShoppingItemStatsTable.displayName]
-                    val resolved = ShoppingCatalog.resolve(display, liveKeys)
+                    val resolved = ShoppingCatalog.resolve(display, rules, liveKeys)
                     val baseline = merged[key] // the catalog entry, if this is a known item
                     merged[key] = ShoppingSuggestionDto(
                         // prefer the catalog's canonical name so a lowercase add can't downgrade "Milch"
@@ -260,6 +331,7 @@ fun Route.shoppingRoutes() {
                     return@transaction false
                 }
                 val liveKeys = ShoppingCatalog.liveKeys() // load once; categorize each new line against it (#411)
+                val rules = ShoppingCatalog.loadRules()
                 // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
                 val working = ShoppingItemsTable.selectAll()
                     .where { if (listId != null) ShoppingItemsTable.listId eq listId else ShoppingItemsTable.listId.isNull() }
@@ -296,7 +368,7 @@ fun Route.shoppingRoutes() {
 
                     // 3. Otherwise add a new item.
                     val id = UUID.randomUUID()
-                    val (resolvedCategory, resolvedIcon) = resolveForItem(name, liveKeys)
+                    val (resolvedCategory, resolvedIcon) = resolveForItem(name, rules, liveKeys)
                     ShoppingItemsTable.insert {
                         it[ShoppingItemsTable.id] = id
                         it[ShoppingItemsTable.name] = display
@@ -357,7 +429,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.liveKeys())
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeys())
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -496,6 +568,13 @@ private fun ResultRow.toCategoryDto() = ShoppingCategoryDto(
     isBuiltin = this[ShoppingCategoriesTable.isBuiltin],
 )
 
+private fun ResultRow.toCategoryRuleDto() = ShoppingCategoryRuleDto(
+    normalizedName = this[ShoppingCategoryRulesTable.normalizedName],
+    displayName = this[ShoppingCategoryRulesTable.displayName],
+    category = this[ShoppingCategoryRulesTable.category],
+    icon = this[ShoppingCategoryRulesTable.icon],
+)
+
 /**
  * Generate a stable, unique category key from a label: uppercase ASCII slug (non-alnum → "_"), capped
  * at 40 chars, numeric suffix on collision. Call inside a transaction (it reads the existing keys).
@@ -531,8 +610,8 @@ private fun uniqueCategoryKey(label: String): String {
  * The category + icon to show on a freshly added item: a remembered household override (stats row)
  * wins over the catalog, which falls back to OTHER + cart. Read-only — safe inside any transaction.
  */
-private fun resolveForItem(rawName: String, liveKeys: Set<String>): Pair<String, String> {
-    val resolved = ShoppingCatalog.resolve(rawName, liveKeys)
+private fun resolveForItem(rawName: String, rules: ShoppingCatalog.RuleSet, liveKeys: Set<String>): Pair<String, String> {
+    val resolved = ShoppingCatalog.resolve(rawName, rules, liveKeys)
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return resolved.category to resolved.icon
     val existing = ShoppingItemStatsTable.selectAll()
@@ -557,11 +636,12 @@ private fun recordUsages(rawNames: List<String>) {
     runCatching {
         transaction {
             val liveKeys = ShoppingCatalog.liveKeys()
+            val rules = ShoppingCatalog.loadRules()
             for ((key, display) in entries) {
                 val existing = ShoppingItemStatsTable.selectAll()
                     .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
                 if (existing == null) {
-                    val resolved = ShoppingCatalog.resolve(display, liveKeys)
+                    val resolved = ShoppingCatalog.resolve(display, rules, liveKeys)
                     ShoppingItemStatsTable.insert {
                         it[normalizedName] = key
                         it[displayName] = display
