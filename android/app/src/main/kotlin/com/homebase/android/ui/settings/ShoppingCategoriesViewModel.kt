@@ -7,6 +7,7 @@ import com.homebase.android.data.model.ShoppingCategoryRuleDto
 import com.homebase.android.data.model.UpdateShoppingCategoryRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
+import com.homebase.android.ui.shopping.DEFAULT_ITEM_ICON
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,16 +70,17 @@ class ShoppingCategoriesViewModel(
 
     /**
      * Create or update a category (PUT when [key] is set, POST otherwise). Mirrors the web save:
-     * blank label/emoji no-op, the broadcast refetch brings the authoritative row back.
+     * a blank label no-ops; a blank emoji defaults to the cart icon (web parity) so it can't 400.
      */
     fun saveCategory(key: String?, label: String, emoji: String) {
         if (label.isBlank()) return
+        val safeEmoji = emoji.trim().ifBlank { DEFAULT_ITEM_ICON }
         viewModelScope.launch {
             _uiState.update { it.copy(error = null) }
             val result = if (key != null) {
-                repository.updateCategory(key, UpdateShoppingCategoryRequest(label = label.trim(), emoji = emoji.trim()))
+                repository.updateCategory(key, UpdateShoppingCategoryRequest(label = label.trim(), emoji = safeEmoji))
             } else {
-                repository.createCategory(label = label.trim(), emoji = emoji.trim())
+                repository.createCategory(label = label.trim(), emoji = safeEmoji)
             }
             result
                 .onSuccess { fetchCategories() }
