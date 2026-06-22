@@ -3,8 +3,11 @@ package com.homebase.android
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.ShoppingItemDto
+import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TodoDto
+import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -261,5 +264,91 @@ class MoshiRoundTripTest {
         assertTrue("null description must be omitted", !obj.containsKey("description"))
         assertTrue("null listId must be omitted", !obj.containsKey("listId"))
         assertTrue("null recurrence must be omitted", !obj.containsKey("recurrence"))
+    }
+
+    @Test
+    fun `ShoppingItemDto parses category and icon when present`() {
+        // Categorized item (#400): the backend resolves and sends category + icon.
+        val json = """
+            {
+              "id": "44444444-4444-4444-4444-444444444444",
+              "name": "Milch",
+              "listId": "55555555-5555-5555-5555-555555555555",
+              "checked": false,
+              "category": "DAIRY",
+              "icon": "🥛",
+              "createdBy": "max",
+              "createdAt": "2026-06-20T08:00:00Z"
+            }
+        """.trimIndent()
+
+        val item = moshi.adapter(ShoppingItemDto::class.java).fromJson(json)
+
+        requireNotNull(item)
+        assertEquals("Milch", item.name)
+        assertEquals("DAIRY", item.category)
+        assertEquals("🥛", item.icon)
+    }
+
+    @Test
+    fun `ShoppingItemDto defaults category and icon to null when omitted`() {
+        // Legacy row (#400): the backend omits category/icon (encodeDefaults=false) for an
+        // unresolved item; the nullable defaults must map the missing keys to null, not throw.
+        val json = """
+            {
+              "id": "44444444-4444-4444-4444-444444444444",
+              "name": "Irgendwas",
+              "checked": true,
+              "createdBy": "max",
+              "createdAt": "2026-06-20T08:00:00Z"
+            }
+        """.trimIndent()
+
+        val item = moshi.adapter(ShoppingItemDto::class.java).fromJson(json)
+
+        requireNotNull(item)
+        assertEquals("Irgendwas", item.name)
+        assertNull("omitted category must default to null", item.category)
+        assertNull("omitted icon must default to null", item.icon)
+    }
+
+    @Test
+    fun `ShoppingSuggestion parses a full payload and defaults count when omitted`() {
+        // A suggestion from GET /shopping/suggestions (#400): name/category/icon always sent,
+        // count droppable (defaults to 0 under encodeDefaults=false for a baseline-catalog entry).
+        val withCount = moshi.adapter(ShoppingSuggestion::class.java).fromJson(
+            """
+                { "name": "Brot", "category": "BAKERY", "icon": "🍞", "count": 12 }
+            """.trimIndent(),
+        )
+        requireNotNull(withCount)
+        assertEquals("Brot", withCount.name)
+        assertEquals("BAKERY", withCount.category)
+        assertEquals("🍞", withCount.icon)
+        assertEquals(12, withCount.count)
+
+        val noCount = moshi.adapter(ShoppingSuggestion::class.java).fromJson(
+            """
+                { "name": "Tofu", "category": "OTHER", "icon": "🛒" }
+            """.trimIndent(),
+        )
+        requireNotNull(noCount)
+        assertEquals("omitted count must default to 0", 0, noCount.count)
+    }
+
+    @Test
+    fun `UpdateShoppingItemRequest serializes only the category for a move and omits null fields`() {
+        // The "In Kategorie verschieben" move (#400) sends just {category}; every other optional
+        // field is left null and must be dropped (no serializeNulls), so the backend touches only
+        // the category.
+        val json = moshi.adapter(UpdateShoppingItemRequest::class.java).toJson(
+            UpdateShoppingItemRequest(category = "DRINKS"),
+        )
+        val obj = moshi.adapter(Map::class.java).fromJson(json)!!
+        assertEquals("DRINKS", obj["category"])
+        assertTrue("null name must be omitted", !obj.containsKey("name"))
+        assertTrue("null listId must be omitted", !obj.containsKey("listId"))
+        assertTrue("null checked must be omitted", !obj.containsKey("checked"))
+        assertTrue("null icon must be omitted", !obj.containsKey("icon"))
     }
 }

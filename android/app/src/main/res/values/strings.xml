@@ -194,6 +194,7 @@
     <string name="shopping_title_fallback">Einkauf</string>
     <string name="shopping_fab">Artikel</string>
     <string name="shopping_quick_add">Artikel hinzufügen …</string>
+    <string name="shopping_suggestions_hint">Häufig gekauft</string>
     <string name="shopping_empty_title">Liste ist leer</string>
     <string name="shopping_empty_hint">Füge oben Artikel hinzu.</string>
     <string name="shopping_in_cart">Im Wagen · %1$d</string>

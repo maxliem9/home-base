@@ -9,6 +9,7 @@ import com.homebase.android.data.model.CreateShoppingTemplateRequest
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TemplateItemInput
 import com.homebase.android.data.model.UpdateShoppingItemRequest
@@ -27,6 +28,9 @@ class ShoppingRepository(
     // --- Items ---
 
     suspend fun getItems(): Result<List<ShoppingItemDto>> = apiCatching { api.getShoppingItems() }
+
+    /** "Most used" autocomplete source (#389): catalog baseline + the household's usage tally. */
+    suspend fun getSuggestions(): Result<List<ShoppingSuggestion>> = apiCatching { api.getShoppingSuggestions() }
 
     suspend fun createItem(name: String, listId: String?): Result<ShoppingItemDto> =
         apiCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId)) }

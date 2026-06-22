@@ -206,6 +206,10 @@ data class ShoppingItemDto(
     val createdBy: String,
     val createdAt: String,
     val checkedAt: String? = null,
+    // Resolved grocery category key (e.g. "PRODUCE") + emoji icon (#389); null on legacy rows,
+    // treated as the OTHER ("Sonstiges") bucket with a default icon by the UI.
+    val category: String? = null,
+    val icon: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -220,6 +224,18 @@ data class UpdateShoppingItemRequest(
     // null = unchanged, "" = remove from list, UUID = move to that list
     val listId: String? = null,
     val checked: Boolean? = null,
+    // Manual category/icon override (#389); a non-blank category must be a known key (backend rejects else).
+    val category: String? = null,
+    val icon: String? = null,
+)
+
+/** One autocomplete suggestion from GET /shopping/suggestions, ranked by purchase frequency (#389). */
+@JsonClass(generateAdapter = true)
+data class ShoppingSuggestion(
+    val name: String,
+    val category: String,
+    val icon: String,
+    val count: Int = 0,
 )
 
 @JsonClass(generateAdapter = true)

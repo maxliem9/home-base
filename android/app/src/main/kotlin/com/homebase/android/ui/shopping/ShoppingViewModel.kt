@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.repository.ShoppingRepository
@@ -37,6 +38,8 @@ data class ShoppingUiState(
     val pendingIds: Set<String> = emptySet(),
     /** Saved named standard lists (#215); kept in sync via the shopping WS channel. */
     val templates: List<ShoppingTemplateDto> = emptyList(),
+    /** "Most used" autocomplete suggestions (#389), preloaded once; filtered client-side in the UI. */
+    val suggestions: List<ShoppingSuggestion> = emptyList(),
 ) {
     val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
@@ -136,6 +139,7 @@ class ShoppingViewModel(
     init {
         load()
         loadTemplates()
+        loadSuggestions()
         observeWebSocket()
         observeConnectivity(networkAvailable)
         // Restore the previous session's queue off-main, then drain it. A toggle made before this
@@ -272,6 +276,30 @@ class ShoppingViewModel(
             repository.createItem(name.trim(), listId)
                 .onSuccess { upsertItem(it) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /** Preload the "most used" autocomplete suggestions (#389); non-fatal — empty just shows none. */
+    private fun loadSuggestions() {
+        viewModelScope.launch {
+            repository.getSuggestions().onSuccess { s -> _uiState.update { it.copy(suggestions = s) } }
+        }
+    }
+
+    /**
+     * Reassign an item's category via the "In Kategorie verschieben" menu (#389). Optimistic; the
+     * backend also remembers the choice for future adds of that name. On failure, resync from server.
+     */
+    fun moveItemCategory(item: ShoppingItemDto, category: String) {
+        if (item.category == category) return
+        _uiState.update { s -> s.copy(items = s.items.map { if (it.id == item.id) it.copy(category = category) else it }) }
+        viewModelScope.launch {
+            repository.updateItem(item.id, UpdateShoppingItemRequest(category = category))
+                .onSuccess { upsertItem(it) }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = e.message) }
+                    syncFromServer()
+                }
         }
     }
 

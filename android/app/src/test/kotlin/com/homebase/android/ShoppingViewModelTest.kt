@@ -4,6 +4,7 @@ import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.ShoppingTemplateItemDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
@@ -80,6 +81,8 @@ class ShoppingViewModelTest {
         coEvery { repository.getLists() } returns Result.success(emptyList())
         // init also loads templates (#215) — default to empty so existing tests are unaffected.
         coEvery { repository.getTemplates() } returns Result.success(emptyList())
+        // init also preloads autocomplete suggestions (#400) — default to empty unless overridden.
+        coEvery { repository.getSuggestions() } returns Result.success(emptyList())
     }
 
     // Owns each VM; clearing the store runs onCleared() → cancels viewModelScope (the backstop loop
@@ -479,6 +482,105 @@ class ShoppingViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.items.isEmpty())
+    }
+
+    // --- Suggestions + category move (#400) ------------------------------------------------
+
+    @Test
+    fun `init loads suggestions into state`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getSuggestions() } returns Result.success(
+            listOf(
+                ShoppingSuggestion(name = "Milch", category = "DAIRY", icon = "🥛", count = 7),
+                ShoppingSuggestion(name = "Brot", category = "BAKERY", icon = "🍞", count = 3),
+            ),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals(listOf("Milch", "Brot"), vm.uiState.value.suggestions.map { it.name })
+        assertEquals("DAIRY", vm.uiState.value.suggestions[0].category)
+        assertEquals(7, vm.uiState.value.suggestions[0].count)
+    }
+
+    @Test
+    fun `a failed suggestions load leaves the list empty and does not error`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getSuggestions() } returns Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.suggestions.isEmpty())
+        // Suggestions are non-fatal background data — must not clobber the item error.
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `moveItemCategory optimistically recategorizes the item and PUTs the category`() = vmTest {
+        val original = item(id = "1", name = "Apfelsaft").copy(category = "OTHER")
+        val updated = original.copy(category = "DRINKS", icon = "🥤")
+        coEvery { repository.getItems() } returns Result.success(listOf(original))
+        val req = slot<UpdateShoppingItemRequest>()
+        coEvery { repository.updateItem(eq("1"), capture(req)) } returns Result.success(updated)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.moveItemCategory(original, "DRINKS")
+        runCurrent() // synchronous optimistic update first, before the PUT resolves
+
+        // Optimistic: the item already shows the new category on the same frame.
+        assertEquals("DRINKS", vm.uiState.value.items.single { it.id == "1" }.category)
+
+        advanceUntilIdle() // PUT lands → server row (with icon) merged in
+
+        // Exactly a {category} PUT was sent — no checked/listId/name fields ride along.
+        coVerify { repository.updateItem("1", UpdateShoppingItemRequest(category = "DRINKS")) }
+        assertEquals("DRINKS", req.captured.category)
+        assertNull(req.captured.checked)
+        assertNull(req.captured.listId)
+        assertNull(req.captured.name)
+        // The server echo replaced the row, bringing the resolved icon along.
+        assertEquals("🥤", vm.uiState.value.items.single { it.id == "1" }.icon)
+    }
+
+    @Test
+    fun `moveItemCategory to the same category is a no-op`() = vmTest {
+        val original = item(id = "1").copy(category = "DAIRY")
+        coEvery { repository.getItems() } returns Result.success(listOf(original))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.moveItemCategory(original, "DAIRY")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateItem(any(), any()) }
+    }
+
+    @Test
+    fun `moveItemCategory resyncs from the server on failure`() = vmTest {
+        val original = item(id = "1", name = "Apfelsaft").copy(category = "OTHER")
+        // First getItems() is the initial load; the resync after the failed PUT returns the
+        // server's authoritative (still OTHER) row, reverting the optimistic change.
+        coEvery { repository.getItems() } returnsMany listOf(
+            Result.success(listOf(original)),
+            Result.success(listOf(original)),
+        )
+        coEvery { repository.getLists() } returns Result.success(emptyList())
+        coEvery { repository.updateItem(eq("1"), any()) } returns Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.moveItemCategory(original, "DRINKS")
+        advanceUntilIdle()
+
+        // The PUT failed → the error surfaces and the resync restores the server category.
+        assertEquals("offline", vm.uiState.value.error)
+        assertEquals("OTHER", vm.uiState.value.items.single { it.id == "1" }.category)
     }
 
     @Test

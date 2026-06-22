@@ -182,6 +182,7 @@
     <string name="shopping_title_fallback">Shopping</string>
     <string name="shopping_fab">Item</string>
     <string name="shopping_quick_add">Add item …</string>
+    <string name="shopping_suggestions_hint">Frequently bought</string>
     <string name="shopping_empty_title">List is empty</string>
     <string name="shopping_empty_hint">Add items above.</string>
     <string name="shopping_in_cart">In cart · %1$d</string>
