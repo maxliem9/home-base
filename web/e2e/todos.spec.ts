@@ -532,10 +532,11 @@ test.describe('Inbox', () => {
     const listRow = page.locator('.hb-row', { hasText: 'Fenster putzen' })
     await expect(listRow).toContainText('Haushalt')
 
-    // planning it (no list picker — it already has one) releases it from the inbox …
+    // planning it releases it from the inbox; the list picker now appears for filed
+    // todos too (#409) and defaults to the current list …
     await listRow.getByRole('button', { name: 'Planen' }).click()
     const dialog = page.locator('.hb-sheet')
-    await expect(dialog.getByLabel('Liste')).toHaveCount(0)
+    await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.getByRole('button', { name: 'Planen' }).click()
 
@@ -545,6 +546,29 @@ test.describe('Inbox', () => {
     // … while it stays in its list
     await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
     await expect(page.locator('.hb-row', { hasText: 'Fenster putzen' })).toBeVisible()
+  })
+
+  test('moves a filed todo to a different list via the plan sheet (#409)', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Bohrmaschine kaufen', listId: 'l1' })],
+      [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Garten' })],
+    )
+    await openApp(page, mock)
+
+    // a filed todo now offers a list picker (#409), defaulting to its current list
+    const row = page.locator('.hb-row', { hasText: 'Bohrmaschine kaufen' })
+    await row.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
+    await dialog.getByLabel('Liste').selectOption({ label: 'Garten' })
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+
+    // moved into Garten, gone from Haushalt
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Garten' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Bohrmaschine kaufen' })).toBeVisible()
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Bohrmaschine kaufen' })).toHaveCount(0)
   })
 })
 

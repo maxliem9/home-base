@@ -202,7 +202,7 @@ export const de = {
     planHint: 'Titel ist Pflicht. Zuständige:r oder Fälligkeit machen daraus eine geplante Aufgabe.',
     titleLabel: 'Titel',
     planList: 'Liste', // list picker in the plan modal (only for inbox todos, issue #69)
-    planListInbox: 'Bleibt in der Inbox', // empty option of the plan-modal list picker
+    planListInbox: 'Ohne Liste (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
     dueDate: 'Fällig am',

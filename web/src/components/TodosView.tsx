@@ -113,7 +113,8 @@ interface PlanDraft {
   assignee: string
   dueDate: string
   priority: '' | TodoPriority
-  listId: string // target list for an inbox todo; '' = stays without a list (#69)
+  listId: string // target list; '' = no list / inbox (#69; move between lists #409)
+  listIdOriginal: string // list at open time — only PUT listId on an actual change (#409)
   recurrenceFreq: '' | RecurrenceFreq // '' = no recurrence
   recurrenceInterval: number
 }
@@ -406,11 +407,10 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
-      // Only sent when a target list was picked (inbox todos, #69) AND the todo
-      // is still list-less right now — if the partner moved it into a list while
-      // the modal was open, the stale pick must not overwrite that move. An
-      // absent listId means "unchanged" on the backend, so list todos stay put.
-      listId: plan.listId && !todos.find((x) => x.id === plan.id)?.listId ? plan.listId : undefined,
+      // List move (#409): only send when the pick differs from the list at open time,
+      // so an untouched picker never clobbers a concurrent partner move. '' → null
+      // clears the list (back to inbox); an absent listId means "unchanged".
+      listId: plan.listId !== plan.listIdOriginal ? (plan.listId || null) : undefined,
       // freq "NONE" clears any existing rule; otherwise set/replace it
       recurrence: plan.recurrenceFreq
         ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
@@ -666,10 +666,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     : allBuckets
   const groups = orderedBuckets.filter((g) => buckets[g.key].length)
 
-  // the todo currently in the plan modal — inbox todos (no listId) additionally
-  // get a list picker there, so planning can file them into a list (#69)
-  const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
-
   // "Alle anzeigen" ↔ "Nur letzte N Tage" toggle for the done UI (#340). Rendered both
   // in the Erledigt tab (next to the window note) and the collapsible done-section header.
   const doneShowAllToggle = (
@@ -696,7 +692,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
       onToggleDone={() => toggleDone(todo)}
       onToggleExpand={() => toggleExpand(todo.id)}
-      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: todo.listId ?? '', listIdOriginal: todo.listId ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
       onDelete={() => deleteTodo(todo.id)}
       onToggleSub={(s) => toggleSubtask(todo.id, s)}
       onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -895,7 +891,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             <Field label={t('todos.titleLabel')}>
               <TextInput value={plan.title} onChange={(v) => setPlan({ ...plan, title: v })} />
             </Field>
-            {!planTodo?.listId && lists.length > 0 && (
+            {lists.length > 0 && (
               <Field label={t('todos.planList')}>
                 <Select value={plan.listId} onChange={(v) => setPlan({ ...plan, listId: v })}>
                   <option value="">{t('todos.planListInbox')}</option>
