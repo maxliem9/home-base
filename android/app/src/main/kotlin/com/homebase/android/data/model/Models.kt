@@ -319,6 +319,59 @@ data class UpdateShoppingTemplateRequest(
     val items: List<TemplateItemInput>? = null,
 )
 
+// --- Shopping categories (editable catalog, #411) ------------------------------------------
+// The household manages its own grocery categories (the headers the list groups by). `key` is the
+// stable id stored on items (server-generated from the label on create, never changes). `isBuiltin`
+// flags the seeded set (info only — builtins are editable AND deletable too, except OTHER which is
+// the protected fallback). Served by GET /shopping/categories; POST/PUT/DELETE mutate it.
+
+@JsonClass(generateAdapter = true)
+data class ShoppingCategoryDto(
+    val key: String,
+    val label: String,
+    val emoji: String,
+    val sortOrder: Int,
+    val isBuiltin: Boolean,
+)
+
+/** Create a category: label + emoji (both required); sortOrder optional (appended when omitted). */
+@JsonClass(generateAdapter = true)
+data class CreateShoppingCategoryRequest(
+    val label: String,
+    val emoji: String,
+    val sortOrder: Int? = null,
+)
+
+/** Patch a category: any subset of label/emoji/sortOrder; null = unchanged (no serializeNulls). */
+@JsonClass(generateAdapter = true)
+data class UpdateShoppingCategoryRequest(
+    val label: String? = null,
+    val emoji: String? = null,
+    val sortOrder: Int? = null,
+)
+
+// --- Shopping category rules (editable auto-resolve dictionary, #411) -----------------------
+// Maps a written item name → category key + emoji that newly added items auto-fill. Keyed by the
+// normalized name (server-derived from displayName). PUT upserts a rule; DELETE /{name} removes it.
+// `icon` defaults to the neutral cart on create when omitted.
+
+@JsonClass(generateAdapter = true)
+data class ShoppingCategoryRuleDto(
+    val normalizedName: String,
+    val displayName: String,
+    val category: String,
+    val icon: String,
+)
+
+/** Upsert a rule (keyed by the normalized displayName). Omitting [icon] keeps the existing one on
+ *  update / defaults to the cart on create (backend contract). [category] must be a live key. */
+@JsonClass(generateAdapter = true)
+data class UpsertCategoryRuleRequest(
+    val displayName: String,
+    val category: String,
+    val icon: String? = null,
+)
+
 // ---------------------------------------------------------------------------
 // Notes
 // ---------------------------------------------------------------------------

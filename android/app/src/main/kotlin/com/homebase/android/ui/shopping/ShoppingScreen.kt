@@ -133,6 +133,7 @@ fun ShoppingScreen(
                         addItemText = ""
                     },
                     suggestions = state.suggestions,
+                    categories = state.categories,
                     placeholder = stringResource(R.string.shopping_quick_add),
                 )
 
@@ -153,12 +154,13 @@ fun ShoppingScreen(
                         stringResource(R.string.shopping_empty_hint),
                     )
                 } else {
-                    groupByCategory(openItems).forEach { (category, catItems) ->
+                    groupByCategory(openItems, state.categories).forEach { (category, catItems) ->
                         CategorySectionHeader(category, catItems.size)
                         catItems.forEach { item ->
                             OpenItemRow(
                                 item = item,
                                 pending = state.isPending(item.id),
+                                categories = state.categories,
                                 onToggle = { viewModel.toggleChecked(item) },
                                 onMove = { viewModel.moveItemCategory(item, it) },
                             )
@@ -402,7 +404,13 @@ private fun Modifier.accentUnderline(color: Color): Modifier = drawBehind {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit, onMove: (String) -> Unit) {
+private fun OpenItemRow(
+    item: ShoppingItemDto,
+    pending: Boolean,
+    categories: List<GroceryCategory>,
+    onToggle: () -> Unit,
+    onMove: (String) -> Unit,
+) {
     HbRow {
         HbCheck(checked = false, onCheckedChange = onToggle)
         ItemEmoji(item.icon)
@@ -414,7 +422,7 @@ private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () ->
         )
         if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
-        CategoryMoveMenu(current = item.category, onPick = onMove)
+        CategoryMoveMenu(current = item.category, categories = categories, onPick = onMove)
     }
 }
 
@@ -463,14 +471,14 @@ private fun CategorySectionHeader(category: GroceryCategory, count: Int) {
     }
 }
 
-/** "In Kategorie verschieben" trigger + dropdown of the 10 categories (#389). */
+/** "In Kategorie verschieben" trigger + dropdown of the (editable, #411) categories. */
 @Composable
-private fun CategoryMoveMenu(current: String?, onPick: (String) -> Unit) {
+private fun CategoryMoveMenu(current: String?, categories: List<GroceryCategory>, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         HbIconButton(HbIcons.tag, { open = true })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            SHOPPING_CATEGORIES.forEach { c ->
+            categories.forEach { c ->
                 DropdownMenuItem(
                     text = {
                         Row(
@@ -499,6 +507,7 @@ private fun ShoppingQuickAddSection(
     onValueChange: (String) -> Unit,
     onAdd: (String) -> Unit,
     suggestions: List<ShoppingSuggestion>,
+    categories: List<GroceryCategory>,
     placeholder: String,
 ) {
     HbQuickAdd(
@@ -548,7 +557,7 @@ private fun ShoppingQuickAddSection(
                 ) {
                     Text(s.icon.ifBlank { DEFAULT_ITEM_ICON }, fontSize = 18.sp)
                     Text(s.name, style = HbType.rowTitle, color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(categoryMeta(s.category).label, style = HbType.meta, color = Hb.ink3, maxLines = 1)
+                    Text(categoryMeta(s.category, categories).label, style = HbType.meta, color = Hb.ink3, maxLines = 1)
                     Text("${s.count}×", style = HbType.meta, color = Hb.ink3)
                 }
             }

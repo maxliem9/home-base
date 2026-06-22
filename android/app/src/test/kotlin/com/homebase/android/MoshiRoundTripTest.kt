@@ -3,12 +3,16 @@ package com.homebase.android
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.model.ShoppingCategoryDto
+import com.homebase.android.data.model.ShoppingCategoryRuleDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.TodoDto
+import com.homebase.android.data.model.UpdateShoppingCategoryRequest
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateTodoRequest
+import com.homebase.android.data.model.UpsertCategoryRuleRequest
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
@@ -334,6 +338,66 @@ class MoshiRoundTripTest {
         )
         requireNotNull(noCount)
         assertEquals("omitted count must default to 0", 0, noCount.count)
+    }
+
+    @Test
+    fun `ShoppingCategoryDto parses a full catalog row (#411)`() {
+        // GET /shopping/categories sends every field (none has a default on the backend DTO, so
+        // none is droppable) — full payload must round-trip, including the isBuiltin flag.
+        val json = """
+            { "key": "PRODUCE", "label": "Obst & Gemüse", "emoji": "🥦", "sortOrder": 0, "isBuiltin": true }
+        """.trimIndent()
+
+        val cat = moshi.adapter(ShoppingCategoryDto::class.java).fromJson(json)
+
+        requireNotNull(cat)
+        assertEquals("PRODUCE", cat.key)
+        assertEquals("Obst & Gemüse", cat.label)
+        assertEquals("🥦", cat.emoji)
+        assertEquals(0, cat.sortOrder)
+        assertEquals(true, cat.isBuiltin)
+    }
+
+    @Test
+    fun `ShoppingCategoryRuleDto parses an auto-resolve rule (#411)`() {
+        // GET /shopping/category-rules: normalizedName/displayName/category/icon, all always sent.
+        val json = """
+            { "normalizedName": "milch", "displayName": "Milch", "category": "DAIRY", "icon": "🥛" }
+        """.trimIndent()
+
+        val rule = moshi.adapter(ShoppingCategoryRuleDto::class.java).fromJson(json)
+
+        requireNotNull(rule)
+        assertEquals("milch", rule.normalizedName)
+        assertEquals("Milch", rule.displayName)
+        assertEquals("DAIRY", rule.category)
+        assertEquals("🥛", rule.icon)
+    }
+
+    @Test
+    fun `UpdateShoppingCategoryRequest serializes only the sortOrder for a reorder and omits null fields`() {
+        // The reorder swap (#411) sends just {sortOrder}; label/emoji are left null and must be
+        // dropped (no serializeNulls), so the PUT touches only the order.
+        val json = moshi.adapter(UpdateShoppingCategoryRequest::class.java).toJson(
+            UpdateShoppingCategoryRequest(sortOrder = 3),
+        )
+        val obj = moshi.adapter(Map::class.java).fromJson(json)!!
+        assertEquals(3.0, obj["sortOrder"]) // JSON numbers parse back as Double
+        assertTrue("null label must be omitted", !obj.containsKey("label"))
+        assertTrue("null emoji must be omitted", !obj.containsKey("emoji"))
+    }
+
+    @Test
+    fun `UpsertCategoryRuleRequest omits a null icon so the backend keeps or defaults it`() {
+        // A category-only rule edit (#411) sends {displayName, category} with no icon — the omitted
+        // icon must NOT serialize as null (the backend keeps the existing icon / defaults to 🛒).
+        val json = moshi.adapter(UpsertCategoryRuleRequest::class.java).toJson(
+            UpsertCategoryRuleRequest(displayName = "Milch", category = "DAIRY"),
+        )
+        val obj = moshi.adapter(Map::class.java).fromJson(json)!!
+        assertEquals("Milch", obj["displayName"])
+        assertEquals("DAIRY", obj["category"])
+        assertTrue("null icon must be omitted", !obj.containsKey("icon"))
     }
 
     @Test

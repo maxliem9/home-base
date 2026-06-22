@@ -1,6 +1,7 @@
 package com.homebase.android
 
 import com.homebase.android.data.model.BatchAddShoppingResponse
+import com.homebase.android.data.model.ShoppingCategoryDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
@@ -16,6 +17,7 @@ import com.homebase.android.data.shopping.PendingCheck
 import com.homebase.android.data.shopping.ShoppingClock
 import com.homebase.android.data.shopping.ShoppingPendingStore
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
+import com.homebase.android.ui.shopping.BUILTIN_CATEGORIES
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -83,6 +85,9 @@ class ShoppingViewModelTest {
         coEvery { repository.getTemplates() } returns Result.success(emptyList())
         // init also preloads autocomplete suggestions (#400) — default to empty unless overridden.
         coEvery { repository.getSuggestions() } returns Result.success(emptyList())
+        // init also fetches the editable category catalog (#411) — default to empty unless overridden;
+        // an empty fetch leaves the state on its BUILTIN_CATEGORIES fallback (assert below).
+        coEvery { repository.getCategories() } returns Result.success(emptyList())
     }
 
     // Owns each VM; clearing the store runs onCleared() → cancels viewModelScope (the backstop loop
@@ -581,6 +586,91 @@ class ShoppingViewModelTest {
         // The PUT failed → the error surfaces and the resync restores the server category.
         assertEquals("offline", vm.uiState.value.error)
         assertEquals("OTHER", vm.uiState.value.items.single { it.id == "1" }.category)
+    }
+
+    // --- Editable category catalog (#411) --------------------------------------------------
+
+    private fun category(
+        key: String,
+        label: String = key,
+        emoji: String = "🍎",
+        sortOrder: Int = 0,
+        isBuiltin: Boolean = false,
+    ) = ShoppingCategoryDto(key = key, label = label, emoji = emoji, sortOrder = sortOrder, isBuiltin = isBuiltin)
+
+    @Test
+    fun `init fetches the category catalog into state`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getCategories() } returns Result.success(
+            listOf(
+                category("PRODUCE", "Obst & Gemüse", "🥦", 0, isBuiltin = true),
+                category("GRILL", "Grillen", "🔥", 1),
+            ),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals(listOf("PRODUCE", "GRILL"), vm.uiState.value.categories.map { it.key })
+        assertEquals("Grillen", vm.uiState.value.categories[1].label)
+        assertEquals("🔥", vm.uiState.value.categories[1].emoji)
+    }
+
+    @Test
+    fun `a failed category fetch leaves the builtins fallback and does not error`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getCategories() } returns Result.failure(java.io.IOException("offline"))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // The catalog is non-fatal background data: state keeps its BUILTIN_CATEGORIES seed…
+        assertEquals(BUILTIN_CATEGORIES, vm.uiState.value.categories)
+        // …and the failure must not clobber the item error channel.
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a category WS event refetches the catalog`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        // First load returns one category; after the WS event the refetch returns two.
+        coEvery { repository.getCategories() } returnsMany listOf(
+            Result.success(listOf(category("PRODUCE", "Obst & Gemüse", "🥦", 0, isBuiltin = true))),
+            Result.success(
+                listOf(
+                    category("PRODUCE", "Obst & Gemüse", "🥦", 0, isBuiltin = true),
+                    category("GRILL", "Grillen", "🔥", 1),
+                ),
+            ),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+        assertEquals(listOf("PRODUCE"), vm.uiState.value.categories.map { it.key })
+
+        wsEvents.emit(ShoppingWebSocketClient.WsEvent.CategoryChanged)
+        advanceUntilIdle()
+
+        assertEquals(listOf("PRODUCE", "GRILL"), vm.uiState.value.categories.map { it.key })
+        coVerify(atLeast = 2) { repository.getCategories() }
+    }
+
+    @Test
+    fun `a rule WS event does not refetch the catalog (no-op in the shopping view)`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getCategories() } returns Result.success(
+            listOf(category("PRODUCE", "Obst & Gemüse", "🥦", 0, isBuiltin = true)),
+        )
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        wsEvents.emit(ShoppingWebSocketClient.WsEvent.CategoryRuleChanged)
+        advanceUntilIdle()
+
+        // Rules only resolve at add-time server-side; the shopping view ignores the event, so the
+        // catalog is fetched exactly once (the initial load).
+        coVerify(exactly = 1) { repository.getCategories() }
     }
 
     @Test

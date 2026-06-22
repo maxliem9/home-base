@@ -100,7 +100,7 @@ import kotlinx.coroutines.launch
  * Benachrichtigungen · Zeiterfassung · Abwesenheit. The list is built to grow.
  */
 
-private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, AUFGABEN, ZEITERFASSUNG, ABWESENHEIT }
+private enum class SettingsSub { HOUSEHOLD, KONTO, NOTIFICATIONS, AUFGABEN, SHOPPING, ZEITERFASSUNG, ABWESENHEIT }
 
 @Composable
 fun SettingsScreen(
@@ -109,6 +109,7 @@ fun SettingsScreen(
     themeRepository: ThemeRepository,
     timeViewModel: TimeViewModel,
     absenceViewModel: AbsenceViewModel,
+    shoppingCategoriesViewModel: ShoppingCategoriesViewModel,
     currentUser: String?,
     householdName: String,
     onHouseholdRenamed: (String) -> Unit,
@@ -143,6 +144,10 @@ fun SettingsScreen(
         )
         SettingsSub.AUFGABEN -> AufgabenSettingsPage(
             configRepository = configRepository,
+            onBack = { sub = null },
+        )
+        SettingsSub.SHOPPING -> ShoppingCategoriesPage(
+            viewModel = shoppingCategoriesViewModel,
             onBack = { sub = null },
         )
         SettingsSub.ZEITERFASSUNG -> ZeiterfassungPage(
@@ -194,6 +199,12 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
                 title = stringResource(R.string.settings_todos),
                 subtitle = stringResource(R.string.settings_todos_sub),
                 onClick = { onPick(SettingsSub.AUFGABEN) },
+            )
+            SettingsNavRow(
+                icon = HbIcons.cart,
+                title = stringResource(R.string.settings_shopping_cats),
+                subtitle = stringResource(R.string.settings_shopping_cats_sub),
+                onClick = { onPick(SettingsSub.SHOPPING) },
             )
             SettingsNavRow(
                 icon = HbIcons.clock,
