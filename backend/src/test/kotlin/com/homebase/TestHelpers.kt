@@ -14,6 +14,7 @@ import com.homebase.db.ProjectsTable
 import com.homebase.db.RecipeImagesTable
 import com.homebase.db.RecipeStepsTable
 import com.homebase.db.RecipesTable
+import com.homebase.db.ShoppingCategoriesTable
 import com.homebase.db.ShoppingItemStatsTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.ShoppingListsTable
@@ -28,6 +29,7 @@ import com.homebase.db.UserPrefsTable
 import com.homebase.db.UsersTable
 import com.homebase.plugins.*
 import com.homebase.security.Passwords
+import com.homebase.shopping.ShoppingCatalog
 import io.ktor.server.config.*
 import io.ktor.server.testing.*
 import org.jetbrains.exposed.sql.Database
@@ -71,7 +73,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
             SchemaUtils.create(
                 AppSettingsTable, UserPrefsTable,
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
-                ShoppingItemStatsTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
+                ShoppingItemStatsTable, ShoppingCategoriesTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
                 NotesTable, NoteImagesTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
@@ -91,6 +93,9 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
                 it[createdAt] = Instant.now()
             }
         }
+        // Seed the editable shopping category catalog (#411) into the fresh H2 schema, mirroring the
+        // prod startup so route tests resolve/validate against real categories.
+        ShoppingCatalog.seedIfEmpty()
         configureSerialization()
         configureAuthentication(environment.config)
         configureWebSockets()

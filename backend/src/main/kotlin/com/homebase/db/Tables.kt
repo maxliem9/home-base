@@ -145,6 +145,20 @@ object ShoppingItemStatsTable : Table("shopping_item_stats") {
     override val primaryKey = PrimaryKey(normalizedName)
 }
 
+// Editable grocery category catalog (#411): the category list moved from code (GroceryCatalog) into
+// the DB so the household can manage its own categories (add/rename/emoji/reorder/delete). Seeded from
+// GroceryCatalog.categories into the empty table on first startup (SEED_USERS-style). `is_builtin`
+// flags the seeded ones (informational); OTHER stays the protected fallback. Items keep a denormalized
+// category key (V29) referencing key here; a deleted category's items are reassigned to OTHER.
+object ShoppingCategoriesTable : Table("shopping_categories") {
+    val key = varchar("key", 40)
+    val label = text("label")
+    val emoji = varchar("emoji", 32)
+    val sortOrder = integer("sort_order")
+    val isBuiltin = bool("is_builtin")
+    override val primaryKey = PrimaryKey(key)
+}
+
 // Named "standard/template shopping lists" (#215): a saved, reusable list of item names the
 // household re-adds for the recurring shop. Shared like the shopping lists themselves — both
 // users manage all templates. Items are embedded children (1:n), saved with the template,

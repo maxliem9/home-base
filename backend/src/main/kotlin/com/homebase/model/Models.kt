@@ -277,6 +277,37 @@ data class UpdateShoppingListRequest(val name: String? = null)
 @Serializable
 data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
+// ---------- Shopping categories (editable catalog, #411) ----------
+// The grocery category LIST moved from the hardcoded GroceryCatalog into shopping_categories so the
+// household can manage its own categories. `key` is the stable id stored on items; it is generated
+// from the label on create and never changes. `isBuiltin` flags the seeded set (info only — builtins
+// are editable AND deletable, except OTHER which stays the protected fallback).
+@Serializable
+data class ShoppingCategoryDto(
+    val key: String,
+    val label: String,
+    val emoji: String,
+    val sortOrder: Int,
+    val isBuiltin: Boolean,
+)
+
+@Serializable
+data class CreateShoppingCategoryRequest(
+    val label: String,
+    val emoji: String,
+    val sortOrder: Int? = null,
+)
+
+@Serializable
+data class UpdateShoppingCategoryRequest(
+    val label: String? = null,
+    val emoji: String? = null,
+    val sortOrder: Int? = null,
+)
+
+@Serializable
+data class ShoppingCategoryWsMessage(val type: String, val payload: ShoppingCategoryDto? = null)
+
 // ---------- Shopping templates (#215) ----------
 // A named "standard list": a saved set of item names the household re-adds for the recurring
 // shop. Items are embedded (always returned with the template, ordered by sortOrder), like a
