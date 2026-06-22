@@ -157,6 +157,32 @@ interface HomeBaseApi {
     @DELETE("shopping/templates/{id}")
     suspend fun deleteShoppingTemplate(@Path("id") id: String)
 
+    // --- Shopping categories (editable catalog, #411) ---
+
+    @GET("shopping/categories")
+    suspend fun getShoppingCategories(): List<ShoppingCategoryDto>
+
+    @POST("shopping/categories")
+    suspend fun createShoppingCategory(@Body request: CreateShoppingCategoryRequest): ShoppingCategoryDto
+
+    @PUT("shopping/categories/{key}")
+    suspend fun updateShoppingCategory(@Path("key") key: String, @Body request: UpdateShoppingCategoryRequest): ShoppingCategoryDto
+
+    @DELETE("shopping/categories/{key}")
+    suspend fun deleteShoppingCategory(@Path("key") key: String)
+
+    // --- Shopping category rules (auto-resolve dictionary, #411) ---
+
+    @GET("shopping/category-rules")
+    suspend fun getShoppingCategoryRules(): List<ShoppingCategoryRuleDto>
+
+    // Upsert by normalized displayName (no {id} path — the body carries the key).
+    @PUT("shopping/category-rules")
+    suspend fun upsertShoppingCategoryRule(@Body request: UpsertCategoryRuleRequest): ShoppingCategoryRuleDto
+
+    @DELETE("shopping/category-rules/{name}")
+    suspend fun deleteShoppingCategoryRule(@Path("name") name: String)
+
     // --- Notes ---
 
     @GET("notes")

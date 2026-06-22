@@ -21,6 +21,10 @@ class ShoppingWebSocketClient(
         data class ListDeleted(val list: ShoppingListDto) : WsEvent()
         // Templates ride the same channel (#215). Create/update/delete all just trigger a refetch.
         data class TemplateChanged(val template: ShoppingTemplateDto) : WsEvent()
+        // Editable category catalog + auto-resolve rules (#411). The backend sends a payload, but —
+        // like the web — clients only refetch the affected list, so these carry nothing.
+        data object CategoryChanged : WsEvent()
+        data object CategoryRuleChanged : WsEvent()
     }
 
     override val path = "/ws/shopping"
@@ -38,6 +42,8 @@ class ShoppingWebSocketClient(
             "SHOPPING_LIST_DELETED" -> list(text)?.let { WsEvent.ListDeleted(it) }
             "SHOPPING_TEMPLATE_CREATED", "SHOPPING_TEMPLATE_UPDATED", "SHOPPING_TEMPLATE_DELETED" ->
                 template(text)?.let { WsEvent.TemplateChanged(it) }
+            "SHOPPING_CATEGORY_CHANGED" -> WsEvent.CategoryChanged
+            "SHOPPING_CATEGORY_RULE_CHANGED" -> WsEvent.CategoryRuleChanged
             else -> null
         }
     }

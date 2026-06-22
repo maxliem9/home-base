@@ -63,6 +63,7 @@ import com.homebase.android.ui.recipes.RecipesViewModel
 import com.homebase.android.ui.wochenplan.MealPlanScreen
 import com.homebase.android.ui.wochenplan.MealPlanViewModel
 import com.homebase.android.ui.settings.SettingsScreen
+import com.homebase.android.ui.settings.ShoppingCategoriesViewModel
 import com.homebase.android.ui.shopping.ShoppingScreen
 import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
@@ -162,6 +163,8 @@ class MainActivity : AppCompatActivity() {
         val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
         val absenceVm: AbsenceViewModel = viewModel(key = "absence-$token", factory = absenceFactory(token))
         val mealPlanVm: MealPlanViewModel = viewModel(key = "mealplan-$token", factory = mealPlanFactory(token))
+        val shoppingCategoriesVm: ShoppingCategoriesViewModel =
+            viewModel(key = "shopping-categories-$token", factory = shoppingCategoriesFactory(token))
 
         // A socket can be silently killed while the app is backgrounded (Doze, mobile-network change,
         // backend restart). OkHttp does not reconnect on its own, so on every return to the foreground
@@ -368,6 +371,7 @@ class MainActivity : AppCompatActivity() {
                     themeRepository = container.themeRepository,
                     timeViewModel = timeVm,
                     absenceViewModel = absenceVm,
+                    shoppingCategoriesViewModel = shoppingCategoriesVm,
                     currentUser = currentUser,
                     householdName = household,
                     onHouseholdRenamed = { household = it },
@@ -442,6 +446,13 @@ class MainActivity : AppCompatActivity() {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
             return MealPlanViewModel(container.mealPlanRepository, token) as T
+        }
+    }
+
+    private fun shoppingCategoriesFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return ShoppingCategoriesViewModel(container.shoppingCategoriesRepository, token) as T
         }
     }
 

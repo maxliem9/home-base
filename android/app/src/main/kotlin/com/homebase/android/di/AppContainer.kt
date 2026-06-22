@@ -80,6 +80,19 @@ class AppContainer(context: Context) {
         wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 
+    /**
+     * Dedicated repo for the Einkaufskategorien settings subpage (#411). It shares the same REST API
+     * but gets its OWN shopping WebSocket instance: the "shopping" channel's event flow is a
+     * single-consumer channel and connect/disconnect is per-socket, so reusing [shoppingRepository]
+     * would make the settings VM and the shopping screen VM fight over events + the connection
+     * lifecycle (same reason the Wochenplan owns a separate recipe socket). A separate instance keeps
+     * the settings subpage self-contained.
+     */
+    val shoppingCategoriesRepository = ShoppingRepository(
+        api = api,
+        wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
     /** Durable backing store for the shopping offline check-off queue (issue #170). */
     val shoppingPendingStore: ShoppingPendingStore = SharedPrefsShoppingPendingStore(context, moshi)
 

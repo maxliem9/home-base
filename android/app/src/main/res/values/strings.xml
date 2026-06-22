@@ -231,6 +231,30 @@
     <string name="shopping_template_apply_empty">Diese Vorlage hat keine Artikel.</string>
     <string name="shopping_template_delete_confirm">Vorlage „%1$s" löschen?</string>
 
+    <!-- Einkaufskategorien-Einstellungen (#411): editierbarer Katalog + Auto-Zuordnungsregeln -->
+    <string name="settings_shopping_cats_title">Kategorien</string>
+    <string name="settings_shopping_cats_hint">Überschriften, nach denen die Einkaufsliste gruppiert wird.</string>
+    <string name="settings_shopping_cats_empty">Noch keine Kategorien.</string>
+    <string name="settings_shopping_cat_add">Kategorie hinzufügen</string>
+    <string name="settings_shopping_cat_edit">Kategorie bearbeiten</string>
+    <string name="settings_shopping_cat_new">Neue Kategorie</string>
+    <string name="settings_shopping_cat_label">Bezeichnung</string>
+    <string name="settings_shopping_cat_label_placeholder">z. B. Obst &amp; Gemüse</string>
+    <string name="settings_shopping_cat_emoji">Emoji</string>
+    <string name="settings_shopping_cat_builtin">Vorgabe</string>
+    <string name="settings_shopping_cat_delete_body">„%1$s" löschen? Artikel dieser Kategorie wandern nach „Sonstiges".</string>
+    <string name="settings_shopping_rules_title">Auto-Zuordnungsregeln</string>
+    <string name="settings_shopping_rules_hint">Ordnet neu erfassten Artikeln anhand des Namens automatisch eine Kategorie (und ein Emoji) zu.</string>
+    <string name="settings_shopping_rules_empty">Noch keine Regeln.</string>
+    <string name="settings_shopping_rule_add">Regel hinzufügen</string>
+    <string name="settings_shopping_rule_edit">Regel bearbeiten</string>
+    <string name="settings_shopping_rule_new">Neue Regel</string>
+    <string name="settings_shopping_rule_name">Artikelname</string>
+    <string name="settings_shopping_rule_name_placeholder">z. B. Milch</string>
+    <string name="settings_shopping_rule_emoji">Emoji (optional)</string>
+    <string name="settings_shopping_rule_category">Kategorie</string>
+    <string name="settings_shopping_rule_delete_body">Regel für „%1$s" löschen?</string>
+
     <!-- ===== Notes (Notizen) ===== -->
     <string name="notes_eyebrow">Notizen</string>
     <string name="notes_title">Notizen</string>
@@ -516,6 +540,8 @@
     <string name="settings_time_sub">Wochensoll</string>
     <string name="settings_absence">Abwesenheit</string>
     <string name="settings_absence_sub">Kontingente, Teilzeit, Feier- &amp; Schließtage</string>
+    <string name="settings_shopping_cats">Einkaufskategorien</string>
+    <string name="settings_shopping_cats_sub">Kategorien und Auto-Zuordnungsregeln</string>
     <string name="settings_language">Sprache</string>
     <string name="settings_language_sub">Deutsch oder English</string>
     <string name="settings_language_de">Deutsch</string>

@@ -219,6 +219,30 @@
     <string name="shopping_template_apply_empty">This template has no items.</string>
     <string name="shopping_template_delete_confirm">Delete template “%1$s”?</string>
 
+    <!-- Shopping-categories settings (#411): editable catalog + auto-assignment rules -->
+    <string name="settings_shopping_cats_title">Categories</string>
+    <string name="settings_shopping_cats_hint">The headers the shopping list is grouped by.</string>
+    <string name="settings_shopping_cats_empty">No categories yet.</string>
+    <string name="settings_shopping_cat_add">Add category</string>
+    <string name="settings_shopping_cat_edit">Edit category</string>
+    <string name="settings_shopping_cat_new">New category</string>
+    <string name="settings_shopping_cat_label">Label</string>
+    <string name="settings_shopping_cat_label_placeholder">e.g. Fruit &amp; veg</string>
+    <string name="settings_shopping_cat_emoji">Emoji</string>
+    <string name="settings_shopping_cat_builtin">Built-in</string>
+    <string name="settings_shopping_cat_delete_body">Delete “%1$s”? Items in this category move to “Other”.</string>
+    <string name="settings_shopping_rules_title">Auto-assignment rules</string>
+    <string name="settings_shopping_rules_hint">Assigns a category (and emoji) to newly added items automatically, based on their name.</string>
+    <string name="settings_shopping_rules_empty">No rules yet.</string>
+    <string name="settings_shopping_rule_add">Add rule</string>
+    <string name="settings_shopping_rule_edit">Edit rule</string>
+    <string name="settings_shopping_rule_new">New rule</string>
+    <string name="settings_shopping_rule_name">Item name</string>
+    <string name="settings_shopping_rule_name_placeholder">e.g. Milk</string>
+    <string name="settings_shopping_rule_emoji">Emoji (optional)</string>
+    <string name="settings_shopping_rule_category">Category</string>
+    <string name="settings_shopping_rule_delete_body">Delete the rule for “%1$s”?</string>
+
     <!-- ===== Notes ===== -->
     <string name="notes_eyebrow">Notes</string>
     <string name="notes_title">Notes</string>
@@ -504,6 +528,8 @@
     <string name="settings_time_sub">Weekly target</string>
     <string name="settings_absence">Absence</string>
     <string name="settings_absence_sub">Quotas, part-time, holidays &amp; closing days</string>
+    <string name="settings_shopping_cats">Shopping categories</string>
+    <string name="settings_shopping_cats_sub">Categories and auto-assignment rules</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_sub">German or English</string>
     <string name="settings_language_de">Deutsch</string>

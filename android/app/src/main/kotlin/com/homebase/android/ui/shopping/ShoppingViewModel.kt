@@ -40,6 +40,12 @@ data class ShoppingUiState(
     val templates: List<ShoppingTemplateDto> = emptyList(),
     /** "Most used" autocomplete suggestions (#389), preloaded once; filtered client-side in the UI. */
     val suggestions: List<ShoppingSuggestion> = emptyList(),
+    /**
+     * The editable grocery category catalog (#411) used to group the list + drive the move-menu.
+     * Initialized to [BUILTIN_CATEGORIES] (offline/first-frame fallback) and replaced by the fetched
+     * catalog; reloaded on the shopping WS `CategoryChanged` event.
+     */
+    val categories: List<GroceryCategory> = BUILTIN_CATEGORIES,
 ) {
     val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
@@ -140,6 +146,7 @@ class ShoppingViewModel(
         load()
         loadTemplates()
         loadSuggestions()
+        loadCategories()
         observeWebSocket()
         observeConnectivity(networkAvailable)
         // Restore the previous session's queue off-main, then drain it. A toggle made before this
@@ -283,6 +290,20 @@ class ShoppingViewModel(
     private fun loadSuggestions() {
         viewModelScope.launch {
             repository.getSuggestions().onSuccess { s -> _uiState.update { it.copy(suggestions = s) } }
+        }
+    }
+
+    /**
+     * Fetch the editable category catalog (#411) into [ShoppingUiState.categories]; called on init and
+     * on every shopping WS `CategoryChanged` event. Non-fatal: on failure the state keeps its current
+     * catalog (the [BUILTIN_CATEGORIES] fallback on first load), so grouping/the move-menu still work
+     * offline — it just won't show a partner's custom categories until the fetch succeeds.
+     */
+    private fun loadCategories() {
+        viewModelScope.launch {
+            repository.getCategories().onSuccess { cats ->
+                _uiState.update { it.copy(categories = cats.map { c -> c.toGrocery() }) }
+            }
         }
     }
 
@@ -657,6 +678,11 @@ class ShoppingViewModel(
                     }
                     // Any template create/update/delete → refetch the whole set (web parity, #215).
                     is ShoppingWebSocketClient.WsEvent.TemplateChanged -> loadTemplates()
+                    // A category was added/renamed/reordered/deleted (#411) → refetch the catalog so
+                    // the grouping headers + move-menu stay current. Rule changes don't affect this
+                    // view (rules only resolve at add-time, server-side), so they're a no-op here.
+                    is ShoppingWebSocketClient.WsEvent.CategoryChanged -> loadCategories()
+                    is ShoppingWebSocketClient.WsEvent.CategoryRuleChanged -> Unit
                 }
             }
         }
