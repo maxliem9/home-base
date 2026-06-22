@@ -570,6 +570,25 @@ test.describe('Inbox', () => {
     await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
     await expect(page.locator('.hb-row', { hasText: 'Bohrmaschine kaufen' })).toHaveCount(0)
   })
+
+  test('removes a filed todo from its list via the plan sheet (#409)', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Altpapier rausbringen', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    const row = page.locator('.hb-row', { hasText: 'Altpapier rausbringen' })
+    await row.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    // "Ohne Liste" clears the list assignment (sends '' → backend #265 clears it)
+    await dialog.getByLabel('Liste').selectOption({ value: '' })
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+
+    // gone from the Haushalt list, now list-less in the Inbox
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Haushalt' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Altpapier rausbringen' })).toHaveCount(0)
+    await page.locator('.hb-tabs').getByRole('tab', { name: 'Inbox' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Altpapier rausbringen' })).toBeVisible()
+  })
 })
 
 test.describe('Subtasks', () => {

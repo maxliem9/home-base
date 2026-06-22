@@ -408,9 +408,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       dueDate: plan.dueDate || undefined,
       priority: plan.priority || undefined,
       // List move (#409): only send when the pick differs from the list at open time,
-      // so an untouched picker never clobbers a concurrent partner move. '' → null
-      // clears the list (back to inbox); an absent listId means "unchanged".
-      listId: plan.listId !== plan.listIdOriginal ? (plan.listId || null) : undefined,
+      // so an untouched picker never clobbers a concurrent partner move. Backend #265
+      // convention: '' clears the list (→ inbox), an id sets it, absent = unchanged.
+      listId: plan.listId !== plan.listIdOriginal ? plan.listId : undefined,
       // freq "NONE" clears any existing rule; otherwise set/replace it
       recurrence: plan.recurrenceFreq
         ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
