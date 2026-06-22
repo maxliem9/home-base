@@ -192,4 +192,106 @@ class ShoppingCategoryRouteTest {
         assertEquals("PANTRY", byName["500 g Mehl"])
         assertEquals("PRODUCE", byName["3 Tomaten"])
     }
+
+    // ---- Editable category catalog (#411) ----
+
+    private suspend fun ApplicationTestBuilder.categories(token: String): JsonArray =
+        Json.parseToJsonElement(client.get("/api/v1/shopping/categories") { bearerAuth(token) }.bodyAsText()).jsonArray
+
+    private suspend fun ApplicationTestBuilder.createCategory(token: String, label: String, emoji: String): JsonObject =
+        Json.parseToJsonElement(
+            client.post("/api/v1/shopping/categories") {
+                bearerAuth(token); contentType(ContentType.Application.Json)
+                setBody("""{"label":${JsonPrimitive(label)},"emoji":${JsonPrimitive(emoji)}}""")
+            }.bodyAsText()
+        ).jsonObject
+
+    private suspend fun ApplicationTestBuilder.itemById(token: String, id: String): JsonObject =
+        Json.parseToJsonElement(client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText())
+            .jsonArray.map { it.jsonObject }.first { it["id"]?.jsonPrimitive?.content == id }
+
+    @Test
+    fun `GET categories returns the seeded builtin catalog in route order`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val cats = categories(token).map { it.jsonObject }
+        assertEquals(10, cats.size)
+        assertEquals("PRODUCE", cats.first()["key"]?.jsonPrimitive?.content)
+        assertEquals("OTHER", cats.last()["key"]?.jsonPrimitive?.content)
+        assertTrue(cats.all { it["isBuiltin"]?.jsonPrimitive?.boolean == true })
+    }
+
+    @Test
+    fun `POST creates a custom category usable as an item override`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val created = createCategory(token, "Drogerie", "🧴")
+        val key = created["key"]!!.jsonPrimitive.content
+        assertEquals("DROGERIE", key)
+        assertEquals(false, created["isBuiltin"]?.jsonPrimitive?.boolean)
+
+        // the new key is a valid override target (validation now reads the DB catalog)
+        val id = addItem(token, "Wattestäbchen")["id"]!!.jsonPrimitive.content
+        val moved = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"category":"$key"}""")
+        }
+        assertEquals(HttpStatusCode.OK, moved.status)
+        assertEquals(key, Json.parseToJsonElement(moved.bodyAsText()).jsonObject["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT edits a builtin category's label and emoji`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val res = client.put("/api/v1/shopping/categories/DAIRY") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"label":"Molkerei","emoji":"🐄"}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val dto = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals("Molkerei", dto["label"]?.jsonPrimitive?.content)
+        assertEquals("🐄", dto["emoji"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `DELETE a custom category reassigns its items to OTHER`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val key = createCategory(token, "Baumarkt", "🔧")["key"]!!.jsonPrimitive.content
+
+        val id = addItem(token, "Schrauben")["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"category":"$key"}""")
+        }
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/categories/$key") { bearerAuth(token) }.status)
+        assertTrue(categories(token).none { it.jsonObject["key"]?.jsonPrimitive?.content == key })
+        assertEquals("OTHER", itemById(token, id)["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `DELETE a builtin category reassigns items and stops resolving to it`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val pizza = addItem(token, "Pizza")
+        assertEquals("FROZEN", pizza["category"]?.jsonPrimitive?.content)
+        val pizzaId = pizza["id"]!!.jsonPrimitive.content
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/categories/FROZEN") { bearerAuth(token) }.status)
+
+        // existing item reassigned …
+        assertEquals("OTHER", itemById(token, pizzaId)["category"]?.jsonPrimitive?.content)
+        // … and a fresh add no longer lands in the deleted category (resolve guarded → OTHER)
+        assertEquals("OTHER", addItem(token, "Tiefkühlpizza")["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `DELETE the OTHER fallback is rejected`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        assertEquals(HttpStatusCode.BadRequest, client.delete("/api/v1/shopping/categories/OTHER") { bearerAuth(token) }.status)
+        assertTrue(categories(token).any { it.jsonObject["key"]?.jsonPrimitive?.content == "OTHER" })
+    }
 }

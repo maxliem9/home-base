@@ -1,10 +1,12 @@
 package com.homebase.routes
 
+import com.homebase.db.ShoppingCategoriesTable
 import com.homebase.db.ShoppingItemStatsTable
 import com.homebase.db.ShoppingItemsTable
 import com.homebase.db.ShoppingListsTable
 import com.homebase.model.*
 import com.homebase.shopping.GroceryCatalog
+import com.homebase.shopping.ShoppingCatalog
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.request.*
@@ -28,6 +30,9 @@ fun Route.shoppingRoutes() {
 
     suspend fun broadcastList(type: String, list: ShoppingListDto) =
         WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingListWsMessage(type, list)))
+
+    suspend fun broadcastCategory(type: String, category: ShoppingCategoryDto?) =
+        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingCategoryWsMessage(type, category)))
 
     route("/shopping") {
         // ---- Lists (registered before /{id} so the static segment wins) ----
@@ -104,6 +109,93 @@ fun Route.shoppingRoutes() {
             }
         }
 
+        // ---- Categories (editable catalog, #411): the household manages its own grocery categories.
+        // Shared like the lists; builtins are editable AND deletable too (except OTHER, the fallback). ----
+        route("/categories") {
+            get {
+                val cats = transaction {
+                    ShoppingCategoriesTable.selectAll()
+                        .orderBy(ShoppingCategoriesTable.sortOrder to SortOrder.ASC, ShoppingCategoriesTable.key to SortOrder.ASC)
+                        .map { it.toCategoryDto() }
+                }
+                call.respond(cats)
+            }
+
+            post {
+                val req = call.receive<CreateShoppingCategoryRequest>()
+                val label = req.label.trim()
+                val emoji = req.emoji.trim()
+                if (label.isBlank() || emoji.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "label and emoji must not be blank"))
+                    return@post
+                }
+                val created = transaction {
+                    val key = uniqueCategoryKey(label)
+                    val order = req.sortOrder
+                        ?: ((ShoppingCategoriesTable.selectAll().maxOfOrNull { it[ShoppingCategoriesTable.sortOrder] } ?: -1) + 1)
+                    ShoppingCategoriesTable.insert {
+                        it[ShoppingCategoriesTable.key] = key
+                        it[ShoppingCategoriesTable.label] = label
+                        it[ShoppingCategoriesTable.emoji] = emoji
+                        it[sortOrder] = order
+                        it[isBuiltin] = false
+                    }
+                    ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.single().toCategoryDto()
+                }
+                broadcastCategory("SHOPPING_CATEGORY_CHANGED", created)
+                call.respond(HttpStatusCode.Created, created)
+            }
+
+            put("/{key}") {
+                val key = call.parameters["key"]?.takeIf { it.isNotBlank() } ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "key required")); return@put
+                }
+                val req = call.receive<UpdateShoppingCategoryRequest>()
+                if (req.label != null && req.label.isBlank() || req.emoji != null && req.emoji.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "label/emoji must not be blank")); return@put
+                }
+                val updated = transaction {
+                    ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.singleOrNull()
+                        ?: return@transaction null
+                    ShoppingCategoriesTable.update({ ShoppingCategoriesTable.key eq key }) {
+                        req.label?.let { v -> it[label] = v.trim() }
+                        req.emoji?.let { v -> it[emoji] = v.trim() }
+                        req.sortOrder?.let { v -> it[sortOrder] = v }
+                    }
+                    ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.single().toCategoryDto()
+                }
+                if (updated == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Category not found")); return@put
+                }
+                broadcastCategory("SHOPPING_CATEGORY_CHANGED", updated)
+                call.respond(updated)
+            }
+
+            delete("/{key}") {
+                val key = call.parameters["key"]?.takeIf { it.isNotBlank() } ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "key required")); return@delete
+                }
+                if (key == GroceryCatalog.OTHER) {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("CATEGORY_PROTECTED", "the fallback category cannot be deleted"))
+                    return@delete
+                }
+                val deleted = transaction {
+                    val existing = ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.singleOrNull()
+                        ?: return@transaction null
+                    // Reassign this category's items + remembered stats to OTHER so nothing dangles.
+                    ShoppingItemsTable.update({ ShoppingItemsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
+                    ShoppingItemStatsTable.update({ ShoppingItemStatsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
+                    ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.key eq key }
+                    existing.toCategoryDto()
+                }
+                if (deleted == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Category not found")); return@delete
+                }
+                broadcastCategory("SHOPPING_CATEGORY_CHANGED", deleted)
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
+
         // Autocomplete source (#389/#390): the known catalog (count 0 baseline, useful on day one)
         // merged with the household's real usage tally, ranked most-used first. Clients preload this
         // once and filter locally as the user types.
@@ -111,19 +203,21 @@ fun Route.shoppingRoutes() {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 300
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
             val suggestions = transaction {
+                val liveKeys = ShoppingCatalog.liveKeys()
+                fun liveCat(cat: String) = if (cat in liveKeys) cat else GroceryCatalog.OTHER
                 val merged = LinkedHashMap<String, ShoppingSuggestionDto>()
                 GroceryCatalog.allEntries().forEach { e ->
-                    merged[e.normalized] = ShoppingSuggestionDto(e.name, e.category, e.icon, 0)
+                    merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
                 }
                 ShoppingItemStatsTable.selectAll().forEach { row ->
                     val key = row[ShoppingItemStatsTable.normalizedName]
                     val display = row[ShoppingItemStatsTable.displayName]
-                    val resolved = GroceryCatalog.resolve(display)
+                    val resolved = ShoppingCatalog.resolve(display, liveKeys)
                     val baseline = merged[key] // the catalog entry, if this is a known item
                     merged[key] = ShoppingSuggestionDto(
                         // prefer the catalog's canonical name so a lowercase add can't downgrade "Milch"
                         name = baseline?.name ?: display,
-                        category = row[ShoppingItemStatsTable.category] ?: baseline?.category ?: resolved.category,
+                        category = liveCat(row[ShoppingItemStatsTable.category] ?: baseline?.category ?: resolved.category),
                         icon = row[ShoppingItemStatsTable.icon] ?: baseline?.icon ?: resolved.icon,
                         count = row[ShoppingItemStatsTable.useCount],
                     )
@@ -165,6 +259,7 @@ fun Route.shoppingRoutes() {
                 if (listId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }.empty()) {
                     return@transaction false
                 }
+                val liveKeys = ShoppingCatalog.liveKeys() // load once; categorize each new line against it (#411)
                 // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
                 val working = ShoppingItemsTable.selectAll()
                     .where { if (listId != null) ShoppingItemsTable.listId eq listId else ShoppingItemsTable.listId.isNull() }
@@ -201,7 +296,7 @@ fun Route.shoppingRoutes() {
 
                     // 3. Otherwise add a new item.
                     val id = UUID.randomUUID()
-                    val (resolvedCategory, resolvedIcon) = resolveForItem(name)
+                    val (resolvedCategory, resolvedIcon) = resolveForItem(name, liveKeys)
                     ShoppingItemsTable.insert {
                         it[ShoppingItemsTable.id] = id
                         it[ShoppingItemsTable.name] = display
@@ -262,7 +357,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name)
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.liveKeys())
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -301,16 +396,16 @@ fun Route.shoppingRoutes() {
             // Manual category/icon override (#389/#390): blank = unchanged; a category must be a known key.
             val newCategory = req.category?.takeIf { it.isNotBlank() }
             val newIcon = req.icon?.takeIf { it.isNotBlank() }
-            if (newCategory != null && !GroceryCatalog.isValidCategory(newCategory)) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "category must be a known key"))
-                return@put
-            }
 
             val item = transaction {
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
                     ?: return@transaction null
                 if (targetListId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq targetListId }.empty()) {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                }
+                // category override must be a live catalog key (#411: validated against the DB)
+                if (newCategory != null && newCategory !in ShoppingCatalog.liveKeys()) {
+                    return@transaction ErrorResponse("INVALID_CATEGORY", "category must be a known key")
                 }
 
                 ShoppingItemsTable.update({ ShoppingItemsTable.id eq id }) {
@@ -393,6 +488,37 @@ private fun ResultRow.toDto() = ShoppingItemDto(
     icon = this[ShoppingItemsTable.icon],
 )
 
+private fun ResultRow.toCategoryDto() = ShoppingCategoryDto(
+    key = this[ShoppingCategoriesTable.key],
+    label = this[ShoppingCategoriesTable.label],
+    emoji = this[ShoppingCategoriesTable.emoji],
+    sortOrder = this[ShoppingCategoriesTable.sortOrder],
+    isBuiltin = this[ShoppingCategoriesTable.isBuiltin],
+)
+
+/**
+ * Generate a stable, unique category key from a label: uppercase ASCII slug (non-alnum → "_"), capped
+ * at 40 chars, numeric suffix on collision. Call inside a transaction (it reads the existing keys).
+ * The stored key is the immutable id on items; custom labels rarely collide with the builtin words.
+ */
+private fun uniqueCategoryKey(label: String): String {
+    val base = label.uppercase()
+        .map { if (it in 'A'..'Z' || it in '0'..'9') it else '_' }
+        .joinToString("")
+        .replace(Regex("_+"), "_")
+        .trim('_')
+        .take(40)
+        .ifBlank { "CAT" }
+    val existing = ShoppingCategoriesTable.selectAll().mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
+    if (base !in existing) return base
+    var i = 2
+    while (true) {
+        val candidate = base.take(36) + "_" + i
+        if (candidate !in existing) return candidate
+        i++
+    }
+}
+
 // ---- Categorization + usage stats (#389/#390) --------------------------------------------------
 //
 // Stats writes are intentionally split from the item write: resolveForItem() only READS (safe inside
@@ -405,13 +531,15 @@ private fun ResultRow.toDto() = ShoppingItemDto(
  * The category + icon to show on a freshly added item: a remembered household override (stats row)
  * wins over the catalog, which falls back to OTHER + cart. Read-only — safe inside any transaction.
  */
-private fun resolveForItem(rawName: String): Pair<String, String> {
-    val resolved = GroceryCatalog.resolve(rawName)
+private fun resolveForItem(rawName: String, liveKeys: Set<String>): Pair<String, String> {
+    val resolved = ShoppingCatalog.resolve(rawName, liveKeys)
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return resolved.category to resolved.icon
     val existing = ShoppingItemStatsTable.selectAll()
         .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
-    return (existing?.get(ShoppingItemStatsTable.category) ?: resolved.category) to
+    // a remembered override pointing at a since-deleted category falls back to the resolved one (#411)
+    val statsCategory = existing?.get(ShoppingItemStatsTable.category)?.takeIf { it in liveKeys }
+    return (statsCategory ?: resolved.category) to
         (existing?.get(ShoppingItemStatsTable.icon) ?: resolved.icon)
 }
 
@@ -428,11 +556,12 @@ private fun recordUsages(rawNames: List<String>) {
     if (entries.isEmpty()) return
     runCatching {
         transaction {
+            val liveKeys = ShoppingCatalog.liveKeys()
             for ((key, display) in entries) {
                 val existing = ShoppingItemStatsTable.selectAll()
                     .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
                 if (existing == null) {
-                    val resolved = GroceryCatalog.resolve(display)
+                    val resolved = ShoppingCatalog.resolve(display, liveKeys)
                     ShoppingItemStatsTable.insert {
                         it[normalizedName] = key
                         it[displayName] = display
