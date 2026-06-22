@@ -159,6 +159,22 @@ test.describe('Todos', () => {
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
   })
 
+  test('sets a priority via the chip row in the plan sheet (#407)', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    // priority is a chip row now (#407), not a dropdown
+    await dialog.locator('.hb-pick', { hasText: 'Hoch' }).click()
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click() // assignee → save allowed
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+    // the row shows the chosen priority label (PriorityDot withLabel)
+    await expect(page.locator('.hb-row', { hasText: 'Steuer machen' })).toContainText('Hoch')
+  })
+
   test('edits a todo description in the plan sheet and shows it in the row', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)

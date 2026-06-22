@@ -918,12 +918,21 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
               <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
             </Field>
             <Field label={t('todos.priority')}>
-              <Select value={plan.priority} onChange={(v) => setPlan({ ...plan, priority: v as PlanDraft['priority'] })}>
-                <option value="">{t('todos.priorityNone')}</option>
-                <option value="LOW">LOW</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="HIGH">HIGH</option>
-              </Select>
+              {/* Chip row (#407) — same affordance as the quick-add Details panel; clicking the active
+                  chip toggles priority back to none. Replaces the former raw LOW/MEDIUM/HIGH <Select>. */}
+              <div className="hb-pickrow">
+                {(Object.keys(PRIO) as TodoPriority[]).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`hb-pick${plan.priority === k ? ' is-active' : ''}`}
+                    onClick={() => setPlan({ ...plan, priority: plan.priority === k ? '' : k })}
+                  >
+                    <span className="hb-prio__dot" style={{ background: `oklch(0.6 0.13 ${PRIO[k].hue})` }} />
+                    {PRIO[k].label}
+                  </button>
+                ))}
+              </div>
             </Field>
             <Field
               label={t('todos.recurrence')}
