@@ -386,6 +386,37 @@ test.describe('Shopping categories & suggestions', () => {
     await expect(page.locator('.hb-row', { hasText: 'Bananen' })).toBeVisible()
   })
 
+  // #398: the quick-add input must announce its autocomplete to screen readers — combobox
+  // role, expanded state, the listbox it controls, and which option is highlighted.
+  test('quick-add input exposes combobox semantics for screen readers', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], []).seedShoppingSuggestions([
+      { name: 'Tomaten', category: 'PRODUCE', icon: '🍅', count: 24 },
+      { name: 'Tofu', category: 'PANTRY', icon: '🥡', count: 6 },
+    ])
+    await openShopping(page, mock)
+
+    const input = page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …')
+    await expect(input).toHaveAttribute('role', 'combobox')
+    await expect(input).toHaveAttribute('aria-autocomplete', 'list')
+    await expect(input).toHaveAttribute('aria-expanded', 'false') // collapsed while empty
+
+    await input.fill('to')
+    await expect(input).toHaveAttribute('aria-expanded', 'true')
+    // aria-controls points at the now-rendered listbox
+    const listId = await page.locator('.hb-ac').getAttribute('id')
+    expect(listId).toBeTruthy()
+    await expect(input).toHaveAttribute('aria-controls', listId!)
+    // the highlighted option is announced via aria-activedescendant (default: top match "Tomaten")
+    const active1 = await input.getAttribute('aria-activedescendant')
+    await expect(page.locator(`[id="${active1}"]`)).toContainText('Tomaten')
+
+    // ArrowDown advances the active option, and aria-activedescendant follows it
+    await input.press('ArrowDown')
+    const active2 = await input.getAttribute('aria-activedescendant')
+    expect(active2).not.toBe(active1)
+    await expect(page.locator(`[id="${active2}"]`)).toContainText('Tofu')
+  })
+
   test('moves an item to another category via the override menu', async ({ page }) => {
     const mock = new MockApi([], [], [WOCHE], [
       shoppingItem({ id: 'i1', name: 'Pizza', listId: 'sl1', category: 'OTHER', icon: '🍕' }),
@@ -407,5 +438,35 @@ test.describe('Shopping categories & suggestions', () => {
     // the item jumps to the Tiefkühl section; the now-empty Sonstiges section is gone
     await expect(page.locator('.hb-cathead', { hasText: 'Tiefkühl' })).toBeVisible()
     await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toHaveCount(0)
+  })
+
+  // #398: the override menu must be operable by keyboard — focus the current item on open,
+  // move focus with the arrow keys, and on Escape close and hand focus back to the trigger.
+  test('category override menu manages focus for keyboard users', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      shoppingItem({ id: 'i1', name: 'Pizza', listId: 'sl1', category: 'OTHER', icon: '🍕' }),
+    ])
+    await openShopping(page, mock)
+
+    const row = page.locator('.hb-row', { hasText: 'Pizza' })
+    await row.hover() // reveal the row actions
+    const trigger = row.getByRole('button', { name: 'In Kategorie verschieben' })
+    await trigger.click()
+    const menu = page.locator('.hb-catmenu')
+    await expect(menu).toBeVisible()
+
+    // opens with focus on the current category (OTHER → "Sonstiges", last in the list)
+    const current = menu.getByRole('menuitemradio', { name: /Sonstiges/ })
+    await expect(current).toBeFocused()
+
+    // arrow keys move focus among the items, staying inside the menu (roving tabindex)
+    await page.keyboard.press('ArrowUp')
+    await expect(current).not.toBeFocused()
+    await expect(menu.locator(':focus')).toHaveAttribute('role', 'menuitemradio')
+
+    // Escape closes the menu and returns focus to the trigger
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(trigger).toBeFocused()
   })
 })
