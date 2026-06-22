@@ -254,9 +254,33 @@ test.describe('Quick-add details', () => {
     const row = page.locator('.hb-row', { hasText: 'Auto anmelden' })
     await expect(row).toBeVisible()
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
-    // panel collapses + the dot clears after a successful capture
-    await expect(qa.locator('.hb-qa__panel')).toHaveCount(0)
+    // panel STAYS open after a capture (#408) but its fields reset → the dot clears
+    await expect(qa.locator('.hb-qa__panel')).toBeVisible()
     await expect(qa.locator('.hb-qa__dot')).toHaveCount(0)
+  })
+
+  test('keeps the Details panel open after capture for the next todo (#408)', async ({ page }) => {
+    await openApp(page, new MockApi([], [HAUSHALT]), TOKEN, PINNED)
+    const qa = page.locator('.hb-qa')
+    const titleInput = page.getByPlaceholder('Neue Aufgabe in „Haushalt" …')
+
+    await titleInput.fill('Erste Aufgabe')
+    await qa.getByRole('button', { name: 'Details' }).click()
+    await qa.locator('.hb-pick', { hasText: 'Max' }).click()
+    await expect(qa.locator('.hb-qa__dot')).toBeVisible()
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+
+    // #408: panel stays open and its fields reset (dot gone) → ready for the next capture
+    await expect(page.locator('.hb-row', { hasText: 'Erste Aufgabe' })).toBeVisible()
+    await expect(qa.locator('.hb-qa__panel')).toBeVisible()
+    await expect(qa.locator('.hb-qa__dot')).toHaveCount(0)
+
+    // capture a second todo via the still-open panel, no re-opening
+    await titleInput.fill('Zweite Aufgabe')
+    await qa.locator('input[type="date"]').fill('2026-06-20')
+    await page.getByRole('button', { name: 'Erfassen' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Zweite Aufgabe' })).toBeVisible()
+    await expect(qa.locator('.hb-qa__panel')).toBeVisible()
   })
 
   test('toggles a priority chip and closes the panel with Escape, keeping the title', async ({ page }) => {
