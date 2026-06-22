@@ -114,6 +114,9 @@ interface HomeBaseApi {
     @GET("shopping")
     suspend fun getShoppingItems(): List<ShoppingItemDto>
 
+    @GET("shopping/suggestions")
+    suspend fun getShoppingSuggestions(): List<ShoppingSuggestion>
+
     @POST("shopping")
     suspend fun createShoppingItem(@Body request: CreateShoppingItemRequest): ShoppingItemDto
 

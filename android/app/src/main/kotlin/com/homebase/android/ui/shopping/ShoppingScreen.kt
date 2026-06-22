@@ -1,6 +1,7 @@
 package com.homebase.android.ui.shopping
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -34,12 +38,14 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
@@ -119,15 +125,15 @@ fun ShoppingScreen(
             )
 
             Column(Modifier.padding(horizontal = 18.dp)) {
-                HbQuickAdd(
+                ShoppingQuickAddSection(
                     value = addItemText,
                     onValueChange = { addItemText = it },
-                    onSubmit = {
-                        viewModel.addItem(addItemText)
+                    onAdd = { name ->
+                        viewModel.addItem(name)
                         addItemText = ""
                     },
+                    suggestions = state.suggestions,
                     placeholder = stringResource(R.string.shopping_quick_add),
-                    leading = HbIcons.plus,
                 )
 
                 Spacer(Modifier.size(18.dp))
@@ -147,12 +153,16 @@ fun ShoppingScreen(
                         stringResource(R.string.shopping_empty_hint),
                     )
                 } else {
-                    openItems.forEach { item ->
-                        OpenItemRow(
-                            item = item,
-                            pending = state.isPending(item.id),
-                            onToggle = { viewModel.toggleChecked(item) },
-                        )
+                    groupByCategory(openItems).forEach { (category, catItems) ->
+                        CategorySectionHeader(category, catItems.size)
+                        catItems.forEach { item ->
+                            OpenItemRow(
+                                item = item,
+                                pending = state.isPending(item.id),
+                                onToggle = { viewModel.toggleChecked(item) },
+                                onMove = { viewModel.moveItemCategory(item, it) },
+                            )
+                        }
                     }
 
                     if (checkedItems.isNotEmpty()) {
@@ -392,9 +402,10 @@ private fun Modifier.accentUnderline(color: Color): Modifier = drawBehind {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit) {
+private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit, onMove: (String) -> Unit) {
     HbRow {
         HbCheck(checked = false, onCheckedChange = onToggle)
+        ItemEmoji(item.icon)
         Text(
             item.name,
             style = HbType.rowTitle,
@@ -403,6 +414,7 @@ private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () ->
         )
         if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
+        CategoryMoveMenu(current = item.category, onPick = onMove)
     }
 }
 
@@ -410,6 +422,7 @@ private fun OpenItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () ->
 private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit) {
     HbRow {
         HbCheck(checked = true, onCheckedChange = onToggle)
+        ItemEmoji(item.icon, muted = true)
         Text(
             item.name,
             style = HbType.rowTitle.copy(textDecoration = TextDecoration.LineThrough),
@@ -418,6 +431,128 @@ private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: ()
         )
         if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
+    }
+}
+
+/** Single rendering seam for an item's icon (#389): emoji today, swappable later. */
+@Composable
+private fun ItemEmoji(icon: String?, muted: Boolean = false) {
+    Text(
+        icon?.ifBlank { DEFAULT_ITEM_ICON } ?: DEFAULT_ITEM_ICON,
+        fontSize = 18.sp,
+        modifier = if (muted) Modifier.alpha(0.65f) else Modifier,
+    )
+}
+
+/** Category section header: emoji + label + open-item count, in fixed shopping-route order. */
+@Composable
+private fun CategorySectionHeader(category: GroceryCategory, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(category.emoji, fontSize = 18.sp)
+        Text(
+            category.label,
+            style = HbType.rowTitle.copy(fontWeight = FontWeight.Bold),
+            color = Hb.ink,
+            modifier = Modifier.weight(1f),
+        )
+        Text(count.toString(), style = HbType.meta, color = Hb.ink3)
+    }
+}
+
+/** "In Kategorie verschieben" trigger + dropdown of the 10 categories (#389). */
+@Composable
+private fun CategoryMoveMenu(current: String?, onPick: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        HbIconButton(HbIcons.tag, { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            SHOPPING_CATEGORIES.forEach { c ->
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(c.emoji, fontSize = 16.sp)
+                            Text(c.label, style = HbType.body, color = if (c.key == current) Hb.accent else Hb.ink)
+                        }
+                    },
+                    onClick = { open = false; onPick(c.key) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Quick-add pill plus a "most used" autocomplete (#389): as the user types, matching suggestions
+ * (prefix first, then substring; preloaded count-desc) appear below; tapping one adds it. The panel
+ * is rendered inline below the pill so the text field keeps focus (no popup focus juggling).
+ */
+@Composable
+private fun ShoppingQuickAddSection(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onAdd: (String) -> Unit,
+    suggestions: List<ShoppingSuggestion>,
+    placeholder: String,
+) {
+    HbQuickAdd(
+        value = value,
+        onValueChange = onValueChange,
+        onSubmit = { onAdd(value) },
+        placeholder = placeholder,
+        leading = HbIcons.plus,
+    )
+    val q = value.trim().lowercase()
+    val matches = remember(q, suggestions) {
+        if (q.isEmpty()) {
+            emptyList()
+        } else {
+            val pre = suggestions.filter { it.name.lowercase().startsWith(q) }
+            val sub = suggestions.filter { !it.name.lowercase().startsWith(q) && it.name.lowercase().contains(q) }
+            (pre + sub).take(6)
+        }
+    }
+    if (matches.isNotEmpty()) {
+        Spacer(Modifier.size(8.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(HbRadius)
+                .background(Hb.surface, HbRadius)
+                .border(1.dp, Hb.line, HbRadius)
+                .padding(5.dp),
+        ) {
+            Row(
+                Modifier.padding(start = 11.dp, top = 7.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                HbIcon(HbIcons.sparkle, size = 13.dp, tint = Hb.accent)
+                Text(stringResource(R.string.shopping_suggestions_hint).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            }
+            matches.forEach { s ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(HbRadiusSm)
+                        .clickable { onAdd(s.name) }
+                        .padding(horizontal = 11.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(s.icon.ifBlank { DEFAULT_ITEM_ICON }, fontSize = 18.sp)
+                    Text(s.name, style = HbType.rowTitle, color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(categoryMeta(s.category).label, style = HbType.meta, color = Hb.ink3, maxLines = 1)
+                    Text("${s.count}×", style = HbType.meta, color = Hb.ink3)
+                }
+            }
+        }
     }
 }
 
