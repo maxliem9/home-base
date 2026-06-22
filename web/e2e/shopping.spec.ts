@@ -438,6 +438,8 @@ test.describe('Shopping categories & suggestions', () => {
     // the item jumps to the Tiefkühl section; the now-empty Sonstiges section is gone
     await expect(page.locator('.hb-cathead', { hasText: 'Tiefkühl' })).toBeVisible()
     await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toHaveCount(0)
+    // #398: focus follows the moved item — it returns to the (remounted) trigger in the new section
+    await expect(page.locator('.hb-row', { hasText: 'Pizza' }).getByRole('button', { name: 'In Kategorie verschieben' })).toBeFocused()
   })
 
   // #398: the override menu must be operable by keyboard — focus the current item on open,

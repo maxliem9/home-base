@@ -561,11 +561,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                             </span>
                           )}
                           <div className="hb-row__actions">
-                            <IconButton icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
+                            <IconButton id={`hb-move-${item.id}`} icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
                             <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
                           </div>
                           {menuFor === item.id && (
-                            <CategoryMenu current={item.category} categories={categories} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
+                            <CategoryMenu triggerId={`hb-move-${item.id}`} current={item.category} categories={categories} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
                           )}
                         </div>
                       </div>
@@ -797,7 +797,7 @@ function ShoppingQuickAdd({
 
 // "In Kategorie verschieben" popover anchored to a row. An invisible full-screen backdrop captures
 // the outside click to close (so re-clicking the trigger can't immediately reopen it).
-function CategoryMenu({ current, categories, onPick, onClose }: { current?: string; categories: ShoppingCategory[]; onPick: (key: string) => void; onClose: () => void }) {
+function CategoryMenu({ triggerId, current, categories, onPick, onClose }: { triggerId: string; current?: string; categories: ShoppingCategory[]; onPick: (key: string) => void; onClose: () => void }) {
   const { t } = useTranslation()
   const titleId = useId()
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -805,11 +805,10 @@ function CategoryMenu({ current, categories, onPick, onClose }: { current?: stri
   const currentIndex = Math.max(0, categories.findIndex((c) => c.key === current))
   const [focusIndex, setFocusIndex] = useState(currentIndex)
 
-  // Return focus to the trigger (still the active element at mount) once the menu closes.
-  useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null
-    return () => trigger?.focus()
-  }, [])
+  // Return focus to the trigger once the menu closes. Resolved by id (not a captured node):
+  // picking a category regroups the item into a different card, remounting the trigger — this
+  // passive cleanup runs after that commit, so the (possibly new) trigger node is found by id.
+  useEffect(() => () => document.getElementById(triggerId)?.focus(), [triggerId])
 
   // Move real DOM focus to the active item — on open to the current/first, then as the user arrows.
   useEffect(() => { itemRefs.current[focusIndex]?.focus() }, [focusIndex])
