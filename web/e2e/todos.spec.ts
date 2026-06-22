@@ -175,6 +175,26 @@ test.describe('Todos', () => {
     await expect(page.locator('.hb-row', { hasText: 'Steuer machen' })).toContainText('Belege sammeln')
   })
 
+  test('edits a todo title in the plan sheet, keeping it unplanned (#406)', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    // the title is editable in the sheet now; a title-only change needs no assignee/due date
+    await dialog.getByLabel('Titel').fill('Steuererklärung abgeben')
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+    // row shows the new title; the old one is gone
+    await expect(page.locator('.hb-row', { hasText: 'Steuererklärung abgeben' })).toBeVisible()
+    await expect(page.getByText('Steuer machen', { exact: true })).toHaveCount(0)
+    // still unplanned → the "Planen" button stays (status wasn't flipped to PLANNED)
+    await expect(
+      page.locator('.hb-row', { hasText: 'Steuererklärung abgeben' }).getByRole('button', { name: 'Planen' }),
+    ).toBeVisible()
+  })
+
   test('completes a todo so it appears under the Erledigt section', async ({ page }) => {
     const mock = new MockApi(
       [todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignee: 'alice', listId: 'l1' })],

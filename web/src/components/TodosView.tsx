@@ -108,6 +108,7 @@ const buildBuckets = (t: TFunction): { key: string; label: string }[] => [
 
 interface PlanDraft {
   id: string
+  title: string
   description: string
   assignee: string
   dueDate: string
@@ -392,11 +393,14 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
 
   const handlePlan = async () => {
     if (!plan) return
-    if (!plan.assignee.trim() && !plan.dueDate) return
+    if (!plan.title.trim()) return
     // a recurrence needs a due date as its schedule anchor (backend enforces this too)
     if (plan.recurrenceFreq && !plan.dueDate) return
+    // assignee/due-date make it a PLANNED todo; a pure title/description edit leaves the
+    // status untouched (undefined = unchanged), so renaming an inbox todo doesn't silently plan it (#406)
     const ok = await patchTodo(plan.id, {
-      status: 'PLANNED',
+      status: plan.assignee.trim() || plan.dueDate ? 'PLANNED' : undefined,
+      title: plan.title.trim(),
       // sent every save (null = unchanged on the backend); a blank value clears it back to empty
       description: plan.description.trim(),
       assignee: plan.assignee.trim() || undefined,
@@ -692,7 +696,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
       onToggleDone={() => toggleDone(todo)}
       onToggleExpand={() => toggleExpand(todo.id)}
-      onPlan={() => setPlan({ id: todo.id, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
       onDelete={() => deleteTodo(todo.id)}
       onToggleSub={(s) => toggleSubtask(todo.id, s)}
       onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -878,7 +882,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             <Button variant="ghost" onClick={() => setPlan(null)}>{t('common.cancel')}</Button>
             <Button
               onClick={handlePlan}
-              disabled={!plan || (!plan.assignee.trim() && !plan.dueDate) || (!!plan.recurrenceFreq && !plan.dueDate)}
+              disabled={!plan || !plan.title.trim() || (!!plan.recurrenceFreq && !plan.dueDate)}
             >
               {t('todos.plan')}
             </Button>
@@ -888,6 +892,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
         {plan && (
           <>
             <p className="hb-muted" style={{ margin: 0, fontSize: 13.5 }}>{t('todos.planHint')}</p>
+            <Field label={t('todos.titleLabel')}>
+              <TextInput value={plan.title} onChange={(v) => setPlan({ ...plan, title: v })} />
+            </Field>
             {!planTodo?.listId && lists.length > 0 && (
               <Field label={t('todos.planList')}>
                 <Select value={plan.listId} onChange={(v) => setPlan({ ...plan, listId: v })}>

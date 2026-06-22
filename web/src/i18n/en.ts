@@ -202,7 +202,8 @@ export const en: Messages = {
     plan: 'Plan',
     markDone: 'Done',
     planTitle: 'Plan task',
-    planHint: 'Set at least an assignee or a due date.',
+    planHint: 'A title is required. An assignee or due date makes it a planned task.',
+    titleLabel: 'Title',
     planList: 'List', // list picker in the plan modal (only for inbox todos, issue #69)
     planListInbox: 'Stays in the Inbox', // empty option of the plan-modal list picker
     assignee: 'Assignee',
