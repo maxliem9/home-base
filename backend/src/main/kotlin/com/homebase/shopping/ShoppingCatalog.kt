@@ -2,6 +2,7 @@ package com.homebase.shopping
 
 import com.homebase.db.ShoppingCategoriesTable
 import com.homebase.db.ShoppingCategoryRulesTable
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -54,9 +55,13 @@ object ShoppingCatalog {
     fun liveKeys(): Set<String> =
         ShoppingCategoriesTable.selectAll().mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
 
-    /** Load the auto-resolve dictionary into an in-memory matcher. Call inside a transaction, once per operation. */
+    /**
+     * Load the auto-resolve dictionary into an in-memory matcher. Call inside a transaction, once per
+     * operation. Ordered by normalized name so the longest-substring tiebreak is deterministic
+     * regardless of DB row order (the length sort is stable).
+     */
     fun loadRules(): RuleSet = RuleSet(
-        ShoppingCategoryRulesTable.selectAll().map {
+        ShoppingCategoryRulesTable.selectAll().orderBy(ShoppingCategoryRulesTable.normalizedName to SortOrder.ASC).map {
             RuleSet.Rule(
                 it[ShoppingCategoryRulesTable.normalizedName],
                 it[ShoppingCategoryRulesTable.displayName],

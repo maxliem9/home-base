@@ -368,6 +368,17 @@ class ShoppingCategoryRouteTest {
     }
 
     @Test
+    fun `DELETE decodes and removes a multi-word rule`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // "Passierte Tomaten" ships as a multi-word PANTRY rule (normalized "passierte tomaten")
+        assertTrue(rules(token).any { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "passierte tomaten" })
+        val del = client.delete("/api/v1/shopping/category-rules/passierte%20tomaten") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.NoContent, del.status)
+        assertTrue(rules(token).none { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "passierte tomaten" })
+    }
+
+    @Test
     fun `deleting a category re-points its rules to OTHER`() = testApplication {
         configureTestApplication()
         val token = token()
