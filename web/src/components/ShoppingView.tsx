@@ -6,7 +6,7 @@ import { ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
-import { Avatar, Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
+import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
 import { CATEGORIES, categoryMeta, groupByCategory, ItemIcon, DEFAULT_ITEM_ICON } from './shoppingCategories'
 
@@ -542,7 +542,6 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                               <Icon name="repeat" size={13} stroke={2} />
                             </span>
                           )}
-                          <Avatar user={item.createdBy} size={22} />
                           <div className="hb-row__actions">
                             <IconButton icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
                             <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
@@ -579,7 +578,6 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                           <Icon name="repeat" size={13} stroke={2} />
                         </span>
                       )}
-                      <Avatar user={item.createdBy} size={22} />
                     </div>
                   ))}
                 </div>
