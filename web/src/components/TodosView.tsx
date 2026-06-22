@@ -1025,12 +1025,14 @@ function QuickAdd({
   // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
   const hasDetails = !!(assignee || dueDate || priority || description.trim())
 
-  const resetDetails = () => {
+  // Clear the detail fields after a successful capture but KEEP the panel open, so several
+  // planned todos can be entered in a row without re-opening Details (#408). Esc and the
+  // toggle button still collapse it.
+  const clearDetails = () => {
     setAssignee('')
     setDueDate('')
     setPriority('')
     setDescription('')
-    setOpen(false)
   }
 
   const submit = async () => {
@@ -1047,8 +1049,9 @@ function QuickAdd({
       priority: priority || undefined,
       description: description.trim() || undefined,
     })
-    // success: clear the panel fields too; failure: restore the title only if still untouched.
-    if (ok) resetDetails()
+    // success: clear the detail fields but keep the panel open (#408); failure: restore the
+    // title only if still untouched.
+    if (ok) clearDetails()
     else setTitle((cur) => (cur ? cur : trimmed))
   }
 
