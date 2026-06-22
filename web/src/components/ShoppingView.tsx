@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
+import { ShoppingCategory, ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
-import { CATEGORIES, categoryMeta, groupByCategory, ItemIcon, DEFAULT_ITEM_ICON } from './shoppingCategories'
+import { BUILTIN_CATEGORIES, categoryMeta, groupByCategory, ItemIcon, DEFAULT_ITEM_ICON } from './shoppingCategories'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
@@ -50,6 +50,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const { t } = useTranslation()
   const [items, setItems] = useState<ShoppingItem[]>([])
   const [lists, setLists] = useState<ShoppingList[]>([])
+  // Live editable category catalog (#411), seeded with the builtins so headers render before the fetch.
+  const [categories, setCategories] = useState<ShoppingCategory[]>(BUILTIN_CATEGORIES)
   const [loading, setLoading] = useState(true)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
@@ -123,6 +125,16 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   }, [token])
 
   useEffect(() => { void fetchSuggestions() }, [fetchSuggestions])
+
+  // Editable category catalog (#411): managed under Settings; reloaded here on a category change so
+  // grouping headers + the "move to category" menu reflect edits/additions/deletions.
+  const fetchCategories = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/shopping/categories`)
+    if (!result.ok || !result.res.ok) return
+    setCategories((await result.res.json()) as ShoppingCategory[])
+  }, [token])
+
+  useEffect(() => { void fetchCategories() }, [fetchCategories])
 
   const dequeue = useCallback((id: string) => {
     setPending((prev) => {
@@ -246,6 +258,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
         case 'SHOPPING_TEMPLATE_UPDATED':
         case 'SHOPPING_TEMPLATE_DELETED':
           void fetchTemplates()
+          break
+        // A category edit/delete changes headers and reassigns items to OTHER (#411) — reload both.
+        case 'SHOPPING_CATEGORY_CHANGED':
+          void fetchCategories()
+          void fetchAll()
           break
       }
     } catch {
@@ -457,7 +474,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // background and surface their banner when that list is open).
   const pendingCount = listItems.filter((i) => pending[i.id]).length
   // Open items bucketed into category sections in fixed shopping-route order (#389).
-  const groups = groupByCategory(open)
+  const groups = groupByCategory(open, categories)
 
   return (
     <div className="hb-page">
@@ -501,6 +518,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
             onChange={setNewName}
             onAdd={(name) => handleAdd(name)}
             suggestions={suggestions}
+            categories={categories}
             placeholder={t('shopping.namePlaceholder', { name: active.name })}
             submitting={submitting}
           />
@@ -547,7 +565,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                             <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
                           </div>
                           {menuFor === item.id && (
-                            <CategoryMenu current={item.category} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
+                            <CategoryMenu current={item.category} categories={categories} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
                           )}
                         </div>
                       </div>
@@ -654,12 +672,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 // ranked by purchase frequency. Enter / click / the Add button add the highlighted suggestion or
 // the raw typed text; the field is controlled by the parent so the #377 clear-on-submit holds.
 function ShoppingQuickAdd({
-  value, onChange, onAdd, suggestions, placeholder, submitting,
+  value, onChange, onAdd, suggestions, categories, placeholder, submitting,
 }: {
   value: string
   onChange: (v: string) => void
   onAdd: (name: string) => void
   suggestions: ShoppingSuggestion[]
+  categories: ShoppingCategory[]
   placeholder: string
   submitting: boolean
 }) {
@@ -751,7 +770,7 @@ function ShoppingQuickAdd({
               >
                 <span className="hb-ac__emoji" aria-hidden="true">{s.icon || DEFAULT_ITEM_ICON}</span>
                 <span className="hb-ac__name">{highlight(s.name)}</span>
-                <span className="hb-ac__cat">{categoryMeta(s.category).label}</span>
+                <span className="hb-ac__cat">{categoryMeta(s.category, categories).label}</span>
                 <span className="hb-ac__count">
                   <span className="hb-ac__bar"><i style={{ width: `${Math.round((s.count / maxCount) * 100)}%` }} /></span>
                   {s.count}×
@@ -768,14 +787,14 @@ function ShoppingQuickAdd({
 
 // "In Kategorie verschieben" popover anchored to a row. An invisible full-screen backdrop captures
 // the outside click to close (so re-clicking the trigger can't immediately reopen it).
-function CategoryMenu({ current, onPick, onClose }: { current?: string; onPick: (key: string) => void; onClose: () => void }) {
+function CategoryMenu({ current, categories, onPick, onClose }: { current?: string; categories: ShoppingCategory[]; onPick: (key: string) => void; onClose: () => void }) {
   const { t } = useTranslation()
   return (
     <>
       <div className="hb-menu-backdrop" onClick={onClose} />
       <div className="hb-catmenu" role="menu">
         <div className="hb-catmenu__title">{t('shopping.moveCategory')}</div>
-        {CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <button
             key={c.key}
             type="button"

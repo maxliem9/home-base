@@ -306,6 +306,107 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
   })
 })
 
+test.describe('Settings — Einkaufskategorien (#411)', () => {
+  async function openShopping(page: Page, mock: MockApi) {
+    await openApp(page, mock)
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Einkaufskategorien' }).click()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Kategorien' })).toBeVisible()
+  }
+
+  test('renders the seeded categories and rules', async ({ page }) => {
+    await openShopping(page, new MockApi())
+    const catCard = page.locator('.hb-settings-body .hb-card', { hasText: 'Kategorien' }).first()
+    // a couple of the 10 seeded builtins
+    await expect(catCard.getByText('Obst & Gemüse')).toBeVisible()
+    await expect(catCard.getByText('Sonstiges')).toBeVisible()
+
+    const ruleCard = page.locator('.hb-settings-body .hb-card', { hasText: 'Auto-Zuordnungsregeln' })
+    // the two seeded rules (milch→DAIRY, pizza→FROZEN)
+    await expect(ruleCard.getByText('Milch')).toBeVisible()
+    await expect(ruleCard.getByText('Pizza')).toBeVisible()
+  })
+
+  test('adds a category — POSTs label + emoji', async ({ page }) => {
+    await openShopping(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Kategorien' }).first()
+
+    await card.getByRole('button', { name: 'Kategorie hinzufügen' }).click()
+    await card.getByLabel('Emoji', { exact: true }).fill('🍷')
+    await card.getByLabel('Bezeichnung', { exact: true }).fill('Wein')
+
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/shopping/categories') && r.method() === 'POST')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toMatchObject({ label: 'Wein', emoji: '🍷' })
+
+    // the new category appears (mock assigns a key + broadcasts → refetch)
+    await expect(card.getByText('Wein')).toBeVisible()
+  })
+
+  test('deletes a custom category via the confirm dialog', async ({ page }) => {
+    // seed one extra custom category so there is a deletable, non-builtin row
+    const mock = new MockApi().seedShoppingCategories([
+      { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
+      { key: 'WINE', label: 'Wein', emoji: '🍷', sortOrder: 10, isBuiltin: false },
+    ])
+    await openShopping(page, mock)
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Kategorien' }).first()
+    const wineRow = card.locator('.hb-row', { hasText: 'Wein' })
+
+    await wineRow.getByRole('button', { name: 'Löschen' }).click()
+    // a custom ConfirmDialog (not window.confirm), per #125
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Kategorie löschen' })).toBeVisible()
+
+    const reqP = page.waitForRequest((r) => /\/shopping\/categories\/WINE$/.test(r.url()) && r.method() === 'DELETE')
+    await dialog.getByRole('button', { name: 'Löschen' }).click()
+    await reqP
+    await expect(card.getByText('Wein')).toHaveCount(0)
+  })
+
+  test('the OTHER category has no delete control', async ({ page }) => {
+    await openShopping(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Kategorien' }).first()
+    const otherRow = card.locator('.hb-row', { hasText: 'Sonstiges' })
+    await expect(otherRow).toBeVisible()
+    await expect(otherRow.getByRole('button', { name: 'Löschen' })).toHaveCount(0)
+    // a normal builtin still has its delete control
+    const produceRow = card.locator('.hb-row', { hasText: 'Obst & Gemüse' })
+    await expect(produceRow.getByRole('button', { name: 'Löschen' })).toHaveCount(1)
+  })
+
+  test('adds a rule — PUTs name + category + emoji', async ({ page }) => {
+    await openShopping(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Auto-Zuordnungsregeln' })
+
+    await card.getByRole('button', { name: 'Regel hinzufügen' }).click()
+    await card.getByLabel('Artikelname', { exact: true }).fill('Apfel')
+    await card.getByLabel('Kategorie', { exact: true }).selectOption('PRODUCE')
+    await card.getByLabel('Emoji (optional)', { exact: true }).fill('🍎')
+
+    const reqP = page.waitForRequest((r) => r.url().endsWith('/shopping/category-rules') && r.method() === 'PUT')
+    await card.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toMatchObject({ displayName: 'Apfel', category: 'PRODUCE', icon: '🍎' })
+
+    await expect(card.getByText('Apfel')).toBeVisible()
+  })
+
+  test('deletes a rule via the confirm dialog', async ({ page }) => {
+    await openShopping(page, new MockApi())
+    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Auto-Zuordnungsregeln' })
+    const milchRow = card.locator('.hb-row', { hasText: 'Milch' })
+
+    await milchRow.getByRole('button', { name: 'Löschen' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Regel löschen' })).toBeVisible()
+
+    const reqP = page.waitForRequest((r) => /\/shopping\/category-rules\/Milch$/.test(r.url()) && r.method() === 'DELETE')
+    await dialog.getByRole('button', { name: 'Löschen' }).click()
+    await reqP
+    await expect(card.getByText('Milch')).toHaveCount(0)
+  })
+})
+
 test.describe('Settings — Aufgaben (#356)', () => {
   async function openTodos(page: Page, mock: MockApi) {
     await openApp(page, mock)
