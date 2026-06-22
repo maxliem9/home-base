@@ -322,8 +322,9 @@ test.describe('Settings — Einkaufskategorien (#411)', () => {
     await expect(catCard.getByText('Sonstiges')).toBeVisible()
 
     const ruleCard = page.locator('.hb-settings-body .hb-card', { hasText: 'Auto-Zuordnungsregeln' })
-    // the two seeded rules (milch→DAIRY, pizza→FROZEN)
-    await expect(ruleCard.getByText('Milch')).toBeVisible()
+    // the two seeded rules (milch→DAIRY, pizza→FROZEN). `exact` avoids matching the DAIRY rule's
+    // category-meta line "Milchprodukte & Eier" (substring "Milch") → strict-mode ambiguity.
+    await expect(ruleCard.getByText('Milch', { exact: true })).toBeVisible()
     await expect(ruleCard.getByText('Pizza')).toBeVisible()
   })
 
@@ -381,7 +382,9 @@ test.describe('Settings — Einkaufskategorien (#411)', () => {
 
     await card.getByRole('button', { name: 'Regel hinzufügen' }).click()
     await card.getByLabel('Artikelname', { exact: true }).fill('Apfel')
-    await card.getByLabel('Kategorie', { exact: true }).selectOption('PRODUCE')
+    // loose match: the Field wraps the <select>, so its accessible name includes the selected option
+    // text ("Kategorie ❓ Sonstiges") — an exact 'Kategorie' would match nothing (mirrors getByLabel('Liste')).
+    await card.getByLabel('Kategorie').selectOption('PRODUCE')
     await card.getByLabel('Emoji (optional)', { exact: true }).fill('🍎')
 
     const reqP = page.waitForRequest((r) => r.url().endsWith('/shopping/category-rules') && r.method() === 'PUT')
