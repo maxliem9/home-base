@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
@@ -561,11 +561,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                             </span>
                           )}
                           <div className="hb-row__actions">
-                            <IconButton icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
+                            <IconButton id={`hb-move-${item.id}`} icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
                             <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
                           </div>
                           {menuFor === item.id && (
-                            <CategoryMenu current={item.category} categories={categories} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
+                            <CategoryMenu triggerId={`hb-move-${item.id}`} current={item.category} categories={categories} onPick={(key) => moveItem(item, key)} onClose={() => setMenuFor(null)} />
                           )}
                         </div>
                       </div>
@@ -686,6 +686,10 @@ function ShoppingQuickAdd({
   const [focused, setFocused] = useState(false)
   const [acIndex, setAcIndex] = useState(0)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // Stable ids tying the combobox input to its listbox + the active option (aria-activedescendant).
+  const acId = useId()
+  const listboxId = `${acId}-listbox`
+  const optionId = (i: number) => `${acId}-opt-${i}`
 
   const q = value.trim().toLowerCase()
   const matches = useMemo(() => {
@@ -743,6 +747,11 @@ function ShoppingQuickAdd({
             value={value}
             placeholder={placeholder}
             autoComplete="off"
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={open ? listboxId : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={open && matches[acIndex] ? optionId(acIndex) : undefined}
             onChange={(e) => onChange(e.target.value)}
             onFocus={() => setFocused(true)}
             onKeyDown={(e) => {
@@ -754,14 +763,15 @@ function ShoppingQuickAdd({
           />
         </div>
         {open && (
-          <div className="hb-ac" role="listbox">
-            <div className="hb-ac__hint">
+          <div className="hb-ac" role="listbox" id={listboxId} aria-label={t('shopping.suggestionsHint')}>
+            <div className="hb-ac__hint" aria-hidden="true">
               <Icon name="sparkle" size={13} stroke={2} style={{ color: 'var(--accent)' }} />
               {t('shopping.suggestionsHint')}
             </div>
             {matches.map((s, i) => (
               <div
                 key={s.name}
+                id={optionId(i)}
                 role="option"
                 aria-selected={i === acIndex}
                 className={`hb-ac__item${i === acIndex ? ' is-active' : ''}`}
@@ -787,19 +797,46 @@ function ShoppingQuickAdd({
 
 // "In Kategorie verschieben" popover anchored to a row. An invisible full-screen backdrop captures
 // the outside click to close (so re-clicking the trigger can't immediately reopen it).
-function CategoryMenu({ current, categories, onPick, onClose }: { current?: string; categories: ShoppingCategory[]; onPick: (key: string) => void; onClose: () => void }) {
+function CategoryMenu({ triggerId, current, categories, onPick, onClose }: { triggerId: string; current?: string; categories: ShoppingCategory[]; onPick: (key: string) => void; onClose: () => void }) {
   const { t } = useTranslation()
+  const titleId = useId()
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  // Open with focus on the current category (or the first item if none is set yet).
+  const currentIndex = Math.max(0, categories.findIndex((c) => c.key === current))
+  const [focusIndex, setFocusIndex] = useState(currentIndex)
+
+  // Return focus to the trigger once the menu closes. Resolved by id (not a captured node):
+  // picking a category regroups the item into a different card, remounting the trigger — this
+  // passive cleanup runs after that commit, so the (possibly new) trigger node is found by id.
+  useEffect(() => () => document.getElementById(triggerId)?.focus(), [triggerId])
+
+  // Move real DOM focus to the active item — on open to the current/first, then as the user arrows.
+  useEffect(() => { itemRefs.current[focusIndex]?.focus() }, [focusIndex])
+
   return (
     <>
       <div className="hb-menu-backdrop" onClick={onClose} />
-      <div className="hb-catmenu" role="menu">
-        <div className="hb-catmenu__title">{t('shopping.moveCategory')}</div>
-        {categories.map((c) => (
+      <div
+        className="hb-catmenu"
+        role="menu"
+        aria-labelledby={titleId}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setFocusIndex((i) => Math.min(i + 1, categories.length - 1)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setFocusIndex((i) => Math.max(i - 1, 0)) }
+          else if (e.key === 'Home') { e.preventDefault(); setFocusIndex(0) }
+          else if (e.key === 'End') { e.preventDefault(); setFocusIndex(categories.length - 1) }
+          else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+        }}
+      >
+        <div className="hb-catmenu__title" id={titleId}>{t('shopping.moveCategory')}</div>
+        {categories.map((c, i) => (
           <button
             key={c.key}
+            ref={(el) => { itemRefs.current[i] = el }}
             type="button"
             role="menuitemradio"
             aria-checked={c.key === current}
+            tabIndex={i === focusIndex ? 0 : -1}
             className={`hb-catmenu__item${c.key === current ? ' is-current' : ''}`}
             onClick={() => onPick(c.key)}
           >

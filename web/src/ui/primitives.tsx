@@ -130,6 +130,7 @@ export function IconButton({
   size = 18,
   danger,
   disabled,
+  id,
 }: {
   icon: string
   onClick?: () => void
@@ -138,10 +139,12 @@ export function IconButton({
   size?: number
   danger?: boolean
   disabled?: boolean
+  id?: string
 }) {
   return (
     <button
       type="button"
+      id={id}
       onClick={onClick}
       aria-label={label}
       title={label}
