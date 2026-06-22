@@ -204,8 +204,8 @@ export const en: Messages = {
     planTitle: 'Plan task',
     planHint: 'A title is required. An assignee or due date makes it a planned task.',
     titleLabel: 'Title',
-    planList: 'List', // list picker in the plan modal (only for inbox todos, issue #69)
-    planListInbox: 'Stays in the Inbox', // empty option of the plan-modal list picker
+    planList: 'List', // list picker in the plan sheet (all todos; move between lists #409)
+    planListInbox: 'No list (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
     assignee: 'Assignee',
     assigneeNone: 'Nobody',
     dueDate: 'Due on',
