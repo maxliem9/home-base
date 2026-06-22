@@ -308,6 +308,28 @@ data class UpdateShoppingCategoryRequest(
 @Serializable
 data class ShoppingCategoryWsMessage(val type: String, val payload: ShoppingCategoryDto? = null)
 
+// ---------- Shopping category rules (editable auto-resolve dictionary, #411 PR B) ----------
+// Maps a written item name → category key + emoji that newly added items auto-fill. Keyed by the
+// normalized name (server-derived from displayName via GroceryCatalog.normalize). PUT upserts a rule;
+// DELETE /{name} removes it. `icon` defaults to the neutral cart on create when omitted.
+@Serializable
+data class ShoppingCategoryRuleDto(
+    val normalizedName: String,
+    val displayName: String,
+    val category: String,
+    val icon: String,
+)
+
+@Serializable
+data class UpsertCategoryRuleRequest(
+    val displayName: String,
+    val category: String,
+    val icon: String? = null,
+)
+
+@Serializable
+data class ShoppingCategoryRuleWsMessage(val type: String, val payload: ShoppingCategoryRuleDto? = null)
+
 // ---------- Shopping templates (#215) ----------
 // A named "standard list": a saved set of item names the household re-adds for the recurring
 // shop. Items are embedded (always returned with the template, ordered by sortOrder), like a

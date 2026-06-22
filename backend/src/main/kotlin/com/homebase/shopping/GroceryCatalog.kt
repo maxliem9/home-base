@@ -5,7 +5,9 @@ package com.homebase.shopping
  * **category key** + **emoji icon**, and defines the fixed category set (key, German label, header
  * emoji, route order).
  *
- * Single source of truth for categorization & icons. Shopping item rows store the *resolved*
+ * Seed data + `normalize` algorithm only (#411): the live, editable catalog (category list +
+ * name→category rules) now lives in the DB and is read via `ShoppingCatalog`; this object just seeds
+ * the empty tables and supplies `normalize`. Shopping item rows store the *resolved*
  * category + icon (a denormalized cache, overridable per household via `shopping_item_stats`), so
  * the clients only render. Emoji is deliberately kept swappable: the stored `icon` is just a cache
  * of catalog resolution, and the clients render it behind one `<ItemIcon>` seam — switching to an
@@ -47,11 +49,6 @@ object GroceryCatalog {
         Category(OTHER, "Sonstiges", "❓", 9),                     // ❓
     )
 
-    private val categoryKeys: Set<String> = categories.mapTo(HashSet()) { it.key }
-
-    /** True if [key] is one of the known category keys (used to validate manual overrides). */
-    fun isValidCategory(key: String): Boolean = key in categoryKeys
-
     /** Resolution of a name to its category key + icon. */
     data class Resolution(val category: String, val icon: String)
 
@@ -70,7 +67,9 @@ object GroceryCatalog {
 
     // ---- Seed: written name -> emoji, grouped by category --------------------------------------
 
-    private val seed: List<CatalogItem> = buildList {
+    // The auto-resolve seed (#411): used once to populate the editable `shopping_category_rules` table
+    // (ShoppingCatalog.seedIfEmpty). Resolution itself reads the DB rules, not this list.
+    val seed: List<CatalogItem> = buildList {
         fun cat(category: String, vararg pairs: Pair<String, String>) {
             for ((name, icon) in pairs) add(CatalogItem(name, category, icon, normalize(name)))
         }
@@ -176,19 +175,6 @@ object GroceryCatalog {
         )
     }
 
-    /** Lookup by normalized name; on a seed collision the last wins (kept deterministic & simple). */
-    private val byNormalized: Map<String, Resolution> =
-        seed.associate { it.normalized to Resolution(it.category, it.icon) }
-
-    /** Catalog keys longest-first, so the most specific substring wins in the fallback. */
-    private val entriesByLengthDesc: List<Pair<String, Resolution>> =
-        byNormalized.entries
-            .map { it.key to it.value }
-            .sortedByDescending { it.first.length }
-
-    /** Distinct catalog entries (first written form per normalized name) for the suggestions baseline. */
-    fun allEntries(): List<CatalogItem> = seed.distinctBy { it.normalized }
-
     /**
      * Normalize a written name to a lookup/stats key: lowercase, strip a leading quantity (+ optional
      * unit), drop punctuation, collapse whitespace. "500 g Mehl" / "2 Paprika" → "mehl" / "paprika".
@@ -199,21 +185,5 @@ object GroceryCatalog {
         s = s.replace(Regex("[.,;:!?()\\[\\]/]+"), " ")
         s = s.replace(Regex("\\s+"), " ").trim()
         return s
-    }
-
-    /**
-     * Resolve a name to its category key + icon: exact normalized match first, then a longest
-     * substring match (handles "Bio Tomaten" → tomaten, "Tomate" → tomaten), else [OTHER] + cart.
-     */
-    fun resolve(name: String): Resolution {
-        val n = normalize(name)
-        if (n.isBlank()) return Resolution(OTHER, DEFAULT_ICON)
-        byNormalized[n]?.let { return it }
-        if (n.length >= 3) {
-            entriesByLengthDesc.firstOrNull { (key, _) ->
-                key.length >= 3 && (n.contains(key) || key.contains(n))
-            }?.let { return it.second }
-        }
-        return Resolution(OTHER, DEFAULT_ICON)
     }
 }

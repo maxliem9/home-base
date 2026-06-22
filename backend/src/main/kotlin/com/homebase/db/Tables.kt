@@ -159,6 +159,17 @@ object ShoppingCategoriesTable : Table("shopping_categories") {
     override val primaryKey = PrimaryKey(key)
 }
 
+// Editable auto-resolve dictionary (#411 PR B): normalized item name → category key + emoji icon.
+// Seeded from GroceryCatalog.seed; drives the DB-backed ShoppingCatalog.resolve. Keyed by the
+// normalized name (GroceryCatalog.normalize). `category` is a denormalized shopping_categories key.
+object ShoppingCategoryRulesTable : Table("shopping_category_rules") {
+    val normalizedName = varchar("normalized_name", 200)
+    val displayName = text("display_name")
+    val category = varchar("category", 40)
+    val icon = varchar("icon", 32)
+    override val primaryKey = PrimaryKey(normalizedName)
+}
+
 // Named "standard/template shopping lists" (#215): a saved, reusable list of item names the
 // household re-adds for the recurring shop. Shared like the shopping lists themselves — both
 // users manage all templates. Items are embedded children (1:n), saved with the template,

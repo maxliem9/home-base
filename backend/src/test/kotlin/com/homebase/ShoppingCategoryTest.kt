@@ -1,6 +1,7 @@
 package com.homebase
 
 import com.homebase.shopping.GroceryCatalog
+import com.homebase.shopping.ShoppingCatalog
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -8,36 +9,43 @@ import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Pure-unit coverage of the grocery catalog: normalization + name → category/icon resolution. */
+/**
+ * Pure-unit coverage of the resolution algorithm (`ShoppingCatalog.RuleSet`, built here from the
+ * `GroceryCatalog` seed — no DB) + `GroceryCatalog.normalize` and the seeded category set.
+ */
 class GroceryCatalogTest {
+
+    // The resolution algorithm now lives in ShoppingCatalog.RuleSet; feed it the code seed to unit-test.
+    private val seedRules = ShoppingCatalog.RuleSet(
+        GroceryCatalog.seed.map { ShoppingCatalog.RuleSet.Rule(it.normalized, it.name, it.category, it.icon) },
+    )
 
     @Test
     fun `resolves a known staple to its category and emoji`() {
-        val r = GroceryCatalog.resolve("Milch")
+        val r = seedRules.match("Milch")
         assertEquals("DAIRY", r.category)
         assertEquals("🥛", r.icon)
     }
 
     @Test
     fun `strips a leading quantity and unit before matching`() {
-        assertEquals("PRODUCE", GroceryCatalog.resolve("2 Paprika").category)
-        assertEquals("PANTRY", GroceryCatalog.resolve("500 g Mehl").category)
+        assertEquals("PRODUCE", seedRules.match("2 Paprika").category)
+        assertEquals("PANTRY", seedRules.match("500 g Mehl").category)
         assertEquals("mehl", GroceryCatalog.normalize("500 g Mehl"))
         assertEquals("paprika", GroceryCatalog.normalize("2 Paprika"))
     }
 
     @Test
     fun `substring fallback handles a prefixed or pluralised name`() {
-        assertEquals("PRODUCE", GroceryCatalog.resolve("Bio Tomaten").category)
-        assertEquals("DAIRY", GroceryCatalog.resolve("Hafermilch").category)
+        assertEquals("PRODUCE", seedRules.match("Bio Tomaten").category)
+        assertEquals("DAIRY", seedRules.match("Hafermilch").category)
     }
 
     @Test
     fun `unknown name falls back to OTHER with the cart icon`() {
-        val r = GroceryCatalog.resolve("Zaubertrank 3000")
+        val r = seedRules.match("Zaubertrank 3000")
         assertEquals(GroceryCatalog.OTHER, r.category)
         assertEquals(GroceryCatalog.DEFAULT_ICON, r.icon)
     }
@@ -47,8 +55,6 @@ class GroceryCatalogTest {
         assertEquals(10, GroceryCatalog.categories.size)
         assertEquals("PRODUCE", GroceryCatalog.categories.first().key)
         assertEquals(GroceryCatalog.OTHER, GroceryCatalog.categories.last().key)
-        assertTrue(GroceryCatalog.isValidCategory("DAIRY"))
-        assertFalse(GroceryCatalog.isValidCategory("BOGUS"))
     }
 }
 
@@ -293,5 +299,92 @@ class ShoppingCategoryRouteTest {
         val token = token()
         assertEquals(HttpStatusCode.BadRequest, client.delete("/api/v1/shopping/categories/OTHER") { bearerAuth(token) }.status)
         assertTrue(categories(token).any { it.jsonObject["key"]?.jsonPrimitive?.content == "OTHER" })
+    }
+
+    // ---- Auto-resolve rules (editable dictionary, #411 PR B) ----
+
+    private suspend fun ApplicationTestBuilder.rules(token: String): JsonArray =
+        Json.parseToJsonElement(client.get("/api/v1/shopping/category-rules") { bearerAuth(token) }.bodyAsText()).jsonArray
+
+    @Test
+    fun `GET category-rules returns the seeded dictionary`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val all = rules(token).map { it.jsonObject }
+        assertTrue(all.isNotEmpty())
+        val milch = all.firstOrNull { it["normalizedName"]?.jsonPrimitive?.content == "milch" }
+        assertTrue(milch != null, "the seeded dictionary should contain 'milch'")
+        assertEquals("DAIRY", milch!!["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT teaches a rule that drives auto-resolution for a new name`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // Teach BEFORE the first add — a remembered stats override (from a prior add) would win otherwise.
+        val res = client.put("/api/v1/shopping/category-rules") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"displayName":"Quietscheente","category":"HOUSEHOLD","icon":"🦆"}""")
+        }
+        assertEquals(HttpStatusCode.OK, res.status)
+        val item = addItem(token, "Quietscheente")
+        assertEquals("HOUSEHOLD", item["category"]?.jsonPrimitive?.content)
+        assertEquals("🦆", item["icon"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT re-points a seeded rule and keeps its icon when omitted`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // Pizza ships FROZEN/🍕; re-point the category only (no icon) → 🍕 preserved
+        client.put("/api/v1/shopping/category-rules") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"displayName":"Pizza","category":"PANTRY"}""")
+        }
+        val item = addItem(token, "Pizza")
+        assertEquals("PANTRY", item["category"]?.jsonPrimitive?.content)
+        assertEquals("🍕", item["icon"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT a rule with an unknown category is rejected`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val res = client.put("/api/v1/shopping/category-rules") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"displayName":"Irgendwas","category":"NOPE"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `DELETE a rule drops the name back to OTHER on the next add`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // "Marmelade" ships PANTRY; with the rule gone (and no prior add → no stats), it resolves to OTHER
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/category-rules/marmelade") { bearerAuth(token) }.status)
+        assertTrue(rules(token).none { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "marmelade" })
+        assertEquals("OTHER", addItem(token, "Marmelade")["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `DELETE decodes and removes a multi-word rule`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // "Passierte Tomaten" ships as a multi-word PANTRY rule (normalized "passierte tomaten")
+        assertTrue(rules(token).any { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "passierte tomaten" })
+        val del = client.delete("/api/v1/shopping/category-rules/passierte%20tomaten") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.NoContent, del.status)
+        assertTrue(rules(token).none { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "passierte tomaten" })
+    }
+
+    @Test
+    fun `deleting a category re-points its rules to OTHER`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/categories/FROZEN") { bearerAuth(token) }.status)
+        val pizzaRule = rules(token).map { it.jsonObject }.firstOrNull { it["normalizedName"]?.jsonPrimitive?.content == "pizza" }
+        assertTrue(pizzaRule != null, "the pizza rule should still exist after its category is deleted")
+        assertEquals("OTHER", pizzaRule!!["category"]?.jsonPrimitive?.content)
     }
 }
