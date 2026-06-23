@@ -937,6 +937,11 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             <Field
               label={t('todos.recurrence')}
               hint={plan.recurrenceFreq && !plan.dueDate ? t('todos.recurrenceNeedsDue') : undefined}
+              // group, not <label>: once a frequency is picked this holds a <Select> *and* an
+              // interval <input> — two controls, so one wrapping <label> is ambiguous (#426).
+              // Always-on (not conditional on freq) so the wrapper element never swaps label↔div
+              // mid-interaction, which would remount the Select and drop focus right after the pick.
+              group
             >
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Select
