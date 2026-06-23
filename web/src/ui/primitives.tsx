@@ -66,19 +66,25 @@ export function Avatar({ user, size = 28, hueOverride }: { user?: string | null;
 
 // --- Priority --------------------------------------------------------------
 
-export const PRIO: Record<TodoPriority, { label: string; hue: number }> = {
-  HIGH: { label: 'Hoch', hue: 32 },
-  MEDIUM: { label: 'Mittel', hue: 75 },
-  LOW: { label: 'Niedrig', hue: 200 },
+// Each priority maps to a display hue + an i18n label key (resolved via t() at the
+// render site, so EN users get English instead of hardcoded German — #394/#399).
+// Typing the key as a literal union (not `string`) keeps the typed-i18next key check
+// happy with the dynamic `t(PRIO[k].labelKey)` lookup.
+type PriorityLabelKey = 'todos.priorityLow' | 'todos.priorityMedium' | 'todos.priorityHigh'
+export const PRIO: Record<TodoPriority, { labelKey: PriorityLabelKey; hue: number }> = {
+  HIGH: { labelKey: 'todos.priorityHigh', hue: 32 },
+  MEDIUM: { labelKey: 'todos.priorityMedium', hue: 75 },
+  LOW: { labelKey: 'todos.priorityLow', hue: 200 },
 }
 
 export function PriorityDot({ priority, withLabel = false }: { priority?: TodoPriority; withLabel?: boolean }) {
+  const { t } = useTranslation()
   if (!priority) return null
   const p = PRIO[priority]
   return (
     <span className="hb-prio" style={{ color: `oklch(0.6 0.13 ${p.hue})` }}>
       <span className="hb-prio__dot" style={{ background: 'currentColor' }} />
-      {withLabel && <span>{p.label}</span>}
+      {withLabel && <span>{t(p.labelKey)}</span>}
     </span>
   )
 }
@@ -454,7 +460,22 @@ export function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm,
 
 // --- Form bits -------------------------------------------------------------
 
-export function Field({ label, children, hint }: { label?: string; children: ReactNode; hint?: string }) {
+// A labelled form field. Single native controls (input/textarea/select) use the
+// implicit `<label>` association. For a field that holds *several* controls (e.g. a
+// chip row of buttons), pass `group`: wrapping multiple focusable controls in one
+// `<label>` is invalid HTML with an ambiguous target, so we render a `role="group"`
+// labelled by the caption instead (#395).
+export function Field({ label, children, hint, group = false }: { label?: string; children: ReactNode; hint?: string; group?: boolean }) {
+  const labelId = useId()
+  if (group) {
+    return (
+      <div className="hb-field" role="group" aria-labelledby={label ? labelId : undefined}>
+        {label && <span className="hb-field__label" id={labelId}>{label}</span>}
+        {children}
+        {hint && <span className="hb-field__hint">{hint}</span>}
+      </div>
+    )
+  }
   return (
     <label className="hb-field">
       {label && <span className="hb-field__label">{label}</span>}
