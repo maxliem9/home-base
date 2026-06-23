@@ -911,13 +911,13 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 style={{ resize: 'vertical', lineHeight: 1.5 }}
               />
             </Field>
-            <Field label={t('todos.assignee')}>
+            <Field label={t('todos.assignee')} group>
               <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>
             <Field label={t('todos.dueDate')}>
               <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
             </Field>
-            <Field label={t('todos.priority')}>
+            <Field label={t('todos.priority')} group>
               {/* Chip row (#407) — same affordance as the quick-add Details panel; clicking the active
                   chip toggles priority back to none. Replaces the former raw LOW/MEDIUM/HIGH <Select>. */}
               <div className="hb-pickrow">
@@ -929,7 +929,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                     onClick={() => setPlan({ ...plan, priority: plan.priority === k ? '' : k })}
                   >
                     <span className="hb-prio__dot" style={{ background: `oklch(0.6 0.13 ${PRIO[k].hue})` }} />
-                    {PRIO[k].label}
+                    {t(PRIO[k].labelKey)}
                   </button>
                 ))}
               </div>
@@ -1089,10 +1089,14 @@ function QuickAdd({
           aria-expanded={open}
           aria-controls={panelId}
           title={t('todos.quickAddDetails')}
+          // The label text is hidden on narrow screens (icon-only, #395), so name the
+          // button explicitly; append a note when hidden fields are set so the accent
+          // dot's meaning reaches assistive tech instead of being purely visual.
+          aria-label={hasDetails ? `${t('todos.quickAddDetails')}, ${t('todos.quickAddHasDetailsSr')}` : t('todos.quickAddDetails')}
         >
           <Icon name="calendar" size={15} stroke={2} />
-          {t('todos.quickAddDetails')}
-          {hasDetails && <span className="hb-qa__dot" />}
+          <span className="hb-qa__toggle-label">{t('todos.quickAddDetails')}</span>
+          {hasDetails && <span className="hb-qa__dot" aria-hidden="true" />}
           <Icon name="chevronDown" size={13} stroke={2.4} className="hb-qa__chev" />
         </button>
         <Button size="sm" icon="plus" onClick={submit} disabled={submitting || !title.trim()}>
@@ -1113,14 +1117,14 @@ function QuickAdd({
             />
           </Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <Field label={t('todos.assignee')}>
+            <Field label={t('todos.assignee')} group>
               <AssigneePicker value={assignee} users={users} onChange={setAssignee} />
             </Field>
             <Field label={t('todos.dueDate')}>
               <TextInput type="date" value={dueDate} onChange={setDueDate} />
             </Field>
           </div>
-          <Field label={t('todos.priority')}>
+          <Field label={t('todos.priority')} group>
             <div className="hb-pickrow">
               {(Object.keys(PRIO) as TodoPriority[]).map((k) => (
                 <button
@@ -1130,7 +1134,7 @@ function QuickAdd({
                   onClick={() => setPriority(priority === k ? '' : k)}
                 >
                   <span className="hb-prio__dot" style={{ background: `oklch(0.6 0.13 ${PRIO[k].hue})` }} />
-                  {PRIO[k].label}
+                  {t(PRIO[k].labelKey)}
                 </button>
               ))}
             </div>

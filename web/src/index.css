@@ -1039,6 +1039,11 @@ button.hb-savestatus.is-pending:hover { text-decoration: underline; }
      Zeile 2, unter dem Titel eingerückt (Checkbox 22px + gap 13px). (#37) */
   .hb-todo .hb-row { flex-wrap: wrap; }
   .hb-todo .hb-row__right { flex-basis: 100%; margin-left: 35px; justify-content: flex-end; }
+
+  /* Quick-add bar: drop the „Details"-Wort, damit das Eingabefeld auf schmalen
+     Screens nicht auf einen Streifen schrumpft (Icon + title/aria-label bleiben). (#395) */
+  .hb-qa__toggle-label { display: none; }
+  .hb-qa__toggle { padding-left: 9px; padding-right: 9px; }
 }
 
 @media (max-width: 420px) {
