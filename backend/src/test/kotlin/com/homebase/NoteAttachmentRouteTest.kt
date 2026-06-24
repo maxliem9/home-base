@@ -233,6 +233,24 @@ class NoteAttachmentRouteTest {
         assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
     }
 
+    @Test
+    fun `octet-stream upload with a disallowed extension is still rejected`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val noteId = createNote(token, """{"title":"Vertrag"}""")
+
+        // the octet-stream fallback resolves the type from the filename extension; a disallowed
+        // extension (here .svg, which could carry stored XSS) must NOT slip through just because the
+        // declared type was the generic octet-stream. Guards the exact spoof vector the fallback opens.
+        val response = uploadAttachment(
+            token, noteId,
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".toByteArray(),
+            contentType = "application/octet-stream", filename = "evil.svg",
+        )
+
+        assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
+    }
+
     // test config caps uploads at 1 MB
     private val maxBytes = 1024 * 1024
 
