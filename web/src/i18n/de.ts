@@ -109,6 +109,7 @@ export const de = {
     time: 'Zeiterfassung',
     recipes: 'Rezepte',
     wochenplan: 'Wochenplan',
+    familienkalender: 'Familienkalender',
     abwesenheit: 'Kalender',
     settings: 'Einstellungen',
     more: 'Mehr', // bottom-tab "Mehr" overflow sheet (HB-09)
@@ -122,6 +123,7 @@ export const de = {
       time: 'Zeit',
       recipes: 'Rezepte',
       wochenplan: 'Plan',
+      familienkalender: 'Termine',
       abwesenheit: 'Kalender',
       more: 'Mehr',
     },
@@ -874,6 +876,40 @@ export const de = {
     added: 'hinzugefügt', // toast: "{n} hinzugefügt"
     merged: 'zusammengeführt', // toast: "{n} zusammengeführt"
     nothingToAdd: 'Keine neuen Zutaten',
+  },
+  // #427 — Familienkalender: domänenübergreifende read-only Monatsansicht (Todos/Abwesenheit/
+  // Kita/Wochenplan) + iCal-Abo-Hinweis.
+  familienkalender: {
+    eyebrow: 'Übersicht',
+    title: 'Familienkalender',
+    monthNav: 'Monats-Navigation',
+    prevMonth: 'Vorheriger Monat',
+    nextMonth: 'Nächster Monat',
+    today: 'Heute',
+    loadError: 'Kalender konnte nicht geladen werden.',
+    // weekday header (Mo–So)
+    weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
+    // legend / category labels
+    legend: 'Legende',
+    catTodos: 'Fällige Aufgaben',
+    catAbsence: 'Abwesenheit',
+    catKita: 'Kita zu',
+    catMeals: 'Essensplan',
+    // day-detail sheet
+    detailEmpty: 'Nichts an diesem Tag.',
+    sectionTodos: 'Fällige Aufgaben',
+    sectionAbsence: 'Abwesenheit',
+    sectionKita: 'Kita',
+    sectionMeals: 'Essensplan',
+    moreCount: '+{count} mehr', // overflow chip on a packed day cell
+    half: { vm: 'vormittags', nm: 'nachmittags' },
+    // iCal subscription hint
+    subscribe: 'Abonnieren',
+    subscribeTitle: 'In deinem Kalender abonnieren',
+    subscribeIntro: 'Abonniere diesen Feed einmal in Apple oder Google Kalender — dann erscheinen fällige Aufgaben, Abwesenheiten, Kita-Schließtage und der Essensplan automatisch auf deinem Handy.',
+    subscribeCopy: 'Link kopieren',
+    subscribeCopied: 'Kopiert!',
+    subscribeNote: 'Der Link enthält dein persönliches Zugangs-Token — teile ihn nicht.',
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Kalender',

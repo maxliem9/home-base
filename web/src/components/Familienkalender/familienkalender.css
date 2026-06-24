@@ -1,0 +1,100 @@
+/* #427 — Familienkalender month view. Read-only overlay grid; styling follows the design tokens
+   used by the Wochenplan + Abwesenheit views (var(--surface)/--line/--accent etc.). */
+
+/* Per-domain marker hues (light/dark handled by the chip backgrounds below). */
+.hb-cal {
+  --cal-todo: 28;     /* clay/orange */
+  --cal-meal: 150;    /* green (matches the accent family) */
+  --cal-absence: 150; /* overridden per-chip via --chip-hue for Urlaub; krank/kk fall to fixed */
+  --cal-kita: 288;    /* violet, matches the Feiertag marker family in the absence calendar */
+}
+
+/* Weekday header row */
+.hb-cal__head { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+.hb-cal__wd { text-align: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); font-weight: 600; }
+
+/* Month grid */
+.hb-cal__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+
+.hb-cal__day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 96px;
+  padding: 6px 7px 7px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s, background .15s;
+}
+.hb-cal__day:hover { border-color: var(--accent); }
+.hb-cal__day.is-outside { background: transparent; box-shadow: none; border-color: var(--line-soft); }
+.hb-cal__day.is-outside .hb-cal__dnum { color: var(--ink-3); }
+.hb-cal__day.is-today { border-color: var(--accent); background: var(--accent-soft); }
+.hb-cal__day.has-kita { background: oklch(0.96 0.03 var(--cal-kita)); }
+.hb-cal__day.is-today.has-kita { background: var(--accent-soft); }
+
+.hb-cal__dnum { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--ink); line-height: 1; }
+.hb-cal__day.is-today .hb-cal__dnum { color: var(--accent-ink); }
+
+.hb-cal__kita {
+  align-self: flex-start;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 1px 6px; border-radius: 999px;
+  background: oklch(0.9 0.05 var(--cal-kita)); color: oklch(0.36 0.09 var(--cal-kita));
+}
+
+.hb-cal__markers { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.hb-cal__chip {
+  display: flex; align-items: center; min-width: 0;
+  font-size: 11px; font-weight: 600; line-height: 1.3;
+  padding: 1px 6px; border-radius: 6px;
+}
+.hb-cal__chiptext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hb-cal__chip--todo { background: oklch(0.92 0.06 var(--cal-todo)); color: oklch(0.4 0.12 var(--cal-todo)); }
+.hb-cal__chip--meal { background: oklch(0.92 0.05 var(--cal-meal)); color: oklch(0.38 0.09 var(--cal-meal)); }
+.hb-cal__chip--absence { background: oklch(0.9 0.07 var(--chip-hue, 27)); color: oklch(0.36 0.11 var(--chip-hue, 27)); }
+
+.hb-cal__more { font-size: 10.5px; font-weight: 600; color: var(--ink-3); padding: 0 4px; }
+
+/* Legend */
+.hb-cal__legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
+.hb-cal__legitem { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.hb-cal__dot { width: 12px; height: 12px; border-radius: 4px; }
+.hb-cal__dot.hb-cal__chip--absence { background: oklch(0.7 0.11 150); }
+.hb-cal__dot.hb-cal__chip--todo { background: oklch(0.72 0.13 28); }
+.hb-cal__dot.hb-cal__chip--meal { background: oklch(0.7 0.1 150); }
+.hb-cal__dot--kita { background: oklch(0.78 0.07 288); }
+
+/* Day-detail sheet */
+.hb-caldetail { display: flex; flex-direction: column; gap: 18px; }
+.hb-caldetail__sec { display: flex; flex-direction: column; gap: 7px; }
+.hb-caldetail__head { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-3); }
+.hb-caldetail__head > svg { color: var(--accent); }
+.hb-caldetail__row { display: flex; align-items: center; gap: 9px; }
+.hb-caldetail__row > svg { color: var(--ink-3); flex-shrink: 0; }
+.hb-caldetail__label { font-size: 14px; color: var(--ink); line-height: 1.35; }
+
+/* Dark theme: lift the chip fills / surfaces so text stays legible. */
+[data-theme='dark'] .hb-cal__day.has-kita { background: oklch(0.32 0.03 var(--cal-kita)); }
+[data-theme='dark'] .hb-cal__kita { background: oklch(0.4 0.06 var(--cal-kita)); color: oklch(0.92 0.04 var(--cal-kita)); }
+[data-theme='dark'] .hb-cal__chip--todo { background: oklch(0.4 0.08 var(--cal-todo)); color: oklch(0.92 0.06 var(--cal-todo)); }
+[data-theme='dark'] .hb-cal__chip--meal { background: oklch(0.38 0.06 var(--cal-meal)); color: oklch(0.92 0.05 var(--cal-meal)); }
+[data-theme='dark'] .hb-cal__chip--absence { background: oklch(0.4 0.07 var(--chip-hue, 27)); color: oklch(0.92 0.06 var(--chip-hue, 27)); }
+
+/* Mobile: tighter cells; markers stay but shrink. The grid still fits 7 columns on a phone. */
+@media (max-width: 860px) {
+  .hb-cal__head, .hb-cal__grid { gap: 4px; }
+  .hb-cal__day { min-height: 72px; padding: 4px 4px 5px; gap: 3px; }
+  .hb-cal__dnum { font-size: 13px; }
+  .hb-cal__chip, .hb-cal__kita { font-size: 9.5px; padding: 1px 4px; }
+  .hb-cal__chiptext { }
+}

@@ -63,8 +63,9 @@ async function open(page: Page, mock: MockApi) {
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
   await page.goto('/')
-  await page.getByRole('button', { name: 'Kalender' }).click()
-  await expect(page.getByRole('heading', { name: 'Kalender' })).toBeVisible()
+  // exact match: the nav also has a "Familienkalender" entry (#427) whose label contains "Kalender".
+  await page.getByRole('button', { name: 'Kalender', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Kalender', exact: true })).toBeVisible()
 }
 
 test.describe('Abwesenheit', () => {
@@ -162,8 +163,9 @@ test.describe('Abwesenheit', () => {
     })
     await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
     await page.goto('/')
-    await page.getByRole('button', { name: 'Kalender' }).click()
-    await expect(page.getByRole('heading', { name: 'Kalender' })).toBeVisible()
+    // exact match: the nav also has a "Familienkalender" entry (#427) whose label contains "Kalender".
+    await page.getByRole('button', { name: 'Kalender', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Kalender', exact: true })).toBeVisible()
     // The calendar itself renders: one summary card per user (default settings) + the grid.
     await expect(page.locator('.abw-sumcard')).toHaveCount(2)
     await expect(page.locator(`button.abw-rcell--day[title^="${YEAR}-06-04"]`).first()).toBeVisible()
