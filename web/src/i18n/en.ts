@@ -887,7 +887,6 @@ export const en: Messages = {
     prevMonth: 'Previous month',
     nextMonth: 'Next month',
     today: 'Today',
-    loadError: 'Could not load the calendar.',
     weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     legend: 'Legend',
     catTodos: 'Due tasks',

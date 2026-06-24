@@ -886,7 +886,6 @@ export const de = {
     prevMonth: 'Vorheriger Monat',
     nextMonth: 'Nächster Monat',
     today: 'Heute',
-    loadError: 'Kalender konnte nicht geladen werden.',
     // weekday header (Mo–So)
     weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
     // legend / category labels

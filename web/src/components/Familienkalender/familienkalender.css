@@ -5,7 +5,7 @@
 .hb-cal {
   --cal-todo: 28;     /* clay/orange */
   --cal-meal: 150;    /* green (matches the accent family) */
-  --cal-absence: 150; /* overridden per-chip via --chip-hue for Urlaub; krank/kk fall to fixed */
+  /* absence chips use --chip-hue per-chip (Urlaub → person hue, krank/kk → the fallback below) */
   --cal-kita: 288;    /* violet, matches the Feiertag marker family in the absence calendar */
 }
 
@@ -96,5 +96,4 @@
   .hb-cal__day { min-height: 72px; padding: 4px 4px 5px; gap: 3px; }
   .hb-cal__dnum { font-size: 13px; }
   .hb-cal__chip, .hb-cal__kita { font-size: 9.5px; padding: 1px 4px; }
-  .hb-cal__chiptext { }
 }

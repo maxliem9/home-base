@@ -1,0 +1,62 @@
+package com.homebase
+
+import com.homebase.routes.icalEscapeText
+import com.homebase.routes.icalFoldLine
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * Unit tests for the pure RFC 5545 helpers (issue #427). The route test [CalendarRouteTest]
+ * exercises the feed end-to-end; this pins the two trickiest bits in isolation — TEXT escaping
+ * order and the UTF-8-aware 75-octet line folding.
+ */
+class ICalendarTest {
+
+    @Test
+    fun `escaping order handles backslash, comma, semicolon and newline`() {
+        // backslash must be escaped first so it doesn't double-escape the others
+        assertEquals("a\\\\b", icalEscapeText("a\\b"))
+        assertEquals("Milch\\, Brot\\; Käse", icalEscapeText("Milch, Brot; Käse"))
+        assertEquals("line1\\nline2", icalEscapeText("line1\nline2"))
+        assertEquals("a\\nb", icalEscapeText("a\r\nb"))
+        assertEquals("a\\nb", icalEscapeText("a\rb"))
+    }
+
+    @Test
+    fun `a short line is returned unchanged`() {
+        val line = "SUMMARY:kurz"
+        assertEquals(line, icalFoldLine(line))
+    }
+
+    @Test
+    fun `a long ASCII line folds with CRLF + single leading space and no content line exceeds 75 octets`() {
+        val line = "SUMMARY:" + "x".repeat(200)
+        val folded = icalFoldLine(line)
+        val parts = folded.split("\r\n")
+        assertTrue(parts.size > 1, "expected the line to fold into multiple physical lines")
+        // continuation lines start with exactly one space
+        parts.drop(1).forEach { assertTrue(it.startsWith(" "), "continuation must start with a space: '$it'") }
+        // every physical line is <= 75 octets
+        parts.forEach { assertTrue(it.toByteArray(Charsets.UTF_8).size <= 75, "line >75 octets: '$it'") }
+        // unfolding (RFC 5545: strip each CRLF + the one inserted leading space) restores the original
+        assertEquals(line, folded.replace("\r\n ", ""))
+    }
+
+    @Test
+    fun `folding never splits a multibyte UTF-8 sequence`() {
+        // Each 🎉 is 4 UTF-8 octets; a run of them straddles the 75-octet boundary so the folder
+        // must break *between* code points, never inside one. If it split a sequence, decoding the
+        // bytes back to a String would introduce a U+FFFD replacement char.
+        val line = "DESCRIPTION:" + "🎉".repeat(40) // 40 party-popper emoji
+        val folded = icalFoldLine(line)
+        // round-trips through UTF-8 cleanly (no replacement char), so no sequence was cut
+        val reDecoded = String(folded.toByteArray(Charsets.UTF_8), Charsets.UTF_8)
+        assertEquals(folded, reDecoded)
+        assertTrue('�' !in folded, "a multibyte sequence was split (U+FFFD present)")
+        // and each physical line still respects the octet cap
+        folded.split("\r\n").forEach { assertTrue(it.toByteArray(Charsets.UTF_8).size <= 75) }
+        // unfolding restores the original content exactly
+        assertEquals(line, folded.replace("\r\n ", ""))
+    }
+}

@@ -60,7 +60,7 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
 
   const from = ymd(gridDays[0])
   const to = ymd(gridDays[gridDays.length - 1])
-  const { todos, absence, meals } = useCalendarData(token, onLogout, from, to)
+  const { todos, absence, meals, loading } = useCalendarData(token, onLogout, from, to)
 
   const todayIso = ymd(new Date())
 
@@ -101,6 +101,9 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
   const weekdays = t('familienkalender.weekdays', { returnObjects: true }) as string[]
 
   const openBucket = openDay ? buckets.get(openDay) : undefined
+  // Only show the spinner on the very first load (nothing fetched yet). A month switch keeps the
+  // grid on screen and just refills it, so it doesn't flash a spinner.
+  const firstLoad = loading && buckets.size === 0
 
   return (
     <div className="hb-page">
@@ -123,7 +126,9 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
         <Button variant="ghost" size="sm" onClick={goToday}>{t('familienkalender.today')}</Button>
       </div>
 
-      <div className="hb-cal">
+      {firstLoad && <p className="hb-muted" style={{ textAlign: 'center', padding: 24 }}>{t('common.loading')}</p>}
+
+      <div className="hb-cal" aria-busy={loading}>
         <div className="hb-cal__head" aria-hidden="true">
           {weekdays.map((wd) => (
             <div key={wd} className="hb-cal__wd">{wd}</div>
