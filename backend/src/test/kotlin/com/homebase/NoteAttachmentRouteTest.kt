@@ -138,6 +138,28 @@ class NoteAttachmentRouteTest {
     }
 
     @Test
+    fun `served attachment filename strips a stray quote (no header breakout)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val noteId = createNote(token, """{"title":"Vertrag"}""")
+        // a stray double-quote in the original name would otherwise let the value break out of the
+        // Content-Disposition filename="…" parameter; safeAttachmentFilename strips it
+        val attId = Json.parseToJsonElement(
+            uploadAttachment(token, noteId, pdfBytes, filename = "ab\"c.pdf").bodyAsText()
+        ).jsonObject["attachments"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.get("/api/v1/notes/$noteId/attachments/$attId") { bearerAuth(token) }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val disposition = response.headers[HttpHeaders.ContentDisposition]!!
+        // the header stays a single well-formed line, still an attachment, with the quote stripped so
+        // the remaining name (abc.pdf) sits cleanly inside the filename parameter
+        assertTrue('\r' !in disposition && '\n' !in disposition, "no CR/LF in $disposition")
+        assertTrue(disposition.startsWith("attachment"), "expected attachment disposition, got $disposition")
+        assertTrue(disposition.contains("abc.pdf"), "sanitized name should survive in $disposition")
+    }
+
+    @Test
     fun `notes list embeds uploaded attachments`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
