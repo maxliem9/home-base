@@ -115,7 +115,7 @@ test.describe('web screenshots', () => {
 
   test('web-abwesenheit', async ({ page }) => {
     await boot(page)
-    await page.getByRole('button', { name: 'Kalender' }).click()
+    await page.getByRole('button', { name: 'Kalender', exact: true }).click()
     await waitFor(page, '.abw-raster, .abw-sumcard')
     await shoot(page, 'web-abwesenheit')
   })
@@ -133,7 +133,7 @@ test.describe('web screenshots (dark)', () => {
 
   test('web-abwesenheit-dark', async ({ page }) => {
     await boot(page)
-    await page.getByRole('button', { name: 'Kalender' }).click()
+    await page.getByRole('button', { name: 'Kalender', exact: true }).click()
     await waitFor(page, '.abw-raster, .abw-sumcard')
     await shoot(page, 'web-abwesenheit-dark')
   })
