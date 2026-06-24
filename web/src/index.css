@@ -637,6 +637,19 @@ ol.hb-md-list { list-style-type: decimal; }
 .hb-note-editor__uploading { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 13px; color: var(--ink-3); animation: hb-note-uploading-pulse 1.1s ease-in-out infinite; }
 @keyframes hb-note-uploading-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
+/* File attachments (#431): a download-chip list (non-image documents) under the image gallery. */
+.hb-note-attachments { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.hb-note-attachments__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.hb-note-attachments__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hb-note-attachment { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
+.hb-note-attachment__open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: none; background: none; color: var(--ink-1); cursor: pointer; text-align: left; transition: background 0.14s; }
+.hb-note-attachment__open:hover { background: var(--surface-3, var(--surface-1)); }
+.hb-note-attachment__open > svg { flex: none; color: var(--ink-3); }
+.hb-note-attachment__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.hb-note-attachment__size { flex: none; font-size: 12px; color: var(--ink-3); }
+.hb-note-attachment__del { flex: none; width: 34px; align-self: stretch; display: flex; align-items: center; justify-content: center; border: none; border-left: 1px solid var(--line-soft); background: none; color: var(--ink-3); cursor: pointer; transition: color 0.14s, background 0.14s; }
+.hb-note-attachment__del:hover { color: oklch(0.55 0.16 32); background: oklch(0.55 0.16 32 / 0.08); }
+
 /* Folder-grouped note list (#311): a header per folder, its notes indented beneath.
    The header is a button that collapses/expands its section (chevron indicates state). */
 .hb-notes-groups { display: flex; flex-direction: column; gap: 18px; }

@@ -124,6 +124,140 @@ fun contentTypeFromName(name: String): String? = when (name.substringAfterLast('
     else -> null
 }
 
+// --- Arbitrary file attachments (#431) ----------------------------------------
+// Generalises the image-upload plumbing above to arbitrary whitelisted file types (PDF, office
+// docs, plain text, …) for note attachments. Reuses the same streaming-to-temp-file machinery and
+// size cap; only the type whitelist and the on-disk extension mapping differ. Kept deliberately
+// strict — only known-safe document/data types, never executables/scripts/HTML/SVG (the latter
+// could carry stored XSS). Non-image attachments are always served as `attachment` (force download)
+// with X-Content-Type-Options: nosniff, so even a mislabelled file can't be reinterpreted as markup.
+
+// Accepted attachment content types mapped to the on-disk file extension. Images are intentionally
+// NOT here (those go through the image endpoint with inline rendering); this is the document set.
+val ALLOWED_ATTACHMENT_TYPES = mapOf(
+    "application/pdf" to "pdf",
+    "text/plain" to "txt",
+    "text/csv" to "csv",
+    "text/markdown" to "md",
+    "application/rtf" to "rtf",
+    "text/rtf" to "rtf",
+    "application/msword" to "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to "docx",
+    "application/vnd.ms-excel" to "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" to "xlsx",
+    "application/vnd.ms-powerpoint" to "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation" to "pptx",
+    "application/vnd.oasis.opendocument.text" to "odt",
+    "application/vnd.oasis.opendocument.spreadsheet" to "ods",
+    "application/vnd.oasis.opendocument.presentation" to "odp",
+    "application/zip" to "zip",
+)
+
+/**
+ * Best-effort content-type for an attachment from its filename extension — the fallback when the
+ * multipart part declares a generic/absent type (e.g. browsers sending application/octet-stream for
+ * a .pdf). Only maps the whitelisted document extensions; anything else returns null (rejected).
+ */
+fun attachmentContentTypeFromName(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+    "pdf" -> "application/pdf"
+    "txt" -> "text/plain"
+    "csv" -> "text/csv"
+    "md", "markdown" -> "text/markdown"
+    "rtf" -> "application/rtf"
+    "doc" -> "application/msword"
+    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "xls" -> "application/vnd.ms-excel"
+    "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "ppt" -> "application/vnd.ms-powerpoint"
+    "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    "odt" -> "application/vnd.oasis.opendocument.text"
+    "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
+    "odp" -> "application/vnd.oasis.opendocument.presentation"
+    "zip" -> "application/zip"
+    else -> null
+}
+
+/**
+ * The filename offered to the browser on attachment download (Content-Disposition). Strips CR/LF
+ * and stray double-quotes so the value can't break out of the header, and falls back to
+ * "anhang.<ext>" (ext derived from the stored content-type) when the original name is null/blank.
+ * Ktor handles the RFC-compliant quoting/encoding of umlauts; this only sanitizes the raw input.
+ * Mirrors safeImageFilename (issue #272) for the attachment endpoint.
+ */
+fun safeAttachmentFilename(originalName: String?, contentType: String): String {
+    val cleaned = originalName?.replace(Regex("[\\r\\n\"]"), "")?.trim().orEmpty()
+    if (cleaned.isNotEmpty()) return cleaned
+    val ext = ALLOWED_ATTACHMENT_TYPES[contentType.lowercase()]
+    return if (ext != null) "anhang.$ext" else "anhang"
+}
+
+/**
+ * Read the first file part from this multipart request as a generic note attachment, streaming it
+ * straight to a temp file while enforcing the [ALLOWED_ATTACHMENT_TYPES] whitelist + size limit as
+ * the bytes arrive (the body is never fully buffered — same machinery as [receiveImageUpload]).
+ * Returns a ready [PendingUpload] whose contentType is the *resolved* whitelisted type, the reason
+ * it was rejected, or [ImageUploadResult.None] when no file part was present.
+ */
+suspend fun ApplicationCall.receiveAttachmentUpload(config: ImageUploadConfig): ImageUploadResult {
+    var pending: PendingUpload? = null
+    var rejected: ImageRejection? = null
+
+    val multipart = receiveMultipart()
+    while (true) {
+        val part = multipart.readPart() ?: break
+        if (part is PartData.FileItem && pending == null && rejected == null) {
+            // Prefer the declared content-type, but fall back to the filename extension when it is
+            // absent or a generic octet-stream (common for PDFs/office docs from some browsers).
+            val declared = part.contentType?.let { "${it.contentType}/${it.contentSubtype}" }?.lowercase()
+            val byName = part.originalFileName?.let { attachmentContentTypeFromName(it) }
+            val ct = when {
+                declared != null && declared in ALLOWED_ATTACHMENT_TYPES -> declared
+                byName != null -> byName
+                else -> declared // keep the (unsupported) declared type so the rejection is honest
+            }
+            if (ct == null || ct !in ALLOWED_ATTACHMENT_TYPES) {
+                rejected = ImageRejection.UnsupportedType
+            } else {
+                when (val outcome = part.streamToTempFile(config)) {
+                    StreamOutcome.Empty -> rejected = ImageRejection.Empty
+                    StreamOutcome.TooLarge -> rejected = ImageRejection.TooLarge
+                    is StreamOutcome.Ok -> pending = PendingUpload(
+                        tempFile = outcome.file,
+                        contentType = ct,
+                        originalName = part.originalFileName?.takeIf { it.isNotBlank() } ?: "datei",
+                        size = outcome.size,
+                    )
+                }
+            }
+        }
+        part.dispose()
+    }
+
+    return when {
+        rejected != null -> ImageUploadResult.Rejected(rejected)
+        pending != null -> ImageUploadResult.Accepted(pending)
+        else -> ImageUploadResult.None
+    }
+}
+
+/** Respond with the canonical error for a rejected attachment upload (#431). */
+suspend fun ApplicationCall.respondAttachmentRejection(reason: ImageRejection, config: ImageUploadConfig) {
+    when (reason) {
+        ImageRejection.UnsupportedType -> respond(
+            HttpStatusCode.UnsupportedMediaType,
+            ErrorResponse("UNSUPPORTED_TYPE", "attachment must be a supported document type (PDF, text, office, …)"),
+        )
+        ImageRejection.TooLarge -> {
+            val mb = config.maxBytes / (1024 * 1024)
+            respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("ATTACHMENT_TOO_LARGE", "attachment exceeds the ${mb} MB limit"))
+        }
+        ImageRejection.Empty -> respond(
+            HttpStatusCode.BadRequest,
+            ErrorResponse("EMPTY_ATTACHMENT", "uploaded attachment was empty"),
+        )
+    }
+}
+
 // --- Filesystem helpers -------------------------------------------------------
 
 private const val STREAM_BUFFER_BYTES = 64 * 1024

@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.NoteAttachmentsTable
 import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
 import com.homebase.model.*
@@ -45,8 +46,13 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                     }
                     .orderBy(NotesTable.updatedAt, SortOrder.DESC)
                     .toList()
-                val imagesByNote = loadImagesFor(rows.map { it[NotesTable.id] })
-                rows.map { it.toDto(imagesByNote[it[NotesTable.id]].orEmpty()) }
+                val ids = rows.map { it[NotesTable.id] }
+                val imagesByNote = loadImagesFor(ids)
+                val attachmentsByNote = loadAttachmentsFor(ids)
+                rows.map {
+                    val id = it[NotesTable.id]
+                    it.toDto(NoteChildren(imagesByNote[id].orEmpty(), attachmentsByNote[id].orEmpty()))
+                }
             }.let { all ->
                 if (query.isNullOrEmpty()) all
                 else all.filter { note ->
@@ -86,8 +92,8 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                     it[createdAt] = now
                     it[updatedAt] = now
                 }
-                // a freshly created note has no images yet
-                NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto(emptyList())
+                // a freshly created note has no images or attachments yet
+                NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto(NoteChildren(emptyList(), emptyList()))
             }
 
             broadcastCreate(note)
@@ -137,7 +143,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                     newVisibility?.let { v -> it[visibility] = v }
                     it[updatedAt] = Instant.now()
                 }
-                val updated = NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto(loadImages(id))
+                val updated = NotesTable.selectAll().where { NotesTable.id eq id }.single().toDto(loadChildren(id))
                 NoteUpdateResult.Success(wasShared, updated)
             }
 
@@ -164,12 +170,14 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                 val existing = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
                     ?: return@transaction null
                 if (!existing.isVisibleTo(username)) return@transaction null
-                // Capture the image filenames before the cascade removes their rows so we can
-                // clean up the files on disk afterwards.
+                // Capture the image + attachment filenames before the cascade removes their rows so
+                // we can clean up the files on disk afterwards.
                 val files = NoteImagesTable.selectAll().where { NoteImagesTable.noteId eq id }
-                    .map { it[NoteImagesTable.filename] }
+                    .map { it[NoteImagesTable.filename] } +
+                    NoteAttachmentsTable.selectAll().where { NoteAttachmentsTable.noteId eq id }
+                        .map { it[NoteAttachmentsTable.filename] }
                 NotesTable.deleteWhere { NotesTable.id eq id }
-                existing.toDto(emptyList()) to files
+                existing.toDto(NoteChildren(emptyList(), emptyList())) to files
             }
             if (outcome == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Note not found"))
@@ -235,7 +243,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                     it[createdAt] = Instant.now()
                 }
                 NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }
-                NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadImages(noteId))
+                NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadChildren(noteId))
             }
             if (result == null) {
                 // note vanished between the visibility check and the insert — undo the file
@@ -310,10 +318,150 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                 val filename = image[NoteImagesTable.filename]
                 NoteImagesTable.deleteWhere { (NoteImagesTable.id eq imageId) and (NoteImagesTable.noteId eq noteId) }
                 NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }
-                filename to NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadImages(noteId))
+                filename to NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadChildren(noteId))
             }
             if (outcome == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image not found"))
+                return@delete
+            }
+            val (filename, note) = outcome
+            deleteImageFile(imageConfig, filename)
+            broadcastUpdate(wasShared = note.visibility == VISIBILITY_SHARED, note = note)
+            call.respond(note)
+        }
+
+        // --- Attachments (#431) ------------------------------------------
+        // Arbitrary whitelisted file attachments (PDF, office docs, text, …). Mirrors the image
+        // endpoints but accepts the document type set and serves with Content-Disposition: attachment
+        // (force download, never inline) so a mislabelled HTML/SVG file can't run as markup.
+
+        // Upload a file attachment to a note. Returns the updated note (with attachments embedded).
+        post("/{id}/attachments") {
+            val username = call.username()
+            val noteId = call.uuidParam() ?: return@post
+
+            val visible = transaction {
+                NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()?.isVisibleTo(username) ?: false
+            }
+            if (!visible) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Note not found"))
+                return@post
+            }
+
+            val upload = when (val received = call.receiveAttachmentUpload(imageConfig)) {
+                is ImageUploadResult.Rejected -> {
+                    call.respondAttachmentRejection(received.reason, imageConfig)
+                    return@post
+                }
+                ImageUploadResult.None -> {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse("NO_ATTACHMENT", "no file in request"))
+                    return@post
+                }
+                is ImageUploadResult.Accepted -> received.upload
+            }
+
+            val attachmentId = UUID.randomUUID()
+            val storedName = "$attachmentId.${ALLOWED_ATTACHMENT_TYPES.getValue(upload.contentType)}"
+            // The bytes are already streamed to a temp file; promote it to its final name.
+            finalizeImageFile(imageConfig, upload.tempFile, storedName)
+
+            val result = transaction {
+                val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
+                    ?: return@transaction null
+                if (!note.isVisibleTo(username)) return@transaction null
+                // append after the existing attachments (0-based index == current count)
+                val nextOrder = NoteAttachmentsTable.selectAll().where { NoteAttachmentsTable.noteId eq noteId }.count().toInt()
+                NoteAttachmentsTable.insert {
+                    it[NoteAttachmentsTable.id] = attachmentId
+                    it[NoteAttachmentsTable.noteId] = noteId
+                    it[filename] = storedName
+                    it[NoteAttachmentsTable.originalName] = upload.originalName
+                    it[NoteAttachmentsTable.contentType] = upload.contentType
+                    it[sizeBytes] = upload.size
+                    it[sortOrder] = nextOrder
+                    it[createdBy] = username
+                    it[createdAt] = Instant.now()
+                }
+                NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }
+                NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadChildren(noteId))
+            }
+            if (result == null) {
+                // note vanished between the visibility check and the insert — undo the file
+                deleteImageFile(imageConfig, storedName)
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Note not found"))
+                return@post
+            }
+
+            broadcastUpdate(wasShared = result.visibility == VISIBILITY_SHARED, note = result)
+            call.respond(HttpStatusCode.Created, result)
+        }
+
+        // Serve the raw attachment bytes for download. Access follows the note's visibility.
+        get("/{id}/attachments/{attachmentId}") {
+            val username = call.username()
+            val noteId = call.uuidParam() ?: return@get
+            val attachmentId = call.uuidParam("attachmentId") ?: return@get
+
+            val row = transaction {
+                val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
+                    ?: return@transaction null
+                if (!note.isVisibleTo(username)) return@transaction null
+                NoteAttachmentsTable.selectAll()
+                    .where { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
+                    .singleOrNull()
+            }
+            if (row == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Attachment not found"))
+                return@get
+            }
+            val file = imageConfig.uploadDir.resolve(row[NoteAttachmentsTable.filename])
+            if (!Files.exists(file)) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Attachment file missing"))
+                return@get
+            }
+            // Stored names are immutable (UUID-based), so the bytes never change.
+            call.response.headers.append(HttpHeaders.CacheControl, "private, max-age=31536000, immutable")
+            // The stored content-type is the *declared/derived* one from upload; the bytes are never
+            // validated to actually be that type. Tell the browser not to MIME-sniff so a crafted file
+            // can never be reinterpreted as markup.
+            call.response.headers.append("X-Content-Type-Options", "nosniff")
+            // Force a download under the original name (sanitized) — NEVER inline. Serving an HTML/SVG
+            // attachment inline would be stored XSS; attachment disposition neutralises that, and also
+            // closes the original-filename gap #272 fixed for recipe images. Ktor encodes the value
+            // (umlauts → RFC 5987); we only sanitize the raw input.
+            val downloadName = safeAttachmentFilename(
+                row[NoteAttachmentsTable.originalName],
+                row[NoteAttachmentsTable.contentType],
+            )
+            call.response.header(
+                HttpHeaders.ContentDisposition,
+                ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, downloadName).toString(),
+            )
+            // Stream the file straight from disk (LocalFileContent) instead of reading it all into
+            // the heap; it also adds Content-Length and supports range requests.
+            call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[NoteAttachmentsTable.contentType])))
+        }
+
+        // Remove an attachment from a note. Returns the updated note.
+        delete("/{id}/attachments/{attachmentId}") {
+            val username = call.username()
+            val noteId = call.uuidParam() ?: return@delete
+            val attachmentId = call.uuidParam("attachmentId") ?: return@delete
+
+            val outcome = transaction {
+                val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
+                    ?: return@transaction null
+                if (!note.isVisibleTo(username)) return@transaction null
+                val attachment = NoteAttachmentsTable.selectAll()
+                    .where { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
+                    .singleOrNull() ?: return@transaction null
+                val filename = attachment[NoteAttachmentsTable.filename]
+                NoteAttachmentsTable.deleteWhere { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
+                NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }
+                filename to NotesTable.selectAll().where { NotesTable.id eq noteId }.single().toDto(loadChildren(noteId))
+            }
+            if (outcome == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Attachment not found"))
                 return@delete
             }
             val (filename, note) = outcome
@@ -406,14 +554,47 @@ private fun ResultRow.toImageDto() = NoteImageDto(
     createdAt = this[NoteImagesTable.createdAt].toString(),
 )
 
-private fun ResultRow.toDto(images: List<NoteImageDto>) = NoteDto(
+private fun loadAttachments(noteId: UUID): List<NoteAttachmentDto> =
+    NoteAttachmentsTable.selectAll()
+        .where { NoteAttachmentsTable.noteId eq noteId }
+        .orderBy(NoteAttachmentsTable.sortOrder to SortOrder.ASC, NoteAttachmentsTable.createdAt to SortOrder.ASC)
+        .map { it.toAttachmentDto() }
+
+private fun loadAttachmentsFor(noteIds: List<UUID>): Map<UUID, List<NoteAttachmentDto>> {
+    if (noteIds.isEmpty()) return emptyMap()
+    return NoteAttachmentsTable.selectAll()
+        .where { NoteAttachmentsTable.noteId inList noteIds }
+        .orderBy(NoteAttachmentsTable.sortOrder to SortOrder.ASC, NoteAttachmentsTable.createdAt to SortOrder.ASC)
+        .groupBy({ it[NoteAttachmentsTable.noteId] }, { it.toAttachmentDto() })
+}
+
+private fun ResultRow.toAttachmentDto() = NoteAttachmentDto(
+    id = this[NoteAttachmentsTable.id].toString(),
+    noteId = this[NoteAttachmentsTable.noteId].toString(),
+    originalName = this[NoteAttachmentsTable.originalName],
+    contentType = this[NoteAttachmentsTable.contentType],
+    sizeBytes = this[NoteAttachmentsTable.sizeBytes],
+    sortOrder = this[NoteAttachmentsTable.sortOrder],
+    createdBy = this[NoteAttachmentsTable.createdBy],
+    createdAt = this[NoteAttachmentsTable.createdAt].toString(),
+)
+
+// Load the full embedded child collections (images + attachments) for one note. Used by every
+// single-note response so both arrays are always populated.
+private fun loadChildren(noteId: UUID): NoteChildren =
+    NoteChildren(loadImages(noteId), loadAttachments(noteId))
+
+private data class NoteChildren(val images: List<NoteImageDto>, val attachments: List<NoteAttachmentDto>)
+
+private fun ResultRow.toDto(children: NoteChildren) = NoteDto(
     id = this[NotesTable.id].toString(),
     title = this[NotesTable.title],
     content = this[NotesTable.content],
     tags = decodeTags(this[NotesTable.tags]),
     folder = this[NotesTable.folder],
     visibility = this[NotesTable.visibility],
-    images = images,
+    images = children.images,
+    attachments = children.attachments,
     createdBy = this[NotesTable.createdBy],
     createdAt = this[NotesTable.createdAt].toString(),
     updatedAt = this[NotesTable.updatedAt].toString()

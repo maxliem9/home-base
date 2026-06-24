@@ -434,6 +434,22 @@ export const de = {
     imageUploadFailed: 'Upload fehlgeschlagen.',
     // shown when some images of a multi-select upload failed ({count} of them)
     imagesSomeFailed: '{count} Bild(er) konnten nicht hochgeladen werden.',
+    // Datei-Anhänge (#431): beliebige Dateien (PDF, Office, Text …) an einer Notiz
+    attachments: 'Anhänge',
+    addAttachment: 'Datei anhängen',
+    removeAttachment: 'Anhang entfernen',
+    openAttachment: 'Öffnen',
+    downloadAttachment: 'Herunterladen',
+    attachmentTooLarge: 'Datei ist zu groß (max. 10 MB).',
+    attachmentBadType: 'Dateityp nicht erlaubt (PDF, Text, Office …).',
+    attachmentUploadFailed: 'Upload fehlgeschlagen.',
+    attachmentsSomeFailed: '{count} Datei(en) konnten nicht hochgeladen werden.',
+    attachmentSaveFirst: 'Notiz zuerst speichern, dann Dateien anhängen.',
+    attachmentDeleteTitle: 'Anhang löschen?',
+    attachmentDeleteConfirmNamed: '„{name}" wird gelöscht. Das kann nicht rückgängig gemacht werden.',
+    attachmentDeleteConfirmUnnamed: 'Der Anhang wird gelöscht. Das kann nicht rückgängig gemacht werden.',
+    attachmentDeleteFailed: 'Anhang konnte nicht gelöscht werden.',
+    attachmentDownloadFailed: 'Anhang konnte nicht heruntergeladen werden.',
     // delete confirm (destruktive Aktion über ConfirmDialog, #125/#129/#378)
     deleteTitle: 'Notiz löschen?',
     deleteConfirmTitled: '„{title}" wird gelöscht. Angehängte Bilder werden mitgelöscht. Das kann nicht rückgängig gemacht werden.',

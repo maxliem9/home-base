@@ -7,6 +7,7 @@ import com.homebase.db.CustomHolidaysTable
 import com.homebase.db.IngredientsTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.MealPlanEntriesTable
+import com.homebase.db.NoteAttachmentsTable
 import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
 import com.homebase.db.PartTimeRulesTable
@@ -75,7 +76,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
                 AppSettingsTable, UserPrefsTable,
                 UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
                 ShoppingItemStatsTable, ShoppingCategoriesTable, ShoppingCategoryRulesTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
-                NotesTable, NoteImagesTable,
+                NotesTable, NoteImagesTable, NoteAttachmentsTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
                 RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
                 MealPlanEntriesTable,

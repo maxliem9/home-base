@@ -386,6 +386,20 @@ data class NoteImageDto(
     val createdAt: String
 )
 
+// Arbitrary (non-rendered) file attachment on a note (#431). Same shape as NoteImageDto;
+// distinct type so clients can render images as thumbnails and attachments as download chips.
+@Serializable
+data class NoteAttachmentDto(
+    val id: String,
+    val noteId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val sortOrder: Int,
+    val createdBy: String,
+    val createdAt: String
+)
+
 @Serializable
 data class NoteDto(
     val id: String,
@@ -398,6 +412,9 @@ data class NoteDto(
     // no default: the JSON config omits default values, but clients always expect
     // an `images` array (an empty one for image-less notes), so it must be encoded.
     val images: List<NoteImageDto>,
+    // likewise always encoded so clients can normalise to [] (#431). encodeDefaults=false would
+    // otherwise drop an empty list, breaking the "always an array" contract for attachments too.
+    val attachments: List<NoteAttachmentDto>,
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String

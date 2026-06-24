@@ -325,6 +325,19 @@ export interface NoteImage {
   createdAt: string
 }
 
+// Arbitrary file attachment on a note (#431) — same shape as NoteImage; rendered as a download
+// chip (not a thumbnail). Distinct collection so images keep their inline markdown rendering.
+export interface NoteAttachment {
+  id: string
+  noteId: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  sortOrder: number
+  createdBy: string
+  createdAt: string
+}
+
 export interface Note {
   id: string
   title: string
@@ -334,6 +347,9 @@ export interface Note {
   folder?: string
   visibility: NoteVisibility
   images: NoteImage[]
+  // file attachments (#431). The backend always sends this array, but encodeDefaults=false could
+  // omit it for an empty list, so it's optional and read with `?? []` everywhere (CLAUDE.md contract).
+  attachments?: NoteAttachment[]
   createdBy: string
   createdAt: string
   updatedAt: string

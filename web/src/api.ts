@@ -89,6 +89,13 @@ export function recipeImageUrl(recipeId: string, imageId: string) {
   return `${API_BASE}/recipes/${recipeId}/images/${imageId}`
 }
 
+// Path to a note file attachment (#431). The JWT is NOT in the URL — open/download goes through
+// authFetch (Authorization header), e.g. downloadFile below. The backend serves attachments with
+// Content-Disposition: attachment, so a direct navigation would download (never render) them.
+export function noteAttachmentUrl(noteId: string, attachmentId: string) {
+  return `${API_BASE}/notes/${noteId}/attachments/${attachmentId}`
+}
+
 // Download a protected image (note/recipe gallery) under its original upload name. Galleries
 // render images from in-memory blob URLs (<AuthedImage> keeps the JWT out of the src), so the
 // browser's native "Save image as…" can't see the server's Content-Disposition filename and
@@ -103,6 +110,20 @@ export async function downloadImage(
   url: string,
   originalName: string,
 ): Promise<'ok' | 'unauthorized' | 'error'> {
+  return downloadFile(token, url, originalName, 'bild')
+}
+
+// Download any protected file (note image OR file attachment, #431) under its original upload name.
+// Same auth-fetch → blob → anchor-click flow as downloadImage; the only difference is the generic
+// fallback name. Note attachments are served with Content-Disposition: attachment, so this also
+// works for a fresh navigation, but going through authFetch keeps the JWT out of the URL and lets
+// us pick the clean originalName we already hold. Returns an outcome so the caller drives logout/UI.
+export async function downloadFile(
+  token: string,
+  url: string,
+  originalName: string,
+  fallbackName = 'datei',
+): Promise<'ok' | 'unauthorized' | 'error'> {
   const result = await safeFetch(token, url)
   if (!result.ok) return 'error'
   const { res } = result
@@ -110,7 +131,7 @@ export async function downloadImage(
   if (!res.ok) return 'error'
   const blob = await res.blob()
   const headerName = res.headers.get('Content-Disposition')?.match(/filename="?([^"]+)"?/)?.[1]
-  const filename = originalName.trim() || headerName || 'bild'
+  const filename = originalName.trim() || headerName || fallbackName
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = objectUrl
