@@ -1,0 +1,201 @@
+package com.homebase
+
+import com.homebase.db.AbsencesTable
+import com.homebase.db.KitaClosuresTable
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.testing.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.transactions.transaction
+import java.time.LocalDate
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class CalendarRouteTest {
+
+    private suspend fun ApplicationTestBuilder.loginAndGetToken(
+        username: String = "alice",
+        password: String = "password123",
+    ): String {
+        val response = client.post("/api/v1/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"$username","password":"$password"}""")
+        }
+        return Json.parseToJsonElement(response.bodyAsText())
+            .jsonObject["token"]!!.jsonPrimitive.content
+    }
+
+    private suspend fun ApplicationTestBuilder.createRecipe(token: String, title: String): String {
+        val res = client.post("/api/v1/recipes") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title","category":"DINNER"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    /** A date a few days from "today" so it always falls inside the rolling feed window. */
+    private fun soon(plusDays: Long = 3): String = LocalDate.now().plusDays(plusDays).toString()
+
+    @Test
+    fun `calendar feed without a token returns 401`() = testApplication {
+        configureTestApplication()
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/calendar.ics").status)
+    }
+
+    @Test
+    fun `calendar feed has the text-calendar content type and a filename`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.get("/api/v1/calendar.ics") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertTrue(
+            res.contentType().toString().startsWith("text/calendar"),
+            "expected text/calendar, got ${res.contentType()}",
+        )
+        assertTrue(res.headers[HttpHeaders.ContentDisposition]?.contains("homebase.ics") == true)
+        val body = res.bodyAsText()
+        assertTrue(body.startsWith("BEGIN:VCALENDAR"))
+        assertTrue(body.trimEnd().endsWith("END:VCALENDAR"))
+        // CRLF line endings (RFC 5545).
+        assertTrue(body.contains("\r\n"))
+    }
+
+    @Test
+    fun `the token may ride in the query param like the image endpoints`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.get("/api/v1/calendar.ics?token=$token")
+        assertEquals(HttpStatusCode.OK, res.status)
+        assertTrue(res.bodyAsText().startsWith("BEGIN:VCALENDAR"))
+    }
+
+    @Test
+    fun `a due todo appears as an all-day VEVENT on its due date`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val due = soon()
+        client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Zahnarzt","dueDate":"$due"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("BEGIN:VEVENT"), "expected at least one VEVENT")
+        assertTrue(body.contains("SUMMARY:✓ Zahnarzt"), "todo title missing from feed:\n$body")
+        // all-day → VALUE=DATE with the compact yyyymmdd form, and a UID stable per source id
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${due.replace("-", "")}"))
+        assertTrue(body.contains("UID:todo-"))
+        assertTrue(body.contains("DTSTAMP:"))
+    }
+
+    @Test
+    fun `a completed todo is omitted from the feed`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val due = soon()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Erledigt-Aufgabe","dueDate":"$due"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"status":"DONE"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertFalse(body.contains("Erledigt-Aufgabe"), "DONE todo should not be in the feed:\n$body")
+    }
+
+    @Test
+    fun `absences, kita closures and planned meals appear in the feed`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(4)
+
+        // Absence (full day) + a half-day for the suffix path.
+        transaction {
+            AbsencesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "alice"; it[date] = LocalDate.parse(day); it[type] = "URLAUB"; it[half] = null
+            }
+            AbsencesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "bob"; it[date] = LocalDate.parse(soon(5)); it[type] = "KIND_KRANK"; it[half] = "vm"
+            }
+            KitaClosuresTable.insert {
+                it[id] = UUID.randomUUID(); it[date] = LocalDate.parse(day); it[label] = "Brückentag"
+            }
+        }
+
+        // Planned meal (recipe-backed).
+        val recipeId = createRecipe(token, "Lasagne")
+        client.put("/api/v1/meal-plan/$day/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId"}""")
+        }
+        // Planned meal (free text, #293).
+        client.put("/api/v1/meal-plan/$day/BREAKFAST") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"dishTitle":"Brötchen holen"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:absence-"), "absence event missing")
+        assertTrue(body.contains("SUMMARY:Urlaub: alice"))
+        assertTrue(body.contains("nachmittags") || body.contains("vormittags"), "half-day suffix missing")
+        assertTrue(body.contains("UID:kita-"), "kita event missing")
+        assertTrue(body.contains("Kita: Brückentag"))
+        assertTrue(body.contains("UID:meal-"), "meal event missing")
+        assertTrue(body.contains("Abendessen: Lasagne"))
+        assertTrue(body.contains("Frühstück: Brötchen holen"))
+    }
+
+    @Test
+    fun `a todo in the other users private list does not leak into the feed`() = testApplication {
+        configureTestApplication()
+        val bobToken = loginAndGetToken("bob", "password456")
+        // Bob makes a private list and a dated todo in it.
+        val listRes = client.post("/api/v1/todos/lists") {
+            bearerAuth(bobToken); contentType(ContentType.Application.Json)
+            setBody("""{"name":"Bobs Geheim","visibility":"PRIVATE"}""")
+        }
+        val listId = Json.parseToJsonElement(listRes.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.post("/api/v1/todos") {
+            bearerAuth(bobToken); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Bobs privates Todo","dueDate":"${soon()}","listId":"$listId"}""")
+        }
+
+        // Alice's feed must not contain Bob's private todo, but Bob's own feed must.
+        val aliceToken = loginAndGetToken("alice", "password123")
+        val aliceFeed = client.get("/api/v1/calendar.ics") { bearerAuth(aliceToken) }.bodyAsText()
+        assertFalse(aliceFeed.contains("Bobs privates Todo"), "private todo leaked to the partner:\n$aliceFeed")
+
+        val bobFeed = client.get("/api/v1/calendar.ics") { bearerAuth(bobToken) }.bodyAsText()
+        assertTrue(bobFeed.contains("Bobs privates Todo"), "owner should see their own private todo")
+    }
+
+    @Test
+    fun `text escaping and a long summary fold correctly`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // A title with a comma + semicolon (must be escaped) and long enough to force a fold.
+        val title = "Einkauf: Milch, Brot; Käse und ganz viele weitere Dinge fuer das lange Wochenende"
+        client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title","dueDate":"${soon()}"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        // commas/semicolons inside the value are backslash-escaped
+        assertTrue(body.contains("Milch\\, Brot\\; K"), "TEXT not escaped:\n$body")
+        // folded continuation lines begin with CRLF + a single space; no raw content line exceeds 75 octets
+        val tooLong = body.split("\r\n").firstOrNull { it.toByteArray(Charsets.UTF_8).size > 75 }
+        assertTrue(tooLong == null, "found an unfolded line >75 octets: $tooLong")
+    }
+}

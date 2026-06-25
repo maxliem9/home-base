@@ -112,6 +112,7 @@ export const en: Messages = {
     time: 'Time tracking',
     recipes: 'Recipes',
     wochenplan: 'Meal plan',
+    familienkalender: 'Family calendar',
     abwesenheit: 'Calendar',
     settings: 'Settings',
     more: 'More', // bottom-tab "More" overflow sheet (HB-09)
@@ -125,6 +126,7 @@ export const en: Messages = {
       time: 'Time',
       recipes: 'Recipes',
       wochenplan: 'Plan',
+      familienkalender: 'Agenda',
       abwesenheit: 'Calendar',
       more: 'More',
     },
@@ -875,6 +877,35 @@ export const en: Messages = {
     added: 'added', // toast: "{n} added"
     merged: 'merged', // toast: "{n} merged"
     nothingToAdd: 'No new ingredients',
+  },
+  // #427 — Family calendar: cross-domain read-only month view (todos/absence/kita/meal plan)
+  // plus the iCal subscription hint.
+  familienkalender: {
+    eyebrow: 'Overview',
+    title: 'Family calendar',
+    monthNav: 'Month navigation',
+    prevMonth: 'Previous month',
+    nextMonth: 'Next month',
+    today: 'Today',
+    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    legend: 'Legend',
+    catTodos: 'Due tasks',
+    catAbsence: 'Absence',
+    catKita: 'Daycare closed',
+    catMeals: 'Meal plan',
+    detailEmpty: 'Nothing on this day.',
+    sectionTodos: 'Due tasks',
+    sectionAbsence: 'Absence',
+    sectionKita: 'Daycare',
+    sectionMeals: 'Meal plan',
+    moreCount: '+{count} more',
+    half: { vm: 'morning', nm: 'afternoon' },
+    subscribe: 'Subscribe',
+    subscribeTitle: 'Subscribe in your calendar',
+    subscribeIntro: 'Subscribe to this feed once in Apple or Google Calendar — due tasks, absences, daycare closures and the meal plan then show up automatically on your phone.',
+    subscribeCopy: 'Copy link',
+    subscribeCopied: 'Copied!',
+    subscribeNote: 'The link contains your personal access token — do not share it.',
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Calendar',

@@ -17,12 +17,13 @@ import { ShoppingView } from './components/ShoppingView'
 import { TimeView } from './components/TimeView'
 import { RecipesView } from './components/RecipesView'
 import { WochenplanView } from './components/Wochenplan/WochenplanView'
+import { FamilienkalenderView } from './components/Familienkalender/FamilienkalenderView'
 import { AbwesenheitView } from './components/abwesenheit/AbwesenheitView'
 import { SettingsView, type SettingsTab } from './components/settings/SettingsView'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { KIND_TAB, type SearchItem } from './search'
 
-type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'wochenplan' | 'abwesenheit'
+type Tab = 'heute' | 'todos' | 'shopping' | 'notes' | 'time' | 'recipes' | 'wochenplan' | 'familienkalender' | 'abwesenheit'
 
 // HB-09 — the mobile bottom bar shows these core areas (in this order) plus a "Mehr"
 // button; everything else moves into the "Mehr" sheet so 8+ areas never overflow / clip.
@@ -39,7 +40,8 @@ const buildNav = (t: TFunction): { id: Tab; label: string; shortLabel: string; i
   { id: 'notes', label: t('nav.notes'), shortLabel: t('nav.short.notes'), icon: 'note' },
   { id: 'recipes', label: t('nav.recipes'), shortLabel: t('nav.short.recipes'), icon: 'chef' },
   { id: 'wochenplan', label: t('nav.wochenplan'), shortLabel: t('nav.short.wochenplan'), icon: 'utensils' },
-  { id: 'abwesenheit', label: t('nav.abwesenheit'), shortLabel: t('nav.short.abwesenheit'), icon: 'calendar' },
+  { id: 'familienkalender', label: t('nav.familienkalender'), shortLabel: t('nav.short.familienkalender'), icon: 'calendar' },
+  { id: 'abwesenheit', label: t('nav.abwesenheit'), shortLabel: t('nav.short.abwesenheit'), icon: 'sun' },
 ]
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -288,6 +290,7 @@ function Shell({ token, tab, setTab, onLogout }: { token: string; tab: Tab; setT
             {tab === 'time' && <TimeView token={token} onLogout={onLogout} onOpenSettings={() => openSettings('time')} />}
             {tab === 'recipes' && <RecipesView token={token} onLogout={onLogout} />}
             {tab === 'wochenplan' && <WochenplanView token={token} onLogout={onLogout} />}
+            {tab === 'familienkalender' && <FamilienkalenderView token={token} onLogout={onLogout} />}
             {tab === 'abwesenheit' && <AbwesenheitView token={token} onLogout={onLogout} />}
           </>
         )}

@@ -4,6 +4,7 @@ import com.homebase.routes.ImageUploadConfig
 import com.homebase.routes.sweepStaleImageUploads
 import com.homebase.routes.absenceRoutes
 import com.homebase.routes.authRoutes
+import com.homebase.routes.calendarRoutes
 import com.homebase.routes.configRoutes
 import com.homebase.routes.healthRoutes
 import com.homebase.routes.mealPlanRoutes
@@ -72,6 +73,9 @@ fun Application.configureRouting() {
                 recipeRoutes(imageConfig)
                 mealPlanRoutes()
                 absenceRoutes()
+                // iCal subscription feed (#427). Under auth-jwt so the JWT may ride in ?token=
+                // (calendar apps can't set headers); the JWT mechanism is identical to note-image loads.
+                calendarRoutes()
             }
         }
     }
