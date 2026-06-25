@@ -9,7 +9,17 @@ import {
   type FocusEvent as ReactFocusEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { API_BASE, authFetch, downloadImage, errorCode, noteImageUrl, notifyTransportError, safeFetch } from '../api'
+import {
+  API_BASE,
+  authFetch,
+  downloadFile,
+  downloadImage,
+  errorCode,
+  noteAttachmentUrl,
+  noteImageUrl,
+  notifyTransportError,
+  safeFetch,
+} from '../api'
 import { errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -153,12 +163,19 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // progress of a multi-file gallery upload (null = no batch in flight); drives the button label
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  // file attachments (#431) — separate upload/error/progress state from images
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [attachmentProgress, setAttachmentProgress] = useState<{ done: number; total: number } | null>(null)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<{ noteId: string; imageId: string; originalName: string } | null>(null)
   // pending delete confirmation — destructive deletes go through <ConfirmDialog>, never silently (#125/#129/#378)
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null)
   // same for deleting a single attached image (#385, sibling of #378); name = original upload name
   const [confirmDeleteImage, setConfirmDeleteImage] = useState<{ id: string; name: string } | null>(null)
+  // and for deleting a single file attachment (#431, same ConfirmDialog pattern)
+  const [confirmDeleteAttachment, setConfirmDeleteAttachment] = useState<{ id: string; name: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
   // The note-document container (for outside-click detection while editing) and the title input
   // (focused when a brand-new note opens or the title is clicked in preview). HB-13.
@@ -699,6 +716,7 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // caret-insertion. Only existing (saved) notes have images; a brand-new draft has none.
   const editNote = draft?.id ? notes.find((n) => n.id === draft.id) ?? null : null
   const editImages = editNote?.images ?? []
+  const editAttachments = editNote?.attachments ?? []
 
   // Offline-marker helpers (#323): a note is "not synced" while it has a queued save. The open draft
   // is keyed by its id, or NEW_KEY when it has not been created yet. A note-list item only ever
@@ -710,6 +728,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // clear any stale image upload error when the editor opens/closes/switches notes —
   // paste/drop errors must not leak across views (#146)
   useEffect(() => { setImageError(null) }, [draft?.id, draft === null])
+  // same for the attachment upload error (#431)
+  useEffect(() => { setAttachmentError(null) }, [draft?.id, draft === null])
 
   // Post a single image file to a saved note and refresh that note in state. Returns the
   // newly-attached NoteImage on success, or an HTTP-status-tagged failure — the callers
@@ -873,6 +893,97 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     else if (outcome === 'error') flashError(errorText(null, t('notes.imageDownloadFailed')))
   }
 
+  // --- File attachments (#431) ---------------------------------------------
+  // Mirror of the image gallery upload, but for arbitrary whitelisted files. Each file is posted
+  // to /notes/{id}/attachments; the backend returns the whole note with the new attachment appended
+  // (correct sort_order). Composes a 413/415/transport failure into an HTTP-status-tagged result so
+  // the multi-file loop can aggregate failures, exactly like uploadOneImage.
+  const uploadOneAttachment = async (
+    noteId: string,
+    file: File,
+  ): Promise<{ ok: true } | { ok: false; status: number | null; code: string | null }> => {
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await authFetch(token, `${API_BASE}/notes/${noteId}/attachments`, { method: 'POST', body: fd })
+      if (res.ok) {
+        const updated: Note = await res.json()
+        setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+        return { ok: true }
+      }
+      return { ok: false, status: res.status, code: res.status >= 400 && res.status < 500 ? await errorCode(res) : null }
+    } catch {
+      return { ok: false, status: null, code: null }
+    }
+  }
+
+  const attachmentFailureText = (status: number | null, code: string | null): string => {
+    if (status === 413) return t('notes.attachmentTooLarge')
+    if (status === 415) return t('notes.attachmentBadType')
+    return errorText(code, t('notes.attachmentUploadFailed'))
+  }
+
+  // Upload one or more selected files sequentially (so each lands with the right sort_order), show
+  // {done}/{total} progress and report failures as a single aggregated count. A 401 logs out.
+  const handleUploadAttachments = async (files: File[]) => {
+    if (!editNote || files.length === 0) return
+    const noteId = editNote.id
+    setAttachmentError(null)
+    setUploadingAttachment(true)
+    setAttachmentProgress({ done: 0, total: files.length })
+    let failures = 0
+    let lastFailure: { status: number | null; code: string | null } | null = null
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const result = await uploadOneAttachment(noteId, files[i])
+        if (!result.ok && result.status === 401) { onLogout(); return }
+        if (!result.ok) { failures++; lastFailure = result }
+        setAttachmentProgress({ done: i + 1, total: files.length })
+      }
+      // a single failure shows its specific reason (too large / bad type); several show a count
+      if (failures === 1 && lastFailure) setAttachmentError(attachmentFailureText(lastFailure.status, lastFailure.code))
+      else if (failures > 1) setAttachmentError(t('notes.attachmentsSomeFailed', { count: failures }))
+    } finally {
+      setUploadingAttachment(false)
+      setAttachmentProgress(null)
+    }
+  }
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!editNote) return
+    const noteId = editNote.id
+    setAttachmentError(null)
+    const result = await safeFetch(token, `${API_BASE}/notes/${noteId}/attachments/${attachmentId}`, { method: 'DELETE' })
+    if (!result.ok) {
+      setAttachmentError(errorText(null, t('notes.attachmentDeleteFailed')))
+      return
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (res.ok) {
+      const updated: Note = await res.json()
+      setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)))
+    } else {
+      setAttachmentError(errorText(await errorCode(res), t('notes.attachmentDeleteFailed')))
+    }
+  }
+
+  // Open/download an attachment under its original name. The backend serves it with
+  // Content-Disposition: attachment, so this always downloads (never renders) — exactly what we want
+  // for arbitrary files. Goes through authFetch so the JWT stays out of the URL.
+  const handleDownloadAttachment = async (noteId: string, attachmentId: string, originalName: string) => {
+    const outcome = await downloadFile(token, noteAttachmentUrl(noteId, attachmentId), originalName)
+    if (outcome === 'unauthorized') onLogout()
+    else if (outcome === 'error') flashError(errorText(null, t('notes.attachmentDownloadFailed')))
+  }
+
+  // Human-readable file size for the attachment chip (B / KB / MB).
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   // Insert an inline reference to an already-uploaded attachment at the editor caret.
   // The snippet `![name](image:id)` replaces the current selection / lands at the cursor;
   // renderMarkdown resolves it to the authed image on the preview side. Caret is restored
@@ -980,6 +1091,11 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                       {n.images.length > 0 && (
                         <span className="hb-noteitem__imgcount">
                           <Icon name="image" size={13} stroke={2} /> {n.images.length}
+                        </span>
+                      )}
+                      {(n.attachments?.length ?? 0) > 0 && (
+                        <span className="hb-noteitem__imgcount">
+                          <Icon name="note" size={13} stroke={2} /> {n.attachments?.length}
                         </span>
                       )}
                     </div>
@@ -1278,6 +1394,72 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
                     </div>
                   )}
 
+                  {/* File attachments (#431) — arbitrary documents (PDF, office, text, …) on a
+                      SAVED note. Non-images render as a download chip (no thumbnail); images live in
+                      the gallery above. Available only once the note exists, like the gallery. */}
+                  {editNote && (
+                    <div className="hb-note-attachments">
+                      <div className="hb-note-attachments__head">
+                        <span className="hb-field__label">
+                          {t('notes.attachments')}{editAttachments.length > 0 ? ` (${editAttachments.length})` : ''}
+                        </span>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon="plus"
+                          onClick={() => attachmentInputRef.current?.click()}
+                          disabled={uploadingAttachment}
+                        >
+                          {attachmentProgress
+                            ? t('notes.uploadingMany', { done: attachmentProgress.done, total: attachmentProgress.total })
+                            : uploadingAttachment
+                              ? t('notes.uploading')
+                              : t('notes.addAttachment')}
+                        </Button>
+                      </div>
+                      {editAttachments.length > 0 && (
+                        <ul className="hb-note-attachments__list">
+                          {editAttachments.map((att) => (
+                            <li key={att.id} className="hb-note-attachment">
+                              <button
+                                type="button"
+                                className="hb-note-attachment__open"
+                                title={t('notes.openAttachment')}
+                                onClick={() => handleDownloadAttachment(editNote.id, att.id, att.originalName)}
+                              >
+                                <Icon name="note" size={16} stroke={2} />
+                                <span className="hb-note-attachment__name">{att.originalName}</span>
+                                <span className="hb-note-attachment__size">{formatBytes(att.sizeBytes)}</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="hb-note-attachment__del"
+                                title={t('notes.removeAttachment')}
+                                aria-label={t('notes.removeAttachment')}
+                                onClick={() => setConfirmDeleteAttachment({ id: att.id, name: att.originalName })}
+                              >
+                                <Icon name="x" size={14} stroke={2.4} />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {attachmentError && <p className="hb-note-images__error">{attachmentError}</p>}
+                      <input
+                        ref={attachmentInputRef}
+                        type="file"
+                        multiple
+                        accept=".pdf,.txt,.csv,.md,.rtf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.zip"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? [])
+                          if (files.length > 0) handleUploadAttachments(files)
+                          e.target.value = '' // allow re-selecting the same file(s)
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {saveError && <p className="hb-modal-error" style={{ marginTop: 8 }}>{saveError}</p>}
 
                   {/* Exit affordances (HB-13): a click outside the document saves; Esc closes too. */}
@@ -1412,6 +1594,21 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
           danger
           onConfirm={() => handleDeleteImage(confirmDeleteImage.id)}
           onClose={() => setConfirmDeleteImage(null)}
+        />
+      )}
+
+      {confirmDeleteAttachment && (
+        <ConfirmDialog
+          title={t('notes.attachmentDeleteTitle')}
+          message={
+            confirmDeleteAttachment.name
+              ? t('notes.attachmentDeleteConfirmNamed', { name: confirmDeleteAttachment.name })
+              : t('notes.attachmentDeleteConfirmUnnamed')
+          }
+          confirmLabel={t('notes.deleteBtn')}
+          danger
+          onConfirm={() => handleDeleteAttachment(confirmDeleteAttachment.id)}
+          onClose={() => setConfirmDeleteAttachment(null)}
         />
       )}
 

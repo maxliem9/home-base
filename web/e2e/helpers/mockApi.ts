@@ -9,7 +9,7 @@ import type {
   ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
-  NoteVisibility, NoteImage, Note,
+  NoteVisibility, NoteImage, NoteAttachment, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 } from '../../src/types'
@@ -19,7 +19,7 @@ export type {
   ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
-  NoteVisibility, NoteImage, Note,
+  NoteVisibility, NoteImage, NoteAttachment, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 }
@@ -156,10 +156,13 @@ export class MockApi {
   private nextMealPlanId = 100
   private nextNoteId = 100
   private nextNoteImageId = 100
+  private nextNoteAttachmentId = 100
   private nextRecipeImageId = 100
   // optional HTTP status forced on the next note-image upload, to exercise the
   // editor's 413/415 error paths (#146). One-shot: consumed by the next upload.
   private nextImageUploadStatus: number | null = null
+  // same one-shot forced status for the next note-attachment upload (#431).
+  private nextAttachmentUploadStatus: number | null = null
   // optional gate that holds the NEXT note-image upload until releaseImageUpload()
   // is called — lets a test type into the editor *while the upload is in flight*
   // and prove the in-flight edits survive (#146 stale-draft regression).
@@ -216,6 +219,12 @@ export class MockApi {
 
   seedMealPlan(entries: MealPlanEntry[]): this {
     this.mealPlan = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  /** Force the HTTP status of the NEXT note-attachment upload (e.g. 413/415) — one-shot (#431). */
+  failNextAttachmentUpload(status: number): this {
+    this.nextAttachmentUploadStatus = status
     return this
   }
 
@@ -1218,6 +1227,7 @@ export class MockApi {
         tags: b.tags ?? [],
         visibility: b.visibility === 'PRIVATE' ? 'PRIVATE' : 'SHARED',
         images: [],
+        attachments: [],
         createdBy: 'alice',
         createdAt: ts,
         updatedAt: ts,
@@ -1278,6 +1288,64 @@ export class MockApi {
       this.notes[idx] = {
         ...this.notes[idx],
         images: this.notes[idx].images.filter((i) => i.id !== imageId),
+        updatedAt: new Date().toISOString(),
+      }
+      return this.json(route, this.notes[idx])
+    }
+
+    // Upload a file attachment (mirrors POST /notes/{id}/attachments, multipart, #431). Appends a
+    // NoteAttachment and returns the updated note. failNextAttachmentUpload() forces 413/415.
+    const noteAttachmentsPost = path.match(/\/notes\/([^/]+)\/attachments$/)
+    if (noteAttachmentsPost && method === 'POST') {
+      const noteId = noteAttachmentsPost[1]
+      const idx = this.notes.findIndex((n) => n.id === noteId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      if (this.nextAttachmentUploadStatus !== null) {
+        const status = this.nextAttachmentUploadStatus
+        this.nextAttachmentUploadStatus = null
+        return this.json(route, { code: status === 413 ? 'ATTACHMENT_TOO_LARGE' : 'UNSUPPORTED_TYPE', message: 'rejected' }, status)
+      }
+      const original = /filename="([^"]+)"/.exec(req.postData() ?? '')?.[1] ?? 'datei.pdf'
+      const att: NoteAttachment = {
+        id: `noteatt-${this.nextNoteAttachmentId++}`,
+        noteId,
+        originalName: original,
+        contentType: 'application/pdf',
+        sizeBytes: 1234,
+        sortOrder: (this.notes[idx].attachments ?? []).length,
+        createdBy: 'alice',
+        createdAt: new Date().toISOString(),
+      }
+      this.notes[idx] = {
+        ...this.notes[idx],
+        attachments: [...(this.notes[idx].attachments ?? []), att],
+        updatedAt: new Date().toISOString(),
+      }
+      return this.json(route, this.notes[idx], 201)
+    }
+
+    // Serve an attachment's bytes (mirrors GET /notes/{id}/attachments/{attId}). The real backend
+    // forces Content-Disposition: attachment; the in-app download flow re-fetches with auth, so we
+    // return a tiny body + the disposition header here so downloadFile's filename path is exercised.
+    const noteAttachmentMatch = path.match(/\/notes\/([^/]+)\/attachments\/([^/]+)$/)
+    if (noteAttachmentMatch && method === 'GET') {
+      const [, noteId, attId] = noteAttachmentMatch
+      const att = this.notes.find((n) => n.id === noteId)?.attachments?.find((a) => a.id === attId)
+      if (!att) return this.json(route, { message: 'not found' }, 404)
+      return route.fulfill({
+        status: 200,
+        contentType: att.contentType || 'application/pdf',
+        headers: { 'content-disposition': `attachment; filename="${att.originalName}"` },
+        body: '%PDF-1.4',
+      })
+    }
+    if (noteAttachmentMatch && method === 'DELETE') {
+      const [, noteId, attId] = noteAttachmentMatch
+      const idx = this.notes.findIndex((n) => n.id === noteId)
+      if (idx === -1) return this.json(route, { message: 'not found' }, 404)
+      this.notes[idx] = {
+        ...this.notes[idx],
+        attachments: (this.notes[idx].attachments ?? []).filter((a) => a.id !== attId),
         updatedAt: new Date().toISOString(),
       }
       return this.json(route, this.notes[idx])
@@ -1795,6 +1863,18 @@ export function noteImage(partial: Partial<NoteImage> & { id: string; noteId: st
     originalName: 'foto.png',
     contentType: 'image/png',
     sizeBytes: 95,
+    sortOrder: 0,
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function noteAttachment(partial: Partial<NoteAttachment> & { id: string; noteId: string }): NoteAttachment {
+  return {
+    originalName: 'vertrag.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: 2048,
     sortOrder: 0,
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',

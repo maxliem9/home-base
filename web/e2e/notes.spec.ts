@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { MockApi, note, noteImage, TOKEN } from './helpers/mockApi'
+import { MockApi, note, noteAttachment, noteImage, TOKEN } from './helpers/mockApi'
 
 // #383: deterministically replace the text of a controlled React <textarea> (value={draft.content}).
 // A bare `.fill(newValue)` can concatenate onto the existing value under parallel load: Playwright
@@ -468,8 +468,9 @@ test.describe('Notes', () => {
       if (r.url().includes('/notes/n1/images') && r.method() === 'POST') uploads.push(r.url())
     })
 
-    // set three files on the hidden multi-file input directly (no native picker in CI)
-    await page.locator('input[type="file"]').setInputFiles([
+    // set three files on the hidden multi-file IMAGE input directly (no native picker in CI). Scope
+    // to the image input via its accept attr — a second file input (attachments, #431) now coexists.
+    await page.locator('input[accept*="image/"]').setInputFiles([
       { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from([1, 2, 3]) },
       { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from([4, 5, 6]) },
       { name: 'c.png', mimeType: 'image/png', buffer: Buffer.from([7, 8, 9]) },
@@ -488,7 +489,7 @@ test.describe('Notes', () => {
     await openNotes(page, new MockApi().seedNotes([WLAN]).failNextImageUpload(415))
     await editNote(page, /WLAN Passwort/)
 
-    await page.locator('input[type="file"]').setInputFiles([
+    await page.locator('input[accept*="image/"]').setInputFiles([
       { name: 'bad.tiff', mimeType: 'image/tiff', buffer: Buffer.from([1, 2, 3]) },
       { name: 'ok1.png', mimeType: 'image/png', buffer: Buffer.from([4, 5, 6]) },
       { name: 'ok2.png', mimeType: 'image/png', buffer: Buffer.from([7, 8, 9]) },
@@ -751,6 +752,94 @@ test.describe('Notes', () => {
     await editNote(page, /Notiz A/)
     await expect(page.getByPlaceholder('Inhalt (Markdown)…')).toHaveValue('AAA')
     await expect(page.locator('.hb-note-thumb img')).toHaveCount(1)
+  })
+
+  // ---- File attachments (#431) ----
+  // Arbitrary documents (PDF, office, …) attach to a saved note alongside the image gallery. They
+  // render as download chips (not thumbnails); the gallery is unaffected. The list lives in edit
+  // mode, so each test opens the document and enters the editor first.
+  const DOCS = note({
+    id: 'n1',
+    title: 'Versicherung',
+    attachments: [noteAttachment({ id: 'att1', noteId: 'n1', originalName: 'Police 2025.pdf', sizeBytes: 2048 })],
+  })
+
+  test('renders a non-image attachment as a download chip with name + size (no thumbnail)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([DOCS]))
+    await editNote(page, /Versicherung/)
+
+    const chip = page.locator('.hb-note-attachment')
+    await expect(chip).toHaveCount(1)
+    await expect(chip.locator('.hb-note-attachment__name')).toHaveText('Police 2025.pdf')
+    await expect(chip.locator('.hb-note-attachment__size')).toHaveText('2 KB')
+    // attachments are NOT rendered in the image gallery/thumbnail grid
+    await expect(page.locator('.hb-note-thumb')).toHaveCount(0)
+  })
+
+  test('uploads selected files as attachments and shows each chip', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]))
+    await editNote(page, /WLAN Passwort/)
+
+    const uploads: string[] = []
+    page.on('request', (r) => {
+      if (r.url().includes('/notes/n1/attachments') && r.method() === 'POST') uploads.push(r.url())
+    })
+
+    // the attachment file input is the one accepting .pdf (the image input only accepts image/*)
+    await page.locator('input[accept*=".pdf"]').setInputFiles([
+      { name: 'a.pdf', mimeType: 'application/pdf', buffer: Buffer.from([1, 2, 3]) },
+      { name: 'b.pdf', mimeType: 'application/pdf', buffer: Buffer.from([4, 5, 6]) },
+    ])
+
+    await expect(page.locator('.hb-note-attachment')).toHaveCount(2)
+    expect(uploads.length).toBe(2) // one request per file
+    await expect(page.locator('.hb-note-images__error')).toHaveCount(0)
+  })
+
+  test('opening an attachment fetches it with auth (JWT in header, not URL)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([DOCS]))
+    await editNote(page, /Versicherung/)
+
+    const download = page.waitForRequest((r) => r.url().includes('/notes/n1/attachments/att1') && r.method() === 'GET')
+    await page.locator('.hb-note-attachment__open').click()
+    const req = await download
+    expect(req.headers()['authorization']).toBe(`Bearer ${TOKEN}`)
+    // the token must never ride in the URL
+    expect(req.url()).not.toContain(TOKEN)
+    expect(new URL(req.url()).searchParams.has('token')).toBe(false)
+  })
+
+  test('deletes an attachment only after confirming', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([DOCS]))
+    await editNote(page, /Versicherung/)
+    await expect(page.locator('.hb-note-attachment')).toHaveCount(1)
+
+    // a DELETE must NOT fire just from clicking the trash button (ConfirmDialog gate, #125/#129)
+    let deleted = false
+    page.on('request', (r) => {
+      if (r.url().includes('/notes/n1/attachments/att1') && r.method() === 'DELETE') deleted = true
+    })
+
+    await page.locator('.hb-note-attachment__del').click()
+    await expect(page.getByRole('heading', { name: 'Anhang löschen?' })).toBeVisible()
+    await expect(page.locator('.hb-note-attachment')).toHaveCount(1) // not yet deleted
+    expect(deleted).toBe(false)
+
+    await page.locator('.hb-modal').getByRole('button', { name: 'Endgültig löschen' }).click()
+    await expect(page.locator('.hb-note-attachment')).toHaveCount(0) // chip gone after confirm
+    expect(deleted).toBe(true)
+  })
+
+  test('surfaces a 415 attachment upload error (German text)', async ({ page }) => {
+    await openNotes(page, new MockApi().seedNotes([WLAN]).failNextAttachmentUpload(415))
+    await editNote(page, /WLAN Passwort/)
+
+    await page.locator('input[accept*=".pdf"]').setInputFiles([
+      { name: 'evil.html', mimeType: 'text/html', buffer: Buffer.from([1, 2, 3]) },
+    ])
+
+    await expect(page.locator('.hb-note-images__error')).toHaveText('Dateityp nicht erlaubt (PDF, Text, Office …).')
+    await expect(page.locator('.hb-note-attachment')).toHaveCount(0)
   })
 
   // ---- Folder grouping (#311) ----

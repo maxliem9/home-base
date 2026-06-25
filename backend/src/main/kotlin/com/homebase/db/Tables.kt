@@ -312,6 +312,25 @@ object NoteImagesTable : Table("note_images") {
     override val primaryKey = PrimaryKey(id)
 }
 
+// Arbitrary file attachments on a note (#431) — PDFs, office docs, text, … Separate from
+// NoteImagesTable so images keep their inline markdown rendering + thumbnails while attachments
+// are download-only. Same on-disk storage (UPLOAD_DIR) as note_images; the row holds metadata.
+// content_type is wider (150) than the image table's 100 to fit the longer office MIME types.
+object NoteAttachmentsTable : Table("note_attachments") {
+    val id = uuid("id")
+    val noteId = reference("note_id", NotesTable.id, onDelete = ReferenceOption.CASCADE)
+    // name of the file on disk (e.g. "<uuid>.pdf"); the original bytes are stored
+    // outside the DB under the configured upload directory.
+    val filename = text("filename")
+    val originalName = text("original_name")
+    val contentType = varchar("content_type", 150)
+    val sizeBytes = long("size_bytes")
+    val sortOrder = integer("sort_order")
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object RecipesTable : Table("recipes") {
     val id = uuid("id")
     val title = text("title")
