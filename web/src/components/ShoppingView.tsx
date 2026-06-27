@@ -8,7 +8,14 @@ import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
-import { BUILTIN_CATEGORIES, categoryMeta, groupByCategory, ItemIcon, DEFAULT_ITEM_ICON } from './shoppingCategories'
+import {
+  BUILTIN_CATEGORIES,
+  categoryMeta,
+  CategoryIcon,
+  groupByCategory,
+  ItemIcon,
+  DEFAULT_ITEM_ICON,
+} from './shoppingCategories'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/shopping`
@@ -543,7 +550,11 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                 <Card key={group.category.key} className="hb-card--pad">
                   <div className="hb-cardhead">
                     <span className="hb-cathead">
-                      <span className="hb-cathead__emoji" aria-hidden="true">{group.category.emoji}</span>
+                      <CategoryIcon
+                        catKey={group.category.key}
+                        emoji={group.category.emoji}
+                        className="hb-cathead__emoji"
+                      />
                       {group.category.label}
                     </span>
                     <span className="hb-catcount">{group.items.length}</span>
@@ -840,7 +851,7 @@ function CategoryMenu({ triggerId, current, categories, onPick, onClose }: { tri
             className={`hb-catmenu__item${c.key === current ? ' is-current' : ''}`}
             onClick={() => onPick(c.key)}
           >
-            <span className="em" aria-hidden="true">{c.emoji}</span>
+            <CategoryIcon catKey={c.key} emoji={c.emoji} className="em" />
             <span className="hb-catmenu__label">{c.label}</span>
             {c.key === current && <span className="ck"><Icon name="check" size={15} stroke={2.6} /></span>}
           </button>

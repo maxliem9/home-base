@@ -1,4 +1,5 @@
 import { ShoppingCategory, ShoppingItem } from '../types'
+import { ITEM_ICON_KEY } from './shoppingIconMap'
 
 // Presentation metadata for a grocery category: the header label + emoji + (route) order. The live,
 // editable catalog (#411) is fetched from GET /shopping/categories and threaded into the helpers
@@ -40,32 +41,54 @@ export function categoryMeta(key: string | undefined, categories: CategoryMeta[]
 /** Neutral fallback when an item carries no resolved emoji (legacy rows / unknown items). */
 export const DEFAULT_ITEM_ICON = '🛒'
 
-// ---- Custom SVG icon set (migration prep) ---------------------------------------------------
+// ---- Custom SVG icon set (Bring-style, #443) -------------------------------------------------
 //
-// Designed SVGs (Bring-style) gradually replace the emoji. To add one: drop the file into
-// `./shopping-icons/` and it's auto-registered here — no wiring. Naming convention:
-//   - item icon:      <slug-of-name>.svg     e.g. leberkaese.svg, moehren.svg
-//   - category icon:  cat-<categorykey>.svg  e.g. cat-produce.svg (lowercased key)
-// The lookup slugifies the item name the same way the filenames are slugified, so a file named
-// `leberkaese.svg` matches the item "Leberkäse". An item icon wins over its category icon; if
-// neither exists the emoji fallback below renders. Until SVGs are added this map is empty and
-// behaviour is unchanged.
-const ICON_URLS = import.meta.glob('./shopping-icons/*.svg', {
+// Designed SVGs replace the emoji. Two auto-registered folders (no wiring — drop a file in and it's
+// picked up): `./shopping-icons/items/<en>.svg` (per product) and `./shopping-icons/categories/<key>.svg`
+// (per category header). Files are named in English; [ITEM_ICON_KEY] maps a normalized German item
+// name → its English item file, and [CATEGORY_ICON_KEY] maps a category key → its English file.
+// Resolution per item: item-name icon → category icon → emoji fallback. Unknown items (no name match)
+// still get their category icon, so coverage is high; only categoryless/unknown rows fall to emoji.
+const ITEM_ICON_URLS = import.meta.glob('./shopping-icons/items/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>
+const CATEGORY_ICON_URLS = import.meta.glob('./shopping-icons/categories/*.svg', {
   eager: true,
   query: '?url',
   import: 'default',
 }) as Record<string, string>
 
-const iconByKey: Record<string, string> = {}
-for (const [path, url] of Object.entries(ICON_URLS)) {
-  const base = path.split('/').pop()?.replace(/\.svg$/, '')
-  if (base) iconByKey[base] = url
+const urlByBasename = (urls: Record<string, string>): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const [path, url] of Object.entries(urls)) {
+    const base = path.split('/').pop()?.replace(/\.svg$/, '')
+    if (base) out[base] = url
+  }
+  return out
+}
+const itemIconUrl = urlByBasename(ITEM_ICON_URLS)
+const categoryIconUrl = urlByBasename(CATEGORY_ICON_URLS)
+
+// Category key → English category-icon basename. MEAT_FISH's file uses a hyphen; the rest lowercase.
+const CATEGORY_ICON_KEY: Record<string, string> = {
+  PRODUCE: 'produce',
+  BAKERY: 'bakery',
+  DAIRY: 'dairy',
+  MEAT_FISH: 'meat-fish',
+  FROZEN: 'frozen',
+  PANTRY: 'pantry',
+  SNACKS: 'snacks',
+  DRINKS: 'drinks',
+  HOUSEHOLD: 'household',
+  OTHER: 'other',
 }
 
 /**
- * Slug for an item name → SVG filename. Mirrors GroceryCatalog.normalize (lowercase, strip a leading
- * "<qty> <unit>", drop punctuation) and additionally transliterates umlauts to ASCII so the key is a
- * safe filename: "500 g Möhren" → "moehren", "Leberkäse" → "leberkaese".
+ * Slug for an item name → [ITEM_ICON_KEY] lookup key. Mirrors GroceryCatalog.normalize (lowercase,
+ * strip a leading "<qty> <unit>", drop punctuation) and additionally transliterates umlauts to ASCII:
+ * "500 g Möhren" → "moehren", "Leberkäse" → "leberkaese".
  */
 export function slugifyIconKey(raw: string): string {
   let s = raw.trim().toLowerCase()
@@ -78,12 +101,12 @@ export function slugifyIconKey(raw: string): string {
   return s
 }
 
-/** The designed SVG URL for an item (item-name match first, then its category), or undefined. */
+/** The designed SVG URL for an item (exact item-name match first, then its category), or undefined. */
 function iconSvgFor(item: ShoppingItem): string | undefined {
-  const nameKey = slugifyIconKey(item.name)
-  if (nameKey && iconByKey[nameKey]) return iconByKey[nameKey]
+  const fileKey = ITEM_ICON_KEY[slugifyIconKey(item.name)]
+  if (fileKey && itemIconUrl[fileKey]) return itemIconUrl[fileKey]
   if (item.category) {
-    const catUrl = iconByKey[`cat-${item.category.toLowerCase()}`]
+    const catUrl = categoryIconUrl[CATEGORY_ICON_KEY[item.category] ?? '']
     if (catUrl) return catUrl
   }
   return undefined
@@ -125,6 +148,32 @@ export function ItemIcon({ item, muted }: { item: ShoppingItem; muted?: boolean 
   return (
     <span className={`hb-row__emoji${muted ? ' is-muted' : ''}`} aria-hidden="true">
       {svg ? <img src={svg} alt="" /> : item.icon || DEFAULT_ITEM_ICON}
+    </span>
+  )
+}
+
+/** The designed SVG URL for a category header/picker icon, or undefined. */
+export function categoryIconSvg(key: string | undefined): string | undefined {
+  return key ? categoryIconUrl[CATEGORY_ICON_KEY[key] ?? ''] : undefined
+}
+
+/**
+ * Category icon for headers and the move-to-category picker: prefers the designed SVG, falls back to
+ * the emoji. `className` carries the call site's sizing (`hb-cathead__emoji` or `em`).
+ */
+export function CategoryIcon({
+  catKey,
+  emoji,
+  className,
+}: {
+  catKey: string
+  emoji: string
+  className: string
+}) {
+  const svg = categoryIconSvg(catKey)
+  return (
+    <span className={className} aria-hidden="true">
+      {svg ? <img src={svg} alt="" /> : emoji}
     </span>
   )
 }
