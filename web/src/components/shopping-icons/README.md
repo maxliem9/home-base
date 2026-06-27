@@ -12,9 +12,9 @@ rendert weiterhin das Emoji als Fallback.
   (ä→ae, ö→oe, ü→ue, ß→ss), Rest zu `a–z0–9`, Wörter mit `-` verbunden.
   Beispiele: `Leberkäse` → `leberkaese.svg`, `Möhren` → `moehren.svg`,
   `Olivenöl` → `olivenoel.svg`.
-- **Kategorie-Icon:** `cat-<kategorieschlüssel-klein>.svg` — Beispiele:
-  `cat-produce.svg`, `cat-meat-fish.svg` (Achtung: Schlüssel `MEAT_FISH` →
-  `cat-meat_fish.svg`, also Unterstrich beibehalten und nur kleinschreiben).
+- **Kategorie-Icon:** `cat-<kategorieschlüssel-klein>.svg` — der Schlüssel wird nur
+  kleingeschrieben (kein weiterer Umbau), Unterstriche bleiben. Beispiele:
+  `cat-produce.svg`, `cat-meat_fish.svg` (Schlüssel `MEAT_FISH`), `cat-other.svg`.
 
 Reihenfolge der Auflösung: Item-Icon (per Name) → Kategorie-Icon → Emoji-Fallback.
 
