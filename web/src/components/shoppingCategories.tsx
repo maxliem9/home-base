@@ -101,7 +101,10 @@ export function slugifyIconKey(raw: string): string {
   return s
 }
 
-/** The designed SVG URL for an item (exact item-name match first, then its category), or undefined. */
+/**
+ * The designed SVG URL for an item: exact item-name match → its category icon → the neutral `misc`
+ * icon. Returns undefined only if even `misc` is absent (then [ItemIcon] shows the emoji fallback).
+ */
 function iconSvgFor(item: ShoppingItem): string | undefined {
   const fileKey = ITEM_ICON_KEY[slugifyIconKey(item.name)]
   if (fileKey && itemIconUrl[fileKey]) return itemIconUrl[fileKey]
@@ -109,7 +112,7 @@ function iconSvgFor(item: ShoppingItem): string | undefined {
     const catUrl = categoryIconUrl[CATEGORY_ICON_KEY[item.category] ?? '']
     if (catUrl) return catUrl
   }
-  return undefined
+  return itemIconUrl['misc']
 }
 
 export interface CategoryGroup {
