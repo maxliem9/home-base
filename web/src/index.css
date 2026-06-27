@@ -561,6 +561,7 @@ ol.hb-md-list { list-style-type: decimal; }
 .hb-cathead__emoji { font-size: 19px; line-height: 1; }
 .hb-catcount { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; background: var(--surface-2); min-width: 25px; height: 22px; border-radius: 999px; display: grid; place-items: center; padding: 0 8px; font-weight: 600; }
 .hb-row__emoji { font-size: 19px; line-height: 1; width: 24px; text-align: center; flex-shrink: 0; }
+.hb-row__emoji img { display: block; width: 24px; height: 22px; object-fit: contain; }
 .hb-row__emoji.is-muted { filter: grayscale(0.55); opacity: 0.7; }
 .hb-row__right { position: relative; }
 
