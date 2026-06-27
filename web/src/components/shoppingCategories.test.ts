@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { slugifyIconKey } from './shoppingCategories'
+import { ITEM_ICON_KEY } from './shoppingIconMap'
 
-// Locks the SVG-filename contract that the icon migration leans on (mirror of the backend
+// Basenames the bundler actually sees in each icon folder (same glob mechanism the component uses).
+const basenames = (urls: Record<string, unknown>) =>
+  new Set(Object.keys(urls).map((p) => p.split('/').pop()!.replace(/\.svg$/, '')))
+const itemFiles = basenames(import.meta.glob('./shopping-icons/items/*.svg'))
+const categoryFiles = basenames(import.meta.glob('./shopping-icons/categories/*.svg'))
+
+// Locks the SVG-filename contract that the icon mapping leans on (mirror of the backend
 // GroceryCatalog.normalize + umlaut→ASCII transliteration). If these drift, dropped-in SVGs stop
 // matching their items.
 describe('slugifyIconKey', () => {
@@ -29,5 +36,24 @@ describe('slugifyIconKey', () => {
   it('returns an empty string for blank / qty-only input (caller falls back)', () => {
     expect(slugifyIconKey('')).toBe('')
     expect(slugifyIconKey('   ')).toBe('')
+  })
+})
+
+// The whole point of the migration: the famous wrong cases now point at the right icon.
+describe('ITEM_ICON_KEY', () => {
+  it('maps key product names (incl. the Leberkäse→Käse fix) to the right English file', () => {
+    expect(ITEM_ICON_KEY[slugifyIconKey('Leberkäse')]).toBe('meatloaf')
+    expect(ITEM_ICON_KEY[slugifyIconKey('Möhren')]).toBe('carrots')
+    expect(ITEM_ICON_KEY[slugifyIconKey('Gouda')]).toBe('cheese')
+    expect(ITEM_ICON_KEY[slugifyIconKey('Apfelsaft')]).toBe('juice')
+  })
+
+  it('every mapped icon file actually exists', () => {
+    const missing = [...new Set(Object.values(ITEM_ICON_KEY))].filter((en) => !itemFiles.has(en))
+    expect(missing).toEqual([])
+  })
+
+  it('all 10 category icons are present', () => {
+    expect(categoryFiles.size).toBe(10)
   })
 })

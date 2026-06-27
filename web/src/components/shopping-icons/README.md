@@ -1,27 +1,29 @@
-# Einkaufs-Icons (designte SVGs)
+# Einkaufs-Icons (designte SVGs, Bring-Stil)
 
-Hier liegen die designten SVG-Icons, die die Emoji in der Einkaufsliste ersetzen.
-Dateien in diesem Ordner werden von `shoppingCategories.tsx` **automatisch registriert**
-(`import.meta.glob`) — kein manuelles Verdrahten nötig. Fehlt für ein Item ein SVG,
-rendert weiterhin das Emoji als Fallback.
+Designtes Icon-Set, das die Emoji in der Einkaufsliste ersetzt (#443). `shoppingCategories.tsx`
+registriert die Dateien **automatisch** (`import.meta.glob`) — kein manuelles Verdrahten.
 
-## Namenskonvention
+## Struktur
 
-- **Item-Icon:** `<slug-des-namens>.svg` — Schlüssel = `slugifyIconKey(name)`:
-  Kleinbuchstaben, führende Menge/Einheit entfernt, Umlaute transliteriert
-  (ä→ae, ö→oe, ü→ue, ß→ss), Rest zu `a–z0–9`, Wörter mit `-` verbunden.
-  Beispiele: `Leberkäse` → `leberkaese.svg`, `Möhren` → `moehren.svg`,
-  `Olivenöl` → `olivenoel.svg`.
-- **Kategorie-Icon:** `cat-<kategorieschlüssel-klein>.svg` — der Schlüssel wird nur
-  kleingeschrieben (kein weiterer Umbau), Unterstriche bleiben. Beispiele:
-  `cat-produce.svg`, `cat-meat_fish.svg` (Schlüssel `MEAT_FISH`), `cat-other.svg`.
+- `items/<en>.svg` — ein Icon pro Produkt, **englischer** Dateiname (`tomatoes.svg`,
+  `meatloaf.svg`, `carrots.svg`).
+- `categories/<key>.svg` — ein Icon pro Kategorie-Header (`produce.svg`, `dairy.svg`,
+  `meat-fish.svg`, … `other.svg`).
 
-Reihenfolge der Auflösung: Item-Icon (per Name) → Kategorie-Icon → Emoji-Fallback.
+## Wie ein Item zu seinem Icon kommt
 
-## Format
+1. Der deutsche Item-Name wird normalisiert (`slugifyIconKey`: klein, führende Menge/Einheit
+   weg, Umlaute→ASCII): `"500 g Möhren"` → `moehren`, `"Leberkäse"` → `leberkaese`.
+2. `ITEM_ICON_KEY` (in `../shoppingIconMap.ts`) mappt diesen Slug auf den **englischen**
+   Dateinamen: `moehren` → `carrots`, `leberkaese` → `meatloaf`.
+3. Kein Treffer → Kategorie-Icon (`CATEGORY_ICON_KEY`), sonst → Emoji-Fallback.
 
-- viewBox `0 0 96 96`, Motiv zentriert, transparenter Hintergrund.
-- Optimierte SVGs (Pfade, keine eingebetteten Rasterbilder, keine `<text>`/Fonts).
-- Bei 24px (Liste) klar erkennbar; die App rendert sie in einer 24×22px-Box.
+## Ein neues Item-Icon ergänzen
 
-Der Generier-Prompt für das vollständige Set liegt im zugehörigen GitHub-Issue.
+1. SVG nach `items/<en>.svg` legen (96×96 viewBox, transparent, Inline-Pfade, keine Fonts).
+2. In `../shoppingIconMap.ts` für jeden passenden deutschen Namen einen Eintrag
+   `'<slug>': '<en>'` ergänzen (Synonyme teilen sich ein Icon).
+
+Drift-Hinweis: `ITEM_ICON_KEY` spiegelt die Namensmenge des Backend-`GroceryCatalog.seed`.
+Wächst der Katalog, hier nachziehen — sonst greift „nur" das Kategorie-Icon. Saubere Zukunft:
+Icon-Key serverseitig am Item (siehe #443).
