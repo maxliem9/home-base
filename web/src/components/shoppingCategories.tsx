@@ -40,6 +40,55 @@ export function categoryMeta(key: string | undefined, categories: CategoryMeta[]
 /** Neutral fallback when an item carries no resolved emoji (legacy rows / unknown items). */
 export const DEFAULT_ITEM_ICON = '🛒'
 
+// ---- Custom SVG icon set (migration prep) ---------------------------------------------------
+//
+// Designed SVGs (Bring-style) gradually replace the emoji. To add one: drop the file into
+// `./shopping-icons/` and it's auto-registered here — no wiring. Naming convention:
+//   - item icon:      <slug-of-name>.svg     e.g. leberkaese.svg, moehren.svg
+//   - category icon:  cat-<categorykey>.svg  e.g. cat-produce.svg (lowercased key)
+// The lookup slugifies the item name the same way the filenames are slugified, so a file named
+// `leberkaese.svg` matches the item "Leberkäse". An item icon wins over its category icon; if
+// neither exists the emoji fallback below renders. Until SVGs are added this map is empty and
+// behaviour is unchanged.
+const ICON_URLS = import.meta.glob('./shopping-icons/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>
+
+const iconByKey: Record<string, string> = {}
+for (const [path, url] of Object.entries(ICON_URLS)) {
+  const base = path.split('/').pop()?.replace(/\.svg$/, '')
+  if (base) iconByKey[base] = url
+}
+
+/**
+ * Slug for an item name → SVG filename. Mirrors GroceryCatalog.normalize (lowercase, strip a leading
+ * "<qty> <unit>", drop punctuation) and additionally transliterates umlauts to ASCII so the key is a
+ * safe filename: "500 g Möhren" → "moehren", "Leberkäse" → "leberkaese".
+ */
+export function slugifyIconKey(raw: string): string {
+  let s = raw.trim().toLowerCase()
+  s = s.replace(
+    /^\s*\d+([.,]\d+)?\s*(g|kg|mg|ml|l|el|tl|stk|stück|st|x|prise|prisen|bund|dose|dosen|pkg|pck|pack|packung|tasse|cup|msp|glas|gläser|becher|flasche|flaschen)?\.?\s+/,
+    '',
+  )
+  s = s.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+  s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return s
+}
+
+/** The designed SVG URL for an item (item-name match first, then its category), or undefined. */
+function iconSvgFor(item: ShoppingItem): string | undefined {
+  const nameKey = slugifyIconKey(item.name)
+  if (nameKey && iconByKey[nameKey]) return iconByKey[nameKey]
+  if (item.category) {
+    const catUrl = iconByKey[`cat-${item.category.toLowerCase()}`]
+    if (catUrl) return catUrl
+  }
+  return undefined
+}
+
 export interface CategoryGroup {
   category: CategoryMeta
   items: ShoppingItem[]
@@ -67,14 +116,15 @@ export function groupByCategory(items: ShoppingItem[], categories: CategoryMeta[
 }
 
 /**
- * The single rendering seam for an item's icon. Emoji today; swapping to an SVG/icon-font scheme
- * later means changing only this component (#389 — "emojis first, keep it swappable"). `muted`
- * desaturates it for checked ("Im Wagen") rows.
+ * The single rendering seam for an item's icon. Prefers a designed SVG ([iconSvgFor]) and falls back
+ * to the resolved emoji (#389 — "emojis first, keep it swappable"). `muted` desaturates it for checked
+ * ("Im Wagen") rows — the `is-muted` filter on the span applies to both the emoji and the <img>.
  */
 export function ItemIcon({ item, muted }: { item: ShoppingItem; muted?: boolean }) {
+  const svg = iconSvgFor(item)
   return (
     <span className={`hb-row__emoji${muted ? ' is-muted' : ''}`} aria-hidden="true">
-      {item.icon || DEFAULT_ITEM_ICON}
+      {svg ? <img src={svg} alt="" /> : item.icon || DEFAULT_ITEM_ICON}
     </span>
   )
 }
