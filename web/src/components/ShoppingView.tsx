@@ -14,7 +14,9 @@ import {
   categoryMeta,
   CategoryIcon,
   groupByCategory,
+  iconMatchesQuery,
   ItemIcon,
+  ITEM_ICON_CHOICES,
   DEFAULT_ITEM_ICON,
 } from './shoppingCategories'
 
@@ -359,11 +361,13 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // (backend: null = unchanged, "" = clear). Optimistic from the returned DTO; refetch on failure.
   const saveItemDetails = async (
     item: ShoppingItem,
-    fields: { name: string; quantity: string; note: string },
+    fields: { name: string; quantity: string; note: string; icon?: string },
   ): Promise<boolean> => {
     const name = fields.name.trim()
     if (!name) return false
-    const body = { name, quantity: fields.quantity.trim(), note: fields.note.trim() }
+    // icon (#442): a chosen svg-basename override; omitted when unchanged (backend: blank = unchanged).
+    const body: Record<string, string> = { name, quantity: fields.quantity.trim(), note: fields.note.trim() }
+    if (fields.icon) body.icon = fields.icon
     const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1063,21 +1067,29 @@ function EditItemSheet({
 }: {
   item: ShoppingItem
   onClose: () => void
-  onSave: (item: ShoppingItem, fields: { name: string; quantity: string; note: string }) => Promise<boolean>
+  onSave: (
+    item: ShoppingItem,
+    fields: { name: string; quantity: string; note: string; icon?: string },
+  ) => Promise<boolean>
 }) {
   const { t } = useTranslation()
   const [name, setName] = useState(item.name)
   const [quantity, setQuantity] = useState(item.quantity ?? '')
   const [note, setNote] = useState(item.note ?? '')
+  const [iconKey, setIconKey] = useState<string | undefined>(undefined) // undefined = unchanged
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const save = async () => {
     if (!name.trim() || busy) return
     setBusy(true)
-    const ok = await onSave(item, { name, quantity, note })
+    const ok = await onSave(item, { name, quantity, note, icon: iconKey })
     setBusy(false)
     if (ok) onClose()
   }
+
+  // Render the current (or freshly chosen) icon by overriding the preview item's icon field.
+  const previewItem = iconKey ? { ...item, icon: iconKey } : item
 
   return (
     <Sheet
@@ -1100,6 +1112,19 @@ function EditItemSheet({
           onKeyDown={(e) => { if (e.key === 'Enter') save() }}
         />
       </Field>
+      <Field label={t('shopping.fieldIcon')} group>
+        <div className="hb-iconfield">
+          <span className="hb-iconfield__preview"><ItemIcon item={previewItem} variant="tile" /></span>
+          <Button variant="ghost" icon="image" onClick={() => setPickerOpen(true)}>{t('shopping.chooseIcon')}</Button>
+        </div>
+      </Field>
+      {pickerOpen && (
+        <IconPicker
+          current={iconKey ?? item.icon}
+          onPick={(k) => { setIconKey(k); setPickerOpen(false) }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
       <Field label={t('shopping.fieldQuantity')} hint={t('shopping.fieldQuantityHint')}>
         <TextInput
           value={quantity}
@@ -1117,6 +1142,46 @@ function EditItemSheet({
         />
       </Field>
     </Sheet>
+  )
+}
+
+// Visual icon picker (#442): a searchable grid of the designed item icons. Returns the chosen svg
+// basename, stored as the item's icon override. Search matches the English key and German names.
+function IconPicker({
+  current,
+  onPick,
+  onClose,
+}: {
+  current?: string
+  onPick: (key: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [q, setQ] = useState('')
+  const matches = useMemo(() => ITEM_ICON_CHOICES.filter((c) => iconMatchesQuery(c.key, q)), [q])
+  return (
+    <Modal open onClose={onClose} title={t('shopping.chooseIcon')} width={460}>
+      <TextInput value={q} onChange={setQ} placeholder={t('shopping.iconSearch')} autoFocus />
+      {matches.length === 0 ? (
+        <p className="hb-muted" style={{ margin: '14px 4px', fontSize: 14 }}>{t('shopping.iconNoMatch')}</p>
+      ) : (
+        <div className="hb-iconpicker">
+          {matches.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              className={`hb-iconpicker__item${c.key === current ? ' is-current' : ''}`}
+              title={c.key}
+              aria-label={c.key}
+              aria-pressed={c.key === current}
+              onClick={() => onPick(c.key)}
+            >
+              <img src={c.url} alt="" />
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   )
 }
 

@@ -70,6 +70,26 @@ test.describe('Shopping lists', () => {
     await expect(row.locator('.hb-row__note')).toHaveText('Hafer')
   })
 
+  test('overrides an item icon via the picker (#442)', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Tomaten', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    const icon = page.locator('.hb-row', { hasText: 'Tomaten' }).locator('.hb-row__emoji img')
+    await expect(icon).toHaveAttribute('src', /tomatoes\.svg/) // default, resolved from the name
+
+    await page.getByRole('button', { name: '„Tomaten" bearbeiten' }).click()
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Icon wählen' }).click()
+
+    const picker = page.locator('.hb-modal')
+    await expect(picker).toBeVisible()
+    await picker.getByPlaceholder(/Icon suchen/).fill('möhren') // German search → carrots icon
+    await picker.locator('.hb-iconpicker__item[aria-label="carrots"]').click()
+
+    await page.locator('.hb-sheet').getByRole('button', { name: 'Speichern' }).click()
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+    await expect(icon).toHaveAttribute('src', /carrots\.svg/) // override wins over the name
+  })
+
   test('quick-add splits a leading quantity off the typed name', async ({ page }) => {
     await openShopping(page, new MockApi([], [], [WOCHE], []))
 

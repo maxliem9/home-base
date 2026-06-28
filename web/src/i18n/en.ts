@@ -345,6 +345,11 @@ export const en: Messages = {
     fieldQuantityPlaceholder: 'e.g. 500 g',
     fieldNote: 'Note',
     fieldNotePlaceholder: 'e.g. in the red jar',
+    // Choose a per-item icon (#442)
+    fieldIcon: 'Icon',
+    chooseIcon: 'Choose icon',
+    iconSearch: 'Search icons … (e.g. carrot)',
+    iconNoMatch: 'No matching icon found.',
     // Categories, emoji icons & "most used" autocomplete (#389)
     suggestionsHint: 'Frequently bought',
     moveCategory: 'Move to category',
