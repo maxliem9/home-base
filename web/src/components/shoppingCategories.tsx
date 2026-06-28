@@ -102,10 +102,19 @@ export function slugifyIconKey(raw: string): string {
 }
 
 /**
- * The designed SVG URL for an item: exact item-name match → its category icon → the neutral `misc`
- * icon. Returns undefined only if even `misc` is absent (then [ItemIcon] shows the emoji fallback).
+ * The designed SVG URL for an item: explicit per-item override → exact item-name match → its category
+ * icon → the neutral `misc` icon. Returns undefined only if even `misc` is absent (then [ItemIcon]
+ * shows the emoji fallback).
+ *
+ * Override (#442): a manually chosen icon is stored in `item.icon` as an svg basename (e.g.
+ * "meatloaf"). Legacy items carry an emoji there instead, which is not a basename and so falls
+ * through to the name-based resolution — existing rows are unaffected.
  */
 function iconSvgFor(item: ShoppingItem): string | undefined {
+  if (item.icon) {
+    const override = itemIconUrl[item.icon] ?? categoryIconUrl[item.icon]
+    if (override) return override
+  }
   const fileKey = ITEM_ICON_KEY[slugifyIconKey(item.name)]
   if (fileKey && itemIconUrl[fileKey]) return itemIconUrl[fileKey]
   if (item.category) {
@@ -113,6 +122,41 @@ function iconSvgFor(item: ShoppingItem): string | undefined {
     if (catUrl) return catUrl
   }
   return itemIconUrl['misc']
+}
+
+// ---- Icon picker support (#442) -------------------------------------------------------------
+export interface IconChoice {
+  key: string
+  url: string
+}
+
+/** All pickable item icons (svg basename + url), alphabetically. The override stores `key`. */
+export const ITEM_ICON_CHOICES: IconChoice[] = Object.keys(itemIconUrl)
+  .filter((k) => k !== 'misc')
+  .sort()
+  .map((k) => ({ key: k, url: itemIconUrl[k] }))
+
+/** URL for a chosen icon key (item icon, or a `cat-…`/category fallback), for rendering the choice. */
+export function iconUrlForKey(key: string | undefined): string | undefined {
+  if (!key) return undefined
+  return itemIconUrl[key] ?? categoryIconUrl[key]
+}
+
+// English icon key → the German normalized names that resolve to it, so the picker is searchable in
+// German ("möhren" finds the carrots icon) even though the files are named in English.
+const germanSlugsByIconKey: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {}
+  for (const [slug, en] of Object.entries(ITEM_ICON_KEY)) (out[en] ??= []).push(slug)
+  return out
+})()
+
+/** Does an icon choice match a search query (English key substring or any German name)? */
+export function iconMatchesQuery(key: string, query: string): boolean {
+  const raw = query.trim().toLowerCase()
+  if (!raw) return true
+  if (key.includes(raw)) return true
+  const slug = slugifyIconKey(query)
+  return !!slug && (germanSlugsByIconKey[key]?.some((s) => s.includes(slug)) ?? false)
 }
 
 export interface CategoryGroup {

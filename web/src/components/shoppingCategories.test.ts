@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { slugifyIconKey } from './shoppingCategories'
+import { ITEM_ICON_CHOICES, iconMatchesQuery, slugifyIconKey } from './shoppingCategories'
 import { ITEM_ICON_KEY } from './shoppingIconMap'
 
 // Basenames the bundler actually sees in each icon folder (same glob mechanism the component uses).
@@ -55,5 +55,25 @@ describe('ITEM_ICON_KEY', () => {
 
   it('all 10 category icons are present', () => {
     expect(categoryFiles.size).toBe(10)
+  })
+})
+
+// The icon-override picker (#442): choices + German-aware search.
+describe('icon picker', () => {
+  it('ITEM_ICON_CHOICES lists every item icon except the neutral misc fallback', () => {
+    const keys = ITEM_ICON_CHOICES.map((c) => c.key)
+    expect(keys).not.toContain('misc')
+    expect(keys).toContain('carrots')
+    expect(keys.length).toBe(itemFiles.size - 1) // all items minus misc
+    expect(ITEM_ICON_CHOICES.every((c) => typeof c.url === 'string' && c.url.length > 0)).toBe(true)
+  })
+
+  it('iconMatchesQuery matches by English key and by German name', () => {
+    expect(iconMatchesQuery('carrots', 'möhren')).toBe(true) // German name → carrots
+    expect(iconMatchesQuery('carrots', 'karotten')).toBe(true) // synonym
+    expect(iconMatchesQuery('carrots', 'carr')).toBe(true) // English substring
+    expect(iconMatchesQuery('meatloaf', 'leberkäse')).toBe(true) // the famous one
+    expect(iconMatchesQuery('cheese', 'möhren')).toBe(false)
+    expect(iconMatchesQuery('carrots', '')).toBe(true) // empty query matches all
   })
 })

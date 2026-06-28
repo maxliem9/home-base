@@ -342,6 +342,11 @@ export const de = {
     fieldQuantityPlaceholder: 'z. B. 500 g',
     fieldNote: 'Notiz',
     fieldNotePlaceholder: 'z. B. im roten Glas',
+    // Icon pro Item wählen (#442)
+    fieldIcon: 'Icon',
+    chooseIcon: 'Icon wählen',
+    iconSearch: 'Icon suchen … (z. B. Möhre)',
+    iconNoMatch: 'Kein passendes Icon gefunden.',
     // Kategorien, Emoji-Icons & „Meist genutzt"-Autocomplete (#389)
     suggestionsHint: 'Häufig gekauft',
     moveCategory: 'In Kategorie verschieben',
