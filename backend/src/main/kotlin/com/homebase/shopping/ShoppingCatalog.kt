@@ -87,12 +87,14 @@ object ShoppingCatalog {
      *  2. multi-word: a whole word equals a rule key ("Bio Tomaten" → tomaten),
      *  3. singular/plural / minor declension: a key differs from the name by ≤2 trailing chars
      *     ("Tomate" → tomaten),
+     *  4. compound head noun: the longest key the name ENDS with ("Vollmilch" → milch),
      * else OTHER + the cart icon.
      *
-     * Deliberately NOT a free substring match (#441): the old `n.contains(key)` mis-categorized German
-     * compounds whose tail is an unrelated item — "Leberkäse" → käse (DAIRY), "Apfelschorle" → apfel
-     * (PRODUCE). Word-boundary + short-suffix matching keeps the useful cases (adjective+noun, plural)
-     * without tearing compounds apart; unknown compounds fall to OTHER and can be corrected (remembered).
+     * Deliberately NOT a free substring match (#441): the old `n.contains(key)` matched a category-
+     * carrying PREFIX and mis-categorized German compounds — "Leberkäse" → käse (DAIRY), "Apfelschorle"
+     * → apfel (PRODUCE). German compounds carry their category in the LAST noun, so step 4 matches only
+     * the suffix; a prefix never wins. The few compounds whose tail lies (Leberkäse/Fleischkäse end in
+     * "käse" yet are meat) are pinned as exact seed entries, resolved at step 1.
      */
     class RuleSet(private val rules: List<Rule>) {
         data class Rule(val normalized: String, val display: String, val category: String, val icon: String)
@@ -116,6 +118,16 @@ object ShoppingCatalog {
             // 3) singular/plural: a key that is the name ± a short (≤2 char) suffix.
             if (n.length >= 4) {
                 byLengthDesc.firstOrNull { (key, _) -> key.length >= 4 && pluralish(n, key) }
+                    ?.let { return it.second }
+            }
+            // 4) German compound head noun: a compound is categorised by its LAST noun, so match the
+            // longest key that the name ENDS with ("Vollmilch"→milch, "Leberwurst"→wurst, "Käsebrot"
+            // →brot). This is NOT the old free substring match — it only looks at the suffix, so a
+            // category-carrying PREFIX never wins ("Apfelschorle"↛apfel). The handful of compounds whose
+            // tail lies (Leberkäse/Fleischkäse end in "käse" but are meat) are pinned as exact seed
+            // entries above, so they're resolved before reaching here.
+            if (n.length >= 5) {
+                byLengthDesc.firstOrNull { (key, _) -> key.length >= 4 && key.length < n.length && n.endsWith(key) }
                     ?.let { return it.second }
             }
             return GroceryCatalog.Resolution(GroceryCatalog.OTHER, GroceryCatalog.DEFAULT_ICON)

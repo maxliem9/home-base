@@ -121,7 +121,9 @@ object GroceryCatalog {
             "Würstchen" to "🌭", "Bratwurst" to "🌭", "Salami" to "🍖",
             "Schinken" to "🍖", "Speck" to "🥓", "Bacon" to "🥓",
             "Lachs" to "🐟", "Thunfisch" to "🐟", "Fisch" to "🐟",
-            "Garnelen" to "🦐", "Frikadellen" to "🍖", "Leberkäse" to "🍖",
+            "Garnelen" to "🦐", "Frikadellen" to "🍖",
+            // "…käse" but meat — pinned exact so the compound-head rule doesn't read them as cheese.
+            "Leberkäse" to "🍖", "Fleischkäse" to "🍖",
         )
         cat(
             "FROZEN",
