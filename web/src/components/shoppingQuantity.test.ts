@@ -11,8 +11,16 @@ describe('splitQuantity', () => {
     expect(splitQuantity('1,5 l Saft')).toEqual({ detail: '1,5 l', title: 'Saft' })
   })
 
-  it('handles a bare leading count without a unit', () => {
+  it('handles a bare leading count without a unit (lenient/display mode)', () => {
     expect(splitQuantity('2 Paprika')).toEqual({ detail: '2', title: 'Paprika' })
+  })
+
+  it('requireUnit only splits when a real unit is present (add-time, persisted)', () => {
+    // a unit → split
+    expect(splitQuantity('200 g Mehl', true)).toEqual({ detail: '200 g', title: 'Mehl' })
+    // bare count, no unit → keep whole (don't tear "3 Musketiere" / "2 Äpfel" apart)
+    expect(splitQuantity('2 Äpfel', true)).toEqual({ title: '2 Äpfel' })
+    expect(splitQuantity('3 Musketiere', true)).toEqual({ title: '3 Musketiere' })
   })
 
   it('leaves a plain name untouched (no detail)', () => {

@@ -2,12 +2,23 @@
 // tile/row detail line (#440). Display-only; an independent copy of GroceryCatalog.normalize's
 // quantity unit list (keep the units roughly in sync). "2 L Milch" → {detail:"2 L", title:"Milch"};
 // a name without a quantity prefix → {title:name}. Never throws, never yields an empty title.
-const QTY_PREFIX =
-  /^\s*(\d+(?:[.,]\d+)?\s*(?:g|kg|mg|ml|l|el|tl|stk|stück|st|x|prise|prisen|bund|dose|dosen|pkg|pck|pack|packung|tasse|cup|msp|glas|gläser|becher|flasche|flaschen)?\.?)\s+(.+)$/i
+const UNITS = 'g|kg|mg|ml|l|el|tl|stk|stück|st|x|prise|prisen|bund|dose|dosen|pkg|pck|pack|packung|tasse|cup|msp|glas|gläser|becher|flasche|flaschen'
+const QTY_PREFIX = new RegExp(`^\\s*(\\d+(?:[.,]\\d+)?\\s*(?:${UNITS})?\\.?)\\s+(.+)$`, 'i')
+// Same, but the unit is mandatory — used to gate the destructive add-time split so a bare leading
+// number ("3 Musketiere", "2 Äpfel") is NOT torn apart when persisting.
+const QTY_PREFIX_WITH_UNIT = new RegExp(`^\\s*\\d+(?:[.,]\\d+)?\\s*(?:${UNITS})\\.?\\s+.+$`, 'i')
 
-export function splitQuantity(name: string): { detail?: string; title: string } {
+/**
+ * Split a leading "<qty> <unit>" prefix off a name. `requireUnit` (used at add-time, where the split
+ * is persisted) only splits when a real unit is present; the lenient default (display) also splits a
+ * bare leading count. "2 L Milch" → {detail:"2 L", title:"Milch"}; no prefix → {title:name}. Never
+ * throws, never yields an empty title.
+ */
+export function splitQuantity(name: string, requireUnit = false): { detail?: string; title: string } {
   const m = name.match(QTY_PREFIX)
-  if (m && m[2].trim()) return { detail: m[1].trim(), title: m[2].trim() }
+  if (m && m[2].trim() && (!requireUnit || QTY_PREFIX_WITH_UNIT.test(name))) {
+    return { detail: m[1].trim(), title: m[2].trim() }
+  }
   return { title: name }
 }
 

@@ -123,6 +123,25 @@ class ShoppingRouteTest {
         assertNull(clearedBody["note"])
     }
 
+    @Test
+    fun `PUT shopping omitting quantity leaves the existing value unchanged`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = client.post("/api/v1/shopping") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Mehl","quantity":"500 g"}""")
+        }.let { Json.parseToJsonElement(it.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content }
+
+        // PUT that touches only the name must not wipe the quantity (null = unchanged)
+        val updated = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Weizenmehl"}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        assertEquals("Weizenmehl", body["name"]?.jsonPrimitive?.content)
+        assertEquals("500 g", body["quantity"]?.jsonPrimitive?.content)
+    }
+
     private suspend fun ApplicationTestBuilder.createList(token: String, name: String): String {
         val res = client.post("/api/v1/shopping/lists") {
             bearerAuth(token)
