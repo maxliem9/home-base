@@ -327,6 +327,12 @@ export const de = {
     namePlaceholder: 'Was fehlt in „{name}"? …', // quick-add placeholder, {name} = aktive Liste
     inCart: 'Im Wagen', // rendered as "Im Wagen · {n}"
     clearChecked: 'Abgehakte entfernen',
+    // Listen-/Kachelansicht-Umschalter (#440)
+    viewToggleAria: 'Ansicht umschalten',
+    viewList: 'Listenansicht',
+    viewTiles: 'Kachelansicht',
+    checkOff: '„{name}" abhaken', // Kachel-Tap: ins „Im Wagen" legen
+    uncheck: '„{name}" zurücklegen', // abgehakte Kachel wieder offen
     // Kategorien, Emoji-Icons & „Meist genutzt"-Autocomplete (#389)
     suggestionsHint: 'Häufig gekauft',
     moveCategory: 'In Kategorie verschieben',

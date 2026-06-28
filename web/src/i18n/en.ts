@@ -330,6 +330,12 @@ export const en: Messages = {
     namePlaceholder: 'What is missing in "{name}"? …', // quick-add placeholder, {name} = active list
     inCart: 'In cart', // rendered as "In cart · {n}"
     clearChecked: 'Remove checked',
+    // List/tile view toggle (#440)
+    viewToggleAria: 'Switch view',
+    viewList: 'List view',
+    viewTiles: 'Tile view',
+    checkOff: 'Check off "{name}"', // tile tap: move to cart
+    uncheck: 'Put "{name}" back', // checked tile back to open
     // Categories, emoji icons & "most used" autocomplete (#389)
     suggestionsHint: 'Frequently bought',
     moveCategory: 'Move to category',
