@@ -578,7 +578,10 @@ private fun ShoppingTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            (parts.detail ?: item.note?.takeIf { it.isNotBlank() })?.let {
+            parts.detail?.let {
+                Text(it, style = HbType.meta, color = Hb.ink3, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            item.note?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = HbType.meta, color = Hb.ink3, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -592,9 +595,13 @@ private fun ShoppingTile(
         } else if (pending) {
             Box(Modifier.align(Alignment.TopEnd).padding(7.dp)) { SyncBadge() }
         } else {
-            // Edit affordance (#447): a small pencil in the corner; tap opens the detail editor.
-            Box(Modifier.align(Alignment.TopEnd)) {
-                HbIconButton(HbIcons.edit, onEdit, iconSize = 16.dp, tint = Hb.ink3)
+            // Edit affordance (#447): a small pencil in the corner. A compact hit box (not the 44dp
+            // HbIconButton) so it doesn't swallow check-off taps across the tile's top-right corner.
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(4.dp).size(28.dp).clip(CircleShape).clickable { onEdit() },
+                contentAlignment = Alignment.Center,
+            ) {
+                HbIcon(HbIcons.edit, size = 15.dp, tint = Hb.ink3)
             }
         }
     }

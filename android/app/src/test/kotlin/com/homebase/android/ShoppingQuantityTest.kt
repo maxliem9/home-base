@@ -20,6 +20,14 @@ class ShoppingQuantityTest {
     }
 
     @Test
+    fun `splitQuantity handles decimals and never yields an empty title`() {
+        assertEquals(ShoppingQuantity.Parts("Saft", "1,5 l"), ShoppingQuantity.splitQuantity("1,5 l Saft"))
+        // no remainder after the quantity → keep the whole name
+        assertEquals(ShoppingQuantity.Parts("42", null), ShoppingQuantity.splitQuantity("42"))
+        assertEquals(ShoppingQuantity.Parts("5 kg   ", null), ShoppingQuantity.splitQuantity("5 kg   "))
+    }
+
+    @Test
     fun `requireUnit only splits when a real unit is present`() {
         assertEquals(ShoppingQuantity.Parts("Mehl", "200 g"), ShoppingQuantity.splitQuantity("200 g Mehl", requireUnit = true))
         // bare count, no unit → keep whole (don't tear apart a brand / fruit count)
