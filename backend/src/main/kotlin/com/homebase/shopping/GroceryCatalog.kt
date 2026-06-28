@@ -121,7 +121,7 @@ object GroceryCatalog {
             "Würstchen" to "🌭", "Bratwurst" to "🌭", "Salami" to "🍖",
             "Schinken" to "🍖", "Speck" to "🥓", "Bacon" to "🥓",
             "Lachs" to "🐟", "Thunfisch" to "🐟", "Fisch" to "🐟",
-            "Garnelen" to "🦐", "Frikadellen" to "🍖",
+            "Garnelen" to "🦐", "Frikadellen" to "🍖", "Leberkäse" to "🍖",
         )
         cat(
             "FROZEN",
@@ -157,6 +157,7 @@ object GroceryCatalog {
             "DRINKS",
             "Wasser" to "💧", "Mineralwasser" to "💧", "Sprudel" to "💧",
             "Saft" to "🧃", "Apfelsaft" to "🧃", "Orangensaft" to "🧃",
+            "Apfelschorle" to "🧃", "Schorle" to "🧃",
             "Cola" to "🥤", "Limonade" to "🥤", "Eistee" to "🧃",
             "Bier" to "🍺", "Wein" to "🍷", "Rotwein" to "🍷",
             "Weißwein" to "🍷", "Sekt" to "🍾", "Smoothie" to "🥤",

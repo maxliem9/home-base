@@ -82,9 +82,17 @@ object ShoppingCatalog {
     }
 
     /**
-     * In-memory matcher built from the DB rules (per operation). Holds the resolution algorithm ported
-     * 1:1 from the old GroceryCatalog: exact normalized match, then a longest-substring fallback
-     * ("Bio Tomaten" → tomaten, "Tomate" → tomaten), else OTHER + the cart icon.
+     * In-memory matcher built from the DB rules (per operation). Resolution order:
+     *  1. exact normalized match,
+     *  2. multi-word: a whole word equals a rule key ("Bio Tomaten" → tomaten),
+     *  3. singular/plural / minor declension: a key differs from the name by ≤2 trailing chars
+     *     ("Tomate" → tomaten),
+     * else OTHER + the cart icon.
+     *
+     * Deliberately NOT a free substring match (#441): the old `n.contains(key)` mis-categorized German
+     * compounds whose tail is an unrelated item — "Leberkäse" → käse (DAIRY), "Apfelschorle" → apfel
+     * (PRODUCE). Word-boundary + short-suffix matching keeps the useful cases (adjective+noun, plural)
+     * without tearing compounds apart; unknown compounds fall to OTHER and can be corrected (remembered).
      */
     class RuleSet(private val rules: List<Rule>) {
         data class Rule(val normalized: String, val display: String, val category: String, val icon: String)
@@ -98,11 +106,31 @@ object ShoppingCatalog {
             val n = GroceryCatalog.normalize(name)
             if (n.isBlank()) return GroceryCatalog.Resolution(GroceryCatalog.OTHER, GroceryCatalog.DEFAULT_ICON)
             byNormalized[n]?.let { return it }
-            if (n.length >= 3) {
-                byLengthDesc.firstOrNull { (key, _) -> key.length >= 3 && (n.contains(key) || key.contains(n)) }
+            // 2) multi-word: prefer the longest whole word that is itself a known key.
+            val tokens = n.split(' ')
+            if (tokens.size > 1) {
+                tokens.sortedByDescending { it.length }
+                    .firstNotNullOfOrNull { tok -> byNormalized[tok] }
+                    ?.let { return it }
+            }
+            // 3) singular/plural: a key that is the name ± a short (≤2 char) suffix.
+            if (n.length >= 4) {
+                byLengthDesc.firstOrNull { (key, _) -> key.length >= 4 && pluralish(n, key) }
                     ?.let { return it.second }
             }
             return GroceryCatalog.Resolution(GroceryCatalog.OTHER, GroceryCatalog.DEFAULT_ICON)
+        }
+
+        /**
+         * True if one normalized word is the other plus up to two trailing chars — covers German
+         * plural/declension endings ("tomate"/"tomaten", "joghurt"/"joghurts") while rejecting
+         * compounds ("apfel"/"apfelschorle", diff 7). Symmetric; the shorter must be a prefix of the
+         * longer (so "käse"/"leberkäse" — not a prefix — never matches).
+         */
+        private fun pluralish(a: String, b: String): Boolean {
+            val short = if (a.length <= b.length) a else b
+            val long = if (a.length <= b.length) b else a
+            return long.startsWith(short) && long.length - short.length <= 2
         }
 
         /** Distinct entries (first written form per normalized name) for the suggestions baseline. */

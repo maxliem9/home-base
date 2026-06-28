@@ -38,9 +38,25 @@ class GroceryCatalogTest {
     }
 
     @Test
-    fun `substring fallback handles a prefixed or pluralised name`() {
+    fun `multi-word and pluralised names still resolve via word-boundary matching`() {
+        // adjective/qualifier + known noun → matches the whole word
         assertEquals("PRODUCE", seedRules.match("Bio Tomaten").category)
+        assertEquals("PRODUCE", seedRules.match("frische Paprika").category)
+        // singular ↔ plural (≤2-char suffix)
+        assertEquals("PRODUCE", seedRules.match("Tomate").category)
+        // exact compound entry is unaffected
         assertEquals("DAIRY", seedRules.match("Hafermilch").category)
+    }
+
+    @Test
+    fun `compound words are not mis-categorised by their tail (#441)`() {
+        // The classic bug: "Leberkäse" must NOT resolve to käse/DAIRY. It's a seeded MEAT_FISH entry…
+        assertEquals("MEAT_FISH", seedRules.match("Leberkäse").category)
+        assertEquals("DRINKS", seedRules.match("Apfelschorle").category)
+        // …and a compound whose tail is a known item but which is NOT seeded falls to OTHER (safe),
+        // never to the wrong category — proves the matcher no longer does a free substring match.
+        assertEquals(GroceryCatalog.OTHER, seedRules.match("Putenleberkäse").category) // ⊅ käse
+        assertEquals(GroceryCatalog.OTHER, seedRules.match("Knoblauchbrot").category)  // ⊅ brot/knoblauch
     }
 
     @Test
