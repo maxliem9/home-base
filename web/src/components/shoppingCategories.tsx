@@ -146,10 +146,19 @@ export function groupByCategory(items: ShoppingItem[], categories: CategoryMeta[
  * to the resolved emoji (#389 — "emojis first, keep it swappable"). `muted` desaturates it for checked
  * ("Im Wagen") rows — the `is-muted` filter on the span applies to both the emoji and the <img>.
  */
-export function ItemIcon({ item, muted }: { item: ShoppingItem; muted?: boolean }) {
+export function ItemIcon({
+  item,
+  muted,
+  variant = 'row',
+}: {
+  item: ShoppingItem
+  muted?: boolean
+  variant?: 'row' | 'tile'
+}) {
   const svg = iconSvgFor(item)
+  const base = variant === 'tile' ? 'hb-tile__emoji' : 'hb-row__emoji'
   return (
-    <span className={`hb-row__emoji${muted ? ' is-muted' : ''}`} aria-hidden="true">
+    <span className={`${base}${muted ? ' is-muted' : ''}`} aria-hidden="true">
       {svg ? <img src={svg} alt="" /> : item.icon || DEFAULT_ITEM_ICON}
     </span>
   )

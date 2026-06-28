@@ -28,6 +28,27 @@ const WS_URL = import.meta.env.VITE_WS_URL_SHOPPING ?? `${WS_SCHEME}://${window.
 const PENDING_KEY = 'homebase_shopping_pending'
 const FLUSH_INTERVAL_MS = 15000
 
+// List vs. tile view (#440), persisted per browser. Tiles are the design default (Bring-style).
+const VIEWMODE_KEY = 'homebase_shopping_viewmode'
+type ViewMode = 'list' | 'tiles'
+function loadViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEWMODE_KEY) === 'list' ? 'list' : 'tiles'
+  } catch {
+    return 'tiles'
+  }
+}
+
+// Split a written name into a leading "<qty> <unit>" prefix and the rest, for the tile/row detail
+// line. Mirrors GroceryCatalog.normalize's quantity stripper; display-only. "2 L Milch" → "2 L" + "Milch".
+const QTY_PREFIX =
+  /^\s*(\d+(?:[.,]\d+)?\s*(?:g|kg|mg|ml|l|el|tl|stk|stück|st|x|prise|prisen|bund|dose|dosen|pkg|pck|pack|packung|tasse|cup|msp|glas|gläser|becher|flasche|flaschen)?\.?)\s+(.+)$/i
+function splitQuantity(name: string): { detail?: string; title: string } {
+  const m = name.match(QTY_PREFIX)
+  if (m && m[2].trim()) return { detail: m[1].trim(), title: m[2].trim() }
+  return { title: name }
+}
+
 interface PendingCheck { checked: boolean; at: number }
 
 function loadPending(): Record<string, PendingCheck> {
@@ -71,6 +92,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [applyingTemplate, setApplyingTemplate] = useState<ShoppingTemplate | null>(null)
   const [templateToast, setTemplateToast] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
   // Durable queue of check-offs not yet acknowledged by the backend (offline-safe).
   const [pending, setPending] = useState<Record<string, PendingCheck>>(loadPending)
   const pendingRef = useRef(pending)
@@ -483,6 +505,15 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // Open items bucketed into category sections in fixed shopping-route order (#389).
   const groups = groupByCategory(open, categories)
 
+  const changeViewMode = (m: ViewMode) => {
+    setViewMode(m)
+    try {
+      localStorage.setItem(VIEWMODE_KEY, m)
+    } catch {
+      /* private mode — in-memory state still switches for this session */
+    }
+  }
+
   return (
     <div className="hb-page">
       <PageHead
@@ -540,10 +571,78 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
             </div>
           )}
 
+          {(open.length > 0 || checked.length > 0) && (
+            <div className="hb-viewtoggle" role="group" aria-label={t('shopping.viewToggleAria')}>
+              <button
+                type="button"
+                className={`hb-viewtoggle__btn${viewMode === 'list' ? ' is-active' : ''}`}
+                aria-pressed={viewMode === 'list'}
+                aria-label={t('shopping.viewList')}
+                title={t('shopping.viewList')}
+                onClick={() => changeViewMode('list')}
+              >
+                <Icon name="list" size={18} stroke={2} />
+              </button>
+              <button
+                type="button"
+                className={`hb-viewtoggle__btn${viewMode === 'tiles' ? ' is-active' : ''}`}
+                aria-pressed={viewMode === 'tiles'}
+                aria-label={t('shopping.viewTiles')}
+                title={t('shopping.viewTiles')}
+                onClick={() => changeViewMode('tiles')}
+              >
+                <Icon name="grid" size={18} stroke={2} />
+              </button>
+            </div>
+          )}
+
           {open.length === 0 && checked.length === 0 ? (
             <Card className="hb-card--pad"><EmptyState icon="cart" title={t('shopping.emptyTitle')} hint={t('shopping.emptyHint')} /></Card>
           ) : open.length === 0 ? (
             <Card className="hb-card--pad"><div className="hb-muted" style={{ padding: '8px 4px', fontSize: 14 }}>{t('shopping.allChecked')}</div></Card>
+          ) : viewMode === 'tiles' ? (
+            <div className="hb-tilewrap">
+              {groups.map((group) => (
+                <section key={group.category.key} className="hb-tilesection">
+                  <div className="hb-cardhead hb-tilesection__head">
+                    <span className="hb-cathead">
+                      <CategoryIcon
+                        catKey={group.category.key}
+                        emoji={group.category.emoji}
+                        className="hb-cathead__emoji"
+                      />
+                      {group.category.label}
+                    </span>
+                    <span className="hb-catcount">{group.items.length}</span>
+                  </div>
+                  <div className="hb-tilegrid">
+                    {group.items.map((item) => {
+                      const sq = splitQuantity(item.name)
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="hb-tile"
+                          onClick={() => toggleChecked(item)}
+                          aria-label={t('shopping.checkOff', { name: item.name })}
+                        >
+                          <span className="hb-tile__iconwrap">
+                            <ItemIcon item={item} variant="tile" />
+                          </span>
+                          <span className="hb-tile__name">{sq.title}</span>
+                          {sq.detail && <span className="hb-tile__detail">{sq.detail}</span>}
+                          {pending[item.id] && (
+                            <span className="hb-tile__sync" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
+                              <Icon name="repeat" size={12} stroke={2} />
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
           ) : (
             <div className="hb-shop-grid">
               {groups.map((group) => (
@@ -595,22 +694,48 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                   {t('shopping.clearChecked')} <Icon name="trash" size={14} stroke={2} />
                 </button>
               </div>
-              <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
-                <div className="hb-list">
-                  {checked.map((item) => (
-                    <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
-                      <Checkbox checked onChange={() => toggleChecked(item)} />
-                      <ItemIcon item={item} muted />
-                      <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
-                      {pending[item.id] && (
-                        <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
-                          <Icon name="repeat" size={13} stroke={2} />
+              {viewMode === 'tiles' ? (
+                <div className="hb-tilegrid">
+                  {checked.map((item) => {
+                    const sq = splitQuantity(item.name)
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="hb-tile hb-tile--done"
+                        onClick={() => toggleChecked(item)}
+                        aria-label={t('shopping.uncheck', { name: item.name })}
+                      >
+                        <span className="hb-tile__check" aria-hidden="true">
+                          <Icon name="check" size={13} stroke={2.6} />
                         </span>
-                      )}
-                    </div>
-                  ))}
+                        <span className="hb-tile__iconwrap">
+                          <ItemIcon item={item} muted variant="tile" />
+                        </span>
+                        <span className="hb-tile__name">{sq.title}</span>
+                        {sq.detail && <span className="hb-tile__detail">{sq.detail}</span>}
+                      </button>
+                    )
+                  })}
                 </div>
-              </Card>
+              ) : (
+                <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
+                  <div className="hb-list">
+                    {checked.map((item) => (
+                      <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
+                        <Checkbox checked onChange={() => toggleChecked(item)} />
+                        <ItemIcon item={item} muted />
+                        <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                        {pending[item.id] && (
+                          <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
+                            <Icon name="repeat" size={13} stroke={2} />
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
             </div>
           )}
 
