@@ -67,7 +67,13 @@ function sliceMapBody(source, name, file) {
     console.error(`FEHLER: Map-Ende für ${name} in ${file} nicht gefunden.`)
     process.exit(2)
   }
-  return source.slice(start, close)
+  // Kommentare entfernen, bevor die Paare extrahiert werden — sonst würde eine Notiz
+  // wie `// alt: 'apfel': 'apple'` als echter Eintrag gelesen (Phantom-Drift bzw.
+  // Doppel-Key-Crash). Block- vor Zeilenkommentaren strippen.
+  return source
+    .slice(start, close)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
 }
 
 // Flache Key/Value-Paare. Key wahlweise gequotet ('k'/"k") oder bare TS-Object-
