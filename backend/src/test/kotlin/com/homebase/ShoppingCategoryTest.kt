@@ -38,13 +38,53 @@ class GroceryCatalogTest {
     }
 
     @Test
-    fun `substring fallback handles a prefixed or pluralised name`() {
+    fun `multi-word and pluralised names still resolve via word-boundary matching`() {
+        // adjective/qualifier + known noun → matches the whole word
         assertEquals("PRODUCE", seedRules.match("Bio Tomaten").category)
+        assertEquals("PRODUCE", seedRules.match("frische Paprika").category)
+        // singular ↔ plural (≤2-char suffix)
+        assertEquals("PRODUCE", seedRules.match("Tomate").category)
+        // exact compound entry is unaffected
         assertEquals("DAIRY", seedRules.match("Hafermilch").category)
     }
 
     @Test
-    fun `unknown name falls back to OTHER with the cart icon`() {
+    fun `a category-carrying prefix never wins — the #441 bug`() {
+        // The classic bug came from a free substring match reading the PREFIX: "Apfelschorle" → apfel
+        // (PRODUCE) and "Leberkäse" → käse (DAIRY). Both must resolve by the real head, not the prefix.
+        assertEquals("DRINKS", seedRules.match("Apfelschorle").category)     // ↛ apfel/PRODUCE
+        assertEquals("BAKERY", seedRules.match("Käsebrot").category)         // ↛ käse/DAIRY (it's bread)
+        // "…käse" that is actually meat is pinned as an exact seed entry, resolved before the head rule.
+        assertEquals("MEAT_FISH", seedRules.match("Leberkäse").category)
+        assertEquals("MEAT_FISH", seedRules.match("Fleischkäse").category)
+    }
+
+    @Test
+    fun `head-noun lie is corrected even on an already-seeded DB without the exact entry`() {
+        // Simulate a prod rule table seeded BEFORE this change: it has "käse"→DAIRY but no "leberkäse"
+        // entry. The endsWith head-noun step would otherwise read "Leberkäse" as käse/DAIRY — the
+        // in-code HEAD_NOUN_LIES guard must keep it MEAT_FISH regardless.
+        val legacy = ShoppingCatalog.RuleSet(
+            listOf(
+                ShoppingCatalog.RuleSet.Rule("käse", "Käse", "DAIRY", "🧀"),
+                ShoppingCatalog.RuleSet.Rule("milch", "Milch", "DAIRY", "🥛"),
+            ),
+        )
+        assertEquals("DAIRY", legacy.match("Käse").category)        // generic cheese still DAIRY
+        assertEquals("DAIRY", legacy.match("Vollmilch").category)   // legit head noun via endsWith
+        assertEquals("MEAT_FISH", legacy.match("Leberkäse").category) // the lie, corrected in code
+    }
+
+    @Test
+    fun `compound head noun carries the category (Vollmilch to milch)`() {
+        assertEquals("DAIRY", seedRules.match("Vollmilch").category)
+        assertEquals("DAIRY", seedRules.match("Buttermilch").category)
+        assertEquals("MEAT_FISH", seedRules.match("Leberwurst").category)
+        assertEquals("BAKERY", seedRules.match("Knoblauchbrot").category)
+    }
+
+    @Test
+    fun `unknown name with no known head falls back to OTHER with the cart icon`() {
         val r = seedRules.match("Zaubertrank 3000")
         assertEquals(GroceryCatalog.OTHER, r.category)
         assertEquals(GroceryCatalog.DEFAULT_ICON, r.icon)

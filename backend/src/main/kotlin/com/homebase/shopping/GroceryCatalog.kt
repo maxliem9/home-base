@@ -122,6 +122,8 @@ object GroceryCatalog {
             "Schinken" to "🍖", "Speck" to "🥓", "Bacon" to "🥓",
             "Lachs" to "🐟", "Thunfisch" to "🐟", "Fisch" to "🐟",
             "Garnelen" to "🦐", "Frikadellen" to "🍖",
+            // "…käse" but meat — pinned exact so the compound-head rule doesn't read them as cheese.
+            "Leberkäse" to "🍖", "Fleischkäse" to "🍖",
         )
         cat(
             "FROZEN",
@@ -157,6 +159,7 @@ object GroceryCatalog {
             "DRINKS",
             "Wasser" to "💧", "Mineralwasser" to "💧", "Sprudel" to "💧",
             "Saft" to "🧃", "Apfelsaft" to "🧃", "Orangensaft" to "🧃",
+            "Apfelschorle" to "🧃", "Schorle" to "🧃",
             "Cola" to "🥤", "Limonade" to "🥤", "Eistee" to "🧃",
             "Bier" to "🍺", "Wein" to "🍷", "Rotwein" to "🍷",
             "Weißwein" to "🍷", "Sekt" to "🍾", "Smoothie" to "🥤",
