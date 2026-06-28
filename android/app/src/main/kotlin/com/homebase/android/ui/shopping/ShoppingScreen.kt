@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -94,6 +95,7 @@ fun ShoppingScreen(
     var addItemText by remember { mutableStateOf("") }
     var showNewListSheet by remember { mutableStateOf(false) }
     var showAddItemSheet by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<ShoppingItemDto?>(null) }
     // Template flows (#215): the list/manage sheet, an in-flight create-or-edit form, an apply
     // selection sheet (for a chosen template), a pending delete confirm, and the add-result toast.
     var showTemplatesSheet by remember { mutableStateOf(false) }
@@ -177,6 +179,7 @@ fun ShoppingScreen(
                                 items = catItems,
                                 isPending = { state.isPending(it) },
                                 onToggle = { viewModel.toggleChecked(it) },
+                                onEdit = { editingItem = it },
                             )
                         } else {
                             catItems.forEach { item ->
@@ -186,6 +189,7 @@ fun ShoppingScreen(
                                     categories = state.categories,
                                     onToggle = { viewModel.toggleChecked(item) },
                                     onMove = { viewModel.moveItemCategory(item, it) },
+                                    onEdit = { editingItem = item },
                                 )
                             }
                         }
@@ -252,6 +256,17 @@ fun ShoppingScreen(
                 onAdd = { name ->
                     viewModel.addItem(name)
                     showAddItemSheet = false
+                },
+            )
+        }
+
+        editingItem?.let { item ->
+            EditItemSheet(
+                item = item,
+                onDismiss = { editingItem = null },
+                onSave = { name, quantity, note ->
+                    viewModel.updateItemDetails(item, name, quantity, note)
+                    editingItem = null
                 },
             )
         }
@@ -436,6 +451,29 @@ private fun Modifier.accentUnderline(color: Color): Modifier = drawBehind {
 // Item rows
 // ---------------------------------------------------------------------------
 
+/** Row title block (#447): name + inline quantity + an optional note line below. */
+@Composable
+private fun RowScope.ItemNameBlock(item: ShoppingItemDto, done: Boolean) {
+    val parts = ShoppingQuantity.displayParts(item)
+    Column(Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                parts.title,
+                style = HbType.rowTitle.copy(textDecoration = if (done) TextDecoration.LineThrough else null),
+                color = if (done) Hb.ink3 else Hb.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            parts.detail?.let {
+                Text(it, style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+        item.note?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = HbType.meta, color = Hb.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 @Composable
 private fun OpenItemRow(
     item: ShoppingItemDto,
@@ -443,18 +481,15 @@ private fun OpenItemRow(
     categories: List<GroceryCategory>,
     onToggle: () -> Unit,
     onMove: (String) -> Unit,
+    onEdit: () -> Unit,
 ) {
     HbRow {
         HbCheck(checked = false, onCheckedChange = onToggle)
         ShoppingItemIcon(item)
-        Text(
-            item.name,
-            style = HbType.rowTitle,
-            color = Hb.ink,
-            modifier = Modifier.weight(1f),
-        )
+        ItemNameBlock(item, done = false)
         if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
+        HbIconButton(HbIcons.edit, onEdit)
         CategoryMoveMenu(current = item.category, categories = categories, onPick = onMove)
     }
 }
@@ -464,12 +499,7 @@ private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: ()
     HbRow {
         HbCheck(checked = true, onCheckedChange = onToggle)
         ShoppingItemIcon(item, muted = true)
-        Text(
-            item.name,
-            style = HbType.rowTitle.copy(textDecoration = TextDecoration.LineThrough),
-            color = Hb.ink3,
-            modifier = Modifier.weight(1f),
-        )
+        ItemNameBlock(item, done = true)
         if (pending) SyncBadge()
         HbAvatar(item.createdBy, size = 24.dp)
     }
@@ -483,6 +513,7 @@ private fun ShoppingTileGrid(
     done: Boolean = false,
     isPending: (String) -> Boolean,
     onToggle: (ShoppingItemDto) -> Unit,
+    onEdit: (ShoppingItemDto) -> Unit = {},
 ) {
     FlowRow(
         Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -496,6 +527,7 @@ private fun ShoppingTileGrid(
                 done = done,
                 pending = isPending(item.id),
                 onToggle = { onToggle(item) },
+                onEdit = { onEdit(item) },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -512,8 +544,10 @@ private fun ShoppingTile(
     done: Boolean,
     pending: Boolean,
     onToggle: () -> Unit,
+    onEdit: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val parts = ShoppingQuantity.displayParts(item)
     Box(modifier) {
         Column(
             Modifier
@@ -534,7 +568,7 @@ private fun ShoppingTile(
             }
             Spacer(Modifier.size(6.dp))
             Text(
-                item.name,
+                parts.title,
                 style = HbType.meta.copy(
                     fontWeight = FontWeight.SemiBold,
                     textDecoration = if (done) TextDecoration.LineThrough else null,
@@ -544,6 +578,9 @@ private fun ShoppingTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            (parts.detail ?: item.note?.takeIf { it.isNotBlank() })?.let {
+                Text(it, style = HbType.meta, color = Hb.ink3, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         if (done) {
             Box(
@@ -554,6 +591,11 @@ private fun ShoppingTile(
             }
         } else if (pending) {
             Box(Modifier.align(Alignment.TopEnd).padding(7.dp)) { SyncBadge() }
+        } else {
+            // Edit affordance (#447): a small pencil in the corner; tap opens the detail editor.
+            Box(Modifier.align(Alignment.TopEnd)) {
+                HbIconButton(HbIcons.edit, onEdit, iconSize = 16.dp, tint = Hb.ink3)
+            }
         }
     }
 }
@@ -826,6 +868,55 @@ private fun AddItemSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
                 value = name,
                 onValueChange = { name = it },
                 placeholder = stringResource(R.string.shopping_item_name_placeholder),
+            )
+        }
+    }
+}
+
+/** Edit an item's name + free-text quantity + note (#447). Empty quantity/note are sent as "" to clear. */
+@Composable
+private fun EditItemSheet(
+    item: ShoppingItemDto,
+    onDismiss: () -> Unit,
+    onSave: (name: String, quantity: String, note: String) -> Unit,
+) {
+    var name by remember { mutableStateOf(item.name) }
+    var quantity by remember { mutableStateOf(item.quantity ?: "") }
+    var note by remember { mutableStateOf(item.note ?: "") }
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.shopping_edit_item_title),
+        footer = {
+            HbButton(
+                stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                stringResource(R.string.action_save),
+                onClick = { onSave(name, quantity, note) },
+                variant = HbButtonVariant.Primary,
+                enabled = name.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        HbField(stringResource(R.string.common_field_name)) {
+            HbTextField(value = name, onValueChange = { name = it })
+        }
+        HbField(stringResource(R.string.shopping_field_quantity)) {
+            HbTextField(
+                value = quantity,
+                onValueChange = { quantity = it },
+                placeholder = stringResource(R.string.shopping_quantity_placeholder),
+            )
+        }
+        HbField(stringResource(R.string.shopping_field_note)) {
+            HbTextField(
+                value = note,
+                onValueChange = { note = it },
+                placeholder = stringResource(R.string.shopping_note_placeholder),
             )
         }
     }

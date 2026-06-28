@@ -303,9 +303,32 @@ class ShoppingViewModel(
             // auto-create a neutral default list and attach the item to it instead of producing a
             // list-less item. (The web never reaches this branch — it has no add UI without a list.)
             val listId = _uiState.value.activeList?.id ?: ensureDefaultList() ?: return@launch
-            repository.createItem(name.trim(), listId)
+            // Split a leading "<qty> <unit>" off the typed name (#447): "200 g Mehl" → "Mehl" + "200 g".
+            // requireUnit so a bare leading number ("3 Musketiere") is not torn apart on persist.
+            val parts = ShoppingQuantity.splitQuantity(name.trim(), requireUnit = true)
+            repository.createItem(parts.title, listId, parts.detail)
                 .onSuccess { upsertItem(it) }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Save item-detail edits (#447): name, free-text quantity, note. Sends "" to clear quantity/note
+     * (backend: null = unchanged, "" = clear). Optimistic from the returned DTO; resync on failure.
+     */
+    fun updateItemDetails(item: ShoppingItemDto, name: String, quantity: String, note: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            repository.updateItem(
+                item.id,
+                UpdateShoppingItemRequest(name = trimmed, quantity = quantity.trim(), note = note.trim()),
+            )
+                .onSuccess { upsertItem(it) }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = e.message) }
+                    syncFromServer()
+                }
         }
     }
 

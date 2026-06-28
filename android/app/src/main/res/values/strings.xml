@@ -199,6 +199,12 @@
     <string name="shopping_empty_hint">Füge oben Artikel hinzu.</string>
     <string name="shopping_in_cart">Im Wagen · %1$d</string>
     <string name="shopping_clear_checked">Abgehakte entfernen</string>
+    <!-- Item bearbeiten: Name + Menge + Notiz (#447) -->
+    <string name="shopping_edit_item_title">Artikel bearbeiten</string>
+    <string name="shopping_field_quantity">Menge</string>
+    <string name="shopping_field_note">Notiz</string>
+    <string name="shopping_quantity_placeholder">z. B. 500 g</string>
+    <string name="shopping_note_placeholder">z. B. im roten Glas</string>
     <string name="shopping_new_list_tab">Neue Liste</string>
     <string name="shopping_new_list_title">Neue Liste</string>
     <string name="shopping_list_name_placeholder">z. B. Drogerie</string>

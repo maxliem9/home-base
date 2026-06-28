@@ -210,12 +210,17 @@ data class ShoppingItemDto(
     // treated as the OTHER ("Sonstiges") bucket with a default icon by the UI.
     val category: String? = null,
     val icon: String? = null,
+    // Free-text item details (#445/#447): quantity ("500 g", "2×") + note ("im roten Glas"); null if unset.
+    val quantity: String? = null,
+    val note: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class CreateShoppingItemRequest(
     val name: String,
     val listId: String? = null,
+    // Optional free-text quantity set at add time (#447); quick-add splits "200 g Mehl" → "Mehl" + "200 g".
+    val quantity: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -227,6 +232,9 @@ data class UpdateShoppingItemRequest(
     // Manual category/icon override (#389); a non-blank category must be a known key (backend rejects else).
     val category: String? = null,
     val icon: String? = null,
+    // Free-text details (#447): null = unchanged, "" = clear, else the new value.
+    val quantity: String? = null,
+    val note: String? = null,
 )
 
 /** One autocomplete suggestion from GET /shopping/suggestions, ranked by purchase frequency (#389). */
