@@ -333,6 +333,15 @@ export const de = {
     viewTiles: 'Kachelansicht',
     checkOff: '„{name}" abhaken', // Kachel-Tap: ins „Im Wagen" legen
     uncheck: '„{name}" zurücklegen', // abgehakte Kachel wieder offen
+    // Item bearbeiten (Name + Menge/Notiz, #445)
+    editItem: '„{name}" bearbeiten',
+    editFailed: 'Artikel konnte nicht gespeichert werden.',
+    fieldName: 'Name',
+    fieldQuantity: 'Menge',
+    fieldQuantityHint: 'Frei eingebbar, z. B. „500 g", „2 Packungen", „10er".',
+    fieldQuantityPlaceholder: 'z. B. 500 g',
+    fieldNote: 'Notiz',
+    fieldNotePlaceholder: 'z. B. im roten Glas',
     // Kategorien, Emoji-Icons & „Meist genutzt"-Autocomplete (#389)
     suggestionsHint: 'Häufig gekauft',
     moveCategory: 'In Kategorie verschieben',

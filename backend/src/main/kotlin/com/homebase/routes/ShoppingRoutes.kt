@@ -439,6 +439,7 @@ fun Route.shoppingRoutes() {
                     it[createdAt] = Instant.now()
                     it[ShoppingItemsTable.category] = resolvedCategory
                     it[ShoppingItemsTable.icon] = resolvedIcon
+                    it[quantity] = req.quantity?.takeIf { q -> q.isNotBlank() }?.trim()
                 }
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
             }
@@ -489,6 +490,9 @@ fun Route.shoppingRoutes() {
                     }
                     newCategory?.let { v -> it[category] = v }
                     newIcon?.let { v -> it[icon] = v }
+                    // Free-text details (#445): null = unchanged, blank = clear, else trimmed value.
+                    req.quantity?.let { v -> it[quantity] = v.trim().ifBlank { null } }
+                    req.note?.let { v -> it[note] = v.trim().ifBlank { null } }
                 }
                 ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
             }
@@ -558,6 +562,8 @@ private fun ResultRow.toDto() = ShoppingItemDto(
     checkedAt = this[ShoppingItemsTable.checkedAt]?.toString(),
     category = this[ShoppingItemsTable.category],
     icon = this[ShoppingItemsTable.icon],
+    quantity = this[ShoppingItemsTable.quantity],
+    note = this[ShoppingItemsTable.note],
 )
 
 private fun ResultRow.toCategoryDto() = ShoppingCategoryDto(

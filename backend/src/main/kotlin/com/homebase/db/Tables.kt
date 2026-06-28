@@ -129,6 +129,10 @@ object ShoppingItemsTable : Table("shopping_items") {
     // resolution; nullable for legacy rows. Overridable per item (PUT), remembered in the stats table.
     val category = varchar("category", 40).nullable()
     val icon = varchar("icon", 32).nullable()
+    // Free-text item details (#445): quantity ("500 g", "2×") + note ("im roten Glas"). Additive —
+    // the batch flow still encodes the amount in the name; clients prefer `quantity` if present.
+    val quantity = varchar("quantity", 120).nullable()
+    val note = text("note").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

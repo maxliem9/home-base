@@ -6,9 +6,9 @@ import { ShoppingCategory, ShoppingItem, ShoppingList, ShoppingSuggestion, Shopp
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
-import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
+import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Sheet, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
-import { splitQuantity } from './shoppingQuantity'
+import { itemDisplayParts, splitQuantity } from './shoppingQuantity'
 import {
   BUILTIN_CATEGORIES,
   categoryMeta,
@@ -84,6 +84,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [applyingTemplate, setApplyingTemplate] = useState<ShoppingTemplate | null>(null)
   const [templateToast, setTemplateToast] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
+  const [editItem, setEditItem] = useState<ShoppingItem | null>(null)
   // Durable queue of check-offs not yet acknowledged by the backend (offline-safe).
   const [pending, setPending] = useState<Record<string, PendingCheck>>(loadPending)
   const pendingRef = useRef(pending)
@@ -300,11 +301,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     // failure (and only if the field is still untouched).
     setNewName('')
     setSubmitting(true)
+    // Split a leading quantity off the typed name (#445): "200 g Mehl" → name "Mehl" + quantity
+    // "200 g". A plain name stays whole. (Suggestions are plain names, so this is a no-op for them.)
+    const { title, detail } = splitQuantity(name)
     try {
       const result = await safeFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, listId: active.id }),
+        body: JSON.stringify({ name: title, listId: active.id, ...(detail ? { quantity: detail } : {}) }),
       })
       if (!result.ok) {
         restoreName(name)
@@ -349,6 +353,40 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       await fetchAll()
       flashError(errorText(await errorCode(res), t('shopping.moveFailed')))
     }
+  }
+
+  // Save item-detail edits (#445): name, free-text quantity, note. Sends "" to clear quantity/note
+  // (backend: null = unchanged, "" = clear). Optimistic from the returned DTO; refetch on failure.
+  const saveItemDetails = async (
+    item: ShoppingItem,
+    fields: { name: string; quantity: string; note: string },
+  ): Promise<boolean> => {
+    const name = fields.name.trim()
+    if (!name) return false
+    const body = { name, quantity: fields.quantity.trim(), note: fields.note.trim() }
+    const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!result.ok) {
+      await fetchAll()
+      flashError(errorText(null, t('shopping.editFailed')))
+      return false
+    }
+    const { res } = result
+    if (res.status === 401) {
+      onLogout()
+      return false
+    }
+    if (!res.ok) {
+      await fetchAll()
+      flashError(errorText(await errorCode(res), t('shopping.editFailed')))
+      return false
+    }
+    const updated: ShoppingItem = await res.json()
+    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)))
+    return true
   }
 
   // Toggle a check-off optimistically and queue it for delivery. The queue (not an
@@ -608,26 +646,37 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                   </div>
                   <div className="hb-tilegrid">
                     {group.items.map((item) => {
-                      const sq = splitQuantity(item.name)
+                      const sq = itemDisplayParts(item)
                       return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="hb-tile"
-                          onClick={() => toggleChecked(item)}
-                          aria-label={t('shopping.checkOff', { name: item.name })}
-                        >
-                          <span className="hb-tile__iconwrap">
-                            <ItemIcon item={item} variant="tile" />
-                          </span>
-                          <span className="hb-tile__name">{sq.title}</span>
-                          {sq.detail && <span className="hb-tile__detail">{sq.detail}</span>}
-                          {pending[item.id] && (
+                        <div key={item.id} className="hb-tile">
+                          <button
+                            type="button"
+                            className="hb-tile__check-btn"
+                            onClick={() => toggleChecked(item)}
+                            aria-label={t('shopping.checkOff', { name: item.name })}
+                          >
+                            <span className="hb-tile__iconwrap">
+                              <ItemIcon item={item} variant="tile" />
+                            </span>
+                            <span className="hb-tile__name">{sq.title}</span>
+                            {sq.detail && <span className="hb-tile__detail">{sq.detail}</span>}
+                            {item.note && <span className="hb-tile__note">{item.note}</span>}
+                          </button>
+                          {pending[item.id] ? (
                             <span className="hb-tile__sync" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
                               <Icon name="repeat" size={12} stroke={2} />
                             </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="hb-tile__edit"
+                              aria-label={t('shopping.editItem', { name: item.name })}
+                              onClick={() => setEditItem(item)}
+                            >
+                              <Icon name="edit" size={14} stroke={2} />
+                            </button>
                           )}
-                        </button>
+                        </div>
                       )
                     })}
                   </div>
@@ -650,11 +699,19 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                     <span className="hb-catcount">{group.items.length}</span>
                   </div>
                   <div className="hb-list">
-                    {group.items.map((item) => (
+                    {group.items.map((item) => {
+                      const parts = itemDisplayParts(item)
+                      return (
                       <div key={item.id} className="hb-row" style={{ padding: '11px 4px' }}>
                         <Checkbox checked={false} onChange={() => toggleChecked(item)} />
                         <ItemIcon item={item} />
-                        <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                        <div className="hb-row__main">
+                          <div className="hb-row__title">
+                            {parts.title}
+                            {parts.detail && <span className="hb-row__qty">{parts.detail}</span>}
+                          </div>
+                          {item.note && <div className="hb-row__note">{item.note}</div>}
+                        </div>
                         <div className="hb-row__right">
                           {pending[item.id] && (
                             <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
@@ -662,6 +719,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                             </span>
                           )}
                           <div className="hb-row__actions">
+                            <IconButton icon="edit" label={t('shopping.editItem', { name: item.name })} onClick={() => setEditItem(item)} />
                             <IconButton id={`hb-move-${item.id}`} icon="tag" label={t('shopping.moveCategory')} onClick={() => setMenuFor(menuFor === item.id ? null : item.id)} />
                             <IconButton icon="trash" label={t('common.delete')} danger onClick={() => handleDelete(item.id)} />
                           </div>
@@ -670,7 +728,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                           )}
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </Card>
               ))}
@@ -688,7 +747,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
               {viewMode === 'tiles' ? (
                 <div className="hb-tilegrid">
                   {checked.map((item) => {
-                    const sq = splitQuantity(item.name)
+                    const sq = itemDisplayParts(item)
                     return (
                       <button
                         key={item.id}
@@ -760,6 +819,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      {editItem && (
+        <EditItemSheet
+          item={editItem}
+          onClose={() => setEditItem(null)}
+          onSave={saveItemDetails}
+        />
+      )}
 
       {templatesOpen && (
         <TemplatesSheet
@@ -974,6 +1041,72 @@ function CategoryMenu({ triggerId, current, categories, onPick, onClose }: { tri
         ))}
       </div>
     </>
+  )
+}
+
+// Edit an item's name + free-text details (#445). A Sheet per the Modal-vs-Sheet guideline (#29):
+// a small multi-field form with mobile relevance. Empty quantity/note are sent as "" to clear.
+function EditItemSheet({
+  item,
+  onClose,
+  onSave,
+}: {
+  item: ShoppingItem
+  onClose: () => void
+  onSave: (item: ShoppingItem, fields: { name: string; quantity: string; note: string }) => Promise<boolean>
+}) {
+  const { t } = useTranslation()
+  const [name, setName] = useState(item.name)
+  const [quantity, setQuantity] = useState(item.quantity ?? '')
+  const [note, setNote] = useState(item.note ?? '')
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    if (!name.trim() || busy) return
+    setBusy(true)
+    const ok = await onSave(item, { name, quantity, note })
+    setBusy(false)
+    if (ok) onClose()
+  }
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={t('shopping.editItem', { name: item.name })}
+      width={440}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" icon="check" onClick={save} disabled={!name.trim() || busy}>{t('common.save')}</Button>
+        </>
+      }
+    >
+      <Field label={t('shopping.fieldName')}>
+        <TextInput
+          value={name}
+          onChange={setName}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter') save() }}
+        />
+      </Field>
+      <Field label={t('shopping.fieldQuantity')} hint={t('shopping.fieldQuantityHint')}>
+        <TextInput
+          value={quantity}
+          onChange={setQuantity}
+          placeholder={t('shopping.fieldQuantityPlaceholder')}
+          onKeyDown={(e) => { if (e.key === 'Enter') save() }}
+        />
+      </Field>
+      <Field label={t('shopping.fieldNote')}>
+        <TextInput
+          value={note}
+          onChange={setNote}
+          placeholder={t('shopping.fieldNotePlaceholder')}
+          onKeyDown={(e) => { if (e.key === 'Enter') save() }}
+        />
+      </Field>
+    </Sheet>
   )
 }
 

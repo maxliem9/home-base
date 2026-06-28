@@ -819,7 +819,7 @@ export class MockApi {
       return this.json(route, this.shoppingItems)
     }
     if (path.endsWith('/shopping') && method === 'POST') {
-      const { name, listId } = JSON.parse(req.postData() ?? '{}')
+      const { name, listId, quantity } = JSON.parse(req.postData() ?? '{}')
       const item: ShoppingItem = {
         id: `shop-${this.nextShopId++}`,
         name,
@@ -827,6 +827,7 @@ export class MockApi {
         checked: false,
         createdBy: 'alice',
         createdAt: new Date().toISOString(),
+        quantity: quantity?.trim() || undefined,
       }
       this.shoppingItems.unshift(item)
       return this.json(route, item, 201)
@@ -1034,6 +1035,9 @@ export class MockApi {
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
         const updated: ShoppingItem = { ...this.shoppingItems[idx], ...body }
         if (body.listId === '') updated.listId = undefined
+        // Free-text details (#445): "" clears (mirrors the backend null), trimmed otherwise.
+        if (body.quantity !== undefined) updated.quantity = body.quantity.trim() || undefined
+        if (body.note !== undefined) updated.note = body.note.trim() || undefined
         if (body.checked === true) updated.checkedAt = new Date().toISOString()
         if (body.checked === false) updated.checkedAt = undefined
         this.shoppingItems[idx] = updated

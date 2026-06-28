@@ -53,6 +53,34 @@ test.describe('Shopping lists', () => {
     await expect(page.locator('.hb-tile')).toHaveCount(0)
   })
 
+  test('edits an item: sets a free-text quantity and note via the edit sheet', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Milch', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    await page.getByRole('button', { name: '„Milch" bearbeiten' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet).toBeVisible()
+    await sheet.getByPlaceholder('z. B. 500 g').fill('2 L')
+    await sheet.getByPlaceholder('z. B. im roten Glas').fill('Hafer')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+
+    await expect(sheet).toHaveCount(0)
+    const row = page.locator('.hb-row', { hasText: 'Milch' })
+    await expect(row.locator('.hb-row__qty')).toHaveText('2 L')
+    await expect(row.locator('.hb-row__note')).toHaveText('Hafer')
+  })
+
+  test('quick-add splits a leading quantity off the typed name', async ({ page }) => {
+    await openShopping(page, new MockApi([], [], [WOCHE], []))
+
+    await page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …').fill('200 g Mehl')
+    await page.getByRole('button', { name: 'Hinzufügen' }).click()
+
+    const row = page.locator('.hb-row', { hasText: 'Mehl' })
+    await expect(row.locator('.hb-row__title')).toContainText('Mehl')
+    await expect(row.locator('.hb-row__qty')).toHaveText('200 g')
+  })
+
   test('adds an item to the active list', async ({ page }) => {
     await openShopping(page, new MockApi([], [], [WOCHE], []))
 
