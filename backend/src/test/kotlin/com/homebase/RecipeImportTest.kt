@@ -1,10 +1,15 @@
 package com.homebase
 
 import com.homebase.routes.RecipeImport
+import com.homebase.routes.charsetFromContentType
+import com.homebase.routes.isBlockedForImport
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import java.net.InetAddress
+import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -197,6 +202,49 @@ class RecipeImportTest {
         val html = """<html><script type="application/ld+json">{"@type":"WebPage","name":"x"}</script></html>"""
         assertNull(RecipeImport.fromHtml(html))
         assertNull(RecipeImport.fromHtml("<html><body>no json-ld here</body></html>"))
+    }
+
+    @Test
+    fun `parses decimal-comma amounts in ingredient lines`() {
+        val ing = RecipeImport.parseIngredientLine("1,5 l Wasser")
+        assertEquals(1.5, ing.amount)
+        assertEquals("l", ing.unit)
+        assertEquals("Wasser", ing.name)
+    }
+
+    // --- SSRF address guard (pure, security-relevant — Issue #430) --------------------------
+
+    @Test
+    fun `blocks private, loopback, link-local and CGNAT addresses`() {
+        // by-name resolution of literals never hits DNS
+        fun addr(s: String) = InetAddress.getByName(s)
+        assertTrue(addr("127.0.0.1").isBlockedForImport())     // loopback
+        assertTrue(addr("10.0.0.5").isBlockedForImport())      // 10/8
+        assertTrue(addr("192.168.1.1").isBlockedForImport())   // 192.168/16
+        assertTrue(addr("172.16.5.4").isBlockedForImport())    // 172.16/12
+        assertTrue(addr("169.254.169.254").isBlockedForImport()) // link-local / cloud metadata
+        assertTrue(addr("100.64.0.1").isBlockedForImport())    // CGNAT 100.64/10
+        assertTrue(addr("0.0.0.0").isBlockedForImport())       // wildcard
+        assertTrue(addr("::1").isBlockedForImport())           // IPv6 loopback
+        assertTrue(addr("fc00::1").isBlockedForImport())       // IPv6 unique-local
+        assertTrue(addr("fe80::1").isBlockedForImport())       // IPv6 link-local
+    }
+
+    @Test
+    fun `allows public addresses`() {
+        assertFalse(InetAddress.getByName("8.8.8.8").isBlockedForImport())
+        assertFalse(InetAddress.getByName("1.1.1.1").isBlockedForImport())
+        assertFalse(InetAddress.getByName("99.64.0.1").isBlockedForImport()) // just below CGNAT range
+        assertFalse(InetAddress.getByName("2606:4700:4700::1111").isBlockedForImport()) // public IPv6
+    }
+
+    @Test
+    fun `charset is read from the content-type header`() {
+        assertEquals(Charsets.ISO_8859_1, charsetFromContentType("text/html; charset=ISO-8859-1"))
+        assertEquals(StandardCharsets.UTF_8, charsetFromContentType("text/html;charset=utf-8"))
+        assertEquals(Charsets.UTF_8, charsetFromContentType("""text/html; charset="UTF-8""""))
+        assertNull(charsetFromContentType("text/html")) // no charset → caller defaults to UTF-8
+        assertNull(charsetFromContentType("text/html; charset=bogus-enc")) // unsupported
     }
 
     @Test

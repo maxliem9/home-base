@@ -27,6 +27,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.time.Duration
@@ -486,13 +487,30 @@ private suspend fun fetchForImport(rawUrl: String): ImportFetch = withContext(Di
         if (bytes.size > IMPORT_MAX_BYTES) {
             return@withContext ImportFetch.Rejected("TOO_LARGE", "Die Seite ist zu groß.")
         }
-        return@withContext ImportFetch.Ok(String(bytes, StandardCharsets.UTF_8))
+        // Decode using the Content-Type charset when the server declares one (some German recipe
+        // sites still serve ISO-8859-1/Windows-1252 — UTF-8 alone would mangle umlauts). Fall back
+        // to UTF-8 for the common case or an unknown/missing charset.
+        val charset = response.headers().firstValue("content-type").orElse(null)
+            ?.let { charsetFromContentType(it) }
+            ?: StandardCharsets.UTF_8
+        return@withContext ImportFetch.Ok(String(bytes, charset))
     }
     ImportFetch.Rejected("TOO_MANY_REDIRECTS", "Zu viele Weiterleitungen.")
 }
 
+/**
+ * Pull the charset from a Content-Type header (e.g. "text/html; charset=ISO-8859-1"), or null when
+ * absent / unsupported. Internal so the import-charset handling can be unit-tested without a network.
+ */
+internal fun charsetFromContentType(contentType: String): Charset? {
+    val name = Regex("""charset\s*=\s*"?([^";\s]+)""", RegexOption.IGNORE_CASE)
+        .find(contentType)?.groupValues?.get(1)?.trim()
+        ?: return null
+    return runCatching { Charset.forName(name) }.getOrNull()
+}
+
 /** True for addresses we must never let the importer reach (SSRF protection). */
-private fun InetAddress.isBlockedForImport(): Boolean =
+internal fun InetAddress.isBlockedForImport(): Boolean =
     isAnyLocalAddress ||      // 0.0.0.0 / ::
         isLoopbackAddress ||  // 127.0.0.0/8, ::1
         isLinkLocalAddress || // 169.254/16, fe80::/10 (incl. cloud metadata 169.254.169.254)
@@ -502,7 +520,7 @@ private fun InetAddress.isBlockedForImport(): Boolean =
         // java.net predicates — block them explicitly.
         isCgnatOrUniqueLocal()
 
-private fun InetAddress.isCgnatOrUniqueLocal(): Boolean {
+internal fun InetAddress.isCgnatOrUniqueLocal(): Boolean {
     val a = address
     return when (a.size) {
         4 -> (a[0].toInt() and 0xFF) == 100 && ((a[1].toInt() and 0xFF) in 64..127) // 100.64.0.0/10
