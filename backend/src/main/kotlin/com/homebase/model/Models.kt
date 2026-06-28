@@ -768,6 +768,51 @@ data class SetMealPlanRequest(val recipeId: String? = null, val dishTitle: Strin
 @Serializable
 data class MealPlanWsMessage(val type: String)
 
+// ---------- Kalender-Events / Termine (#434) ----------
+
+/**
+ * A scheduled household calendar event (Arzt, Tierarzt, Geburtstag …). Household-shared like the
+ * absence calendar. all_day=true events carry no time (start/end null). Times are "HH:mm" (or
+ * "HH:mm:ss") strings; optional fields are omitted by encodeDefaults=false, so clients must
+ * tolerate missing keys.
+ */
+@Serializable
+data class CalendarEventDto(
+    val id: String,
+    val title: String,
+    val type: String,
+    val date: String,
+    val allDay: Boolean,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val location: String? = null,
+    val notes: String? = null,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+/**
+ * Create/replace a calendar event (POST /events, PUT /events/{id}). title + date required;
+ * type defaults to OTHER. For all_day=false an optional startTime ("HH:mm") and optional endTime
+ * may be given (end requires start, end >= start); all_day=true rejects any time. location/notes
+ * are trimmed (blank -> null) and length-bounded server-side (400 if exceeded).
+ */
+@Serializable
+data class CalendarEventRequest(
+    val title: String,
+    val type: String? = null,
+    val date: String,
+    val allDay: Boolean = true,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val location: String? = null,
+    val notes: String? = null,
+)
+
+/** Any event mutation broadcasts this; clients refetch the visible range (like meal-plan/absence). */
+@Serializable
+data class CalendarEventWsMessage(val type: String)
+
 // ---------- Abwesenheit / Familienkalender ----------
 
 @Serializable

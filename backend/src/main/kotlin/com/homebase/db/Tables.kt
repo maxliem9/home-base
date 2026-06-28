@@ -4,6 +4,7 @@ import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestamp
 import org.jetbrains.exposed.sql.javatime.date
+import org.jetbrains.exposed.sql.javatime.time
 
 // Generic household-level key/value settings (#100). Currently holds the editable
 // household name under key 'household_name'; reusable for future shared settings.
@@ -391,6 +392,30 @@ object MealPlanEntriesTable : Table("meal_plan_entries") {
     // At most one recipe per (date, slot) — mirrors the unique index from V26 (setting a slot
     // replaces the existing entry).
     init { uniqueIndex("meal_plan_entries_date_slot_uniq", date, slot) }
+}
+
+// Calendar events (#434): a real scheduled event (Arzt, Tierarzt, Geburtstag …) — the
+// household calendar previously knew only todo due-dates / absences / kita / meal plan as an
+// overlay. Household-wide shared like the absence calendar — no owner column / check;
+// created_by is provenance only. all_day=TRUE events carry no time (a DB CHECK enforces it).
+object CalendarEventsTable : Table("calendar_events") {
+    val id = uuid("id")
+    val title = varchar("title", 200)
+    // Event kind for the (later) colour-coded calendar rendering. See EVENT_TYPES in EventRoutes.
+    val type = varchar("type", 20)
+    val date = date("date")
+    val allDay = bool("all_day")
+    // Optional clock time for non-all-day events; both NULL for all-day (DB CHECK), end without
+    // start is rejected by the same migration's CHECK.
+    val startTime = time("start_time").nullable()
+    val endTime = time("end_time").nullable()
+    val location = text("location").nullable()
+    val notes = text("notes").nullable()
+    val createdBy = varchar("created_by", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+
+    init { index("calendar_events_date_idx", false, date) }
 }
 
 // One optional cover image per recipe — recipe_id is UNIQUE, so a new upload replaces the row.
