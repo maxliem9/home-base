@@ -111,10 +111,9 @@ export function slugifyIconKey(raw: string): string {
  * through to the name-based resolution — existing rows are unaffected.
  */
 function iconSvgFor(item: ShoppingItem): string | undefined {
-  if (item.icon) {
-    const override = itemIconUrl[item.icon] ?? categoryIconUrl[item.icon]
-    if (override) return override
-  }
+  // Override is always an item basename (the picker only offers those); an unknown value or a legacy
+  // emoji isn't a key here and falls through to the name/category resolution below.
+  if (item.icon && itemIconUrl[item.icon]) return itemIconUrl[item.icon]
   const fileKey = ITEM_ICON_KEY[slugifyIconKey(item.name)]
   if (fileKey && itemIconUrl[fileKey]) return itemIconUrl[fileKey]
   if (item.category) {
@@ -135,12 +134,6 @@ export const ITEM_ICON_CHOICES: IconChoice[] = Object.keys(itemIconUrl)
   .filter((k) => k !== 'misc')
   .sort()
   .map((k) => ({ key: k, url: itemIconUrl[k] }))
-
-/** URL for a chosen icon key (item icon, or a `cat-…`/category fallback), for rendering the choice. */
-export function iconUrlForKey(key: string | undefined): string | undefined {
-  if (!key) return undefined
-  return itemIconUrl[key] ?? categoryIconUrl[key]
-}
 
 // English icon key → the German normalized names that resolve to it, so the picker is searchable in
 // German ("möhren" finds the carrots icon) even though the files are named in English.
