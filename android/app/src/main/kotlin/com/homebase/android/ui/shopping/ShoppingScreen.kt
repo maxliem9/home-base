@@ -33,14 +33,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
@@ -413,7 +417,7 @@ private fun OpenItemRow(
 ) {
     HbRow {
         HbCheck(checked = false, onCheckedChange = onToggle)
-        ItemEmoji(item.icon)
+        ShoppingItemIcon(item)
         Text(
             item.name,
             style = HbType.rowTitle,
@@ -430,7 +434,7 @@ private fun OpenItemRow(
 private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: () -> Unit) {
     HbRow {
         HbCheck(checked = true, onCheckedChange = onToggle)
-        ItemEmoji(item.icon, muted = true)
+        ShoppingItemIcon(item, muted = true)
         Text(
             item.name,
             style = HbType.rowTitle.copy(textDecoration = TextDecoration.LineThrough),
@@ -442,13 +446,33 @@ private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: ()
     }
 }
 
-/** Single rendering seam for an item's icon (#389): emoji today, swappable later. */
+/** Single rendering seam for an item's icon (#443): designed SVG via Coil, emoji as the fallback. */
 @Composable
-private fun ItemEmoji(icon: String?, muted: Boolean = false) {
-    Text(
-        icon?.ifBlank { DEFAULT_ITEM_ICON } ?: DEFAULT_ITEM_ICON,
-        fontSize = 18.sp,
-        modifier = if (muted) Modifier.alpha(0.65f) else Modifier,
+private fun ShoppingItemIcon(item: ShoppingItemDto, muted: Boolean = false) {
+    SvgIcon(ShoppingIcons.assetForItem(item), fallbackEmoji = item.icon, size = 26.dp, muted = muted)
+}
+
+/** Category header/menu icon: designed SVG with the catalog emoji as fallback. */
+@Composable
+private fun CategoryIconView(category: GroceryCategory, size: Dp = 22.dp) {
+    SvgIcon(ShoppingIcons.assetForCategory(category.key), fallbackEmoji = category.emoji, size = size)
+}
+
+/** Render a bundled SVG asset (Coil) at [size]; falls back to the emoji if there's no asset. */
+@Composable
+private fun SvgIcon(assetUri: String?, fallbackEmoji: String?, size: Dp, muted: Boolean = false) {
+    val mod = Modifier.size(size).then(if (muted) Modifier.alpha(0.65f) else Modifier)
+    if (assetUri == null) {
+        Box(mod, contentAlignment = Alignment.Center) {
+            Text(fallbackEmoji?.ifBlank { DEFAULT_ITEM_ICON } ?: DEFAULT_ITEM_ICON, fontSize = (size.value * 0.72f).sp)
+        }
+        return
+    }
+    AsyncImage(
+        model = assetUri,
+        contentDescription = null,
+        modifier = mod,
+        colorFilter = if (muted) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.45f) }) else null,
     )
 }
 
@@ -460,7 +484,7 @@ private fun CategorySectionHeader(category: GroceryCategory, count: Int) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(category.emoji, fontSize = 18.sp)
+        CategoryIconView(category)
         Text(
             category.label,
             style = HbType.rowTitle.copy(fontWeight = FontWeight.Bold),
@@ -485,7 +509,7 @@ private fun CategoryMoveMenu(current: String?, categories: List<GroceryCategory>
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text(c.emoji, fontSize = 16.sp)
+                            CategoryIconView(c, size = 20.dp)
                             Text(c.label, style = HbType.body, color = if (c.key == current) Hb.accent else Hb.ink)
                         }
                     },
@@ -555,7 +579,7 @@ private fun ShoppingQuickAddSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(s.icon.ifBlank { DEFAULT_ITEM_ICON }, fontSize = 18.sp)
+                    SvgIcon(ShoppingIcons.assetForName(s.name, s.category), fallbackEmoji = s.icon, size = 24.dp)
                     Text(s.name, style = HbType.rowTitle, color = Hb.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(categoryMeta(s.category, categories).label, style = HbType.meta, color = Hb.ink3, maxLines = 1)
                     Text("${s.count}×", style = HbType.meta, color = Hb.ink3)
