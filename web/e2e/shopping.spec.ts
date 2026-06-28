@@ -5,6 +5,9 @@ import { MockApi, shoppingList, shoppingItem, shoppingTemplate, TOKEN } from './
 async function openShopping(page: Page, mock: MockApi) {
   await mock.install(page)
   await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+  // Pin list view: the default is now tiles (#440); the row-based assertions below test the list.
+  // The tile view + toggle have their own test ('tile view: …').
+  await page.addInitScript(() => localStorage.setItem('homebase_shopping_viewmode', 'list'))
   await page.goto('/')
   await page.getByRole('button', { name: 'Einkaufsliste' }).click()
   await expect(page.getByRole('heading', { name: 'Einkaufslisten' })).toBeVisible()
@@ -27,6 +30,55 @@ test.describe('Shopping lists', () => {
 
     await expect(page.getByText('Äpfel')).toBeVisible()
     await expect(page.getByText('Milch')).toBeVisible()
+  })
+
+  test('tile view: groups items into tiles, taps to check off, toggles back to list', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      shoppingItem({ id: 'i1', name: 'Äpfel', listId: 'sl1' }),
+      shoppingItem({ id: 'i2', name: 'Milch', listId: 'sl1' }),
+    ])
+    await openShopping(page, mock)
+
+    await page.getByRole('button', { name: 'Kachelansicht' }).click()
+    await expect(page.locator('.hb-tile', { hasText: 'Äpfel' })).toBeVisible()
+    await expect(page.locator('.hb-row')).toHaveCount(0)
+
+    // tapping a tile checks the item off into "Im Wagen"
+    await page.locator('.hb-tile', { hasText: 'Äpfel' }).click()
+    await expect(page.locator('.hb-tile--done', { hasText: 'Äpfel' })).toBeVisible()
+
+    // toggling back to list restores the row view (and persists)
+    await page.getByRole('button', { name: 'Listenansicht' }).click()
+    await expect(page.locator('.hb-row', { hasText: 'Milch' })).toBeVisible()
+    await expect(page.locator('.hb-tile')).toHaveCount(0)
+  })
+
+  test('edits an item: sets a free-text quantity and note via the edit sheet', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [shoppingItem({ id: 'i1', name: 'Milch', listId: 'sl1' })])
+    await openShopping(page, mock)
+
+    await page.getByRole('button', { name: '„Milch" bearbeiten' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet).toBeVisible()
+    await sheet.getByPlaceholder('z. B. 500 g').fill('2 L')
+    await sheet.getByPlaceholder('z. B. im roten Glas').fill('Hafer')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+
+    await expect(sheet).toHaveCount(0)
+    const row = page.locator('.hb-row', { hasText: 'Milch' })
+    await expect(row.locator('.hb-row__qty')).toHaveText('2 L')
+    await expect(row.locator('.hb-row__note')).toHaveText('Hafer')
+  })
+
+  test('quick-add splits a leading quantity off the typed name', async ({ page }) => {
+    await openShopping(page, new MockApi([], [], [WOCHE], []))
+
+    await page.getByPlaceholder('Was fehlt in „Wocheneinkauf"? …').fill('200 g Mehl')
+    await page.getByRole('button', { name: 'Hinzufügen' }).click()
+
+    const row = page.locator('.hb-row', { hasText: 'Mehl' })
+    await expect(row.locator('.hb-row__title')).toContainText('Mehl')
+    await expect(row.locator('.hb-row__qty')).toHaveText('200 g')
   })
 
   test('adds an item to the active list', async ({ page }) => {
@@ -69,8 +121,10 @@ test.describe('Shopping lists', () => {
 
     await expect(page.locator('.hb-row', { hasText: 'Bananen' })).toBeVisible()
     await expect(page.locator('.hb-row', { hasText: 'Milch' })).toBeVisible()
-    // crucially: no merged item, and "Bananen" stands alone (not "BananenMilch")
-    await expect(page.getByText('BananenMilch')).toHaveCount(0)
+    // crucially: no merged item, and "Bananen" stands alone (not "BananenMilch").
+    // Scope to the row title — designed SVG icons leave no text between adjacent rows, so a
+    // loose getByText would match the concatenated "Bananen"+"Milch" of two separate rows.
+    await expect(page.locator('.hb-row__title', { hasText: 'BananenMilch' })).toHaveCount(0)
     await expect(page.locator('.hb-row')).toHaveCount(2)
   })
 
@@ -339,8 +393,10 @@ test.describe('Shopping categories & suggestions', () => {
     // fixed shopping-route order: Obst & Gemüse (PRODUCE) before Milchprodukte (DAIRY)
     await expect(heads.nth(0)).toContainText('Obst & Gemüse')
     await expect(heads.nth(1)).toContainText('Milchprodukte & Eier')
-    // the item carries its emoji
-    await expect(page.locator('.hb-row', { hasText: 'Tomaten' }).locator('.hb-row__emoji')).toHaveText('🍅')
+    // the item renders its designed SVG icon (Tomaten → tomatoes.svg), not the emoji
+    await expect(
+      page.locator('.hb-row', { hasText: 'Tomaten' }).locator('.hb-row__emoji img'),
+    ).toHaveAttribute('src', /tomatoes\.svg/)
   })
 
   test('an item with no category falls into Sonstiges', async ({ page }) => {

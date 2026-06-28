@@ -203,7 +203,10 @@ data class ShoppingItemDto(
     // Resolved grocery category key (e.g. "PRODUCE") + emoji icon (#389/#390); null on legacy rows,
     // which clients treat as the "Sonstiges"/OTHER bucket with a default icon.
     val category: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    // Free-text item details (#445): quantity ("500 g", "2×") + note ("im roten Glas"); null if unset.
+    val quantity: String? = null,
+    val note: String? = null
 )
 
 /** One autocomplete suggestion: a known/previously-added grocery item, ranked by how often it's been added. */
@@ -218,7 +221,10 @@ data class ShoppingSuggestionDto(
 @Serializable
 data class CreateShoppingItemRequest(
     val name: String,
-    val listId: String? = null
+    val listId: String? = null,
+    // Optional free-text quantity set at add time (#445); the web quick-add splits "200 g Mehl" into
+    // name "Mehl" + quantity "200 g". Blank = unset.
+    val quantity: String? = null
 )
 
 @Serializable
@@ -230,7 +236,10 @@ data class UpdateShoppingItemRequest(
     // Manual category/icon override (#389/#390). null/blank = unchanged; a non-blank category must be
     // a known key (else 400). Setting either remembers the choice in shopping_item_stats for next time.
     val category: String? = null,
-    val icon: String? = null
+    val icon: String? = null,
+    // Free-text item details (#445). null = unchanged; empty string = clear; otherwise the new value.
+    val quantity: String? = null,
+    val note: String? = null
 )
 
 @Serializable

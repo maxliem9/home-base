@@ -330,6 +330,21 @@ export const en: Messages = {
     namePlaceholder: 'What is missing in "{name}"? …', // quick-add placeholder, {name} = active list
     inCart: 'In cart', // rendered as "In cart · {n}"
     clearChecked: 'Remove checked',
+    // List/tile view toggle (#440)
+    viewToggleAria: 'Switch view',
+    viewList: 'List view',
+    viewTiles: 'Tile view',
+    checkOff: 'Check off "{name}"', // tile tap: move to cart
+    uncheck: 'Put "{name}" back', // checked tile back to open
+    // Edit item (name + quantity/note, #445)
+    editItem: 'Edit "{name}"',
+    editFailed: 'Could not save the item.',
+    fieldName: 'Name',
+    fieldQuantity: 'Quantity',
+    fieldQuantityHint: 'Free text, e.g. "500 g", "2 packs", "10-pack".',
+    fieldQuantityPlaceholder: 'e.g. 500 g',
+    fieldNote: 'Note',
+    fieldNotePlaceholder: 'e.g. in the red jar',
     // Categories, emoji icons & "most used" autocomplete (#389)
     suggestionsHint: 'Frequently bought',
     moveCategory: 'Move to category',

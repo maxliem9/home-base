@@ -8,6 +8,7 @@ import kotlinx.serialization.json.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ShoppingRouteTest {
@@ -73,6 +74,72 @@ class ShoppingRouteTest {
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `POST shopping stores a free-text quantity`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/shopping") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Mehl","quantity":"500 g"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("Mehl", body["name"]?.jsonPrimitive?.content)
+        assertEquals("500 g", body["quantity"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT shopping sets quantity and note, then clears them with empty strings`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = client.post("/api/v1/shopping") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Eier"}""")
+        }.let { Json.parseToJsonElement(it.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content }
+
+        val set = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"quantity":"10er","note":"im roten Glas"}""")
+        }
+        assertEquals(HttpStatusCode.OK, set.status)
+        val setBody = Json.parseToJsonElement(set.bodyAsText()).jsonObject
+        assertEquals("10er", setBody["quantity"]?.jsonPrimitive?.content)
+        assertEquals("im roten Glas", setBody["note"]?.jsonPrimitive?.content)
+
+        // empty string clears; omitted field (name only) leaves them as-is would be null after clear
+        val cleared = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"quantity":"","note":""}""")
+        }
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        val clearedBody = Json.parseToJsonElement(cleared.bodyAsText()).jsonObject
+        // encodeDefaults=false: a null quantity/note is omitted from the payload
+        assertNull(clearedBody["quantity"])
+        assertNull(clearedBody["note"])
+    }
+
+    @Test
+    fun `PUT shopping omitting quantity leaves the existing value unchanged`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = client.post("/api/v1/shopping") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Mehl","quantity":"500 g"}""")
+        }.let { Json.parseToJsonElement(it.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content }
+
+        // PUT that touches only the name must not wipe the quantity (null = unchanged)
+        val updated = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Weizenmehl"}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        assertEquals("Weizenmehl", body["name"]?.jsonPrimitive?.content)
+        assertEquals("500 g", body["quantity"]?.jsonPrimitive?.content)
     }
 
     private suspend fun ApplicationTestBuilder.createList(token: String, name: String): String {
