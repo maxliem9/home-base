@@ -37,8 +37,8 @@ class ShoppingRepository(
     /** "Most used" autocomplete source (#389): catalog baseline + the household's usage tally. */
     suspend fun getSuggestions(): Result<List<ShoppingSuggestion>> = apiCatching { api.getShoppingSuggestions() }
 
-    suspend fun createItem(name: String, listId: String?): Result<ShoppingItemDto> =
-        apiCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId)) }
+    suspend fun createItem(name: String, listId: String?, quantity: String? = null): Result<ShoppingItemDto> =
+        apiCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId, quantity)) }
 
     suspend fun batchAdd(listId: String?, lines: List<ShoppingLineInput>): Result<BatchAddShoppingResponse> =
         apiCatching { api.batchAddShoppingItems(BatchAddShoppingRequest(listId, lines)) }
