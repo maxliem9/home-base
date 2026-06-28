@@ -60,6 +60,10 @@ export interface ShoppingItem {
   // backend when null (encodeDefaults=false) and on legacy rows — treated as the OTHER bucket.
   category?: string
   icon?: string
+  // Free-text item details (#445): quantity ("500 g", "2×") + note ("im roten Glas"). Both omitted
+  // by the backend when null (encodeDefaults=false).
+  quantity?: string
+  note?: string
 }
 
 // One autocomplete suggestion from GET /shopping/suggestions, ranked by how often the

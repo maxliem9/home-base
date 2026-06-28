@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitQuantity } from './shoppingQuantity'
+import { itemDisplayParts, splitQuantity } from './shoppingQuantity'
 
 // Display-only parse of a leading "<qty> <unit>" off the tile/row name (#440). Must never throw or
 // yield an empty title.
@@ -26,5 +26,19 @@ describe('splitQuantity', () => {
     expect(splitQuantity('   ')).toEqual({ title: '   ' })
     // remainder is only whitespace → the trim() guard falls back to the full name (no empty title)
     expect(splitQuantity('5 kg   ')).toEqual({ title: '5 kg   ' })
+  })
+})
+
+describe('itemDisplayParts', () => {
+  it('prefers an explicit quantity field (name stays whole)', () => {
+    expect(itemDisplayParts({ name: 'Mehl', quantity: '500 g' })).toEqual({ title: 'Mehl', detail: '500 g' })
+    expect(itemDisplayParts({ name: 'Eier', quantity: '10er' })).toEqual({ title: 'Eier', detail: '10er' })
+  })
+
+  it('falls back to parsing the name when no quantity field is set', () => {
+    expect(itemDisplayParts({ name: '200 g Mehl' })).toEqual({ title: 'Mehl', detail: '200 g' })
+    expect(itemDisplayParts({ name: 'Tomaten' })).toEqual({ title: 'Tomaten' })
+    // a blank quantity field is treated as unset → parse the name
+    expect(itemDisplayParts({ name: 'Tomaten', quantity: '  ' })).toEqual({ title: 'Tomaten' })
   })
 })
