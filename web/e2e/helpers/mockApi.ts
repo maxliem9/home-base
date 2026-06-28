@@ -1059,6 +1059,29 @@ export class MockApi {
       this.recipes.unshift(recipe)
       return this.json(route, recipe, 201)
     }
+    // ---- Recipes: URL import (stub mirroring POST /recipes/import, #430) ----
+    // The real backend fetches the page + parses JSON-LD; the mock just maps the URL: a URL
+    // containing "norecipe" returns 422 (no recipe data), anything else returns a fixed draft.
+    if (path.endsWith('/recipes/import') && method === 'POST') {
+      const importUrl = (JSON.parse(req.postData() ?? '{}').url ?? '') as string
+      if (importUrl.includes('norecipe')) {
+        return this.json(route, { code: 'NO_RECIPE_DATA', message: 'no recipe' }, 422)
+      }
+      return this.json(route, {
+        title: 'Importierte Lasagne',
+        description: 'Frisch aus dem Netz.',
+        servings: 4,
+        prepTimeMinutes: 30,
+        cookTimeMinutes: 45,
+        category: 'DINNER',
+        ingredients: [
+          { name: 'Lasagneplatten', amount: 250, unit: 'g' },
+          { name: 'Hackfleisch', amount: 500, unit: 'g' },
+        ],
+        steps: [{ description: 'Soße kochen.' }, { description: 'Schichten und backen.' }],
+        sourceUrl: importUrl,
+      })
+    }
 
     // ---- Recipes: single-recipe export (stub mirroring GET /recipes/{id}/export) ----
     // Returns markdown or a pdf-magic body plus a Content-Disposition filename, so the

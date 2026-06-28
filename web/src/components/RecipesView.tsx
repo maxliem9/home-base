@@ -97,6 +97,44 @@ const draftFromRecipe = (r: Recipe): Draft => {
   }
 }
 
+// Shape returned by the backend recipe-import endpoint (POST /recipes/import). A best-effort
+// draft — every field may be missing (encodeDefaults=false), so the mapper below coerces.
+interface ImportedRecipe {
+  title: string
+  description?: string
+  servings?: number
+  prepTimeMinutes?: number
+  cookTimeMinutes?: number
+  category?: RecipeCategory
+  ingredients?: { name: string; amount?: number; unit?: string; section?: string }[]
+  steps?: { description: string }[]
+}
+
+// Build an editor Draft from an imported recipe so the user lands in the normal editor pre-filled
+// and reviews/edits before saving. Mirrors draftFromRecipe but the source has no id (always a new
+// recipe) and the ingredient amounts arrive as numbers → stringify for the editable fields.
+const draftFromImport = (r: ImportedRecipe): Draft => {
+  const ingredients = r.ingredients ?? []
+  const groups = groupBySection(
+    ingredients.map((i, idx) => ({ id: String(idx), name: i.name, amount: i.amount, unit: i.unit, section: i.section, sortOrder: idx })),
+  )
+  return {
+    title: r.title ?? '',
+    description: r.description ?? '',
+    servings: r.servings != null ? String(r.servings) : '2',
+    prepTimeMinutes: r.prepTimeMinutes != null ? String(r.prepTimeMinutes) : '',
+    cookTimeMinutes: r.cookTimeMinutes != null ? String(r.cookTimeMinutes) : '',
+    category: r.category ?? 'DINNER',
+    sections: groups.length
+      ? groups.map((g) => ({
+          name: g.section ?? '',
+          ingredients: g.items.map((i) => ({ name: i.name, amount: i.amount != null ? String(i.amount) : '', unit: i.unit ?? '' })),
+        }))
+      : [emptySection()],
+    steps: (r.steps ?? []).length ? (r.steps ?? []).map((s) => s.description) : [''],
+  }
+}
+
 interface RecipesViewProps {
   token: string
   onLogout: () => void
@@ -115,6 +153,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const { flashError, errorToast } = useErrorToast()
 
   const fetchRecipes = useCallback(async () => {
@@ -343,8 +382,22 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
       <PageHead
         eyebrow={`${recipes.length} ${t('recipes.count')}`}
         title={t('recipes.title')}
-        actions={<Button icon="plus" onClick={() => setDraft(emptyDraft())}>{t('recipes.newRecipe')}</Button>}
+        actions={
+          <>
+            <Button variant="soft" icon="download" onClick={() => setImportOpen(true)}>{t('recipes.importFromUrl')}</Button>
+            <Button icon="plus" onClick={() => setDraft(emptyDraft())}>{t('recipes.newRecipe')}</Button>
+          </>
+        }
       />
+
+      {importOpen && (
+        <ImportFromUrlModal
+          token={token}
+          onLogout={onLogout}
+          onClose={() => setImportOpen(false)}
+          onImported={(imported) => { setImportOpen(false); setSelected(null); setDraft(draftFromImport(imported)) }}
+        />
+      )}
 
       <div className="hb-pickrow" style={{ marginBottom: 24 }}>
         <button className={`hb-pick${filter === 'ALL' ? ' is-active' : ''}`} onClick={() => setFilter('ALL')}>{t('recipes.filterAll')}</button>
@@ -755,6 +808,78 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
         </>
       )}
     </Sheet>
+  )
+}
+
+// "Aus URL importieren" — a short, focused dialog (one URL field), so a centered <Modal> per the
+// Modal-vs-Sheet guideline. Posts the URL to the backend, which fetches the page server-side and
+// extracts the schema.org/Recipe JSON-LD; on success the editor opens pre-filled (the user reviews
+// and saves via the normal flow — nothing is persisted by the import itself).
+function ImportFromUrlModal({ token, onClose, onLogout, onImported }: {
+  token: string
+  onClose: () => void
+  onLogout: () => void
+  onImported: (r: ImportedRecipe) => void
+}) {
+  const { t } = useTranslation()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    const trimmed = url.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    setError(null)
+    const result = await safeFetch(token, `${API_BASE}/recipes/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: trimmed }),
+    })
+    if (!result.ok) {
+      setBusy(false)
+      setError(t('recipes.importFailed'))
+      return
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (res.ok) {
+      const imported = (await res.json()) as ImportedRecipe
+      onImported(imported)
+      return
+    }
+    setBusy(false)
+    // 422 = page had no recipe data; everything else = generic failure
+    setError(res.status === 422 ? t('recipes.importNoData') : t('recipes.importFailed'))
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('recipes.importTitle')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button onClick={submit} disabled={busy || !url.trim()}>
+            {busy ? t('recipes.importing') : t('recipes.importAction')}
+          </Button>
+        </>
+      }
+    >
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t('recipes.importHint')}</p>
+      <Field label={t('recipes.importUrlLabel')}>
+        <TextInput
+          autoFocus
+          type="url"
+          value={url}
+          onChange={setUrl}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+          placeholder="https://…"
+        />
+      </Field>
+      {error && <p className="hb-modal-error" role="alert" style={{ marginBottom: 0 }}>{error}</p>}
+    </Modal>
   )
 }
 

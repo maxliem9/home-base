@@ -310,4 +310,34 @@ test.describe('Recipes', () => {
     await expect(page.getByText('400 g Mehl')).toBeVisible()
     await expect(page.getByText('1000 ml Milch')).toBeVisible()
   })
+
+  test('imports a recipe from a URL into the prefilled editor (#430)', async ({ page }) => {
+    await openRecipes(page, new MockApi())
+
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Aus URL importieren' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal).toBeVisible()
+    await modal.getByPlaceholder('https://…').fill('https://example.com/lasagne')
+    await modal.getByRole('button', { name: 'Importieren' }).click()
+
+    // the editor opens prefilled with the imported draft (title, ingredient, step)
+    const form = page.locator('.hb-recipe-form')
+    await expect(form).toBeVisible()
+    await expect(form.getByPlaceholder('Titel…')).toHaveValue('Importierte Lasagne')
+    await expect(form.getByPlaceholder('Zutat').first()).toHaveValue('Lasagneplatten')
+    await expect(form.getByPlaceholder('Schritt beschreiben…').first()).toHaveValue('Soße kochen.')
+  })
+
+  test('shows an error when the page has no recipe data (#430)', async ({ page }) => {
+    await openRecipes(page, new MockApi())
+
+    await page.locator('.hb-pagehead').getByRole('button', { name: 'Aus URL importieren' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByPlaceholder('https://…').fill('https://example.com/norecipe')
+    await modal.getByRole('button', { name: 'Importieren' }).click()
+
+    await expect(modal.locator('.hb-modal-error')).toBeVisible()
+    // modal stays open so the user can fix the URL
+    await expect(modal).toBeVisible()
+  })
 })
