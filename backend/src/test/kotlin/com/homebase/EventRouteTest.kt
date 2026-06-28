@@ -98,6 +98,18 @@ class EventRouteTest {
     }
 
     @Test
+    fun `POST timed with only a start time succeeds`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = create(token, """{"title":"Abholung","date":"2026-06-15","allDay":false,"startTime":"14:00"}""")
+        assertEquals(HttpStatusCode.Created, res.status)
+        val e = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals("14:00", e["startTime"]?.jsonPrimitive?.content)
+        // no end time → encodeDefaults=false drops it
+        assertTrue(e["endTime"].let { it == null || it is JsonNull })
+    }
+
+    @Test
     fun `POST defaults type to OTHER when omitted`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

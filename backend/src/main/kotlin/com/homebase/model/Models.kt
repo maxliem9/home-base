@@ -771,7 +771,8 @@ data class CalendarEventDto(
 /**
  * Create/replace a calendar event (POST /events, PUT /events/{id}). title + date required;
  * type defaults to OTHER. For all_day=false an optional startTime ("HH:mm") and optional endTime
- * may be given (end requires start, end >= start); all_day=true rejects any time.
+ * may be given (end requires start, end >= start); all_day=true rejects any time. location/notes
+ * are trimmed (blank -> null) and length-bounded server-side (400 if exceeded).
  */
 @Serializable
 data class CalendarEventRequest(
