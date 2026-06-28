@@ -14,6 +14,7 @@ import com.homebase.android.data.shopping.PendingCheck
 import com.homebase.android.data.shopping.PendingQueue
 import com.homebase.android.data.shopping.ShoppingClock
 import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingViewPrefs
 import com.homebase.android.data.shopping.classifyFlush
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import kotlinx.coroutines.CompletableDeferred
@@ -46,6 +47,8 @@ data class ShoppingUiState(
      * catalog; reloaded on the shopping WS `CategoryChanged` event.
      */
     val categories: List<GroceryCategory> = BUILTIN_CATEGORIES,
+    /** List vs. tile rendering (#446); persisted across launches, tiles by default (web parity). */
+    val tileView: Boolean = true,
 ) {
     val activeList: ShoppingListDto? get() = lists.firstOrNull { it.id == activeListId } ?: lists.firstOrNull()
 
@@ -92,6 +95,8 @@ class ShoppingViewModel(
     networkAvailable: Flow<Unit>,
     private val clock: ShoppingClock = ShoppingClock.System,
     private val flushIntervalMs: Long = FLUSH_INTERVAL_MS,
+    /** Persisted list/tile view choice (#446); null in tests → in-memory only, tiles by default. */
+    private val viewPrefs: ShoppingViewPrefs? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))
@@ -149,6 +154,10 @@ class ShoppingViewModel(
         loadCategories()
         observeWebSocket()
         observeConnectivity(networkAvailable)
+        // Restore the persisted list/tile view choice off-main (#446).
+        viewPrefs?.let { prefs ->
+            viewModelScope.launch { _uiState.update { it.copy(tileView = prefs.loadTileView()) } }
+        }
         // Restore the previous session's queue off-main, then drain it. A toggle made before this
         // finishes already lives in `queue`; we merge the restored entries *under* it so a live
         // toggle (newer) is never clobbered, then flush + arm the backstop.
@@ -272,6 +281,12 @@ class ShoppingViewModel(
     }
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
+
+    /** Switch list/tile view and persist the choice (#446). */
+    fun setTileView(tiles: Boolean) {
+        _uiState.update { it.copy(tileView = tiles) }
+        viewPrefs?.let { prefs -> viewModelScope.launch { prefs.saveTileView(tiles) } }
+    }
 
     fun addItem(name: String) {
         if (name.isBlank()) return

@@ -3,6 +3,10 @@ package com.homebase.android.ui.shopping
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -112,8 +117,15 @@ fun ShoppingScreen(
                     eyebrow = stringResource(R.string.shopping_eyebrow),
                     title = state.activeList?.name ?: stringResource(R.string.shopping_title_fallback),
                     onLeft = onOpenDrawer,
-                    // The "more" button opens the saved-templates manager (#215).
-                    actions = { HbIconButton(HbIcons.list, { showTemplatesSheet = true }) },
+                    actions = {
+                        // List/tile view toggle (#446) — shows the icon of the *other* view.
+                        HbIconButton(
+                            if (state.tileView) HbIcons.list else HbIcons.grid,
+                            { viewModel.setTileView(!state.tileView) },
+                        )
+                        // The "more" button opens the saved-templates manager (#215).
+                        HbIconButton(HbIcons.more, { showTemplatesSheet = true })
+                    },
                 )
             },
             fab = { HbFab(onClick = { showAddItemSheet = true }, label = stringResource(R.string.shopping_fab)) },
@@ -160,14 +172,22 @@ fun ShoppingScreen(
                 } else {
                     groupByCategory(openItems, state.categories).forEach { (category, catItems) ->
                         CategorySectionHeader(category, catItems.size)
-                        catItems.forEach { item ->
-                            OpenItemRow(
-                                item = item,
-                                pending = state.isPending(item.id),
-                                categories = state.categories,
-                                onToggle = { viewModel.toggleChecked(item) },
-                                onMove = { viewModel.moveItemCategory(item, it) },
+                        if (state.tileView) {
+                            ShoppingTileGrid(
+                                items = catItems,
+                                isPending = { state.isPending(it) },
+                                onToggle = { viewModel.toggleChecked(it) },
                             )
+                        } else {
+                            catItems.forEach { item ->
+                                OpenItemRow(
+                                    item = item,
+                                    pending = state.isPending(item.id),
+                                    categories = state.categories,
+                                    onToggle = { viewModel.toggleChecked(item) },
+                                    onMove = { viewModel.moveItemCategory(item, it) },
+                                )
+                            }
                         }
                     }
 
@@ -195,12 +215,21 @@ fun ShoppingScreen(
                             )
                         }
                         Spacer(Modifier.size(8.dp))
-                        checkedItems.forEach { item ->
-                            CheckedItemRow(
-                                item = item,
-                                pending = state.isPending(item.id),
-                                onToggle = { viewModel.toggleChecked(item) },
+                        if (state.tileView) {
+                            ShoppingTileGrid(
+                                items = checkedItems,
+                                done = true,
+                                isPending = { state.isPending(it) },
+                                onToggle = { viewModel.toggleChecked(it) },
                             )
+                        } else {
+                            checkedItems.forEach { item ->
+                                CheckedItemRow(
+                                    item = item,
+                                    pending = state.isPending(item.id),
+                                    onToggle = { viewModel.toggleChecked(item) },
+                                )
+                            }
                         }
                     }
                 }
@@ -446,10 +475,93 @@ private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: ()
     }
 }
 
+/** Tile grid for a category's items (#446): a 3-column wrapping grid of [ShoppingTile]s. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ShoppingTileGrid(
+    items: List<ShoppingItemDto>,
+    done: Boolean = false,
+    isPending: (String) -> Boolean,
+    onToggle: (ShoppingItemDto) -> Unit,
+) {
+    FlowRow(
+        Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        maxItemsInEachRow = 3,
+    ) {
+        items.forEach { item ->
+            ShoppingTile(
+                item = item,
+                done = done,
+                pending = isPending(item.id),
+                onToggle = { onToggle(item) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // Pad the last row so 1–2 trailing tiles keep the column width (don't stretch).
+        val remainder = items.size % 3
+        if (remainder != 0) repeat(3 - remainder) { Spacer(Modifier.weight(1f)) }
+    }
+}
+
+/** A single Bring-style tile: big designed icon + name; tapping toggles the check-off (#446). */
+@Composable
+private fun ShoppingTile(
+    item: ShoppingItemDto,
+    done: Boolean,
+    pending: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, Hb.line, RoundedCornerShape(16.dp))
+                .background(Hb.surface)
+                .clickable { onToggle() }
+                .padding(vertical = 12.dp, horizontal = 6.dp)
+                .alpha(if (done) 0.65f else 1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(Hb.surface2),
+                contentAlignment = Alignment.Center,
+            ) {
+                ShoppingItemIcon(item, muted = done, size = 38.dp)
+            }
+            Spacer(Modifier.size(6.dp))
+            Text(
+                item.name,
+                style = HbType.meta.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = if (done) TextDecoration.LineThrough else null,
+                ),
+                color = if (done) Hb.ink3 else Hb.ink,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (done) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(5.dp).size(18.dp).clip(CircleShape).background(Hb.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                HbIcon(HbIcons.check, size = 11.dp, tint = Hb.onAccent)
+            }
+        } else if (pending) {
+            Box(Modifier.align(Alignment.TopEnd).padding(7.dp)) { SyncBadge() }
+        }
+    }
+}
+
 /** Single rendering seam for an item's icon (#443): designed SVG via Coil, emoji as the fallback. */
 @Composable
-private fun ShoppingItemIcon(item: ShoppingItemDto, muted: Boolean = false) {
-    SvgIcon(ShoppingIcons.assetForItem(item), fallbackEmoji = item.icon, size = 26.dp, muted = muted)
+private fun ShoppingItemIcon(item: ShoppingItemDto, muted: Boolean = false, size: Dp = 26.dp) {
+    SvgIcon(ShoppingIcons.assetForItem(item), fallbackEmoji = item.icon, size = size, muted = muted)
 }
 
 /** Category header/menu icon: designed SVG with the catalog emoji as fallback. */

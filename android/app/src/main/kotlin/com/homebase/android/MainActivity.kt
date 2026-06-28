@@ -405,6 +405,7 @@ class MainActivity : AppCompatActivity() {
                 token = token,
                 pendingStore = container.shoppingPendingStore,
                 networkAvailable = container.connectivityObserver.onAvailable,
+                viewPrefs = container.shoppingViewPrefs,
             ) as T
         }
     }
