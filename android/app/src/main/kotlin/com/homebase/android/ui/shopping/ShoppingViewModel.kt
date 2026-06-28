@@ -154,9 +154,13 @@ class ShoppingViewModel(
         loadCategories()
         observeWebSocket()
         observeConnectivity(networkAvailable)
-        // Restore the persisted list/tile view choice off-main (#446).
+        // Restore the persisted list/tile view choice off-main (#446). A toggle made before this IO
+        // read completes wins — don't clobber the user's live choice with the stale persisted value.
         viewPrefs?.let { prefs ->
-            viewModelScope.launch { _uiState.update { it.copy(tileView = prefs.loadTileView()) } }
+            viewModelScope.launch {
+                val tiles = prefs.loadTileView()
+                if (!viewChosenByUser) _uiState.update { it.copy(tileView = tiles) }
+            }
         }
         // Restore the previous session's queue off-main, then drain it. A toggle made before this
         // finishes already lives in `queue`; we merge the restored entries *under* it so a live
@@ -282,8 +286,12 @@ class ShoppingViewModel(
 
     fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
 
+    /** Set once the user toggles the view, so the async prefs restore can't clobber their choice. */
+    private var viewChosenByUser = false
+
     /** Switch list/tile view and persist the choice (#446). */
     fun setTileView(tiles: Boolean) {
+        viewChosenByUser = true
         _uiState.update { it.copy(tileView = tiles) }
         viewPrefs?.let { prefs -> viewModelScope.launch { prefs.saveTileView(tiles) } }
     }
