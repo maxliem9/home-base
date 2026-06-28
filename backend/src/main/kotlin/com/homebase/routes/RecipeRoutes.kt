@@ -19,8 +19,18 @@ import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.math.BigDecimal
+import java.net.InetAddress
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -98,6 +108,36 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.attachmentHeader("rezept_$slug.md")
                 call.respondText(buildRecipeMarkdown(scaled), ContentType.parse("text/markdown; charset=UTF-8"))
             }
+        }
+
+        // Import a recipe DRAFT from a URL by parsing the page's schema.org/Recipe JSON-LD
+        // (Issue #430). The page is fetched server-side (SSRF-guarded: http(s) only, no
+        // private/internal hosts, timeout + size cap), the Recipe node is extracted and mapped to
+        // the editable draft shape. NOT persisted — the client pre-fills its editor; the user
+        // reviews and saves via the normal POST.
+        post("/import") {
+            // Auth is enforced by the surrounding authenticate("auth-jwt") block; the draft is
+            // not persisted, so there is no created_by to record here.
+            val req = call.receive<ImportRecipeRequest>()
+            val url = req.url.trim()
+
+            val html = when (val result = fetchForImport(url)) {
+                is ImportFetch.Ok -> result.html
+                is ImportFetch.Rejected -> {
+                    call.respond(HttpStatusCode.BadRequest, ErrorResponse(result.code, result.message))
+                    return@post
+                }
+            }
+
+            val draft = RecipeImport.fromHtml(html, sourceUrl = url)
+            if (draft == null) {
+                call.respond(
+                    HttpStatusCode.UnprocessableEntity,
+                    ErrorResponse("NO_RECIPE_DATA", "Auf dieser Seite wurden keine Rezeptdaten gefunden."),
+                )
+                return@post
+            }
+            call.respond(draft)
         }
 
         post {
@@ -363,6 +403,129 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
         } finally {
             WsSessionManager.remove(RECIPES_WS_CHANNEL, this)
         }
+    }
+}
+
+// --- URL import fetch + SSRF guard (Issue #430) ---------------------------------------------
+
+/** Outcome of fetching a page for import: either the HTML body or a client-facing rejection. */
+private sealed interface ImportFetch {
+    data class Ok(val html: String) : ImportFetch
+    data class Rejected(val code: String, val message: String) : ImportFetch
+}
+
+// Hard caps so a malicious/huge page can't exhaust the backend.
+private const val IMPORT_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
+private val IMPORT_TIMEOUT: Duration = Duration.ofSeconds(10)
+
+// One shared client. NEVER follow redirects automatically: a redirect could bounce an allowed
+// public URL to an internal one, bypassing the SSRF host check. We resolve each hop ourselves.
+private val importHttpClient: HttpClient by lazy {
+    HttpClient.newBuilder()
+        .connectTimeout(IMPORT_TIMEOUT)
+        .followRedirects(HttpClient.Redirect.NEVER)
+        .build()
+}
+
+/**
+ * Fetch [rawUrl] server-side for recipe import with SSRF protection:
+ *  - http(s) scheme only
+ *  - the resolved host must not be a private / loopback / link-local / multicast / wildcard address
+ *  - redirects are followed manually (max 5 hops), re-validating the host every hop
+ *  - connect/read timeout + a 5 MB body cap
+ *
+ * Returns the HTML body on success, or a [ImportFetch.Rejected] with a stable error code.
+ */
+private suspend fun fetchForImport(rawUrl: String): ImportFetch = withContext(Dispatchers.IO) {
+    var current = rawUrl
+    repeat(6) { hop ->
+        val uri = runCatching { URI(current) }.getOrNull()
+            ?: return@withContext ImportFetch.Rejected("INVALID_URL", "Ungültige URL.")
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            return@withContext ImportFetch.Rejected("INVALID_URL", "Nur http(s)-URLs werden unterstützt.")
+        }
+        val host = uri.host
+            ?: return@withContext ImportFetch.Rejected("INVALID_URL", "URL ohne Host.")
+        // Resolve and reject any address that points back into our own network.
+        val addresses = runCatching { InetAddress.getAllByName(host).toList() }.getOrNull()
+        if (addresses.isNullOrEmpty()) {
+            return@withContext ImportFetch.Rejected("FETCH_FAILED", "Host konnte nicht aufgelöst werden.")
+        }
+        if (addresses.any { it.isBlockedForImport() }) {
+            return@withContext ImportFetch.Rejected("BLOCKED_HOST", "Diese Adresse ist nicht erlaubt.")
+        }
+
+        val request = HttpRequest.newBuilder(uri)
+            .timeout(IMPORT_TIMEOUT)
+            .header("User-Agent", "HomeBase-RecipeImport/1.0")
+            .header("Accept", "text/html,application/xhtml+xml")
+            .GET()
+            .build()
+
+        val response = runCatching {
+            importHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+        }.getOrNull()
+            ?: return@withContext ImportFetch.Rejected("FETCH_FAILED", "Seite konnte nicht geladen werden.")
+
+        val status = response.statusCode()
+        if (status in 300..399) {
+            val location = response.headers().firstValue("location").orElse(null)
+                ?: return@withContext ImportFetch.Rejected("FETCH_FAILED", "Weiterleitung ohne Ziel.")
+            // Resolve relative redirects against the current URL.
+            current = runCatching { uri.resolve(location).toString() }.getOrElse { location }
+            response.body().close()
+            return@repeat // next hop
+        }
+        if (status !in 200..299) {
+            response.body().close()
+            return@withContext ImportFetch.Rejected("FETCH_FAILED", "Seite antwortete mit HTTP $status.")
+        }
+
+        // Read the body with a hard byte cap.
+        val bytes = response.body().use { it.readNBytes(IMPORT_MAX_BYTES + 1) }
+        if (bytes.size > IMPORT_MAX_BYTES) {
+            return@withContext ImportFetch.Rejected("TOO_LARGE", "Die Seite ist zu groß.")
+        }
+        // Decode using the Content-Type charset when the server declares one (some German recipe
+        // sites still serve ISO-8859-1/Windows-1252 — UTF-8 alone would mangle umlauts). Fall back
+        // to UTF-8 for the common case or an unknown/missing charset.
+        val charset = response.headers().firstValue("content-type").orElse(null)
+            ?.let { charsetFromContentType(it) }
+            ?: StandardCharsets.UTF_8
+        return@withContext ImportFetch.Ok(String(bytes, charset))
+    }
+    ImportFetch.Rejected("TOO_MANY_REDIRECTS", "Zu viele Weiterleitungen.")
+}
+
+/**
+ * Pull the charset from a Content-Type header (e.g. "text/html; charset=ISO-8859-1"), or null when
+ * absent / unsupported. Internal so the import-charset handling can be unit-tested without a network.
+ */
+internal fun charsetFromContentType(contentType: String): Charset? {
+    val name = Regex("""charset\s*=\s*"?([^";\s]+)""", RegexOption.IGNORE_CASE)
+        .find(contentType)?.groupValues?.get(1)?.trim()
+        ?: return null
+    return runCatching { Charset.forName(name) }.getOrNull()
+}
+
+/** True for addresses we must never let the importer reach (SSRF protection). */
+internal fun InetAddress.isBlockedForImport(): Boolean =
+    isAnyLocalAddress ||      // 0.0.0.0 / ::
+        isLoopbackAddress ||  // 127.0.0.0/8, ::1
+        isLinkLocalAddress || // 169.254/16, fe80::/10 (incl. cloud metadata 169.254.169.254)
+        isSiteLocalAddress || // 10/8, 172.16/12, 192.168/16, fec0::/10
+        isMulticastAddress ||
+        // Carrier-grade NAT 100.64.0.0/10 and IPv6 unique-local fc00::/7 aren't covered by the
+        // java.net predicates — block them explicitly.
+        isCgnatOrUniqueLocal()
+
+internal fun InetAddress.isCgnatOrUniqueLocal(): Boolean {
+    val a = address
+    return when (a.size) {
+        4 -> (a[0].toInt() and 0xFF) == 100 && ((a[1].toInt() and 0xFF) in 64..127) // 100.64.0.0/10
+        16 -> (a[0].toInt() and 0xFE) == 0xFC // fc00::/7
+        else -> false
     }
 }
 

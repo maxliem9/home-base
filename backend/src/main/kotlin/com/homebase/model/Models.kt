@@ -712,6 +712,29 @@ data class UpdateRecipeRequest(
 @Serializable
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
+// --- URL-Import (schema.org/Recipe JSON-LD), Issue #430 -----------------------------------
+// Request body for POST /recipes/import.
+@Serializable
+data class ImportRecipeRequest(val url: String)
+
+// A best-effort recipe DRAFT extracted from a page's JSON-LD. NOT persisted — the client
+// pre-fills its editor with this and the user reviews/edits before saving. Mirrors the editable
+// fields of CreateRecipeRequest (no id/createdBy/timestamps). `sourceUrl` is echoed back so the
+// client can show where it came from. Fields are best-effort: anything the page didn't provide
+// stays null/empty and the user fills it in.
+@Serializable
+data class RecipeDraftDto(
+    val title: String,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientInput> = emptyList(),
+    val steps: List<RecipeStepInput> = emptyList(),
+    val sourceUrl: String? = null,
+)
+
 // ---------- Wochenplan / Essensplaner (#218) ----------
 // One meal planned into a (date, slot) of the weekly grid; slot ∈ BREAKFAST|LUNCH|DINNER.
 // Exactly one of recipeId / dishTitle is set (#293): recipe-backed entries also carry the joined
