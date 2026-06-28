@@ -141,6 +141,19 @@ class ShoppingViewModelTest {
     }
 
     @Test
+    fun `setTileView toggles the view mode (#446)`() = vmTest {
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.tileView) // tiles by default (web parity)
+        vm.setTileView(false)
+        assertFalse(vm.uiState.value.tileView)
+        vm.setTileView(true)
+        assertTrue(vm.uiState.value.tileView)
+    }
+
+    @Test
     fun `initial load failure sets error`() = vmTest {
         coEvery { repository.getItems() } returns Result.failure(RuntimeException("Network error"))
 

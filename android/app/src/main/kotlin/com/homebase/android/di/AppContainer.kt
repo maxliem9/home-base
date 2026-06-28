@@ -19,6 +19,7 @@ import com.homebase.android.data.notes.SharedPrefsNotesPendingStore
 import com.homebase.android.data.shopping.ConnectivityObserver
 import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingViewPrefs
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import com.homebase.android.data.websocket.MealPlanWebSocketClient
 import com.homebase.android.data.websocket.NotesWebSocketClient
@@ -95,6 +96,9 @@ class AppContainer(context: Context) {
 
     /** Durable backing store for the shopping offline check-off queue (issue #170). */
     val shoppingPendingStore: ShoppingPendingStore = SharedPrefsShoppingPendingStore(context, moshi)
+
+    /** Persisted list/tile view choice for the shopping screen (#446). */
+    val shoppingViewPrefs: ShoppingViewPrefs = ShoppingViewPrefs(context)
 
     /** Device network-available signal — retry trigger for the offline check-off queue. */
     val connectivityObserver = ConnectivityObserver(context)
