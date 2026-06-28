@@ -60,6 +60,22 @@ class GroceryCatalogTest {
     }
 
     @Test
+    fun `head-noun lie is corrected even on an already-seeded DB without the exact entry`() {
+        // Simulate a prod rule table seeded BEFORE this change: it has "käse"→DAIRY but no "leberkäse"
+        // entry. The endsWith head-noun step would otherwise read "Leberkäse" as käse/DAIRY — the
+        // in-code HEAD_NOUN_LIES guard must keep it MEAT_FISH regardless.
+        val legacy = ShoppingCatalog.RuleSet(
+            listOf(
+                ShoppingCatalog.RuleSet.Rule("käse", "Käse", "DAIRY", "🧀"),
+                ShoppingCatalog.RuleSet.Rule("milch", "Milch", "DAIRY", "🥛"),
+            ),
+        )
+        assertEquals("DAIRY", legacy.match("Käse").category)        // generic cheese still DAIRY
+        assertEquals("DAIRY", legacy.match("Vollmilch").category)   // legit head noun via endsWith
+        assertEquals("MEAT_FISH", legacy.match("Leberkäse").category) // the lie, corrected in code
+    }
+
+    @Test
     fun `compound head noun carries the category (Vollmilch to milch)`() {
         assertEquals("DAIRY", seedRules.match("Vollmilch").category)
         assertEquals("DAIRY", seedRules.match("Buttermilch").category)

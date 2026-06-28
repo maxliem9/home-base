@@ -123,9 +123,12 @@ object ShoppingCatalog {
             // 4) German compound head noun: a compound is categorised by its LAST noun, so match the
             // longest key that the name ENDS with ("Vollmilch"→milch, "Leberwurst"→wurst, "Käsebrot"
             // →brot). This is NOT the old free substring match — it only looks at the suffix, so a
-            // category-carrying PREFIX never wins ("Apfelschorle"↛apfel). The handful of compounds whose
-            // tail lies (Leberkäse/Fleischkäse end in "käse" but are meat) are pinned as exact seed
-            // entries above, so they're resolved before reaching here.
+            // category-carrying PREFIX never wins ("Apfelschorle"↛apfel).
+            // Guard the handful of compounds whose tail LIES first (German "…käse" that is meat). They
+            // are also pinned as exact seed entries, but seeds only reach a fresh rule table — on an
+            // already-seeded DB the generic "käse"→DAIRY rule would otherwise win via endsWith, so this
+            // code-level guard is what keeps "Leberkäse" correct everywhere.
+            HEAD_NOUN_LIES[n]?.let { return it }
             if (n.length >= 5) {
                 byLengthDesc.firstOrNull { (key, _) -> key.length >= 4 && key.length < n.length && n.endsWith(key) }
                     ?.let { return it.second }
@@ -149,5 +152,14 @@ object ShoppingCatalog {
         fun allEntries(): List<GroceryCatalog.CatalogItem> =
             rules.distinctBy { it.normalized }
                 .map { GroceryCatalog.CatalogItem(it.display, it.category, it.icon, it.normalized) }
+
+        companion object {
+            // Compounds whose head noun lies about the category: German "…käse" that is actually meat.
+            // Kept in code (not the DB seed) so the guard works on already-seeded DBs too, where the
+            // generic "käse"→DAIRY rule would otherwise win the endsWith step. Tiny, closed set.
+            private val HEAD_NOUN_LIES: Map<String, GroceryCatalog.Resolution> = listOf(
+                "Leberkäse", "Leberkäs", "Fleischkäse",
+            ).associate { GroceryCatalog.normalize(it) to GroceryCatalog.Resolution("MEAT_FISH", "🍖") }
+        }
     }
 }
