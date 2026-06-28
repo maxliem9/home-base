@@ -301,9 +301,9 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     // failure (and only if the field is still untouched).
     setNewName('')
     setSubmitting(true)
-    // Split a leading quantity off the typed name (#445): "200 g Mehl" → name "Mehl" + quantity
-    // "200 g". A plain name stays whole. (Suggestions are plain names, so this is a no-op for them.)
-    const { title, detail } = splitQuantity(name)
+    // Split a leading "<qty> <unit>" off the typed name (#445): "200 g Mehl" → name "Mehl" + quantity
+    // "200 g". requireUnit so a bare leading number ("3 Musketiere") is NOT torn apart on persist.
+    const { title, detail } = splitQuantity(name, true)
     try {
       const result = await safeFetch(token, `${API_BASE}/shopping`, {
         method: 'POST',
@@ -764,6 +764,7 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
                         </span>
                         <span className="hb-tile__name">{sq.title}</span>
                         {sq.detail && <span className="hb-tile__detail">{sq.detail}</span>}
+                        {item.note && <span className="hb-tile__note">{item.note}</span>}
                       </button>
                     )
                   })}
@@ -771,18 +772,27 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
               ) : (
                 <Card className="hb-card--pad" style={{ paddingTop: 6, paddingBottom: 6 }}>
                   <div className="hb-list">
-                    {checked.map((item) => (
+                    {checked.map((item) => {
+                      const parts = itemDisplayParts(item)
+                      return (
                       <div key={item.id} className="hb-row hb-row--done" style={{ padding: '10px 4px' }}>
                         <Checkbox checked onChange={() => toggleChecked(item)} />
                         <ItemIcon item={item} muted />
-                        <div className="hb-row__main"><div className="hb-row__title">{item.name}</div></div>
+                        <div className="hb-row__main">
+                          <div className="hb-row__title">
+                            {parts.title}
+                            {parts.detail && <span className="hb-row__qty">{parts.detail}</span>}
+                          </div>
+                          {item.note && <div className="hb-row__note">{item.note}</div>}
+                        </div>
                         {pending[item.id] && (
                           <span className="hb-syncbadge" title={t('shopping.notSynced')} aria-label={t('shopping.notSynced')}>
                             <Icon name="repeat" size={13} stroke={2} />
                           </span>
                         )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </Card>
               )}
