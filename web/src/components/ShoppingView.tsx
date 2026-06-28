@@ -8,6 +8,7 @@ import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
+import { splitQuantity } from './shoppingQuantity'
 import {
   BUILTIN_CATEGORIES,
   categoryMeta,
@@ -37,16 +38,6 @@ function loadViewMode(): ViewMode {
   } catch {
     return 'tiles'
   }
-}
-
-// Split a written name into a leading "<qty> <unit>" prefix and the rest, for the tile/row detail
-// line. Mirrors GroceryCatalog.normalize's quantity stripper; display-only. "2 L Milch" → "2 L" + "Milch".
-const QTY_PREFIX =
-  /^\s*(\d+(?:[.,]\d+)?\s*(?:g|kg|mg|ml|l|el|tl|stk|stück|st|x|prise|prisen|bund|dose|dosen|pkg|pck|pack|packung|tasse|cup|msp|glas|gläser|becher|flasche|flaschen)?\.?)\s+(.+)$/i
-function splitQuantity(name: string): { detail?: string; title: string } {
-  const m = name.match(QTY_PREFIX)
-  if (m && m[2].trim()) return { detail: m[1].trim(), title: m[2].trim() }
-  return { title: name }
 }
 
 interface PendingCheck { checked: boolean; at: number }

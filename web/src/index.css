@@ -572,7 +572,7 @@ ol.hb-md-list { list-style-type: decimal; }
 .hb-viewtoggle__btn { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 32px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-3); cursor: pointer; }
 .hb-viewtoggle__btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 .hb-viewtoggle__btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-left: -1px; }
-.hb-viewtoggle__btn:hover { color: var(--ink-1); }
+.hb-viewtoggle__btn:hover { color: var(--ink-2); }
 .hb-viewtoggle__btn.is-active { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); z-index: 1; }
 
 /* Tile view (#440): per-category icon grid, Bring-style */
