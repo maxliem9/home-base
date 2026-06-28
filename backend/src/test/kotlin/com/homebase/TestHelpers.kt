@@ -3,6 +3,7 @@ package com.homebase
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
 import com.homebase.db.AppSettingsTable
+import com.homebase.db.CalendarEventsTable
 import com.homebase.db.CustomHolidaysTable
 import com.homebase.db.IngredientsTable
 import com.homebase.db.KitaClosuresTable
@@ -81,6 +82,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
                 RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
                 MealPlanEntriesTable,
                 AbsencesTable, PartTimeRulesTable, KitaClosuresTable, CustomHolidaysTable, AbsSettingsTable,
+                CalendarEventsTable,
             )
             UsersTable.insert {
                 it[id] = UUID.fromString("00000000-0000-0000-0000-000000000001")
