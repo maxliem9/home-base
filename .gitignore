@@ -23,7 +23,9 @@ out/
 *.log
 
 # Node / Web
-node_modules/
+# No trailing slash so a `node_modules` *symlink* (not just a directory) is ignored too — a
+# committed symlink here broke the web Docker build's `COPY . .` (cannot replace dir with file).
+node_modules
 web/dist/
 web/.vite/
 *.tsbuildinfo

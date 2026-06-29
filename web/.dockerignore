@@ -1,0 +1,12 @@
+# Keep the web image build context lean and deterministic. node_modules is reinstalled inside the
+# image (RUN npm install), so it must never be copied in by `COPY . .` — a stray host node_modules
+# (or a symlink) otherwise collides with the image's freshly-installed one
+# ("cannot replace to directory node_modules with file"). The rest are local/build artifacts the
+# image build doesn't need; we deliberately keep source + configs (incl. e2e) so `npm run build`
+# (tsc + vite) sees exactly what it does locally.
+node_modules
+dist
+.vite
+*.tsbuildinfo
+.git
+*.log
