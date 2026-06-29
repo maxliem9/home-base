@@ -307,7 +307,8 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
 
   test('toggles todo reminders off and saves quiet hours (#429)', async ({ page }) => {
     await openDigest(page, new MockApi())
-    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Aufgaben-Erinnerungen' })
+    // scope by the heading, not a substring — the Web Push card's hint also mentions "Aufgaben-Erinnerungen"
+    const card = page.locator('.hb-settings-body .hb-card').filter({ has: page.getByRole('heading', { name: 'Aufgaben-Erinnerungen' }) })
     await expect(card).toBeVisible()
     // default: enabled checkbox on, no quiet hours
     await expect(card.getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
@@ -323,7 +324,8 @@ test.describe('Settings — Benachrichtigungen (#100)', () => {
 
   test('blocks saving a single quiet-hours bound (#429)', async ({ page }) => {
     await openDigest(page, new MockApi())
-    const card = page.locator('.hb-settings-body .hb-card', { hasText: 'Aufgaben-Erinnerungen' })
+    // scope by the heading, not a substring — the Web Push card's hint also mentions "Aufgaben-Erinnerungen"
+    const card = page.locator('.hb-settings-body .hb-card').filter({ has: page.getByRole('heading', { name: 'Aufgaben-Erinnerungen' }) })
     await card.getByLabel('Ruhezeit ab').fill('22:00') // only one bound
     await expect(card.getByText('Ruhezeit braucht beide Uhrzeiten (oder beide leer).')).toBeVisible()
     await expect(card.getByRole('button', { name: 'Speichern' })).toBeDisabled()
