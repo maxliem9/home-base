@@ -60,6 +60,8 @@ import com.homebase.android.ui.notes.NotesScreen
 import com.homebase.android.ui.notes.NotesViewModel
 import com.homebase.android.ui.recipes.RecipesScreen
 import com.homebase.android.ui.recipes.RecipesViewModel
+import com.homebase.android.ui.familienkalender.FamilienkalenderScreen
+import com.homebase.android.ui.familienkalender.FamilienkalenderViewModel
 import com.homebase.android.ui.wochenplan.MealPlanScreen
 import com.homebase.android.ui.wochenplan.MealPlanViewModel
 import com.homebase.android.ui.settings.SettingsScreen
@@ -163,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         val recipesVm: RecipesViewModel = viewModel(key = "recipes-$token", factory = recipesFactory(token))
         val absenceVm: AbsenceViewModel = viewModel(key = "absence-$token", factory = absenceFactory(token))
         val mealPlanVm: MealPlanViewModel = viewModel(key = "mealplan-$token", factory = mealPlanFactory(token))
+        val calendarVm: FamilienkalenderViewModel = viewModel(key = "calendar-$token", factory = calendarFactory(token))
         val shoppingCategoriesVm: ShoppingCategoriesViewModel =
             viewModel(key = "shopping-categories-$token", factory = shoppingCategoriesFactory(token))
 
@@ -177,6 +180,7 @@ class MainActivity : AppCompatActivity() {
             recipesVm.ensureConnected()
             absenceVm.ensureConnected()
             mealPlanVm.ensureConnected()
+            calendarVm.ensureConnected()
         }
 
         var route by rememberSaveable { mutableStateOf(HbRoute.HEUTE) }
@@ -308,6 +312,10 @@ class MainActivity : AppCompatActivity() {
                         )
                         HbRoute.WOCHENPLAN -> MealPlanScreen(
                             viewModel = mealPlanVm,
+                            onOpenDrawer = openDrawer,
+                        )
+                        HbRoute.FAMILIENKALENDER -> FamilienkalenderScreen(
+                            viewModel = calendarVm,
                             onOpenDrawer = openDrawer,
                         )
                     }
@@ -447,6 +455,13 @@ class MainActivity : AppCompatActivity() {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
             return MealPlanViewModel(container.mealPlanRepository, token) as T
+        }
+    }
+
+    private fun calendarFactory(token: String) = object : ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return FamilienkalenderViewModel(container.calendarRepository, token) as T
         }
     }
 

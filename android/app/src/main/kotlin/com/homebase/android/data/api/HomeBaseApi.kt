@@ -322,6 +322,14 @@ interface HomeBaseApi {
     @DELETE("meal-plan/{date}/{slot}")
     suspend fun deleteMealSlot(@Path("date") date: String, @Path("slot") slot: String)
 
+    // --- Kalender-Events / Termine (#434) ---
+
+    @GET("events")
+    suspend fun getEvents(
+        @Query("from") from: String,
+        @Query("to") to: String,
+    ): List<CalendarEventDto>
+
     // --- Abwesenheit / Familienkalender ---
 
     @GET("absence")

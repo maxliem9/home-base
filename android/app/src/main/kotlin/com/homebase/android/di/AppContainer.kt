@@ -7,6 +7,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AbsenceRepository
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.data.repository.ConfigRepository
+import com.homebase.android.data.repository.CalendarRepository
 import com.homebase.android.data.repository.MealPlanRepository
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.repository.RecipesRepository
@@ -21,6 +22,7 @@ import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingViewPrefs
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
+import com.homebase.android.data.websocket.EventWebSocketClient
 import com.homebase.android.data.websocket.MealPlanWebSocketClient
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import com.homebase.android.data.websocket.OkHttp
@@ -132,5 +134,17 @@ class AppContainer(context: Context) {
         api = api,
         mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
         recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    // Familienkalender (#435): read-only overlay of todos/absence/meals/events. Each WS client is a
+    // dedicated instance (separate from the feature screens') so connect/disconnect lifecycles don't
+    // collide; recipes is included for the meal-plan cascade-delete broadcast (see CalendarRepository).
+    val calendarRepository = CalendarRepository(
+        api = api,
+        todoWsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        absenceWsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        eventWsClient = EventWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 }
