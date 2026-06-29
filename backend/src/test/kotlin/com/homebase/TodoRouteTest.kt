@@ -1,12 +1,21 @@
 package com.homebase
 
+import com.homebase.db.TodosTable
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
+import java.time.Instant
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // A field is "null" when it is either serialized as JSON null or omitted entirely
@@ -1258,5 +1267,55 @@ class TodoRouteTest {
         val successor = todos.single { it["recurrence"] != null && it["status"]?.jsonPrimitive?.content != "DONE" }
         assertEquals("07:00", successor["dueTime"]?.jsonPrimitive?.content)
         assertEquals(15, successor["reminderLeadMinutes"]?.jsonPrimitive?.int)
+    }
+
+    // --- reminder re-arm on reschedule (#429 Phase 2a) ---------------------
+
+    private fun stampReminderSent(id: String) = transaction {
+        TodosTable.update({ TodosTable.id eq UUID.fromString(id) }) { it[reminderSentAt] = Instant.now() }
+    }
+
+    private fun reminderSentAt(id: String) = transaction {
+        TodosTable.selectAll().where { TodosTable.id eq UUID.fromString(id) }.single()[TodosTable.reminderSentAt]
+    }
+
+    @Test
+    fun `rescheduling the due time re-arms a sent reminder`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin","dueDate":"2026-07-01","dueTime":"14:30"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        stampReminderSent(id)
+        assertNotNull(reminderSentAt(id))
+
+        // change the time → the reminder must re-arm (stamp cleared) so it fires again
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"dueTime":"15:00"}""")
+        }
+        assertNull(reminderSentAt(id))
+    }
+
+    @Test
+    fun `a title-only edit does not re-arm the reminder`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin","dueDate":"2026-07-01","dueTime":"14:30"}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        stampReminderSent(id)
+
+        // a rename leaves the due moment untouched → the stamp must survive (no spurious re-send)
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin (umbenannt)"}""")
+        }
+        assertNotNull(reminderSentAt(id))
+        Unit
     }
 }

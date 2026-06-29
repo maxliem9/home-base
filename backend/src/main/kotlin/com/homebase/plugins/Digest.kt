@@ -6,6 +6,8 @@ import com.homebase.digest.DigestSection
 import com.homebase.digest.DigestService
 import com.homebase.digest.HttpTelegramClient
 import com.homebase.digest.MorningDigestService
+import com.homebase.reminder.ReminderScheduler
+import com.homebase.reminder.ReminderService
 import io.ktor.server.application.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
@@ -63,6 +65,19 @@ fun Application.configureDigest() {
     ).start()
 
     log.info("Telegram digests scheduled — morning {}, evening {} (overridable in settings)", morningTime(), eveningTime())
+
+    // Immediate per-todo reminders (#429 Phase 2a): a tight tick that fires near a todo's due time
+    // over the same bot/chat. Enabled by default (unset), with an optional in-app quiet-hours window.
+    ReminderScheduler(
+        service = ReminderService(
+            client = client,
+            enabled = storedEnabledProvider(AppSettingsTable.REMINDERS_ENABLED),
+            quietStart = { parseDigestTime(readSetting(AppSettingsTable.REMINDER_QUIET_START)) },
+            quietEnd = { parseDigestTime(readSetting(AppSettingsTable.REMINDER_QUIET_END)) },
+        ),
+        scope = this,
+    ).start()
+    log.info("Todo reminders scheduled (overridable in settings)")
 }
 
 /**

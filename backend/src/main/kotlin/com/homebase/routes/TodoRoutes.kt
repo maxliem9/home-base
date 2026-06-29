@@ -306,6 +306,20 @@ fun Route.todoRoutes() {
                     if (req.dueDate != null || req.reminderLeadMinutes != null) {
                         it[reminderLeadMinutes] = nextReminderLead
                     }
+                    // Re-arm the reminder when the due moment actually changes, so a rescheduled todo
+                    // gets a fresh reminder rather than staying retired (#429 Phase 2a). The time is
+                    // compared as a parsed LocalTime (not its string form) so "14:30" vs "14:30:00"
+                    // can't trip a spurious re-arm; an untouched save is a no-op.
+                    val oldTime = existing[TodosTable.dueTime]
+                    val newTime = nextDueTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+                    val timeChanged =
+                        if (oldTime == null || newTime == null) (oldTime == null) != (newTime == null)
+                        else oldTime.compareTo(newTime) != 0
+                    val dueMomentChanged =
+                        existing[TodosTable.dueDate]?.toString() != nextDueDate ||
+                            timeChanged ||
+                            existing[TodosTable.reminderLeadMinutes] != nextReminderLead
+                    if (dueMomentChanged) it[reminderSentAt] = null
                     req.priority?.let { _ -> it[priority] = nextPriority }
                     req.listId?.let { _ -> it[listId] = targetListId }
                     req.recurrence?.let { r ->

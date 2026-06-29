@@ -709,6 +709,16 @@ export const en: Messages = {
     recurringSaved: 'Saved',
     recurringSaveFailed: 'Time could not be saved.',
     recurringApplies: 'Changes take effect from the next scheduled run.',
+    // Todo reminders (#429 Phase 2a) — an immediate Telegram reminder when a timed task is due.
+    remindersTitle: 'Task reminders',
+    remindersHint: 'An immediate Telegram reminder when a task with a time is due (optionally ahead of time).',
+    remindersEnabled: 'Send reminders',
+    remindersQuietStart: 'Quiet hours from',
+    remindersQuietEnd: 'Quiet hours until',
+    remindersQuietHint: 'No reminders are sent during quiet hours; due ones arrive once it ends.',
+    remindersQuietIncomplete: 'Quiet hours need both times (or both empty).',
+    remindersSaved: 'Saved',
+    remindersSaveFailed: 'Setting could not be saved.',
     // Aufgaben-Unterseite (#356): household-wide display options for tasks.
     todos: 'Tasks',
     // "Done" window (#356, follows #340): how many days the done history shows before it's capped.

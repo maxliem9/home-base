@@ -99,6 +99,10 @@ export class MockApi {
   private evening = { time: '20:00', enabled: true, sections: [...this.eveningSectionsAll] }
   private morning = { time: '07:00', enabled: true, sections: [...this.morningSectionsAll] }
   private recurringTime = '00:30'
+  // Todo reminders config (#429 Phase 2a): enabled (default on) + an optional quiet-hours window.
+  private remindersEnabled = true
+  private reminderQuietStart = ''
+  private reminderQuietEnd = ''
   // "Erledigt"-history window length in days (#356). Default mirrors the backend + clients;
   // TodosView reads it on mount. Kept at 14 so the #340 show-all window test stays accurate.
   private doneWindowDays = 14
@@ -618,6 +622,38 @@ export class MockApi {
       if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
       this.recurringTime = `${m[1]}:${m[2]}`
       return this.json(route, { time: this.recurringTime })
+    }
+
+    // Todo reminders (#429 Phase 2a). Mirrors /config/reminders: GET returns {enabled, quietStart?,
+    // quietEnd?}; PUT requires quiet bounds as a pair (INVALID_QUIET_HOURS), normalizes to HH:mm.
+    if (path.endsWith('/config/reminders') && method === 'GET') {
+      return this.json(route, {
+        enabled: this.remindersEnabled,
+        ...(this.reminderQuietStart ? { quietStart: this.reminderQuietStart } : {}),
+        ...(this.reminderQuietEnd ? { quietEnd: this.reminderQuietEnd } : {}),
+      })
+    }
+    if (path.endsWith('/config/reminders') && method === 'PUT') {
+      const b = JSON.parse(req.postData() ?? '{}')
+      const start = (b.quietStart ?? '').trim()
+      const end = (b.quietEnd ?? '').trim()
+      if ((start === '') !== (end === '')) return this.json(route, { code: 'INVALID_QUIET_HOURS', message: 'pair' }, 400)
+      const norm = (v: string) => /^(\d{2}):(\d{2})$/.exec(v)
+      if ((start && !norm(start)) || (end && !norm(end))) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      // mirror the backend: a quiet window >= 12h (the scheduler's catch-up) is rejected
+      if (start && end) {
+        const min = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5))
+        const span = min(end) > min(start) ? min(end) - min(start) : 24 * 60 - (min(start) - min(end))
+        if (span >= 12 * 60) return this.json(route, { code: 'INVALID_QUIET_HOURS', message: 'too long' }, 400)
+      }
+      this.remindersEnabled = !!b.enabled
+      this.reminderQuietStart = start
+      this.reminderQuietEnd = end
+      return this.json(route, {
+        enabled: this.remindersEnabled,
+        ...(start ? { quietStart: start } : {}),
+        ...(end ? { quietEnd: end } : {}),
+      })
     }
 
     // "Erledigt"-history window length (#356). Mirrors /config/done-window: GET returns {days},

@@ -36,6 +36,14 @@ object AppSettingsTable : Table("app_settings") {
     const val DIGEST_EVENING_SECTIONS = "digest_evening_sections"
     const val DIGEST_MORNING_SECTIONS = "digest_morning_sections"
 
+    // Todo reminders (#429 Phase 2a), all editable in-app and re-read by the scheduler each tick.
+    // REMINDERS_ENABLED holds "true"/"false" (unset = on, like the digests). The quiet-hours window
+    // holds "HH:mm" bounds; when both are set, reminders due inside the window are held until it
+    // ends. An unset/partial window means no quiet hours.
+    const val REMINDERS_ENABLED = "reminders_enabled"
+    const val REMINDER_QUIET_START = "reminder_quiet_start"
+    const val REMINDER_QUIET_END = "reminder_quiet_end"
+
     // How many calendar days the clients' "Erledigt" history window spans (#356, follows #340).
     // Editable in-app like the digest time; the clients read it (falling back to the code default
     // when unset) and apply it to the Erledigt tab / done-section. The per-device "Alle anzeigen"
@@ -101,6 +109,9 @@ object TodosTable : Table("todos") {
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
     val doneAt = timestamp("done_at").nullable()
+    // Fire-once bookkeeping for the reminder scheduler (#429 Phase 2a): set when a reminder was
+    // delivered/retired; NULL = not yet reminded (re-armed when the due moment is edited).
+    val reminderSentAt = timestamp("reminder_sent_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

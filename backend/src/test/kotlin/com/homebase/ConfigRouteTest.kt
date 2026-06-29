@@ -376,4 +376,85 @@ class ConfigRouteTest {
             Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
         )
     }
+
+    // --- reminders config (#429 Phase 2a) ----------------------------------
+
+    @Test
+    fun `GET reminders config defaults to enabled with no quiet hours`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val body = Json.parseToJsonElement(
+            client.get("/api/v1/config/reminders") { bearerAuth(token) }.bodyAsText(),
+        ).jsonObject
+        assertEquals(true, body["enabled"]?.jsonPrimitive?.content?.toBoolean())
+        // encodeDefaults=false omits the unset quiet-hours bounds
+        assertEquals(null, body["quietStart"])
+        assertEquals(null, body["quietEnd"])
+    }
+
+    @Test
+    fun `PUT reminders config persists enabled and a normalized quiet-hours window`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":false,"quietStart":"22:00","quietEnd":"07:00"}""")
+        }
+        val body = Json.parseToJsonElement(
+            client.get("/api/v1/config/reminders") { bearerAuth(token) }.bodyAsText(),
+        ).jsonObject
+        assertEquals(false, body["enabled"]?.jsonPrimitive?.content?.toBoolean())
+        assertEquals("22:00", body["quietStart"]?.jsonPrimitive?.content)
+        assertEquals("07:00", body["quietEnd"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT reminders config rejects a single quiet-hours bound`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":true,"quietStart":"22:00"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_QUIET_HOURS",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `PUT reminders config rejects a quiet window of 12 hours or more`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // 20:00–09:00 is 13h, past the scheduler's 12h catch-up → would silently drop reminders
+        val res = client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":true,"quietStart":"20:00","quietEnd":"09:00"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_QUIET_HOURS",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `PUT reminders config clears quiet hours with empty strings`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":true,"quietStart":"22:00","quietEnd":"07:00"}""")
+        }
+        client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":true,"quietStart":"","quietEnd":""}""")
+        }
+        val body = Json.parseToJsonElement(
+            client.get("/api/v1/config/reminders") { bearerAuth(token) }.bodyAsText(),
+        ).jsonObject
+        assertEquals(null, body["quietStart"])
+        assertEquals(null, body["quietEnd"])
+    }
 }

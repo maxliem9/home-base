@@ -35,6 +35,7 @@ export function NotificationsSettings({ token, onLogout }: { token: string; onLo
         title={t('settings.digestTitle')}
         hint={t('settings.digestHint')}
       />
+      <RemindersCard token={token} onLogout={onLogout} />
       <RecurringCard token={token} onLogout={onLogout} />
     </div>
   )
@@ -193,6 +194,95 @@ function DigestCard({
 
 // Recurring-todo safety-net run time. Always-on scheduler, so no enabled flag — otherwise the
 // same control/validation/persistence as the digest time.
+// Todo reminders (#429 Phase 2a): an on/off toggle + an optional quiet-hours window, delivered via
+// the same Telegram bot as the digests. A todo opts in by carrying a due *time*; the reminder fires
+// at that time (minus an optional lead). Quiet hours must be set as a pair (both or neither).
+function RemindersCard({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const { t } = useTranslation()
+  const [enabled, setEnabled] = useState(true)
+  const [quietStart, setQuietStart] = useState('')
+  const [quietEnd, setQuietEnd] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const dirty = () => { setError(null); setSaved(false) }
+
+  useEffect(() => {
+    let alive = true
+    safeFetch(token, `${API_BASE}/config/reminders`).then(async (result) => {
+      if (!alive) return
+      if (result.ok && result.res.status === 401) return onLogout()
+      if (result.ok && result.res.ok) {
+        const data: { enabled?: boolean; quietStart?: string; quietEnd?: string } = await result.res.json()
+        setEnabled(data.enabled ?? true)
+        setQuietStart(data.quietStart ?? '')
+        setQuietEnd(data.quietEnd ?? '')
+      }
+      setLoaded(true)
+    })
+    return () => { alive = false }
+  }, [token, onLogout])
+
+  // quiet hours are all-or-nothing: a single bound is invalid (the backend rejects it too)
+  const quietIncomplete = !!quietStart !== !!quietEnd
+
+  const save = async () => {
+    if (quietIncomplete) return
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    const result = await safeFetch(token, `${API_BASE}/config/reminders`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, quietStart, quietEnd }),
+    })
+    setSaving(false)
+    if (!result.ok) return setError(errorText(null, t('settings.remindersSaveFailed')))
+    if (result.res.status === 401) return onLogout()
+    if (!result.res.ok) return setError(errorText(await errorCode(result.res), t('settings.remindersSaveFailed')))
+    const data: { enabled: boolean; quietStart?: string; quietEnd?: string } = await result.res.json()
+    setEnabled(data.enabled)
+    setQuietStart(data.quietStart ?? '')
+    setQuietEnd(data.quietEnd ?? '')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+  }
+
+  return (
+    <Card className="hb-card--pad">
+      <div className="hb-cardhead">
+        <div>
+          <h3>{t('settings.remindersTitle')}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.remindersHint')}</p>
+        </div>
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, cursor: loaded ? 'pointer' : 'default' }}>
+        <Checkbox checked={enabled} onChange={(v) => { if (loaded) { setEnabled(v); dirty() } }} />
+        <span>{t('settings.remindersEnabled')}</span>
+      </label>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
+        <Field label={t('settings.remindersQuietStart')}>
+          <TextInput type="time" value={quietStart} onChange={(v) => { setQuietStart(v); dirty() }} disabled={!loaded} />
+        </Field>
+        <Field label={t('settings.remindersQuietEnd')}>
+          <TextInput type="time" value={quietEnd} onChange={(v) => { setQuietEnd(v); dirty() }} disabled={!loaded} />
+        </Field>
+        <Button onClick={save} disabled={saving || !loaded || quietIncomplete}>{t('common.save')}</Button>
+        {saved && (
+          <span className="hb-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 9 }}>
+            <Icon name="check" size={15} stroke={2.4} /> {t('settings.remindersSaved')}
+          </span>
+        )}
+      </div>
+      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t('settings.remindersQuietHint')}</p>
+      {quietIncomplete && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{t('settings.remindersQuietIncomplete')}</p>}
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{error}</p>}
+    </Card>
+  )
+}
+
 function RecurringCard({ token, onLogout }: { token: string; onLogout: () => void }) {
   const { t } = useTranslation()
   const [time, setTime] = useState('')
