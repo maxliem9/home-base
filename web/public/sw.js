@@ -34,9 +34,9 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    // Coalesce reminders under one tag so a burst doesn't stack endlessly.
-    tag: 'homebase-reminder',
-    renotify: true,
+    // No shared tag: the backend's fire-once guarantee means each todo pushes at most once, so two
+    // distinct reminders arriving close together should each stay visible (a shared tag would let
+    // the later one replace the earlier).
   }
   event.waitUntil(self.registration.showNotification(title, options))
 })

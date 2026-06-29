@@ -10,10 +10,8 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.update
+import org.jetbrains.exposed.sql.upsert
 import java.time.Instant
 import java.util.UUID
 
@@ -77,27 +75,22 @@ fun Route.pushRoutes(vapidPublicKey: String?) {
     }
 }
 
-/** Upserts a subscription on its unique endpoint (update-then-insert; the unique index guards races). */
+/** Upserts a subscription on its unique endpoint. Atomic + idempotent + race-free. */
 private fun upsertSubscription(req: PushSubscribeRequest, username: String) {
     transaction {
-        val updated = PushSubscriptionsTable.update({ PushSubscriptionsTable.endpoint eq req.endpoint }) {
+        // Native INSERT … ON CONFLICT(endpoint) DO UPDATE: a concurrent or repeat re-subscribe with
+        // the same endpoint just refreshes its keys/owner instead of 500-ing on the unique index.
+        // The original row's id + createdAt are preserved (only the mutable fields update).
+        PushSubscriptionsTable.upsert(
+            PushSubscriptionsTable.endpoint,
+            onUpdateExclude = listOf(PushSubscriptionsTable.id, PushSubscriptionsTable.createdAt),
+        ) {
+            it[id] = UUID.randomUUID()
+            it[endpoint] = req.endpoint
             it[p256dh] = req.keys.p256dh
             it[auth] = req.keys.auth
             it[PushSubscriptionsTable.username] = username
-        }
-        if (updated == 0) {
-            // Re-check inside the same transaction in case a concurrent insert won the race; only
-            // insert when still absent. The unique index is the final backstop.
-            val exists = PushSubscriptionsTable.selectAll()
-                .where { PushSubscriptionsTable.endpoint eq req.endpoint }.any()
-            if (!exists) PushSubscriptionsTable.insert {
-                it[id] = UUID.randomUUID()
-                it[endpoint] = req.endpoint
-                it[p256dh] = req.keys.p256dh
-                it[auth] = req.keys.auth
-                it[PushSubscriptionsTable.username] = username
-                it[createdAt] = Instant.now()
-            }
+            it[createdAt] = Instant.now()
         }
     }
 }
