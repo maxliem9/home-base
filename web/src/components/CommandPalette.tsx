@@ -113,6 +113,18 @@ export function CommandPalette({ token, open, onClose, actions, onOpenResult }: 
     if (open) document.getElementById(`hb-cmd-opt-${sel}`)?.scrollIntoView({ block: 'nearest' })
   }, [sel, open])
 
+  // Escape closes the palette regardless of where focus currently sits. The input's own
+  // onKeyDown also handles Escape, but the input is focused asynchronously on open — a global
+  // listener makes "esc closes" deterministic even before focus settles or if focus moved away.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   const run = (e?: Entry) => {

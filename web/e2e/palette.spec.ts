@@ -37,6 +37,9 @@ test.describe('Command palette (⌘K)', () => {
     await openApp(page, new MockApi())
     await page.keyboard.press('Control+k')
     await expect(page.locator('.hb-cmd')).toBeVisible()
+    // Wait for the palette to take focus (the input is focused asynchronously on open) so
+    // Escape lands deterministically; the close handler also listens globally as a backstop.
+    await expect(page.locator('.hb-cmd__input')).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(page.locator('.hb-cmd')).toHaveCount(0)
   })

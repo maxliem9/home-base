@@ -84,7 +84,9 @@ test.describe('web screenshots', () => {
   test('web-einkauf', async ({ page }) => {
     await boot(page)
     await page.getByRole('button', { name: 'Einkaufsliste' }).click()
-    await waitFor(page, '.hb-row')
+    // The shopping view defaults to tile view since the #440 overhaul (items
+    // render as .hb-tile); list view still uses .hb-row — tolerate either.
+    await waitFor(page, '.hb-tile, .hb-row')
     await shoot(page, 'web-einkauf')
   })
 
