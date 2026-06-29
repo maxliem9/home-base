@@ -1,6 +1,7 @@
 package com.homebase.routes
 
 import com.homebase.db.AbsencesTable
+import com.homebase.db.CalendarEventsTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.RecipesTable
@@ -20,6 +21,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 // wildcard) so the date-range + status comparisons below resolve as infix operators on the columns.
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 // The subscription feed shows a rolling window around "today" so calendar clients stay snappy and
 // the payload bounded — past entries fall off, the near future is covered. A subscriber re-polls
@@ -41,6 +43,15 @@ private val ABSENCE_LABEL_DE = mapOf(
     "KIND_KRANK" to "Kind-krank",
 )
 
+// A small emoji prefix per event kind so the feed summary scans at a glance (matches the ✓ todos
+// use). Unknown types fall back to the neutral pin.
+private val EVENT_EMOJI = mapOf(
+    "APPOINTMENT" to "📅",
+    "BIRTHDAY" to "🎂",
+    "VET" to "🐾",
+    "OTHER" to "📌",
+)
+
 /**
  * iCal subscription feed (issue #427, Phase 2): one read-only `text/calendar` document overlaying
  * the household's dated data so the family can subscribe once in Apple/Google Calendar.
@@ -54,13 +65,15 @@ private val ABSENCE_LABEL_DE = mapOf(
  *  - due todos (open only — DONE ones are history, not upcoming), each on its `due_date`;
  *  - absences (Urlaub/Krank/Kind-krank, half-days noted in the title);
  *  - kita closures (household-wide);
- *  - planned meals (recipe-backed or free-text).
+ *  - planned meals (recipe-backed or free-text);
+ *  - calendar events (#434 — appointments/birthdays/vet; timed ones get a real clock time).
  *
  * Privacy: a todo in the *other* user's PRIVATE list must not leak through the feed, so todos are
  * filtered exactly like `GET /todos` — visible = no list, a SHARED list, or the caller's own
- * PRIVATE list. Absences/kita/meals are household-shared and need no per-user filter.
+ * PRIVATE list. Absences/kita/meals/events are household-shared and need no per-user filter.
  *
- * Every entry is an all-day VEVENT (see [ICalBuilder] for the VEVENT-vs-VTODO rationale).
+ * Overlay entries (todos/absences/kita/meals) are all-day VEVENTs (see [ICalBuilder] for the
+ * VEVENT-vs-VTODO rationale); real events with a start time get a timed VEVENT instead.
  */
 fun Route.calendarRoutes() {
     get("/calendar.ics") {
@@ -156,6 +169,45 @@ fun Route.calendarRoutes() {
                         summary = "$slotLabel: $dish",
                         dtStamp = now,
                     )
+                }
+
+            // Calendar events (#434) — household-shared. Timed events get a real DTSTART/DTEND;
+            // all-day (or time-less) ones a date banner. notes -> DESCRIPTION, location -> LOCATION.
+            val zone = ZoneId.systemDefault()
+            CalendarEventsTable.selectAll()
+                .where { (CalendarEventsTable.date greaterEq from) and (CalendarEventsTable.date lessEq to) }
+                .orderBy(CalendarEventsTable.date to SortOrder.ASC, CalendarEventsTable.startTime to SortOrder.ASC_NULLS_FIRST)
+                .forEach { row ->
+                    val emoji = EVENT_EMOJI[row[CalendarEventsTable.type]] ?: EVENT_EMOJI.getValue("OTHER")
+                    val summary = "$emoji ${row[CalendarEventsTable.title]}"
+                    val uid = "event-${row[CalendarEventsTable.id]}@homebase"
+                    val date = row[CalendarEventsTable.date]
+                    val notes = row[CalendarEventsTable.notes]
+                    val location = row[CalendarEventsTable.location]
+                    val start = row[CalendarEventsTable.startTime]
+                    if (!row[CalendarEventsTable.allDay] && start != null) {
+                        ical.addTimedEvent(
+                            uid = uid,
+                            date = date,
+                            start = start,
+                            end = row[CalendarEventsTable.endTime],
+                            summary = summary,
+                            description = notes,
+                            location = location,
+                            dtStamp = now,
+                            zone = zone,
+                        )
+                    } else {
+                        ical.addAllDayEvent(
+                            uid = uid,
+                            start = date,
+                            summary = summary,
+                            description = notes,
+                            location = location,
+                            dtStamp = now,
+                            transparent = false,
+                        )
+                    }
                 }
         }
 

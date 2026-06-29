@@ -937,12 +937,14 @@ export const de = {
     catAbsence: 'Abwesenheit',
     catKita: 'Kita zu',
     catMeals: 'Essensplan',
+    catEvents: 'Termine',
     // day-detail sheet
     detailEmpty: 'Nichts an diesem Tag.',
     sectionTodos: 'Fällige Aufgaben',
     sectionAbsence: 'Abwesenheit',
     sectionKita: 'Kita',
     sectionMeals: 'Essensplan',
+    sectionEvents: 'Termine',
     moreCount: '+{count} mehr', // overflow chip on a packed day cell
     half: { vm: 'vormittags', nm: 'nachmittags' },
     // iCal subscription hint

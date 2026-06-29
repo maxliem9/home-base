@@ -250,6 +250,27 @@ export interface MealPlanEntry {
   createdAt: string
 }
 
+// --- Kalender-Events (Termine, #434) --------------------------------------
+
+export type CalendarEventType = 'APPOINTMENT' | 'BIRTHDAY' | 'VET' | 'OTHER'
+
+// A real dated event (appointment / birthday / vet …) — the #434 entity overlaid in the
+// Familienkalender (#427 integration). With encodeDefaults=false the optional fields may be
+// absent. Times are "HH:mm[:ss]" strings; for all-day events start/end are absent.
+export interface CalendarEvent {
+  id: string
+  title: string
+  type: CalendarEventType
+  date: string // YYYY-MM-DD
+  allDay: boolean
+  startTime?: string
+  endTime?: string
+  location?: string
+  notes?: string
+  createdBy: string
+  createdAt: string
+}
+
 // --- Abwesenheit / Familienkalender ---------------------------------------
 
 export type AbsenceType = 'URLAUB' | 'KRANK' | 'KIND_KRANK'

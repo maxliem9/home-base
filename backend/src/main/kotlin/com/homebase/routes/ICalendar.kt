@@ -2,6 +2,8 @@ package com.homebase.routes
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -15,10 +17,14 @@ import java.time.format.DateTimeFormatter
  *  - all-day events via VALUE=DATE (DTSTART;VALUE=DATE + a DTEND one day later, the exclusive end),
  *  - a DTSTAMP on every VEVENT.
  *
- * We model every entry as an all-day VEVENT (not VTODO): a VTODO renders inconsistently across
+ * Most entries are modelled as an all-day VEVENT (not VTODO): a VTODO renders inconsistently across
  * clients (Apple shows reminders, Google ignores them entirely), whereas an all-day VEVENT shows
  * up as a date banner everywhere — which is exactly what a "what's happening that day" overlay
  * wants. A due todo therefore appears as an all-day event on its due date.
+ *
+ * Real calendar events (the #434 entity) with a clock time are the exception: they get a timed
+ * VEVENT ([addTimedEvent]) with a real DTSTART/DTEND so they show at the right hour, and they are
+ * OPAQUE (busy) rather than TRANSPARENT — they are actual appointments, not background overlays.
  */
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
@@ -103,7 +109,9 @@ internal class ICalBuilder(
         start: LocalDate,
         summary: String,
         description: String? = null,
+        location: String? = null,
         dtStamp: Instant,
+        transparent: Boolean = true,
     ) {
         lines += "BEGIN:VEVENT"
         lines += "UID:${uid}"
@@ -114,7 +122,47 @@ internal class ICalBuilder(
         if (!description.isNullOrBlank()) {
             lines += "DESCRIPTION:${icalEscapeText(description)}"
         }
-        lines += "TRANSP:TRANSPARENT"
+        if (!location.isNullOrBlank()) {
+            lines += "LOCATION:${icalEscapeText(location)}"
+        }
+        lines += "TRANSP:${if (transparent) "TRANSPARENT" else "OPAQUE"}"
+        lines += "END:VEVENT"
+    }
+
+    /**
+     * Adds a timed VEVENT for a real appointment ([date] + clock [start], optional [end]). The
+     * local wall-clock time is resolved at [zone] (the server's zone, matching the rest of the app)
+     * and emitted as UTC instants (`…Z`) — unambiguous on every client without shipping a VTIMEZONE
+     * block. A missing [end] defaults to a one-hour duration. Timed events are OPAQUE (busy).
+     */
+    fun addTimedEvent(
+        uid: String,
+        date: LocalDate,
+        start: LocalTime,
+        end: LocalTime?,
+        summary: String,
+        description: String? = null,
+        location: String? = null,
+        dtStamp: Instant,
+        zone: ZoneId,
+    ) {
+        val startInstant = date.atTime(start).atZone(zone).toInstant()
+        // End must be strictly after start; fall back to +1h when absent or non-positive.
+        val endTime = end?.takeIf { it.isAfter(start) } ?: start.plusHours(1)
+        val endInstant = date.atTime(endTime).atZone(zone).toInstant()
+        lines += "BEGIN:VEVENT"
+        lines += "UID:${uid}"
+        lines += "DTSTAMP:${UTC_STAMP_FORMAT.format(dtStamp)}"
+        lines += "DTSTART:${UTC_STAMP_FORMAT.format(startInstant)}"
+        lines += "DTEND:${UTC_STAMP_FORMAT.format(endInstant)}"
+        lines += "SUMMARY:${icalEscapeText(summary)}"
+        if (!description.isNullOrBlank()) {
+            lines += "DESCRIPTION:${icalEscapeText(description)}"
+        }
+        if (!location.isNullOrBlank()) {
+            lines += "LOCATION:${icalEscapeText(location)}"
+        }
+        lines += "TRANSP:OPAQUE"
         lines += "END:VEVENT"
     }
 

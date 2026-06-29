@@ -1,13 +1,13 @@
-// Data layer for the Familienkalender (#427, Phase 1). Loads the three existing reads that the
-// month view overlays — todos, the absence snapshot, and the meal-plan range — and keeps them live
-// over the existing WS channels. No new endpoint, no new schema: this is a pure read aggregation.
+// Data layer for the Familienkalender (#427, Phase 1). Loads the existing reads that the month
+// view overlays — todos, the absence snapshot, the meal-plan range, and calendar events (#434) —
+// and keeps them live over the existing WS channels. No new schema: this is a pure read aggregation.
 //
 // The WS wiring mirrors the rest of the app: each channel's frame just triggers a refetch (the
 // payloads are small). The recipes channel is included because deleting a recipe cascades its
 // meal-plan entries away server-side but only broadcasts on the recipes channel (see WochenplanView).
 import { useCallback, useEffect, useState } from 'react'
 import { API_BASE, notifyTransportError, safeFetch } from '../../api'
-import type { AbsenceState, MealPlanEntry, Todo } from '../../types'
+import type { AbsenceState, CalendarEvent, MealPlanEntry, Todo } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { normalizeAbsenceState } from '../abwesenheit/core'
 
@@ -22,6 +22,7 @@ export interface CalendarData {
   todos: Todo[]
   absence: AbsenceState
   meals: MealPlanEntry[]
+  events: CalendarEvent[]
   loading: boolean
 }
 
@@ -35,6 +36,7 @@ export function useCalendarData(token: string, onLogout: () => void, from: strin
   const [todos, setTodos] = useState<Todo[]>([])
   const [absence, setAbsence] = useState<AbsenceState>(EMPTY_ABSENCE)
   const [meals, setMeals] = useState<MealPlanEntry[]>([])
+  const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchTodos = useCallback(async () => {
@@ -66,15 +68,25 @@ export function useCalendarData(token: string, onLogout: () => void, from: strin
     setMeals(Array.isArray(list) ? list : [])
   }, [token, from, to, onLogout])
 
-  // Initial + range-driven loads. Clear the spinner once the first triad settles.
+  const fetchEvents = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/events?from=${from}&to=${to}`)
+    if (!result.ok) { notifyTransportError(); return }
+    const { res } = result
+    if (res.status === 401) { onLogout(); return }
+    if (!res.ok) return
+    const list = (await res.json()) as CalendarEvent[]
+    setEvents(Array.isArray(list) ? list : [])
+  }, [token, from, to, onLogout])
+
+  // Initial + range-driven loads. Clear the spinner once the first batch settles.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    Promise.all([fetchTodos(), fetchAbsence(), fetchMeals()]).finally(() => {
+    Promise.all([fetchTodos(), fetchAbsence(), fetchMeals(), fetchEvents()]).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [fetchTodos, fetchAbsence, fetchMeals])
+  }, [fetchTodos, fetchAbsence, fetchMeals, fetchEvents])
 
   // Live updates — each channel refetches its own slice. recipes drives a meal refetch (a recipe
   // delete cascades plan entries but only broadcasts on the recipes channel; see WochenplanView).
@@ -82,6 +94,7 @@ export function useCalendarData(token: string, onLogout: () => void, from: strin
   useWebSocket({ url: wsUrl('absence'), token }, fetchAbsence)
   useWebSocket({ url: wsUrl('meal-plan'), token }, fetchMeals)
   useWebSocket({ url: wsUrl('recipes'), token }, fetchMeals)
+  useWebSocket({ url: wsUrl('events'), token }, fetchEvents)
 
-  return { todos, absence, meals, loading }
+  return { todos, absence, meals, events, loading }
 }

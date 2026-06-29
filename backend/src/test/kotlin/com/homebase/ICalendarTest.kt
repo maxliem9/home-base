@@ -1,7 +1,12 @@
 package com.homebase
 
+import com.homebase.routes.ICalBuilder
 import com.homebase.routes.icalEscapeText
 import com.homebase.routes.icalFoldLine
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -58,5 +63,43 @@ class ICalendarTest {
         folded.split("\r\n").forEach { assertTrue(it.toByteArray(Charsets.UTF_8).size <= 75) }
         // unfolding restores the original content exactly
         assertEquals(line, folded.replace("\r\n ", ""))
+    }
+
+    @Test
+    fun `a timed event converts local wall-clock to a UTC instant`() {
+        // 14:30 Berlin on a winter date (UTC+1) is 13:30 UTC; end 15:00 -> 14:00 UTC.
+        val ical = ICalBuilder()
+        ical.addTimedEvent(
+            uid = "event-1@homebase",
+            date = LocalDate.of(2026, 1, 15),
+            start = LocalTime.of(14, 30),
+            end = LocalTime.of(15, 0),
+            summary = "Tierarzt",
+            location = "Praxis",
+            dtStamp = Instant.EPOCH,
+            zone = ZoneId.of("Europe/Berlin"),
+        )
+        val body = ical.build()
+        assertTrue(body.contains("DTSTART:20260115T133000Z"), "expected 13:30 UTC DTSTART:\n$body")
+        assertTrue(body.contains("DTEND:20260115T140000Z"), "expected 14:00 UTC DTEND:\n$body")
+        assertTrue(body.contains("TRANSP:OPAQUE"))
+        assertTrue(body.contains("LOCATION:Praxis"))
+    }
+
+    @Test
+    fun `a timed event with no end defaults to a one-hour duration`() {
+        val ical = ICalBuilder()
+        ical.addTimedEvent(
+            uid = "event-2@homebase",
+            date = LocalDate.of(2026, 1, 15),
+            start = LocalTime.of(9, 0),
+            end = null,
+            summary = "Termin",
+            dtStamp = Instant.EPOCH,
+            zone = ZoneId.of("Europe/Berlin"),
+        )
+        val body = ical.build()
+        assertTrue(body.contains("DTSTART:20260115T080000Z"), body)
+        assertTrue(body.contains("DTEND:20260115T090000Z"), "expected +1h default end:\n$body")
     }
 }
