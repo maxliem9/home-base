@@ -5,6 +5,7 @@
 .hb-cal {
   --cal-todo: 28;     /* clay/orange */
   --cal-meal: 150;    /* green (matches the accent family) */
+  --cal-event: 255;   /* blue — real appointments/events (#434) */
   /* absence chips use --chip-hue per-chip (Urlaub → person hue, krank/kk → the fallback below) */
   --cal-kita: 288;    /* violet, matches the Feiertag marker family in the absence calendar */
 }
@@ -61,6 +62,7 @@
 
 .hb-cal__chip--todo { background: oklch(0.92 0.06 var(--cal-todo)); color: oklch(0.4 0.12 var(--cal-todo)); }
 .hb-cal__chip--meal { background: oklch(0.92 0.05 var(--cal-meal)); color: oklch(0.38 0.09 var(--cal-meal)); }
+.hb-cal__chip--event { background: oklch(0.92 0.06 var(--cal-event)); color: oklch(0.42 0.13 var(--cal-event)); }
 .hb-cal__chip--absence { background: oklch(0.9 0.07 var(--chip-hue, 27)); color: oklch(0.36 0.11 var(--chip-hue, 27)); }
 
 .hb-cal__more { font-size: 10.5px; font-weight: 600; color: var(--ink-3); padding: 0 4px; }
@@ -69,6 +71,7 @@
 .hb-cal__legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
 .hb-cal__legitem { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
 .hb-cal__dot { width: 12px; height: 12px; border-radius: 4px; }
+.hb-cal__dot.hb-cal__chip--event { background: oklch(0.66 0.14 var(--cal-event)); }
 .hb-cal__dot.hb-cal__chip--absence { background: oklch(0.7 0.11 150); }
 .hb-cal__dot.hb-cal__chip--todo { background: oklch(0.72 0.13 28); }
 .hb-cal__dot.hb-cal__chip--meal { background: oklch(0.7 0.1 150); }
@@ -88,6 +91,7 @@
 [data-theme='dark'] .hb-cal__kita { background: oklch(0.4 0.06 var(--cal-kita)); color: oklch(0.92 0.04 var(--cal-kita)); }
 [data-theme='dark'] .hb-cal__chip--todo { background: oklch(0.4 0.08 var(--cal-todo)); color: oklch(0.92 0.06 var(--cal-todo)); }
 [data-theme='dark'] .hb-cal__chip--meal { background: oklch(0.38 0.06 var(--cal-meal)); color: oklch(0.92 0.05 var(--cal-meal)); }
+[data-theme='dark'] .hb-cal__chip--event { background: oklch(0.4 0.08 var(--cal-event)); color: oklch(0.92 0.06 var(--cal-event)); }
 [data-theme='dark'] .hb-cal__chip--absence { background: oklch(0.4 0.07 var(--chip-hue, 27)); color: oklch(0.92 0.06 var(--chip-hue, 27)); }
 
 /* Mobile: tighter cells; markers stay but shrink. The grid still fits 7 columns on a phone. */

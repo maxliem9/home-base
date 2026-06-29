@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { MockApi, todo, mealPlanEntry, absence, kitaClosure, absSettings, TOKEN } from './helpers/mockApi'
+import { MockApi, todo, mealPlanEntry, absence, kitaClosure, calendarEvent, absSettings, TOKEN } from './helpers/mockApi'
 
 // Pin the clock to a mid-month noon so the visible month (June 2026) is deterministic and the
 // seeded dates below always land inside the rendered grid.
@@ -15,6 +15,11 @@ function seeded(): MockApi {
   )
     .seedMealPlan([
       mealPlanEntry({ id: 'm1', date: '2026-06-18', slot: 'DINNER', recipeId: 'r1', recipeTitle: 'Lasagne' }),
+    ])
+    .seedEvents([
+      // a timed appointment on the 18th + an all-day birthday on the 20th
+      calendarEvent({ id: 'e1', title: 'Tierarzt', type: 'VET', date: '2026-06-18', allDay: false, startTime: '14:30', endTime: '15:00', location: 'Praxis Dr. Müller' }),
+      calendarEvent({ id: 'e2', title: 'Omas Geburtstag', type: 'BIRTHDAY', date: '2026-06-20', allDay: true }),
     ])
     .seedAbsence({
       users: ['max', 'lea'],
@@ -41,11 +46,16 @@ test.describe('Familienkalender', () => {
     const day18 = page.locator('.hb-cal__day[data-date="2026-06-18"]')
     await expect(day18).toBeVisible()
 
-    // markers for the 18th: absence (Urlaub), todo (Zahnarzt), meal (Lasagne) + the kita badge
+    // markers for the 18th: event (Tierarzt 14:30), absence (Urlaub), todo (Zahnarzt),
+    // meal (Lasagne) + the kita badge
     await expect(day18.getByText('Zahnarzt')).toBeVisible()
     await expect(day18.getByText('Lasagne')).toBeVisible()
+    await expect(day18.locator('.hb-cal__chip--event')).toContainText('14:30 Tierarzt')
     await expect(day18.locator('.hb-cal__chip--absence')).toBeVisible()
     await expect(day18.locator('.hb-cal__kita')).toBeVisible()
+
+    // the all-day birthday on the 20th
+    await expect(page.locator('.hb-cal__day[data-date="2026-06-20"]').getByText('Omas Geburtstag')).toBeVisible()
 
     // DONE todo on the 19th is not shown anywhere in the grid
     await expect(page.locator('.hb-cal__grid').getByText('Erledigt-Aufgabe')).toHaveCount(0)
@@ -59,6 +69,10 @@ test.describe('Familienkalender', () => {
     await expect(sheet).toBeVisible()
 
     // each domain's detail row
+    await expect(sheet.getByText('Termine')).toBeVisible()
+    await expect(sheet.getByText('Tierarzt')).toBeVisible()
+    await expect(sheet.getByText(/14:30.*15:00/)).toBeVisible()
+    await expect(sheet.getByText('Praxis Dr. Müller')).toBeVisible()
     await expect(sheet.getByText('Urlaub')).toBeVisible()
     await expect(sheet.getByText('Brückentag')).toBeVisible()
     await expect(sheet.getByText('Zahnarzt')).toBeVisible()

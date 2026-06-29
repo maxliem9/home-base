@@ -9,6 +9,7 @@ import type {
   ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
+  CalendarEvent, CalendarEventType,
   NoteVisibility, NoteImage, NoteAttachment, Note,
   Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -19,6 +20,7 @@ export type {
   ShoppingCategory, ShoppingCategoryRule,
   RecipeCategory, Ingredient, RecipeStep, Recipe, RecipeImage,
   MealSlot, MealPlanEntry,
+  CalendarEvent, CalendarEventType,
   NoteVisibility, NoteImage, NoteAttachment, Note,
   Project, TimeEntry, WorkTarget, TimeForecast,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
@@ -134,6 +136,7 @@ export class MockApi {
   private nextShopCategoryId = 100
   private recipes: Recipe[] = []
   private mealPlan: MealPlanEntry[] = []
+  private events: CalendarEvent[] = []
   private notes: Note[] = []
   private projects: Project[] = []
   private entries: TimeEntry[] = []
@@ -219,6 +222,11 @@ export class MockApi {
 
   seedMealPlan(entries: MealPlanEntry[]): this {
     this.mealPlan = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  seedEvents(events: CalendarEvent[]): this {
+    this.events = events.map((e) => ({ ...e }))
     return this
   }
 
@@ -1200,6 +1208,14 @@ export class MockApi {
       const inRange = this.mealPlan.filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
       return this.json(route, inRange)
     }
+
+    // ---- Calendar events (#434) — mirrors EventRoutes GET /events?from=&to= ----
+    if (path.endsWith('/events') && method === 'GET') {
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      const inRange = this.events.filter((e) => (!from || e.date >= from) && (!to || e.date <= to))
+      return this.json(route, inRange)
+    }
     const mealPlanSlotMatch = path.match(/\/meal-plan\/([^/]+)\/([^/]+)$/)
     if (mealPlanSlotMatch) {
       const date = mealPlanSlotMatch[1]
@@ -1866,6 +1882,18 @@ export function mealPlanEntry(
 ): MealPlanEntry {
   return {
     recipeCategory: 'DINNER',
+    createdBy: 'alice',
+    createdAt: '2026-06-01T08:00:00Z',
+    ...partial,
+  }
+}
+
+export function calendarEvent(
+  partial: Partial<CalendarEvent> & { id: string; title: string; date: string },
+): CalendarEvent {
+  return {
+    type: 'OTHER' as CalendarEventType,
+    allDay: true,
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
     ...partial,

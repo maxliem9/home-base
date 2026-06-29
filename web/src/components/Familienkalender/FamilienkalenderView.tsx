@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE } from '../../api'
-import type { Absence, KitaClosure, MealPlanEntry, Todo } from '../../types'
+import type { Absence, CalendarEvent, CalendarEventType, KitaClosure, MealPlanEntry, Todo } from '../../types'
 import { Avatar, Button, IconButton, Modal, PageHead, Sheet } from '../../ui/primitives'
 import { Icon } from '../../ui/Icon'
 import { CATEGORY_ICON } from '../../lib/cover'
@@ -18,6 +18,22 @@ const mondayIdx = (d: Date) => (d.getDay() + 6) % 7
 
 const MEAL_SLOT_ORDER: Record<string, number> = { BREAKFAST: 0, LUNCH: 1, DINNER: 2 }
 
+// Icon per event kind for the day-detail rows (markers use a coloured chip). Limited to the
+// app's existing Icon registry (no dedicated pet/gift glyph) — cake for birthdays, calendar/tag
+// otherwise.
+const EVENT_ICON: Record<CalendarEventType, string> = {
+  APPOINTMENT: 'calendar',
+  BIRTHDAY: 'cake',
+  VET: 'flag',
+  OTHER: 'tag',
+}
+
+/** "HH:mm" from an "HH:mm[:ss]" time string (drops seconds); null/empty -> ''. */
+const shortTime = (t?: string) => (t ? t.slice(0, 5) : '')
+
+/** Sort key for events within a day: all-day first (no time), then by start time. */
+const eventSortKey = (e: CalendarEvent) => (e.allDay || !e.startTime ? '' : e.startTime)
+
 // Markers per day cell before the rest collapse into a "+N" chip — keeps a packed day readable.
 const MAX_MARKERS = 4
 
@@ -32,6 +48,7 @@ interface DayBucket {
   absences: Absence[]
   kita?: KitaClosure
   meals: MealPlanEntry[]
+  events: CalendarEvent[]
 }
 
 export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewProps) {
@@ -60,7 +77,7 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
 
   const from = ymd(gridDays[0])
   const to = ymd(gridDays[gridDays.length - 1])
-  const { todos, absence, meals, loading } = useCalendarData(token, onLogout, from, to)
+  const { todos, absence, meals, events, loading } = useCalendarData(token, onLogout, from, to)
 
   const todayIso = ymd(new Date())
 
@@ -69,7 +86,7 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
     const map = new Map<string, DayBucket>()
     const ensure = (date: string): DayBucket => {
       let b = map.get(date)
-      if (!b) { b = { todos: [], absences: [], meals: [] }; map.set(date, b) }
+      if (!b) { b = { todos: [], absences: [], meals: [], events: [] }; map.set(date, b) }
       return b
     }
     for (const todo of todos) {
@@ -79,12 +96,14 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
     for (const a of absence.absences) ensure(a.date).absences.push(a)
     for (const k of absence.kitaClosures) ensure(k.date).kita = k
     for (const m of meals) ensure(m.date).meals.push(m)
-    // stable meal order within a day
+    for (const e of events) ensure(e.date).events.push(e)
+    // stable order within a day
     for (const b of map.values()) {
       b.meals.sort((x, y) => (MEAL_SLOT_ORDER[x.slot] ?? 9) - (MEAL_SLOT_ORDER[y.slot] ?? 9))
+      b.events.sort((x, y) => eventSortKey(x).localeCompare(eventSortKey(y)))
     }
     return map
-  }, [todos, absence, meals])
+  }, [todos, absence, meals, events])
 
   const shiftMonth = useCallback((delta: number) => {
     setMonthAnchor((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1))
@@ -193,14 +212,18 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
 // --- markers ----------------------------------------------------------------
 
 interface Marker {
-  kind: 'todo' | 'absence' | 'meal'
+  kind: 'todo' | 'absence' | 'meal' | 'event'
   label: string
   hue?: number
 }
 
-/** Flattens a day bucket into ordered cell markers (absence first, then todos, then meals). */
+/** Flattens a day bucket into ordered cell markers (events + absence first, then todos, meals). */
 function collectMarkers(b: DayBucket): Marker[] {
   const out: Marker[] = []
+  for (const e of b.events) {
+    const time = e.allDay || !e.startTime ? '' : `${shortTime(e.startTime)} `
+    out.push({ kind: 'event', label: `${time}${e.title}` })
+  }
   for (const a of b.absences) {
     out.push({ kind: 'absence', label: absenceLabel(a), hue: a.type === 'URLAUB' ? 150 : undefined })
   }
@@ -220,6 +243,7 @@ function CalendarLegend() {
   const { t } = useTranslation()
   return (
     <div className="hb-cal__legend" aria-label={t('familienkalender.legend')}>
+      <span className="hb-cal__legitem"><span className="hb-cal__dot hb-cal__chip--event" />{t('familienkalender.catEvents')}</span>
       <span className="hb-cal__legitem"><span className="hb-cal__dot hb-cal__chip--absence" />{t('familienkalender.catAbsence')}</span>
       <span className="hb-cal__legitem"><span className="hb-cal__dot hb-cal__chip--todo" />{t('familienkalender.catTodos')}</span>
       <span className="hb-cal__legitem"><span className="hb-cal__dot hb-cal__chip--meal" />{t('familienkalender.catMeals')}</span>
@@ -235,7 +259,7 @@ function DayDetailSheet({ dateIso, bucket, onClose }: { dateIso: string; bucket?
   const title = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' }).format(
     new Date(dateIso + 'T00:00:00'),
   )
-  const empty = !bucket || (bucket.todos.length === 0 && bucket.absences.length === 0 && !bucket.kita && bucket.meals.length === 0)
+  const empty = !bucket || (bucket.todos.length === 0 && bucket.absences.length === 0 && !bucket.kita && bucket.meals.length === 0 && bucket.events.length === 0)
 
   return (
     <Sheet open onClose={onClose} title={title} width={440}>
@@ -243,6 +267,26 @@ function DayDetailSheet({ dateIso, bucket, onClose }: { dateIso: string; bucket?
         <p className="hb-muted" style={{ margin: 0 }}>{t('familienkalender.detailEmpty')}</p>
       ) : (
         <div className="hb-caldetail">
+          {bucket!.events.length > 0 && (
+            <section className="hb-caldetail__sec">
+              <h3 className="hb-caldetail__head"><Icon name="calendar" size={15} stroke={2} />{t('familienkalender.sectionEvents')}</h3>
+              {bucket!.events.map((e) => (
+                <div key={e.id} className="hb-caldetail__row">
+                  <Icon name={EVENT_ICON[e.type] ?? 'calendar'} size={14} stroke={2} />
+                  <span className="hb-caldetail__label">
+                    {!e.allDay && e.startTime && (
+                      <span className="hb-muted">
+                        {shortTime(e.startTime)}{e.endTime ? `–${shortTime(e.endTime)}` : ''}{' · '}
+                      </span>
+                    )}
+                    {e.title}
+                    {e.location && <span className="hb-muted"> · {e.location}</span>}
+                  </span>
+                </div>
+              ))}
+            </section>
+          )}
+
           {bucket!.absences.length > 0 && (
             <section className="hb-caldetail__sec">
               <h3 className="hb-caldetail__head"><Icon name="sun" size={15} stroke={2} />{t('familienkalender.sectionAbsence')}</h3>

@@ -2,6 +2,8 @@ package com.homebase.routes
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -15,10 +17,14 @@ import java.time.format.DateTimeFormatter
  *  - all-day events via VALUE=DATE (DTSTART;VALUE=DATE + a DTEND one day later, the exclusive end),
  *  - a DTSTAMP on every VEVENT.
  *
- * We model every entry as an all-day VEVENT (not VTODO): a VTODO renders inconsistently across
+ * Most entries are modelled as an all-day VEVENT (not VTODO): a VTODO renders inconsistently across
  * clients (Apple shows reminders, Google ignores them entirely), whereas an all-day VEVENT shows
  * up as a date banner everywhere — which is exactly what a "what's happening that day" overlay
  * wants. A due todo therefore appears as an all-day event on its due date.
+ *
+ * Real calendar events (the #434 entity) with a clock time are the exception: they get a timed
+ * VEVENT ([addTimedEvent]) with a real DTSTART/DTEND so they show at the right hour, and they are
+ * OPAQUE (busy) rather than TRANSPARENT — they are actual appointments, not background overlays.
  */
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
@@ -103,7 +109,9 @@ internal class ICalBuilder(
         start: LocalDate,
         summary: String,
         description: String? = null,
+        location: String? = null,
         dtStamp: Instant,
+        transparent: Boolean = true,
     ) {
         lines += "BEGIN:VEVENT"
         lines += "UID:${uid}"
@@ -114,7 +122,54 @@ internal class ICalBuilder(
         if (!description.isNullOrBlank()) {
             lines += "DESCRIPTION:${icalEscapeText(description)}"
         }
-        lines += "TRANSP:TRANSPARENT"
+        if (!location.isNullOrBlank()) {
+            lines += "LOCATION:${icalEscapeText(location)}"
+        }
+        lines += "TRANSP:${if (transparent) "TRANSPARENT" else "OPAQUE"}"
+        lines += "END:VEVENT"
+    }
+
+    /**
+     * Adds a timed VEVENT for a real appointment ([date] + clock [start], optional [end]). The
+     * local wall-clock time is resolved at [zone] (the server's zone, matching the rest of the app)
+     * and emitted as UTC instants (`…Z`) — unambiguous on every client without shipping a VTIMEZONE
+     * block. A missing [end] defaults to a one-hour duration. Timed events are OPAQUE (busy).
+     */
+    fun addTimedEvent(
+        uid: String,
+        date: LocalDate,
+        start: LocalTime,
+        end: LocalTime?,
+        summary: String,
+        description: String? = null,
+        location: String? = null,
+        dtStamp: Instant,
+        zone: ZoneId,
+    ) {
+        val startInstant = date.atTime(start).atZone(zone).toInstant()
+        // Derive the end as an *instant* off the start so the default +1h (or any value that would
+        // roll past midnight, e.g. a 23:30 start) advances the day rather than wrapping to an
+        // earlier same-day time — a same-day DTEND < DTSTART would be an invalid interval. An
+        // explicit end is honoured only when strictly after start (the backend guarantees
+        // end >= start on the same date); end <= start falls back to a one-hour block (we never
+        // emit zero-length VEVENTs). Non-existent/ambiguous local times on DST switch days resolve
+        // via ZonedDateTime's default gap/overlap rules.
+        val endInstant = end?.takeIf { it.isAfter(start) }
+            ?.let { date.atTime(it).atZone(zone).toInstant() }
+            ?: startInstant.plusSeconds(3600)
+        lines += "BEGIN:VEVENT"
+        lines += "UID:${uid}"
+        lines += "DTSTAMP:${UTC_STAMP_FORMAT.format(dtStamp)}"
+        lines += "DTSTART:${UTC_STAMP_FORMAT.format(startInstant)}"
+        lines += "DTEND:${UTC_STAMP_FORMAT.format(endInstant)}"
+        lines += "SUMMARY:${icalEscapeText(summary)}"
+        if (!description.isNullOrBlank()) {
+            lines += "DESCRIPTION:${icalEscapeText(description)}"
+        }
+        if (!location.isNullOrBlank()) {
+            lines += "LOCATION:${icalEscapeText(location)}"
+        }
+        lines += "TRANSP:OPAQUE"
         lines += "END:VEVENT"
     }
 

@@ -157,6 +157,59 @@ class CalendarRouteTest {
     }
 
     @Test
+    fun `a timed calendar event appears with a real DTSTART and DTEND`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(6)
+        client.post("/api/v1/events") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Tierarzt","type":"VET","date":"$day","allDay":false,"startTime":"14:30","endTime":"15:00","location":"Praxis Dr. Müller","notes":"Impfung"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:event-"), "event UID missing:\n$body")
+        assertTrue(body.contains("SUMMARY:🐾 Tierarzt"), "event summary/emoji missing:\n$body")
+        assertTrue(body.contains("LOCATION:Praxis Dr. Müller"), "event location missing")
+        assertTrue(body.contains("DESCRIPTION:Impfung"), "event notes missing")
+        // Timed → UTC stamp form (yyyymmddThhmmssZ), not VALUE=DATE; and OPAQUE (busy).
+        assertTrue(body.contains("DTSTART:${day.replace("-", "")}T"), "timed DTSTART missing:\n$body")
+        assertTrue(Regex("DTSTART:\\d{8}T\\d{6}Z").containsMatchIn(body), "DTSTART not a UTC instant")
+        assertTrue(Regex("DTEND:\\d{8}T\\d{6}Z").containsMatchIn(body), "DTEND not a UTC instant")
+        assertTrue(body.contains("TRANSP:OPAQUE"), "timed event should be OPAQUE (busy)")
+    }
+
+    @Test
+    fun `an all-day calendar event appears as a date banner`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(7)
+        client.post("/api/v1/events") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Omas Geburtstag","type":"BIRTHDAY","date":"$day","allDay":true}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("SUMMARY:🎂 Omas Geburtstag"), "all-day event summary missing:\n$body")
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${day.replace("-", "")}"), "all-day DTSTART missing")
+    }
+
+    @Test
+    fun `a non-all-day event without a start time falls back to a date banner`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(8)
+        // allDay=false but no time given — the feed must render a date banner, not a timed VEVENT.
+        client.post("/api/v1/events") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Ganztägig ohne Zeit","type":"OTHER","date":"$day","allDay":false}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("SUMMARY:📌 Ganztägig ohne Zeit"), "event summary missing:\n$body")
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${day.replace("-", "")}"), "expected an all-day banner:\n$body")
+    }
+
+    @Test
     fun `a todo in the other users private list does not leak into the feed`() = testApplication {
         configureTestApplication()
         val bobToken = loginAndGetToken("bob", "password456")
