@@ -710,7 +710,7 @@ export const de = {
     recurringApplies: 'Änderungen greifen ab dem nächsten geplanten Lauf.',
     // Todo-Erinnerungen (#429 Phase 2a) — sofortige Erinnerung über Telegram, sobald eine Aufgabe fällig ist.
     remindersTitle: 'Aufgaben-Erinnerungen',
-    remindersHint: 'Sofortige Erinnerung über Telegram, wenn eine Aufgabe mit Uhrzeit fällig ist (optional mit Vorlauf).',
+    remindersHint: 'Sofortige Erinnerung über Telegram und/oder Browser, wenn eine Aufgabe mit Uhrzeit fällig ist (optional mit Vorlauf).',
     remindersEnabled: 'Erinnerungen senden',
     remindersQuietStart: 'Ruhezeit ab',
     remindersQuietEnd: 'Ruhezeit bis',
@@ -718,6 +718,17 @@ export const de = {
     remindersQuietIncomplete: 'Ruhezeit braucht beide Uhrzeiten (oder beide leer).',
     remindersSaved: 'Gespeichert',
     remindersSaveFailed: 'Einstellung konnte nicht gespeichert werden.',
+    // Browser-Benachrichtigungen (#429 Phase 2b) — Web Push pro Gerät.
+    pushTitle: 'Browser-Benachrichtigungen',
+    pushHint: 'Aufgaben-Erinnerungen direkt als Benachrichtigung in diesem Browser empfangen.',
+    pushEnable: 'Auf diesem Gerät aktivieren',
+    pushDisable: 'Auf diesem Gerät deaktivieren',
+    pushEnabled: 'Aktiviert',
+    pushDisabled: 'Deaktiviert.',
+    pushDenied: 'Benachrichtigungen wurden blockiert. Bitte in den Browser-Einstellungen für diese Seite erlauben.',
+    pushUnavailable: 'Web Push ist auf dem Server nicht konfiguriert (kein VAPID-Schlüssel).',
+    pushError: 'Konnte nicht aktiviert werden. Bitte erneut versuchen.',
+    pushDeviceNote: 'Gilt nur für diesen Browser/dieses Gerät — auf jedem Gerät einzeln aktivieren.',
     // Aufgaben-Unterseite (#356): haushaltsweite Anzeige-Optionen für Aufgaben.
     todos: 'Aufgaben',
     // „Erledigt"-Fenster (#356, Folge aus #340): wie viele Tage die Erledigt-Historie zeigt,

@@ -10,6 +10,7 @@ import com.homebase.routes.eventRoutes
 import com.homebase.routes.healthRoutes
 import com.homebase.routes.mealPlanRoutes
 import com.homebase.routes.noteRoutes
+import com.homebase.routes.pushRoutes
 import com.homebase.routes.recipeRoutes
 import com.homebase.routes.shoppingRoutes
 import com.homebase.routes.shoppingTemplateRoutes
@@ -50,6 +51,9 @@ fun Application.configureRouting() {
     // How many trusted reverse-proxy hops sit in front of the backend; used to pick the real
     // client IP out of X-Forwarded-For for login throttling (prod: DSM + nginx = 2). See issue #8.
     val trustedProxyCount = environment.config.propertyOrNull("app.trustedProxyCount")?.getString()?.toIntOrNull() ?: 2
+    // VAPID public key for browser Web Push (#429 Phase 2b); null/blank ⇒ web push dormant and
+    // GET /push/vapid-public-key reports 404 so the client hides its enable control.
+    val vapidPublicKey = environment.config.propertyOrNull("webpush.publicKey")?.getString()
     val loginThrottler = LoginThrottler()
     verifyUploadDirWritable(imageConfig.uploadDir)
     sweepStaleImageUploads(imageConfig).takeIf { it > 0 }?.let {
@@ -63,6 +67,8 @@ fun Application.configureRouting() {
                 configRoutes(householdName, digestDefaultTime, telegramEnabled, recurringDefaultTime, morningDigestDefaultTime)
                 userRoutes()
                 userPrefsRoutes()
+                // Browser Web Push subscribe/unsubscribe + VAPID public key (#429 Phase 2b).
+                pushRoutes(vapidPublicKey)
                 todoRoutes()
                 // Registered before shoppingRoutes so the static /shopping/templates segment is
                 // unambiguous against /shopping/{id} (Ktor prioritises constant over parameter

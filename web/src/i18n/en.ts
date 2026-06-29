@@ -711,7 +711,7 @@ export const en: Messages = {
     recurringApplies: 'Changes take effect from the next scheduled run.',
     // Todo reminders (#429 Phase 2a) — an immediate Telegram reminder when a timed task is due.
     remindersTitle: 'Task reminders',
-    remindersHint: 'An immediate Telegram reminder when a task with a time is due (optionally ahead of time).',
+    remindersHint: 'An immediate reminder via Telegram and/or your browser when a task with a time is due (optionally ahead of time).',
     remindersEnabled: 'Send reminders',
     remindersQuietStart: 'Quiet hours from',
     remindersQuietEnd: 'Quiet hours until',
@@ -719,6 +719,17 @@ export const en: Messages = {
     remindersQuietIncomplete: 'Quiet hours need both times (or both empty).',
     remindersSaved: 'Saved',
     remindersSaveFailed: 'Setting could not be saved.',
+    // Browser notifications (#429 Phase 2b) — Web Push, per device.
+    pushTitle: 'Browser notifications',
+    pushHint: 'Receive task reminders as a notification directly in this browser.',
+    pushEnable: 'Enable on this device',
+    pushDisable: 'Disable on this device',
+    pushEnabled: 'Enabled',
+    pushDisabled: 'Disabled.',
+    pushDenied: 'Notifications are blocked. Please allow them for this site in your browser settings.',
+    pushUnavailable: 'Web push is not configured on the server (no VAPID key).',
+    pushError: 'Could not enable. Please try again.',
+    pushDeviceNote: 'Applies only to this browser/device — enable it separately on each device.',
     // Aufgaben-Unterseite (#356): household-wide display options for tasks.
     todos: 'Tasks',
     // "Done" window (#356, follows #340): how many days the done history shows before it's capped.

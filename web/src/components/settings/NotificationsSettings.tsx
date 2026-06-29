@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, safeFetch } from '../../api'
 import { errorText } from '../../i18n'
+import { disablePush, enablePush, isSubscribedHere, pushSupported } from '../../lib/webpush'
 import { Icon } from '../../ui/Icon'
 import { Button, Card, Checkbox, Field, TextInput } from '../../ui/primitives'
 
@@ -36,6 +37,7 @@ export function NotificationsSettings({ token, onLogout }: { token: string; onLo
         hint={t('settings.digestHint')}
       />
       <RemindersCard token={token} onLogout={onLogout} />
+      <BrowserPushCard token={token} />
       <RecurringCard token={token} onLogout={onLogout} />
     </div>
   )
@@ -279,6 +281,76 @@ function RemindersCard({ token, onLogout }: { token: string; onLogout: () => voi
       <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t('settings.remindersQuietHint')}</p>
       {quietIncomplete && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{t('settings.remindersQuietIncomplete')}</p>}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{error}</p>}
+    </Card>
+  )
+}
+
+// Browser Web Push opt-in (#429 Phase 2b). PER DEVICE, not household-wide: the subscription lives
+// in this browser, so the toggle reflects/controls only the current device (the hint says so).
+// "Enable" runs the full flow (permission prompt → PushManager.subscribe → POST /push/subscribe);
+// "disable" unsubscribes + DELETEs. The card hides itself when the browser can't do push at all,
+// and shows an inactive note when the server has no VAPID key configured.
+function BrowserPushCard({ token }: { token: string }) {
+  const { t } = useTranslation()
+  const supported = pushSupported()
+  const [subscribed, setSubscribed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'enabled' | 'disabled' | 'denied' | 'unavailable' | 'error'>('idle')
+
+  useEffect(() => {
+    let alive = true
+    if (supported) isSubscribedHere().then((s) => { if (alive) setSubscribed(s) })
+    return () => { alive = false }
+  }, [supported])
+
+  // The browser lacks the APIs (old Safari / insecure context) — nothing actionable, hide the card.
+  if (!supported) return null
+
+  const enable = async () => {
+    setBusy(true)
+    setStatus('idle')
+    const result = await enablePush(token)
+    setBusy(false)
+    if (result === 'ok') { setSubscribed(true); setStatus('enabled') }
+    else if (result === 'denied') setStatus('denied')
+    else if (result === 'disabled') setStatus('unavailable')
+    else setStatus('error')
+  }
+
+  const disable = async () => {
+    setBusy(true)
+    setStatus('idle')
+    const result = await disablePush(token)
+    setBusy(false)
+    setSubscribed(false)
+    setStatus(result === 'ok' ? 'disabled' : 'error')
+  }
+
+  return (
+    <Card className="hb-card--pad">
+      <div className="hb-cardhead">
+        <div>
+          <h3>{t('settings.pushTitle')}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.pushHint')}</p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+        {subscribed ? (
+          <Button variant="ghost" onClick={disable} disabled={busy}>{t('settings.pushDisable')}</Button>
+        ) : (
+          <Button onClick={enable} disabled={busy}>{t('settings.pushEnable')}</Button>
+        )}
+        {status === 'enabled' && (
+          <span className="hb-muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Icon name="check" size={15} stroke={2.4} /> {t('settings.pushEnabled')}
+          </span>
+        )}
+        {status === 'disabled' && <span className="hb-muted">{t('settings.pushDisabled')}</span>}
+      </div>
+      {status === 'denied' && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{t('settings.pushDenied')}</p>}
+      {status === 'unavailable' && <p className="hb-muted" style={{ margin: '8px 0 0', fontSize: 13 }}>{t('settings.pushUnavailable')}</p>}
+      {status === 'error' && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{t('settings.pushError')}</p>}
+      <p className="hb-muted" style={{ margin: '10px 0 0', fontSize: 13 }}>{t('settings.pushDeviceNote')}</p>
     </Card>
   )
 }
