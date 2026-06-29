@@ -15,9 +15,11 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.util.UUID
+import com.homebase.reminder.VapidWebPushSender
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class WebPushNotifierTest {
@@ -111,5 +113,16 @@ class WebPushNotifierTest {
 
         assertEquals(listOf("Erinnerung"), telegramLike.messages)
         assertEquals(listOf("Erinnerung"), webPushLike.messages)
+    }
+
+    @Test
+    fun `a malformed VAPID key throws an Exception so boot wiring can catch and degrade`() {
+        // PushService validates the keypair eagerly in VapidWebPushSender's constructor. The boot
+        // wiring (configureTodoReminders) catches Exception — not Throwable — so a typo'd key disables
+        // only web push instead of crash-looping the whole backend, while a real class-loading Error
+        // (broken fat-jar packaging) still propagates. This pins that a bad key surfaces as Exception.
+        assertFailsWith<Exception> {
+            VapidWebPushSender("not-a-valid-key", "also-not-valid", "mailto:test@example.com")
+        }
     }
 }

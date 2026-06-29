@@ -95,8 +95,17 @@ private fun Application.configureTodoReminders(telegramClient: com.homebase.dige
     val vapidPrivate = config.propertyOrNull("webpush.privateKey")?.getString()
     val vapidSubject = config.propertyOrNull("webpush.subject")?.getString()
     if (!vapidPublic.isNullOrBlank() && !vapidPrivate.isNullOrBlank() && !vapidSubject.isNullOrBlank()) {
-        notifiers += WebPushNotifier(VapidWebPushSender(vapidPublic, vapidPrivate, vapidSubject))
-        log.info("Web Push enabled for todo reminders (VAPID configured)")
+        // PushService validates the VAPID keypair eagerly in its constructor — a malformed key throws
+        // IllegalArgumentException. Catch *Exception* (not Throwable) so a typo'd key only disables web
+        // push (degrade to Telegram-only) instead of crash-looping the whole backend at boot. A genuine
+        // packaging/class-loading failure (NoClassDefFoundError etc.) is an Error and still propagates,
+        // so the fat-jar BC smoke test stays meaningful.
+        try {
+            notifiers += WebPushNotifier(VapidWebPushSender(vapidPublic, vapidPrivate, vapidSubject))
+            log.info("Web Push enabled for todo reminders (VAPID configured)")
+        } catch (e: Exception) {
+            log.error("Web Push disabled: invalid VAPID configuration (keys present but rejected)", e)
+        }
     } else {
         log.info("Web Push disabled for todo reminders (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
     }
