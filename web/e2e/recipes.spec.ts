@@ -304,11 +304,16 @@ test.describe('Recipes', () => {
     // both ingredients preselected → "2 hinzufügen"
     await sheet.getByRole('button', { name: /hinzufügen/ }).click()
 
-    // toast confirms the add, then the scaled, unit-labelled items show on the list
+    // toast confirms the add, then the scaled, unit-labelled items show on the list.
+    // Since the #440 overhaul the shopping view splits each item into a name tile + a
+    // separate quantity-detail span, so "400 g Mehl" is no longer one text node — assert
+    // on the tile carrying the name, that it also shows the scaled "<amount> <unit>" detail.
     await expect(page.getByText(/hinzugefügt/)).toBeVisible()
     await page.getByRole('button', { name: 'Einkaufsliste' }).click()
-    await expect(page.getByText('400 g Mehl')).toBeVisible()
-    await expect(page.getByText('1000 ml Milch')).toBeVisible()
+    const mehl = page.locator('.hb-tile, .hb-row').filter({ hasText: 'Mehl' })
+    await expect(mehl).toContainText('400 g')
+    const milch = page.locator('.hb-tile, .hb-row').filter({ hasText: 'Milch' })
+    await expect(milch).toContainText('1000 ml')
   })
 
   test('imports a recipe from a URL into the prefilled editor (#430)', async ({ page }) => {
