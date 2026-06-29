@@ -50,6 +50,23 @@ data class RecurringConfigResponse(val time: String)
 @Serializable
 data class UpdateRecurringRequest(val time: String)
 
+// Todo reminders config (#429 Phase 2a). `enabled` (default true) + an optional quiet-hours
+// window ("HH:mm" bounds, both or neither); during the window reminders are held. The PUT mirrors
+// the response; quietStart/quietEnd null/blank clears the window. encodeDefaults=false omits nulls.
+@Serializable
+data class RemindersConfigResponse(
+    val enabled: Boolean,
+    val quietStart: String? = null,
+    val quietEnd: String? = null,
+)
+
+@Serializable
+data class UpdateRemindersRequest(
+    val enabled: Boolean,
+    val quietStart: String? = null,
+    val quietEnd: String? = null,
+)
+
 // "Erledigt"-history window length in calendar days (#356, follows #340). Household-wide,
 // stored in app_settings; the clients read it (default 14 when unset) and apply it to the
 // Erledigt tab / done-section. Mirrors the recurring-time single-value shape. The per-device

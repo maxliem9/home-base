@@ -708,6 +708,16 @@ export const de = {
     recurringSaved: 'Gespeichert',
     recurringSaveFailed: 'Uhrzeit konnte nicht gespeichert werden.',
     recurringApplies: 'Änderungen greifen ab dem nächsten geplanten Lauf.',
+    // Todo-Erinnerungen (#429 Phase 2a) — sofortige Erinnerung über Telegram, sobald eine Aufgabe fällig ist.
+    remindersTitle: 'Aufgaben-Erinnerungen',
+    remindersHint: 'Sofortige Erinnerung über Telegram, wenn eine Aufgabe mit Uhrzeit fällig ist (optional mit Vorlauf).',
+    remindersEnabled: 'Erinnerungen senden',
+    remindersQuietStart: 'Ruhezeit ab',
+    remindersQuietEnd: 'Ruhezeit bis',
+    remindersQuietHint: 'In der Ruhezeit werden keine Erinnerungen gesendet; fällige Erinnerungen kommen danach nach.',
+    remindersQuietIncomplete: 'Ruhezeit braucht beide Uhrzeiten (oder beide leer).',
+    remindersSaved: 'Gespeichert',
+    remindersSaveFailed: 'Einstellung konnte nicht gespeichert werden.',
     // Aufgaben-Unterseite (#356): haushaltsweite Anzeige-Optionen für Aufgaben.
     todos: 'Aufgaben',
     // „Erledigt"-Fenster (#356, Folge aus #340): wie viele Tage die Erledigt-Historie zeigt,

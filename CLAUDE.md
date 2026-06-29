@@ -311,6 +311,28 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   stillen Tag feuern, wenn nur diese Vorschau Inhalt hat (#182). Web-UI fertig; Android-Spiegelung
   der Digest-Einstellungen offen (#189).
 
+## Todo-Erinnerungen (#429 Phase 2a)
+Sofortige, per-Todo-Erinnerung über **denselben Telegram-Bot** wie die Digests — die erste
+*unmittelbare* Benachrichtigung (Digest = nur 2× täglich). Ruht ebenfalls ohne TELEGRAM_*.
+- **Scheduler** (`reminder/ReminderScheduler` → `ReminderService`): enger Tick (60 s, nicht
+  täglich wie der Digest), damit eine Erinnerung nahe der Fälligkeitszeit feuert. Liest seine
+  Settings pro Tick neu (kein Neustart).
+- **Opt-in über die Uhrzeit:** ein Todo erinnert nur, wenn es eine **Fälligkeits-Uhrzeit**
+  (`due_time`, #429 Phase 1) trägt — rein datierte Todos pingen nicht. Feuerzeitpunkt =
+  `due_time` − optionaler `reminder_lead_minutes`. Reine Logik in `ReminderLogic` (unit-getestet).
+- **Fire-once:** `todos.reminder_sent_at` (V37) wird beim Senden **oder** Verwerfen gestempelt;
+  vor dem Senden gesetzt (Fire-once schlägt Best-effort-Zustellung — lieber eine verlorene als eine
+  doppelte). Ein zu altes (> 12 h `CATCHUP`) Reminder wird **still verworfen** (kein Spam nach
+  Deploy/Downtime). Wird das Fälligkeits-Moment editiert, **re-armt** der PUT (`reminder_sent_at`
+  zurück auf NULL). Wiederkehrende Nachfolger erben NULL → eigene Erinnerung.
+- **In-app konfigurierbar** (Einstellungen → Benachrichtigungen, `app_settings`, pro Tick gelesen):
+  An/Aus (`REMINDERS_ENABLED`, unset = an) + optionale **Ruhezeiten** (`REMINDER_QUIET_START/END`,
+  „HH:mm", paarweise; in der Ruhezeit wird der ganze Pass übersprungen, Erinnerungen kommen danach
+  nach). Endpunkt `/config/reminders` (GET/PUT). **Privacy wie der Morgen-Digest:** ein gemeinsamer
+  Chat, kein Pro-Listen-Sichtbarkeitsfilter.
+- Web-UI fertig (`NotificationsSettings` → „Aufgaben-Erinnerungen"-Karte). Offen: Web Push (Phase
+  2b) + Android-Notifications (Phase 2c), beide bauen auf diesem Feuermodell auf.
+
 ## Zeiterfassung-Domänenmodell
 Project: id, name, color (Hex), archived, created_by, created_at
 TimeEntry: id, project_id, user_id, started_at, stopped_at?,

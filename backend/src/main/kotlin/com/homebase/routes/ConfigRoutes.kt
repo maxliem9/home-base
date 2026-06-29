@@ -7,10 +7,12 @@ import com.homebase.model.DigestConfigResponse
 import com.homebase.model.DoneWindowConfigResponse
 import com.homebase.model.ErrorResponse
 import com.homebase.model.RecurringConfigResponse
+import com.homebase.model.RemindersConfigResponse
 import com.homebase.model.UpdateConfigRequest
 import com.homebase.model.UpdateDigestRequest
 import com.homebase.model.UpdateDoneWindowRequest
 import com.homebase.model.UpdateRecurringRequest
+import com.homebase.model.UpdateRemindersRequest
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -110,6 +112,37 @@ fun Route.configRoutes(
         call.respond(RecurringConfigResponse(time = normalized))
     }
 
+    // Todo reminders (#429 Phase 2a): on/off + an optional quiet-hours window, read each tick by
+    // the reminder scheduler. An unset enabled key means on (like the digests).
+    get("/config/reminders") {
+        call.respond(currentRemindersConfig())
+    }
+
+    put("/config/reminders") {
+        val req = call.receive<UpdateRemindersRequest>()
+        // quiet hours: accept both bounds or neither (a single bound is meaningless). Blank clears.
+        val start = req.quietStart?.trim()?.takeIf { it.isNotEmpty() }
+        val end = req.quietEnd?.trim()?.takeIf { it.isNotEmpty() }
+        if ((start == null) != (end == null)) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_QUIET_HOURS", "quietStart and quietEnd must be set together (or both empty)"),
+            )
+        }
+        val normStart = start?.let { runCatching { LocalTime.parse(it) }.getOrNull()?.format(HH_MM) }
+        val normEnd = end?.let { runCatching { LocalTime.parse(it) }.getOrNull()?.format(HH_MM) }
+        if ((start != null && normStart == null) || (end != null && normEnd == null)) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_TIME", "quiet hours must be valid HH:mm"),
+            )
+        }
+        upsertSetting(AppSettingsTable.REMINDERS_ENABLED, req.enabled.toString())
+        upsertSetting(AppSettingsTable.REMINDER_QUIET_START, normStart ?: "")
+        upsertSetting(AppSettingsTable.REMINDER_QUIET_END, normEnd ?: "")
+        call.respond(currentRemindersConfig())
+    }
+
     // "Erledigt"-history window length in days (#356). Single-value config like the recurring
     // time; the clients read it each load (falling back to the default when unset) and apply it
     // to the Erledigt tab / done-section. A malformed/out-of-range stored value falls back to the
@@ -138,6 +171,14 @@ fun Route.configRoutes(
 private fun readDoneWindowDays(): Int {
     val stored = readSetting(AppSettingsTable.DONE_WINDOW_DAYS)?.toIntOrNull() ?: return DONE_WINDOW_DEFAULT_DAYS
     return stored.coerceIn(DONE_WINDOW_MIN_DAYS, DONE_WINDOW_MAX_DAYS)
+}
+
+/** Current reminders config: enabled (unset = on) + the optional quiet-hours window (#429). */
+private fun currentRemindersConfig(): RemindersConfigResponse {
+    val enabled = readSetting(AppSettingsTable.REMINDERS_ENABLED)?.equals("false", ignoreCase = true) != true
+    val start = readSetting(AppSettingsTable.REMINDER_QUIET_START)?.takeIf { it.isNotBlank() }
+    val end = readSetting(AppSettingsTable.REMINDER_QUIET_END)?.takeIf { it.isNotBlank() }
+    return RemindersConfigResponse(enabled = enabled, quietStart = start, quietEnd = end)
 }
 
 /**
