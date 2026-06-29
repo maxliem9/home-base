@@ -89,6 +89,10 @@ object TodosTable : Table("todos") {
     val status = varchar("status", 20)
     val assignee = varchar("assignee", 50).nullable()
     val dueDate = date("due_date").nullable()
+    // Optional time-of-day on the due date (#429) + optional reminder lead in minutes. Both require
+    // a due_date (DB CHECK); reminder_lead is plumbed for the later notification work.
+    val dueTime = time("due_time").nullable()
+    val reminderLeadMinutes = integer("reminder_lead_minutes").nullable()
     val priority = varchar("priority", 10).nullable()
     val listId = uuid("list_id").nullable()
     // Recurrence: frequency DAILY|WEEKLY|MONTHLY + every-N interval; both NULL = one-off.

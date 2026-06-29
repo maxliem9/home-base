@@ -746,7 +746,7 @@ export class MockApi {
       return this.json(route, this.todos)
     }
     if (path.endsWith('/todos') && method === 'POST') {
-      const { title, listId, assignee, dueDate, priority, description } = JSON.parse(req.postData() ?? '{}')
+      const { title, listId, assignee, dueDate, dueTime, reminderLeadMinutes, priority, description } = JSON.parse(req.postData() ?? '{}')
       // Mirror TodoRoutes.kt: an assignee or due date on create makes the todo PLANNED (the
       // quick-add "all-at-once" flow); a bare title — or only description/priority — stays INBOX.
       const status = assignee || dueDate ? 'PLANNED' : 'INBOX'
@@ -757,6 +757,9 @@ export class MockApi {
         listId: listId || undefined,
         assignee: assignee || undefined,
         dueDate: dueDate || undefined,
+        // a time/reminder is meaningless without a date (mirror the backend cascade)
+        dueTime: (dueDate && dueTime) || undefined,
+        reminderLeadMinutes: (dueDate && reminderLeadMinutes) || undefined,
         priority: priority || undefined,
         description: description || undefined,
         subtasks: [],
@@ -779,6 +782,11 @@ export class MockApi {
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
         const updated: Todo = { ...this.todos[idx], ...body }
         if (body.listId === '') updated.listId = undefined
+        // #265 clearing: "" clears the time; a negative reminder clears it (mirror the backend)
+        if (body.dueTime === '') updated.dueTime = undefined
+        if (typeof body.reminderLeadMinutes === 'number' && body.reminderLeadMinutes < 0) updated.reminderLeadMinutes = undefined
+        // a time/reminder is meaningless without a date — clearing the date cascades them away
+        if (body.dueDate === '') { updated.dueDate = undefined; updated.dueTime = undefined; updated.reminderLeadMinutes = undefined }
         if (body.status === 'DONE') updated.doneAt = new Date().toISOString()
         this.todos[idx] = updated
         return this.json(route, updated)

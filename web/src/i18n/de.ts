@@ -208,6 +208,7 @@ export const de = {
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
     dueDate: 'Fällig am',
+    dueTime: 'Uhrzeit',
     priority: 'Priorität',
     priorityNone: '—',
     priorityLow: 'Niedrig',

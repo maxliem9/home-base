@@ -1136,4 +1136,127 @@ class TodoRouteTest {
         ).jsonArray
         assertEquals(1, todos.size)
     }
+
+    // --- due time + reminder lead (#429) -----------------------------------
+
+    @Test
+    fun `POST todo stores dueTime and reminderLeadMinutes`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Zahnarzt","dueDate":"2026-07-01","dueTime":"14:30","reminderLeadMinutes":30}""")
+        }
+        assertEquals(HttpStatusCode.Created, res.status)
+        val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals("14:30", body["dueTime"]?.jsonPrimitive?.content)
+        assertEquals(30, body["reminderLeadMinutes"]?.jsonPrimitive?.int)
+        assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `POST dueTime without a dueDate returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Ohne Datum","dueTime":"09:00"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `POST malformed dueTime returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Kaputt","dueDate":"2026-07-01","dueTime":"25:99"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `POST negative reminderLeadMinutes returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Neg","dueDate":"2026-07-01","reminderLeadMinutes":-5}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
+    fun `PUT clearing dueTime with empty string and reminder with negative`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin","dueDate":"2026-07-01","dueTime":"08:15","reminderLeadMinutes":10}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        val updated = client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"dueTime":"","reminderLeadMinutes":-1}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        // encodeDefaults=false omits cleared (null) fields entirely
+        assertEquals(null, body["dueTime"])
+        assertEquals(null, body["reminderLeadMinutes"])
+        // dueDate untouched
+        assertEquals("2026-07-01", body["dueDate"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `PUT clearing dueDate cascades dueTime and reminder to null`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Termin","assignee":"bob","dueDate":"2026-07-01","dueTime":"08:15","reminderLeadMinutes":10}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        // clear only the date — the time + reminder are meaningless without it and must cascade away
+        val updated = client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"dueDate":""}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
+        assertEquals(null, body["dueDate"])
+        assertEquals(null, body["dueTime"])
+        assertEquals(null, body["reminderLeadMinutes"])
+    }
+
+    @Test
+    fun `completing a recurring todo carries dueTime and reminder to the successor`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val created = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Müll raus","dueDate":"2026-07-01","dueTime":"07:00","reminderLeadMinutes":15,"recurrence":{"freq":"WEEKLY","interval":1}}""")
+        }
+        val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+
+        client.put("/api/v1/todos/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"status":"DONE"}""")
+        }
+
+        // the successor is the still-recurring open instance
+        val todos = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray.map { it.jsonObject }
+        val successor = todos.single { it["recurrence"] != null && it["status"]?.jsonPrimitive?.content != "DONE" }
+        assertEquals("07:00", successor["dueTime"]?.jsonPrimitive?.content)
+        assertEquals(15, successor["reminderLeadMinutes"]?.jsonPrimitive?.int)
+    }
 }

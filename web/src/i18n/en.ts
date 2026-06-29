@@ -211,6 +211,7 @@ export const en: Messages = {
     assignee: 'Assignee',
     assigneeNone: 'Nobody',
     dueDate: 'Due on',
+    dueTime: 'Time',
     priority: 'Priority',
     priorityNone: '—',
     priorityLow: 'Low',
