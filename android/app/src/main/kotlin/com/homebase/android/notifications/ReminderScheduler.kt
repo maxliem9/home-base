@@ -28,10 +28,16 @@ class ReminderScheduler(
     private val zone: ZoneId = ZoneId.systemDefault(),
     private val clock: () -> LocalDateTime = { LocalDateTime.now(zone) },
 ) {
-    private val workManager = WorkManager.getInstance(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val workManager = WorkManager.getInstance(appContext)
 
-    /** Todo ids we last scheduled work for — lets us cancel work for todos that dropped out. */
-    private val scheduled = mutableSetOf<String>()
+    // The set of todo ids we last scheduled work for is persisted (not just in-memory): WorkManager
+    // jobs survive process death, so the cancel set must too — otherwise a todo completed/deleted on
+    // another device while this app was killed would leave an orphan job that fires a stale reminder.
+    private val prefs = appContext.getSharedPreferences("reminder_scheduler", Context.MODE_PRIVATE)
+
+    private fun loadScheduled(): Set<String> = prefs.getStringSet(KEY_SCHEDULED, emptySet()).orEmpty()
+    private fun saveScheduled(ids: Set<String>) = prefs.edit().putStringSet(KEY_SCHEDULED, ids).apply()
 
     /**
      * Reconcile the scheduled reminder work with [todos]: (re)enqueue the eligible ones and cancel
@@ -46,8 +52,9 @@ class ReminderScheduler(
         )
         val planIds = plan.mapTo(mutableSetOf()) { it.todoId }
 
-        // Cancel work for todos we'd scheduled before but that fell out of the plan.
-        for (gone in scheduled - planIds) {
+        // Cancel work for todos we'd scheduled before (durably tracked) but that fell out of the
+        // plan — completed/retimed/deleted, even across an app kill since they were scheduled.
+        for (gone in loadScheduled() - planIds) {
             workManager.cancelUniqueWork(workName(gone))
         }
 
@@ -69,15 +76,14 @@ class ReminderScheduler(
             workManager.enqueueUniqueWork(workName(r.todoId), ExistingWorkPolicy.REPLACE, request)
         }
 
-        scheduled.clear()
-        scheduled.addAll(planIds)
+        saveScheduled(planIds)
     }
 
     /** Cancel every scheduled reminder (e.g. on logout). */
     @Synchronized
     fun cancelAll() {
         workManager.cancelAllWorkByTag(WORK_TAG)
-        scheduled.clear()
+        prefs.edit().remove(KEY_SCHEDULED).apply()
     }
 
     private fun TodoDto.toReminderInput() = ReminderInput(
@@ -92,6 +98,9 @@ class ReminderScheduler(
     companion object {
         /** Shared tag on every reminder work request — used for blanket cancel on logout. */
         const val WORK_TAG = "todo_reminder"
+
+        /** Persisted (process-death-durable) set of todo ids we currently hold reminder work for. */
+        private const val KEY_SCHEDULED = "scheduled_ids"
 
         /** Stable unique-work name per todo so REPLACE targets exactly this todo's reminder. */
         fun workName(todoId: String): String = "todo_reminder_$todoId"
