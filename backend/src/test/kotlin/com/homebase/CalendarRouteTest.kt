@@ -194,6 +194,22 @@ class CalendarRouteTest {
     }
 
     @Test
+    fun `a non-all-day event without a start time falls back to a date banner`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(8)
+        // allDay=false but no time given — the feed must render a date banner, not a timed VEVENT.
+        client.post("/api/v1/events") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Ganztägig ohne Zeit","type":"OTHER","date":"$day","allDay":false}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("SUMMARY:📌 Ganztägig ohne Zeit"), "event summary missing:\n$body")
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${day.replace("-", "")}"), "expected an all-day banner:\n$body")
+    }
+
+    @Test
     fun `a todo in the other users private list does not leak into the feed`() = testApplication {
         configureTestApplication()
         val bobToken = loginAndGetToken("bob", "password456")

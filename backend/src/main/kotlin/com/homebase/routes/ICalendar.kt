@@ -147,9 +147,16 @@ internal class ICalBuilder(
         zone: ZoneId,
     ) {
         val startInstant = date.atTime(start).atZone(zone).toInstant()
-        // End must be strictly after start; fall back to +1h when absent or non-positive.
-        val endTime = end?.takeIf { it.isAfter(start) } ?: start.plusHours(1)
-        val endInstant = date.atTime(endTime).atZone(zone).toInstant()
+        // Derive the end as an *instant* off the start so the default +1h (or any value that would
+        // roll past midnight, e.g. a 23:30 start) advances the day rather than wrapping to an
+        // earlier same-day time — a same-day DTEND < DTSTART would be an invalid interval. An
+        // explicit end is honoured only when strictly after start (the backend guarantees
+        // end >= start on the same date); end <= start falls back to a one-hour block (we never
+        // emit zero-length VEVENTs). Non-existent/ambiguous local times on DST switch days resolve
+        // via ZonedDateTime's default gap/overlap rules.
+        val endInstant = end?.takeIf { it.isAfter(start) }
+            ?.let { date.atTime(it).atZone(zone).toInstant() }
+            ?: startInstant.plusSeconds(3600)
         lines += "BEGIN:VEVENT"
         lines += "UID:${uid}"
         lines += "DTSTAMP:${UTC_STAMP_FORMAT.format(dtStamp)}"
