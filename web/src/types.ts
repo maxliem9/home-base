@@ -32,6 +32,10 @@ export interface Todo {
   status: TodoStatus
   assignee?: string
   dueDate?: string
+  // optional time-of-day on the due date, "HH:mm" (#429); reminderLeadMinutes = minutes before due
+  // (data only for now — the notification work comes later)
+  dueTime?: string
+  reminderLeadMinutes?: number
   priority?: TodoPriority
   listId?: string
   recurrence?: Recurrence

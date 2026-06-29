@@ -20,6 +20,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.UUID
 
 private const val TODO_WS_CHANNEL = "todos"
@@ -176,6 +177,8 @@ fun Route.todoRoutes() {
                 status = status,
                 assignee = req.assignee,
                 dueDate = req.dueDate,
+                dueTime = req.dueTime,
+                reminderLeadMinutes = req.reminderLeadMinutes,
                 priority = req.priority,
                 recurrenceFreq = req.recurrence?.freq,
                 recurrenceInterval = req.recurrence?.interval,
@@ -205,6 +208,8 @@ fun Route.todoRoutes() {
                     it[TodosTable.status] = status
                     it[assignee] = req.assignee
                     it[dueDate] = req.dueDate?.let { d -> LocalDate.parse(d) }
+                    it[dueTime] = req.dueTime?.takeIf { t -> t.isNotBlank() }?.let { t -> LocalTime.parse(t) }
+                    it[reminderLeadMinutes] = req.reminderLeadMinutes
                     it[priority] = req.priority
                     it[TodosTable.listId] = listId
                     it[recurrence] = req.recurrence?.freq
@@ -252,6 +257,13 @@ fun Route.todoRoutes() {
                 val nextDescription = if (req.description != null) req.description.ifBlank { null } else existing[TodosTable.description]
                 val nextAssignee = if (req.assignee != null) req.assignee.ifBlank { null } else existing[TodosTable.assignee]
                 val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
+                // due_time follows the #265 string convention; reminder uses negative = clear. Both
+                // are meaningless without a date, so clearing the date cascades them to null (also
+                // keeps the DB CHECKs satisfied).
+                val rawNextDueTime = if (req.dueTime != null) req.dueTime.ifBlank { null } else existing[TodosTable.dueTime]?.toString()
+                val rawNextReminder = if (req.reminderLeadMinutes != null) req.reminderLeadMinutes.takeIf { it >= 0 } else existing[TodosTable.reminderLeadMinutes]
+                val nextDueTime = if (nextDueDate == null) null else rawNextDueTime
+                val nextReminderLead = if (nextDueDate == null) null else rawNextReminder
                 val nextPriority = if (req.priority != null) req.priority.ifBlank { null } else existing[TodosTable.priority]
                 // merge the recurrence rule: absent = unchanged, freq "NONE" = clear, else set/replace
                 val (nextRecFreq, nextRecInterval) = when {
@@ -264,6 +276,8 @@ fun Route.todoRoutes() {
                     status = nextStatus,
                     assignee = nextAssignee,
                     dueDate = nextDueDate,
+                    dueTime = nextDueTime,
+                    reminderLeadMinutes = nextReminderLead,
                     priority = nextPriority,
                     recurrenceFreq = nextRecFreq,
                     recurrenceInterval = nextRecInterval,
@@ -284,6 +298,14 @@ fun Route.todoRoutes() {
                     req.description?.let { _ -> it[description] = nextDescription }
                     req.assignee?.let { _ -> it[assignee] = nextAssignee }
                     req.dueDate?.let { _ -> it[dueDate] = nextDueDate?.let { d -> LocalDate.parse(d) } }
+                    // Re-evaluate due_time/reminder when the request touched the date (cascade clear)
+                    // or the field itself; leave untouched otherwise.
+                    if (req.dueDate != null || req.dueTime != null) {
+                        it[dueTime] = nextDueTime?.let { t -> LocalTime.parse(t) }
+                    }
+                    if (req.dueDate != null || req.reminderLeadMinutes != null) {
+                        it[reminderLeadMinutes] = nextReminderLead
+                    }
                     req.priority?.let { _ -> it[priority] = nextPriority }
                     req.listId?.let { _ -> it[listId] = targetListId }
                     req.recurrence?.let { r ->
@@ -317,6 +339,9 @@ fun Route.todoRoutes() {
                         it[status] = "PLANNED" // always has a dueDate, so PLANNED is valid
                         it[assignee] = nextAssignee
                         it[dueDate] = successorDue
+                        // carry the due time + reminder onto the successor (it keeps its dueDate anchor)
+                        it[dueTime] = nextDueTime?.let { t -> LocalTime.parse(t) }
+                        it[reminderLeadMinutes] = nextReminderLead
                         it[priority] = nextPriority
                         it[listId] = newListId
                         it[recurrence] = nextRecFreq
@@ -625,6 +650,8 @@ private fun validateTodoInput(
     assignee: String?,
     dueDate: String?,
     priority: String?,
+    dueTime: String? = null,
+    reminderLeadMinutes: Int? = null,
     recurrenceFreq: String? = null,
     recurrenceInterval: Int? = null,
 ): ErrorResponse? {
@@ -638,6 +665,23 @@ private fun validateTodoInput(
     if (dueDate != null) {
         runCatching { LocalDate.parse(dueDate) }.getOrElse {
             return ErrorResponse("INVALID_DUE_DATE", "dueDate must be in YYYY-MM-DD format")
+        }
+    }
+    // A time-of-day / reminder is an extra on the due date — both require one and are bounded.
+    if (!dueTime.isNullOrBlank()) {
+        runCatching { LocalTime.parse(dueTime) }.getOrElse {
+            return ErrorResponse("INVALID_DUE_TIME", "dueTime must be in HH:mm format")
+        }
+        if (dueDate.isNullOrBlank()) {
+            return ErrorResponse("INVALID_DUE_TIME", "dueTime requires a dueDate")
+        }
+    }
+    if (reminderLeadMinutes != null) {
+        if (reminderLeadMinutes < 0) {
+            return ErrorResponse("INVALID_REMINDER", "reminderLeadMinutes must be >= 0")
+        }
+        if (dueDate.isNullOrBlank()) {
+            return ErrorResponse("INVALID_REMINDER", "reminderLeadMinutes requires a dueDate")
         }
     }
     // recurrenceFreq/Interval are the *merged* (post-update) values; null means "no recurrence".
@@ -691,6 +735,9 @@ internal fun ResultRow.toTodoDto(): TodoDto {
         status = this[TodosTable.status],
         assignee = this[TodosTable.assignee],
         dueDate = this[TodosTable.dueDate]?.toString(),
+        // LocalTime.toString() is "HH:mm" (or "HH:mm:ss" with seconds) — clients tolerate both.
+        dueTime = this[TodosTable.dueTime]?.toString(),
+        reminderLeadMinutes = this[TodosTable.reminderLeadMinutes],
         priority = this[TodosTable.priority],
         listId = this[TodosTable.listId]?.toString(),
         recurrence = this[TodosTable.recurrence]?.let { RecurrenceDto(it, this[TodosTable.recurrenceInterval] ?: 1) },

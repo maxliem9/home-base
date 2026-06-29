@@ -120,6 +120,10 @@ data class TodoDto(
     val status: String,
     val assignee: String? = null,
     val dueDate: String? = null,
+    // Optional time-of-day on the due date, "HH:mm" (#429). Reminder lead = minutes before due;
+    // plumbed for the later notification work, no scheduler reads it yet.
+    val dueTime: String? = null,
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     val listId: String? = null,
     val recurrence: RecurrenceDto? = null,
@@ -135,6 +139,9 @@ data class CreateTodoRequest(
     val description: String? = null,
     val assignee: String? = null,
     val dueDate: String? = null,
+    // "HH:mm" time-of-day + minutes-before reminder (#429); both require a dueDate.
+    val dueTime: String? = null,
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     val listId: String? = null,
     val recurrence: RecurrenceDto? = null
@@ -148,6 +155,10 @@ data class UpdateTodoRequest(
     // null = unchanged; empty string = clear (set to null); otherwise the new value (#265)
     val assignee: String? = null,
     val dueDate: String? = null,
+    // dueTime: null = unchanged, "" = clear, "HH:mm" = set (#265 convention, like dueDate).
+    val dueTime: String? = null,
+    // reminderLeadMinutes: null = unchanged, negative = clear, >= 0 = set (the int analogue of #265).
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     // null = unchanged; empty string = remove from list; otherwise the target list id
     val listId: String? = null,

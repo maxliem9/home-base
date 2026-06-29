@@ -172,6 +172,8 @@
     <string name="todo_assignee_nobody">Nobody</string>
     <string name="todo_field_due">Due</string>
     <string name="todo_due_pick">Pick a date</string>
+    <string name="todo_field_due_time">Time</string>
+    <string name="todo_due_time_pick">Pick a time</string>
     <string name="todo_field_priority">Priority</string>
     <string name="todo_field_recurrence">Repeat</string>
     <string name="todo_recurrence_none">None</string>

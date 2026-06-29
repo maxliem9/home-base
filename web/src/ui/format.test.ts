@@ -5,6 +5,7 @@ import {
   clockTime,
   dayGroupLabel,
   dueLabel,
+  dueTimeLabel,
   fmtClock,
   fmtDurationShort,
   formatDecimal,
@@ -60,6 +61,21 @@ describe('dueLabel', () => {
     // diff === 7 crosses the boundary into the "far" branch
     expect(dueLabel('2026-06-22')).toEqual({ text: '22. Juni', tone: 'far' })
     expect(dueLabel('2026-07-01')).toEqual({ text: '1. Juli', tone: 'far' })
+  })
+})
+
+describe('dueTimeLabel', () => {
+  it('returns null for absent/blank/malformed input', () => {
+    expect(dueTimeLabel(undefined)).toBeNull()
+    expect(dueTimeLabel('')).toBeNull()
+    expect(dueTimeLabel('nope')).toBeNull()
+  })
+
+  it('normalizes HH:mm and HH:mm:ss to HH:mm', () => {
+    expect(dueTimeLabel('14:30')).toBe('14:30')
+    expect(dueTimeLabel('08:15:00')).toBe('08:15')
+    // a single-digit hour gets zero-padded
+    expect(dueTimeLabel('9:05')).toBe('09:05')
   })
 })
 

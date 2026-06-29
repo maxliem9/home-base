@@ -115,6 +115,17 @@ export function parseLocaleNumber(input: string): number | null {
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
+/**
+ * Normalize a todo's optional due time ("HH:mm" or "HH:mm:ss" from the backend) to "HH:mm" for
+ * display, or null when absent/malformed (#429). Append next to the due-date badge.
+ */
+export function dueTimeLabel(isoTime?: string): string | null {
+  if (!isoTime) return null
+  const m = /^(\d{1,2}):(\d{2})/.exec(isoTime.trim())
+  if (!m) return null
+  return `${pad(Number(m[1]))}:${m[2]}`
+}
+
 /** HH:MM:SS from a number of seconds. */
 export function fmtClock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))

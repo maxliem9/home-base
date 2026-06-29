@@ -24,7 +24,7 @@ import {
   Sheet,
   TextInput,
 } from '../ui/primitives'
-import { dueLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
+import { dueLabel, dueTimeLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
 import { useHouseholdUsers } from '../hooks/useHouseholdUsers'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -112,6 +112,7 @@ interface PlanDraft {
   description: string
   assignee: string
   dueDate: string
+  dueTime: string // "HH:mm" or '' (#429)
   priority: '' | TodoPriority
   listId: string // target list; '' = no list / inbox (#69; move between lists #409)
   listIdOriginal: string // list at open time — only PUT listId on an actual change (#409)
@@ -124,6 +125,7 @@ interface PlanDraft {
 interface QuickAddExtra {
   assignee?: string
   dueDate?: string
+  dueTime?: string
   priority?: TodoPriority
   description?: string
 }
@@ -356,6 +358,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
           ...(active ? { listId: active.id } : {}),
           ...(extra.assignee ? { assignee: extra.assignee } : {}),
           ...(extra.dueDate ? { dueDate: extra.dueDate } : {}),
+          ...(extra.dueTime ? { dueTime: extra.dueTime } : {}),
           ...(extra.priority ? { priority: extra.priority } : {}),
           ...(extra.description ? { description: extra.description } : {}),
         }),
@@ -406,6 +409,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       description: plan.description.trim(),
       assignee: plan.assignee.trim() || undefined,
       dueDate: plan.dueDate || undefined,
+      // sent every save: '' clears the time (#265), a value sets it. Force-clear when there's no
+      // date — a time without a date is meaningless and the backend would reject it.
+      dueTime: plan.dueDate ? plan.dueTime : '',
       priority: plan.priority || undefined,
       // List move (#409): only send when the pick differs from the list at open time,
       // so an untouched picker never clobbers a concurrent partner move. Backend #265
@@ -692,7 +698,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
       onToggleDone={() => toggleDone(todo)}
       onToggleExpand={() => toggleExpand(todo.id)}
-      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', priority: todo.priority ?? '', listId: todo.listId ?? '', listIdOriginal: todo.listId ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', dueTime: dueTimeLabel(todo.dueTime) ?? '', priority: todo.priority ?? '', listId: todo.listId ?? '', listIdOriginal: todo.listId ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
       onDelete={() => deleteTodo(todo.id)}
       onToggleSub={(s) => toggleSubtask(todo.id, s)}
       onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
@@ -914,9 +920,15 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
             <Field label={t('todos.assignee')} group>
               <AssigneePicker value={plan.assignee} users={householdUsers} onChange={(v) => setPlan({ ...plan, assignee: v })} />
             </Field>
-            <Field label={t('todos.dueDate')}>
-              <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
-            </Field>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label={t('todos.dueDate')}>
+                <TextInput type="date" value={plan.dueDate} onChange={(v) => setPlan({ ...plan, dueDate: v })} />
+              </Field>
+              {/* Optional time-of-day (#429) — only meaningful with a date, so disabled without one. */}
+              <Field label={t('todos.dueTime')}>
+                <TextInput type="time" value={plan.dueTime} disabled={!plan.dueDate} onChange={(v) => setPlan({ ...plan, dueTime: v })} />
+              </Field>
+            </div>
             <Field label={t('todos.priority')} group>
               {/* Chip row (#407) — same affordance as the quick-add Details panel; clicking the active
                   chip toggles priority back to none. Replaces the former raw LOW/MEDIUM/HIGH <Select>. */}
@@ -1033,11 +1045,12 @@ function QuickAdd({
   const [open, setOpen] = useState(false)
   const [assignee, setAssignee] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [dueTime, setDueTime] = useState('')
   const [priority, setPriority] = useState<'' | TodoPriority>('')
   const [description, setDescription] = useState('')
 
   // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
-  const hasDetails = !!(assignee || dueDate || priority || description.trim())
+  const hasDetails = !!(assignee || dueDate || dueTime || priority || description.trim())
 
   // Clear the detail fields after a successful capture but KEEP the panel open, so several
   // planned todos can be entered in a row without re-opening Details (#408). Esc and the
@@ -1045,6 +1058,7 @@ function QuickAdd({
   const clearDetails = () => {
     setAssignee('')
     setDueDate('')
+    setDueTime('')
     setPriority('')
     setDescription('')
   }
@@ -1060,6 +1074,8 @@ function QuickAdd({
     const ok = await onAdd(trimmed, {
       assignee: assignee || undefined,
       dueDate: dueDate || undefined,
+      // a time without a date is meaningless (and rejected server-side) — only carry it with a date
+      dueTime: (dueDate && dueTime) || undefined,
       priority: priority || undefined,
       description: description.trim() || undefined,
     })
@@ -1121,12 +1137,15 @@ function QuickAdd({
               style={{ resize: 'vertical', lineHeight: 1.5 }}
             />
           </Field>
+          <Field label={t('todos.assignee')} group>
+            <AssigneePicker value={assignee} users={users} onChange={setAssignee} />
+          </Field>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <Field label={t('todos.assignee')} group>
-              <AssigneePicker value={assignee} users={users} onChange={setAssignee} />
-            </Field>
             <Field label={t('todos.dueDate')}>
               <TextInput type="date" value={dueDate} onChange={setDueDate} />
+            </Field>
+            <Field label={t('todos.dueTime')}>
+              <TextInput type="time" value={dueTime} disabled={!dueDate} onChange={setDueTime} />
             </Field>
           </div>
           <Field label={t('todos.priority')} group>
@@ -1181,6 +1200,7 @@ function TodoRow({
 }) {
   const { t } = useTranslation()
   const due = dueLabel(todo.dueDate)
+  const dueTime = dueTimeLabel(todo.dueTime)
   const subs = todo.subtasks ?? []
   const doneCount = subs.filter((s) => s.done).length
   const isDone = todo.status === 'DONE'
@@ -1222,7 +1242,7 @@ function TodoRow({
             {subs.length > 0 && <span className="hb-subtoggle__c">{doneCount}/{subs.length}</span>}
             <Icon name="chevronDown" size={13} stroke={2.4} className="hb-subtoggle__chev" />
           </button>
-          {due && !isDone && <Badge tone={due.tone}>{due.text}</Badge>}
+          {due && !isDone && <Badge tone={due.tone}>{dueTime ? `${due.text} · ${dueTime}` : due.text}</Badge>}
           {todo.assignee ? (
             <Avatar user={todo.assignee} size={28} />
           ) : !isDone && !todo.dueDate ? (

@@ -5,6 +5,7 @@ import type { Absence, CalendarEvent, CalendarEventType, KitaClosure, MealPlanEn
 import { Avatar, Button, IconButton, Modal, PageHead, Sheet } from '../../ui/primitives'
 import { Icon } from '../../ui/Icon'
 import { CATEGORY_ICON } from '../../lib/cover'
+import { dueTimeLabel } from '../../ui/format'
 import { useCalendarData } from './useCalendarData'
 import { TYPES } from '../abwesenheit/core'
 import './familienkalender.css'
@@ -316,6 +317,7 @@ function DayDetailSheet({ dateIso, bucket, onClose }: { dateIso: string; bucket?
                 <div key={todo.id} className="hb-caldetail__row">
                   <Icon name="circle" size={14} stroke={2} />
                   <span className="hb-caldetail__label">
+                    {dueTimeLabel(todo.dueTime) && <span className="hb-muted">{dueTimeLabel(todo.dueTime)} · </span>}
                     {todo.title}
                     {todo.assignee && <span className="hb-muted"> · {todo.assignee}</span>}
                   </span>

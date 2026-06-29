@@ -25,9 +25,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +52,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.RecurrenceDto
@@ -85,10 +89,12 @@ import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
+import com.homebase.android.ui.components.HbRadius
 import com.homebase.android.ui.components.HbRadiusSm
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneOffset
 
 // ---------------------------------------------------------------------------
@@ -531,7 +537,10 @@ private fun TaskRow(
 
             Column(Modifier.weight(1f)) {
                 Text(todo.title, style = HbType.rowTitle, color = Hb.ink)
-                val badge = Format.dueBadge(todo.dueDate)
+                // append the optional due time to the date badge, e.g. "Morgen · 14:30" (#429)
+                val badge = Format.dueBadge(todo.dueDate)?.let { b ->
+                    Format.dueTimeShort(todo.dueTime)?.let { b.copy(label = "${b.label} · $it") } ?: b
+                }
                 val hasMeta = listName != null || todo.priority != null || badge != null ||
                     todo.recurrence != null || !todo.description.isNullOrBlank()
                 if (hasMeta) {
@@ -807,6 +816,8 @@ private fun EditSheet(
     var assignee by remember { mutableStateOf(todo?.assignee) }
     // due date as a real LocalDate (null = no date); set via the Material date picker (#265)
     var dueDate by remember { mutableStateOf(Format.parseLocalDate(todo?.dueDate)) }
+    // optional time-of-day on the due date (#429); only meaningful with a date
+    var dueTime by remember { mutableStateOf(Format.parseLocalTime(todo?.dueTime)) }
     var priority by remember { mutableStateOf(todo?.priority) }
     // recurrence: null freq = no repetition; needs a due date as its anchor
     var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
@@ -849,6 +860,7 @@ private fun EditSheet(
                     scope.launch {
                         val error = if (isEdit) {
                             val dueIso = dueDate?.toString()
+                            val dueTimeStr = dueTime?.let { Format.hhmm(it) }
                             onSaveEdit(
                                 todo!!.id,
                                 UpdateTodoRequest(
@@ -857,6 +869,9 @@ private fun EditSheet(
                                     // "" clears the field on the backend, a value sets it (#265)
                                     assignee = assignee ?: "",
                                     dueDate = dueIso ?: "",
+                                    // a time is meaningless without a date; "" clears it (and the
+                                    // backend also cascades it away when the date itself is cleared)
+                                    dueTime = if (dueIso != null) (dueTimeStr ?: "") else "",
                                     priority = priority ?: "",
                                     status = if (assignee != null || dueIso != null) "PLANNED" else "INBOX",
                                     // "NONE" clears any existing rule; otherwise set/replace it
@@ -932,7 +947,13 @@ private fun EditSheet(
             AssigneeChips(assignee = assignee, householdUsers = householdUsers, onChange = { assignee = it })
         }
         HbField(stringResource(R.string.todo_field_due)) {
-            DueDateField(value = dueDate, onChange = { dueDate = it })
+            // clearing the date also clears the time — a time without a date is meaningless (#429)
+            DueDateField(value = dueDate, onChange = { dueDate = it; if (it == null) dueTime = null })
+        }
+        if (dueDate != null) {
+            HbField(stringResource(R.string.todo_field_due_time)) {
+                DueTimeField(value = dueTime, onChange = { dueTime = it })
+            }
         }
         HbField(stringResource(R.string.todo_field_priority)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1218,6 +1239,66 @@ private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
             dismissButton = { TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) } },
         ) {
             DatePicker(state = pickerState)
+        }
+    }
+}
+
+/** Optional due time (#429): shows HH:mm, opens a Material 24h time picker on tap; X clears it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DueTimeField(value: LocalTime?, onChange: (LocalTime?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(HbRadiusSm)
+                .background(Hb.surface, HbRadiusSm)
+                .border(1.dp, Hb.line, HbRadiusSm)
+                .clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            HbIcon(HbIcons.clock, size = 16.dp, tint = if (value == null) Hb.ink3 else Hb.accentInk)
+            Text(
+                text = value?.let { Format.hhmm(it) } ?: stringResource(R.string.todo_due_time_pick),
+                style = HbType.body.copy(fontSize = 14.5.sp),
+                color = if (value == null) Hb.ink3 else Hb.ink,
+            )
+        }
+        if (value != null) {
+            HbIconButton(HbIcons.x, onClick = { onChange(null) }, iconSize = 18.dp, tint = Hb.ink3)
+        }
+    }
+    if (open) {
+        val timeState = rememberTimePickerState(
+            initialHour = value?.hour ?: 9,
+            initialMinute = value?.minute ?: 0,
+            is24Hour = true,
+        )
+        Dialog(onDismissRequest = { open = false }) {
+            Surface(shape = HbRadius, color = Hb.surface) {
+                Column(
+                    Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    TimePicker(state = timeState)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { open = false }) { Text(stringResource(R.string.action_cancel)) }
+                        TextButton(onClick = {
+                            onChange(LocalTime.of(timeState.hour, timeState.minute))
+                            open = false
+                        }) { Text(stringResource(R.string.action_ok)) }
+                    }
+                }
+            }
         }
     }
 }

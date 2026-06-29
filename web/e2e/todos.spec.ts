@@ -159,6 +159,24 @@ test.describe('Todos', () => {
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
   })
 
+  test('plans a todo with a due time and shows it on the row badge (#429)', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Zahnarzt', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    // the time input is disabled until a date is picked
+    await expect(dialog.locator('input[type="time"]')).toBeDisabled()
+    await dialog.locator('input[type="date"]').fill('2026-09-01')
+    await expect(dialog.locator('input[type="time"]')).toBeEnabled()
+    await dialog.locator('input[type="time"]').fill('09:30')
+    await dialog.getByRole('button', { name: 'Planen' }).click()
+
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+    // the row's due badge appends the time after the date label
+    await expect(page.locator('.hb-row', { hasText: 'Zahnarzt' })).toContainText('09:30')
+  })
+
   test('sets a priority via the chip row in the plan sheet (#407)', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)
