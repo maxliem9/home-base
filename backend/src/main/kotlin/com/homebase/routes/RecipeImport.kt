@@ -3,7 +3,7 @@ package com.homebase.routes
 import com.homebase.model.IngredientInput
 import com.homebase.model.RecipeDraftDto
 import com.homebase.model.RecipeStepInput
-import kotlinx.serialization.json.Json
+import com.homebase.plugins.appJson
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -24,11 +24,10 @@ import kotlin.math.roundToInt
  */
 object RecipeImport {
 
-    // Tolerant parser: JSON-LD blobs contain keys we don't model and occasional trailing commas.
-    private val lenientJson = Json {
-        isLenient = true
-        ignoreUnknownKeys = true
-    }
+    // Tolerant parser for the messy JSON-LD blobs (unknown keys, trailing commas). We reuse the
+    // central [appJson] (isLenient + ignoreUnknownKeys) instead of a local Json instance: this is
+    // pure *decoding* (parseToJsonElement), so encodeDefaults is irrelevant, and routing through the
+    // one shared instance keeps the #134 "only Serialization.kt builds Json" convention intact.
 
     /** The five categories the app accepts (LUNCH was dropped — see migration V17). */
     private val VALID_CATEGORIES = setOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
@@ -69,7 +68,7 @@ object RecipeImport {
     fun fromHtml(html: String, sourceUrl: String? = null): RecipeDraftDto? {
         val node = extractJsonLdBlocks(html)
             .asSequence()
-            .mapNotNull { runCatching { lenientJson.parseToJsonElement(it) }.getOrNull() }
+            .mapNotNull { runCatching { appJson.parseToJsonElement(it) }.getOrNull() }
             .firstNotNullOfOrNull { findRecipeNode(it) }
             ?: return null
         return mapRecipeNode(node, sourceUrl)
