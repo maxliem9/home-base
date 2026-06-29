@@ -256,6 +256,16 @@ object Format {
         return "${badge.label} · ${shortDate(d, locale)}"
     }
 
+    /** Parse a stored due time ("HH:mm" or "HH:mm:ss") to a LocalTime, or null (#429). */
+    fun parseLocalTime(value: String?): LocalTime? {
+        if (value.isNullOrBlank()) return null
+        return runCatching { LocalTime.parse(value.trim()) }.getOrNull()
+    }
+
+    /** "HH:mm" from a stored due time, or null when absent/malformed (#429). */
+    fun dueTimeShort(dueTime: String?): String? =
+        parseLocalTime(dueTime)?.let { "%02d:%02d".format(it.hour, it.minute) }
+
     // -----------------------------------------------------------------------
     // Numbers / amounts
     // -----------------------------------------------------------------------

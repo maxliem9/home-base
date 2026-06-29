@@ -123,6 +123,9 @@ data class TodoDto(
     val status: String,
     val assignee: String? = null,
     val dueDate: String? = null,
+    // optional time-of-day on the due date, "HH:mm" (#429); reminderLeadMinutes = minutes before due
+    val dueTime: String? = null,
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     val listId: String? = null,
     val recurrence: RecurrenceDto? = null,
@@ -138,6 +141,8 @@ data class CreateTodoRequest(
     val description: String? = null,
     val assignee: String? = null,
     val dueDate: String? = null,
+    val dueTime: String? = null,
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     val listId: String? = null,
     val recurrence: RecurrenceDto? = null,
@@ -150,6 +155,10 @@ data class UpdateTodoRequest(
     val status: String? = null,
     val assignee: String? = null,
     val dueDate: String? = null,
+    // dueTime: null = unchanged, "" = clear, "HH:mm" = set (#265). reminderLeadMinutes: null =
+    // unchanged, negative = clear, >= 0 = set. Clearing dueDate cascades both to null server-side.
+    val dueTime: String? = null,
+    val reminderLeadMinutes: Int? = null,
     val priority: String? = null,
     // null = unchanged, "" = remove from list, UUID = move to that list
     val listId: String? = null,
