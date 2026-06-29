@@ -424,6 +424,22 @@ class ConfigRouteTest {
     }
 
     @Test
+    fun `PUT reminders config rejects a quiet window of 12 hours or more`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // 20:00–09:00 is 13h, past the scheduler's 12h catch-up → would silently drop reminders
+        val res = client.put("/api/v1/config/reminders") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"enabled":true,"quietStart":"20:00","quietEnd":"09:00"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+        assertEquals(
+            "INVALID_QUIET_HOURS",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
     fun `PUT reminders config clears quiet hours with empty strings`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

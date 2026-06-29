@@ -640,6 +640,12 @@ export class MockApi {
       if ((start === '') !== (end === '')) return this.json(route, { code: 'INVALID_QUIET_HOURS', message: 'pair' }, 400)
       const norm = (v: string) => /^(\d{2}):(\d{2})$/.exec(v)
       if ((start && !norm(start)) || (end && !norm(end))) return this.json(route, { code: 'INVALID_TIME', message: 'bad' }, 400)
+      // mirror the backend: a quiet window >= 12h (the scheduler's catch-up) is rejected
+      if (start && end) {
+        const min = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5))
+        const span = min(end) > min(start) ? min(end) - min(start) : 24 * 60 - (min(start) - min(end))
+        if (span >= 12 * 60) return this.json(route, { code: 'INVALID_QUIET_HOURS', message: 'too long' }, 400)
+      }
       this.remindersEnabled = !!b.enabled
       this.reminderQuietStart = start
       this.reminderQuietEnd = end

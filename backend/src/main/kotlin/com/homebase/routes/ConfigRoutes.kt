@@ -13,6 +13,7 @@ import com.homebase.model.UpdateDigestRequest
 import com.homebase.model.UpdateDoneWindowRequest
 import com.homebase.model.UpdateRecurringRequest
 import com.homebase.model.UpdateRemindersRequest
+import com.homebase.reminder.ReminderLogic
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -23,6 +24,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
+import java.time.Duration
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -136,6 +138,21 @@ fun Route.configRoutes(
                 HttpStatusCode.BadRequest,
                 ErrorResponse("INVALID_TIME", "quiet hours must be valid HH:mm"),
             )
+        }
+        // A quiet window at/above the scheduler's catch-up horizon would silently swallow a reminder
+        // that came due right at its start (it'd be retired as stale before the window ends), so cap
+        // the span below CATCHUP. A >12h quiet window isn't a real household use case anyway.
+        if (normStart != null && normEnd != null) {
+            val s = LocalTime.parse(normStart)
+            val e = LocalTime.parse(normEnd)
+            val spanMin = if (s.isBefore(e)) Duration.between(s, e).toMinutes()
+            else Duration.ofHours(24).toMinutes() - Duration.between(e, s).toMinutes()
+            if (spanMin >= ReminderLogic.CATCHUP.toMinutes()) {
+                return@put call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorResponse("INVALID_QUIET_HOURS", "quiet hours must be shorter than ${ReminderLogic.CATCHUP.toHours()} hours"),
+                )
+            }
         }
         upsertSetting(AppSettingsTable.REMINDERS_ENABLED, req.enabled.toString())
         upsertSetting(AppSettingsTable.REMINDER_QUIET_START, normStart ?: "")
