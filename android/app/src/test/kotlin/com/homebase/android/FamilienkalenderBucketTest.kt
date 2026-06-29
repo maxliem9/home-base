@@ -46,6 +46,33 @@ class FamilienkalenderBucketTest {
     }
 
     @Test
+    fun `gridDays trims a trailing 6th week that is entirely next month`() {
+        // February 2027 starts on a Monday and has 28 days → exactly 4 weeks, no spillover. The
+        // raw 6-week build must be trimmed to weeks that actually touch the month.
+        val state = FamilienkalenderUiState(monthAnchor = LocalDate.of(2027, 2, 1))
+        val days = state.gridDays
+        assertEquals(28, days.size)
+        assertEquals(LocalDate.of(2027, 2, 1), days.first())
+        assertEquals(LocalDate.of(2027, 2, 28), days.last())
+        // no day belongs to a different month
+        assertTrue(days.all { it.monthValue == 2 && it.year == 2027 })
+    }
+
+    @Test
+    fun `gridDays handles a December-to-January year boundary`() {
+        // Dec 2026 spills into Jan 2027; the year-aware filter must keep December's weeks and not
+        // mistake a January day for the wrong month (a month-only check would).
+        val state = FamilienkalenderUiState(monthAnchor = LocalDate.of(2026, 12, 1))
+        val days = state.gridDays
+        assertEquals(0, days.size % 7)
+        assertEquals(DayOfWeek.MONDAY, days.first().dayOfWeek)
+        assertEquals(DayOfWeek.SUNDAY, days.last().dayOfWeek)
+        (1..31).forEach { d -> assertTrue(days.contains(LocalDate.of(2026, 12, d))) }
+        // leading/trailing spill is from the adjacent months/years, never December of another year
+        assertTrue(days.none { it.monthValue == 12 && it.year != 2026 })
+    }
+
+    @Test
     fun `buckets exclude done todos and key by due date`() {
         val state = FamilienkalenderUiState(
             monthAnchor = LocalDate.of(2026, 6, 1),

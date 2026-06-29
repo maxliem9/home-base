@@ -8,6 +8,7 @@ import com.homebase.android.data.model.KitaClosureDto
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.repository.CalendarRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -103,6 +104,9 @@ class FamilienkalenderViewModel(
     private val _uiState = MutableStateFlow(FamilienkalenderUiState(isLoading = true))
     val uiState: StateFlow<FamilienkalenderUiState> = _uiState.asStateFlow()
 
+    // The currently in-flight load, cancelled when a newer one starts (rapid month nav / WS bursts).
+    private var loadJob: Job? = null
+
     init {
         load()
         observeWebSockets()
@@ -110,15 +114,21 @@ class FamilienkalenderViewModel(
 
     /** Reload everything the visible month grid needs. Meals + events are range-scoped to the grid. */
     fun load() {
+        val anchor = _uiState.value.monthAnchor
         val days = _uiState.value.gridDays
         val from = days.first().toString()
         val to = days.last().toString()
-        viewModelScope.launch {
+        // Cancel any in-flight load so a slower older-month response can't land after a newer one.
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val todos = repository.getTodos()
             val absence = repository.getAbsenceState()
             val meals = repository.getMealPlan(from, to)
             val events = repository.getEvents(from, to)
+            // Belt-and-braces against out-of-order completion: if the user navigated to a different
+            // month while this was in flight, drop the result (the newer load owns the state now).
+            if (!_uiState.value.monthAnchor.isEqual(anchor)) return@launch
             _uiState.update { s ->
                 s.copy(
                     todos = todos.getOrNull() ?: s.todos,
