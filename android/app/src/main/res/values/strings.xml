@@ -659,4 +659,10 @@
     <string name="settings_date_any">Beliebig</string>
     <string name="settings_absence_quotas">Kontingente &amp; Kalender</string>
     <string name="settings_absence_quotas_hint">Urlaubskontingent, Übertrag, Bundesland und Teilzeit pro Person; dazu haushaltsweite Kita-Schließtage. Kontingent und Übertrag gelten pro Jahr.</string>
+
+    <!-- Lokale Erinnerungs-Notifications (#429 Phase 2c) -->
+    <string name="reminder_channel_name">Erinnerungen</string>
+    <string name="reminder_channel_description">Erinnert an Aufgaben mit fester Uhrzeit.</string>
+    <!-- z. B. "🔔 Erinnerung: Zahnarzt — fällig 14:30" -->
+    <string name="reminder_notification_text">🔔 Erinnerung: %1$s — fällig %2$s</string>
 </resources>

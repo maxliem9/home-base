@@ -1,7 +1,13 @@
 package com.homebase.android
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -118,6 +124,14 @@ class MainActivity : AppCompatActivity() {
                     viewModelStore = viewModelStore,
                 )
 
+                // Cancel any scheduled local reminders on logout (#429 Phase 2c): they belong to the
+                // session and would otherwise fire for a logged-out device. The next login reschedules
+                // from the freshly loaded todo list.
+                val loggedIn = authState is AuthState.LoggedIn
+                LaunchedEffect(loggedIn) {
+                    if (!loggedIn) container.reminderScheduler.cancelAll()
+                }
+
                 when (val s = authState) {
                     AuthState.Loading -> Box(Modifier.fillMaxSize().background(Hb.paper))
                     AuthState.LoggedOut -> LoginGate()
@@ -233,6 +247,31 @@ class MainActivity : AppCompatActivity() {
         val todoState by todoVm.uiState.collectAsState()
         val shoppingState by shoppingVm.uiState.collectAsState()
         val timeState by timeVm.uiState.collectAsState()
+
+        // Local reminder notifications (#429 Phase 2c): reconcile WorkManager jobs whenever the todo
+        // list changes (cold load, WS reload, an edit). The scheduler is pure-logic + idempotent, so
+        // re-running on every list snapshot just (re)computes the same plan; date-only todos are
+        // skipped by the planner. Keyed on the list itself so it also re-fires after the cold load.
+        LaunchedEffect(todoState.todos) {
+            container.reminderScheduler.sync(todoState.todos)
+        }
+
+        // Android 13+: ask for POST_NOTIFICATIONS once we're logged in (the reminder is the only thing
+        // that posts). Best-effort — a denial degrades gracefully: jobs still run, the worker just
+        // skips the notify(). Pre-API-33 needs no runtime grant.
+        val notifPermLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { /* granted-or-not handled gracefully in the worker */ }
+        LaunchedEffect(token) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         val badges = mapOf(
             HbRoute.AUFGABEN to todoState.openCount,

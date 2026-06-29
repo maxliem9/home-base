@@ -30,6 +30,7 @@ import com.homebase.android.data.websocket.RecipeWebSocketClient
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
+import com.homebase.android.notifications.ReminderScheduler
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -77,6 +78,13 @@ class AppContainer(context: Context) {
         api = api,
         wsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
+
+    /**
+     * Schedules device-local reminder notifications for timed todos (#429 Phase 2c). MainActivity
+     * feeds it the current todo list on every change (WS reload / edit / app start); it reconciles the
+     * WorkManager jobs. App-scoped (uses the Application context) so the work outlives any one screen.
+     */
+    val reminderScheduler = ReminderScheduler(context.applicationContext)
 
     val shoppingRepository = ShoppingRepository(
         api = api,

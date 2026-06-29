@@ -5,6 +5,9 @@
     <!-- ConnectivityObserver.registerDefaultNetworkCallback (offline check-off retry, #170)
          requires this; without it a SecurityException crashes the Einkauf screen on open. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Local todo reminder notifications (#429 Phase 2c). Runtime-requested on Android 13+; a
+         no-op grant on API <= 32 where notifications need no runtime permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".HomeBaseApplication"
