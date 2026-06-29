@@ -1,7 +1,6 @@
 package com.homebase.reminder
 
 import com.homebase.db.TodosTable
-import com.homebase.digest.TelegramClient
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.and
@@ -21,15 +20,19 @@ import java.time.ZoneId
  * long downtime) are retired silently.
  *
  * Privacy note: like the existing morning digest, this sends to the one shared household chat
- * without a per-list visibility filter — the digest already establishes that the chat sees every
- * dated todo's title.
+ * (and, since #429 Phase 2b, to every registered browser) without a per-list visibility filter —
+ * the digest already establishes that the chat sees every dated todo's title.
+ *
+ * Delivery channel(s) are abstracted behind [notifier] (#429 Phase 2b): the firing model is
+ * channel-agnostic. In production it is a [CompositeReminderNotifier] over Telegram + Web Push,
+ * either of which may be dormant.
  *
  * Settings (all re-read each tick, no restart): [enabled] (unset = on), and the optional
  * [quietStart]/[quietEnd] window during which the whole pass is skipped — reminders that came due
  * inside quiet hours are delivered at the first tick after the window ends (within [CATCHUP]).
  */
 class ReminderService(
-    private val client: TelegramClient,
+    private val notifier: ReminderNotifier,
     private val enabled: () -> Boolean = { true },
     private val quietStart: () -> LocalTime? = { null },
     private val quietEnd: () -> LocalTime? = { null },
@@ -71,7 +74,7 @@ class ReminderService(
             out
         }
 
-        messages.forEach { client.sendMessage(it) }
+        messages.forEach { notifier.notify(it) }
         if (messages.isNotEmpty()) logger.info("Sent {} todo reminder(s)", messages.size)
     }
 

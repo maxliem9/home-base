@@ -47,6 +47,14 @@ dependencies {
 
     implementation("at.favre.lib:bcrypt:0.10.2")
 
+    // Web Push (VAPID) delivery for todo reminders (#429 Phase 2b). Dormant unless VAPID keys
+    // are set. web-push declares BouncyCastle as optional in its POM, so we add it explicitly —
+    // it is the JCE provider the library needs for the ECDH/VAPID crypto and must be on the
+    // runtime classpath (otherwise PushService fails when VAPID is configured).
+    implementation("nl.martijndwars:web-push:5.1.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+
     // Server-side PDF generation for the recipe export (issue #136). Pure-JVM, no
     // native deps; uses java.desktop (AWT Color), present in the temurin JRE image.
     implementation("com.github.librepdf:openpdf:1.3.43")

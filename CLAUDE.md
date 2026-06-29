@@ -311,9 +311,11 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   stillen Tag feuern, wenn nur diese Vorschau Inhalt hat (#182). Web-UI fertig; Android-Spiegelung
   der Digest-Einstellungen offen (#189).
 
-## Todo-Erinnerungen (#429 Phase 2a)
-Sofortige, per-Todo-Erinnerung über **denselben Telegram-Bot** wie die Digests — die erste
-*unmittelbare* Benachrichtigung (Digest = nur 2× täglich). Ruht ebenfalls ohne TELEGRAM_*.
+## Todo-Erinnerungen (#429 Phase 2a + 2b)
+Sofortige, per-Todo-Erinnerung über **denselben Telegram-Bot** wie die Digests **und/oder
+Browser-Web-Push** (Phase 2b) — die erste *unmittelbare* Benachrichtigung (Digest = nur 2× täglich).
+Der Scheduler läuft, sobald **mindestens ein** Kanal konfiguriert ist; ohne Telegram **und** ohne
+VAPID ruht er komplett.
 - **Scheduler** (`reminder/ReminderScheduler` → `ReminderService`): enger Tick (60 s, nicht
   täglich wie der Digest), damit eine Erinnerung nahe der Fälligkeitszeit feuert. Liest seine
   Settings pro Tick neu (kein Neustart).
@@ -330,8 +332,25 @@ Sofortige, per-Todo-Erinnerung über **denselben Telegram-Bot** wie die Digests 
   „HH:mm", paarweise; in der Ruhezeit wird der ganze Pass übersprungen, Erinnerungen kommen danach
   nach). Endpunkt `/config/reminders` (GET/PUT). **Privacy wie der Morgen-Digest:** ein gemeinsamer
   Chat, kein Pro-Listen-Sichtbarkeitsfilter.
-- Web-UI fertig (`NotificationsSettings` → „Aufgaben-Erinnerungen"-Karte). Offen: Web Push (Phase
-  2b) + Android-Notifications (Phase 2c), beide bauen auf diesem Feuermodell auf.
+- **Zustell-Seam (Phase 2b):** `ReminderService` fragt nur *ob* gefeuert wird (`ReminderLogic`,
+  rein) und übergibt den Text an einen `ReminderNotifier` — Kanal-agnostisch. In Prod ein
+  `CompositeReminderNotifier` über `TelegramReminderNotifier` (wie Phase 2a) **+** `WebPushNotifier`;
+  jeder Kanal ist best-effort + isoliert (ein Telegram-Ausfall unterdrückt kein Push und umgekehrt).
+  Das Feuermodell (Fire-once, Ruhezeiten, Stale-Retire) bleibt unangetastet.
+- **Web Push (Phase 2b, #429):** VAPID-Keypair per env (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+  `VAPID_SUBJECT`; Generierung in `.env.example`). Alle drei gesetzt ⇒ aktiv, sonst dormant (wie
+  Telegram gegatet). Lib `nl.martijndwars:web-push` + explizites BouncyCastle (im web-push-POM nur
+  *optional*, muss daher selbst auf den Klassenpfad). `WebPushNotifier` sendet an **jede** gespeicherte
+  Subscription und **pruned** 404/410 („gone"). DB-Tabelle `push_subscriptions` (V38: endpoint UNIQUE,
+  p256dh, auth, username, created_at). Endpunkte unter `/api/v1/push` (JWT): `GET /vapid-public-key`
+  (404 wenn nicht konfiguriert), `POST /subscribe` (Upsert auf endpoint), `DELETE /subscribe` (idempotent).
+  Zustellung haushaltsweit (an alle Subscriptions, wie der geteilte Digest-Chat); `username` ist nur
+  informativ. **Web/PWA:** manueller Service-Worker `web/public/sw.js` (`push`→`showNotification`,
+  `notificationclick`→fokussieren/öffnen; **kein** Asset-Caching — HomeBase ist nicht offline-first),
+  in `main.tsx` registriert; Opt-in **pro Gerät** in `NotificationsSettings` („Browser-Benachrichtigungen").
+  Helper in `web/src/lib/webpush.ts`. **Hinweis:** der eigentliche Subscribe-Flow (ServiceWorker + Push
+  API) braucht einen echten Browser über HTTPS/localhost — Unit-Tests decken nur die Capability-Gate ab.
+- Offen: Android-Notifications (Phase 2c) — baut auf demselben Feuermodell/Seam auf.
 
 ## Zeiterfassung-Domänenmodell
 Project: id, name, color (Hex), archived, created_by, created_at
@@ -452,6 +471,11 @@ JWT_SECRET
 TELEGRAM_BOT_TOKEN  — Secret; fehlt er, ruht der Digest. (Digest-Uhrzeit nicht hier,
                       sondern in-app, siehe unten.)
 TELEGRAM_CHAT_ID    — Secret (s. o.)
+VAPID_PUBLIC_KEY    — Web-Push/VAPID-Schlüsselpaar für Browser-Benachrichtigungen (#429 Phase 2b).
+VAPID_PRIVATE_KEY     Alle drei nötig ⇒ Web Push aktiv; fehlen sie, ruht der Push-Kanal (wie Telegram
+VAPID_SUBJECT         gegatet). Secrets (env, nie app_settings). Keypair erzeugen:
+                      `npx web-push generate-vapid-keys`; SUBJECT = Kontakt-URI (mailto:/https:).
+                      Keypair-Rotation entwertet bestehende Browser-Subscriptions.
 RECURRING_TIME      — Default/Bootstrap für die tägliche Uhrzeit des Wiederholungs-Schedulers
                       (default "00:30", in TZ). Zur Laufzeit in-app editierbar (Einstellungen →
                       Benachrichtigungen, `app_settings.recurring_time`), siehe unten — env greift

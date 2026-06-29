@@ -447,3 +447,18 @@ object RecipeImagesTable : Table("recipe_images") {
     val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
 }
+
+// Browser Web Push subscriptions (#429 Phase 2b). One row per push endpoint a client
+// registered via the Push API; the reminder scheduler delivers a push to every row.
+// `endpoint` is the natural key (a re-subscribing browser returns the same endpoint → upsert);
+// `p256dh`/`auth` are the client's base64url keys used to encrypt the payload. Rows the push
+// service reports as gone (404/410) are pruned. See migration V38.
+object PushSubscriptionsTable : Table("push_subscriptions") {
+    val id = uuid("id")
+    val endpoint = text("endpoint").uniqueIndex()
+    val p256dh = text("p256dh")
+    val auth = text("auth")
+    val username = varchar("username", 50)
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}

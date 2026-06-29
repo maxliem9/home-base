@@ -6,8 +6,13 @@ import com.homebase.digest.DigestSection
 import com.homebase.digest.DigestService
 import com.homebase.digest.HttpTelegramClient
 import com.homebase.digest.MorningDigestService
+import com.homebase.reminder.CompositeReminderNotifier
+import com.homebase.reminder.ReminderNotifier
 import com.homebase.reminder.ReminderScheduler
 import com.homebase.reminder.ReminderService
+import com.homebase.reminder.TelegramReminderNotifier
+import com.homebase.reminder.VapidWebPushSender
+import com.homebase.reminder.WebPushNotifier
 import io.ktor.server.application.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
@@ -32,13 +37,18 @@ fun Application.configureDigest() {
     val config = environment.config
     val botToken = config.propertyOrNull("telegram.botToken")?.getString()
     val chatId = config.propertyOrNull("telegram.chatId")?.getString()
+    val telegramConfigured = !botToken.isNullOrBlank() && !chatId.isNullOrBlank()
+    val client = if (telegramConfigured) HttpTelegramClient(botToken!!, chatId!!) else null
 
-    if (botToken.isNullOrBlank() || chatId.isNullOrBlank()) {
+    // Todo reminders (#429): delivered over Telegram (Phase 2a) AND/OR browser Web Push
+    // (Phase 2b). The reminder scheduler runs when EITHER channel is configured — so a
+    // VAPID-only deployment still gets reminders, and a Telegram-only one is unchanged.
+    configureTodoReminders(telegramClient = client)
+
+    if (client == null) {
         log.info("Telegram digest disabled (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set)")
         return
     }
-
-    val client = HttpTelegramClient(botToken, chatId)
 
     val eveningDefault = parseDigestTime(config.propertyOrNull("telegram.digestTime")?.getString())
         ?: LocalTime.of(20, 0)
@@ -65,12 +75,40 @@ fun Application.configureDigest() {
     ).start()
 
     log.info("Telegram digests scheduled — morning {}, evening {} (overridable in settings)", morningTime(), eveningTime())
+}
 
-    // Immediate per-todo reminders (#429 Phase 2a): a tight tick that fires near a todo's due time
-    // over the same bot/chat. Enabled by default (unset), with an optional in-app quiet-hours window.
+/**
+ * Wires the immediate per-todo reminder scheduler (#429): a tight tick that fires near a todo's due
+ * time. Built over a [CompositeReminderNotifier] of the channels that are configured —
+ * Telegram (Phase 2a, [telegramClient] non-null) and/or browser Web Push (Phase 2b, VAPID keys
+ * set). If neither channel is configured the scheduler is not started (nothing to deliver to);
+ * a Telegram-only deployment behaves exactly as before. Enabled by default (unset) with an
+ * optional in-app quiet-hours window.
+ */
+private fun Application.configureTodoReminders(telegramClient: com.homebase.digest.TelegramClient?) {
+    val config = environment.config
+    val notifiers = mutableListOf<ReminderNotifier>()
+
+    if (telegramClient != null) notifiers += TelegramReminderNotifier(telegramClient)
+
+    val vapidPublic = config.propertyOrNull("webpush.publicKey")?.getString()
+    val vapidPrivate = config.propertyOrNull("webpush.privateKey")?.getString()
+    val vapidSubject = config.propertyOrNull("webpush.subject")?.getString()
+    if (!vapidPublic.isNullOrBlank() && !vapidPrivate.isNullOrBlank() && !vapidSubject.isNullOrBlank()) {
+        notifiers += WebPushNotifier(VapidWebPushSender(vapidPublic, vapidPrivate, vapidSubject))
+        log.info("Web Push enabled for todo reminders (VAPID configured)")
+    } else {
+        log.info("Web Push disabled for todo reminders (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT not set)")
+    }
+
+    if (notifiers.isEmpty()) {
+        log.info("Todo reminders disabled (no Telegram and no Web Push configured)")
+        return
+    }
+
     ReminderScheduler(
         service = ReminderService(
-            client = client,
+            notifier = CompositeReminderNotifier(notifiers),
             enabled = storedEnabledProvider(AppSettingsTable.REMINDERS_ENABLED),
             quietStart = { parseDigestTime(readSetting(AppSettingsTable.REMINDER_QUIET_START)) },
             quietEnd = { parseDigestTime(readSetting(AppSettingsTable.REMINDER_QUIET_END)) },
