@@ -860,7 +860,7 @@ private fun EditSheet(
                     scope.launch {
                         val error = if (isEdit) {
                             val dueIso = dueDate?.toString()
-                            val dueTimeStr = dueTime?.let { "%02d:%02d".format(it.hour, it.minute) }
+                            val dueTimeStr = dueTime?.let { Format.hhmm(it) }
                             onSaveEdit(
                                 todo!!.id,
                                 UpdateTodoRequest(
@@ -1266,7 +1266,7 @@ private fun DueTimeField(value: LocalTime?, onChange: (LocalTime?) -> Unit) {
         ) {
             HbIcon(HbIcons.clock, size = 16.dp, tint = if (value == null) Hb.ink3 else Hb.accentInk)
             Text(
-                text = value?.let { "%02d:%02d".format(it.hour, it.minute) } ?: stringResource(R.string.todo_due_time_pick),
+                text = value?.let { Format.hhmm(it) } ?: stringResource(R.string.todo_due_time_pick),
                 style = HbType.body.copy(fontSize = 14.5.sp),
                 color = if (value == null) Hb.ink3 else Hb.ink,
             )

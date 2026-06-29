@@ -262,9 +262,11 @@ object Format {
         return runCatching { LocalTime.parse(value.trim()) }.getOrNull()
     }
 
+    /** "HH:mm" (zero-padded, 24h) for a LocalTime — the single source of truth for due-time display. */
+    fun hhmm(time: LocalTime): String = "%02d:%02d".format(time.hour, time.minute)
+
     /** "HH:mm" from a stored due time, or null when absent/malformed (#429). */
-    fun dueTimeShort(dueTime: String?): String? =
-        parseLocalTime(dueTime)?.let { "%02d:%02d".format(it.hour, it.minute) }
+    fun dueTimeShort(dueTime: String?): String? = parseLocalTime(dueTime)?.let { hhmm(it) }
 
     // -----------------------------------------------------------------------
     // Numbers / amounts
