@@ -98,6 +98,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
+    // Local reminder notifications (#429 Phase 2c): one delayed one-shot per timed todo.
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

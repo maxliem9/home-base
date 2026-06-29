@@ -647,4 +647,10 @@
     <string name="settings_date_any">Any</string>
     <string name="settings_absence_quotas">Quotas &amp; calendar</string>
     <string name="settings_absence_quotas_hint">Vacation allowance, carryover, state and part-time per person; plus household-wide daycare closing days. Allowance and carryover are per year.</string>
+
+    <!-- Local reminder notifications (#429 Phase 2c) -->
+    <string name="reminder_channel_name">Reminders</string>
+    <string name="reminder_channel_description">Reminds you about tasks that have a set time.</string>
+    <!-- e.g. "🔔 Reminder: Dentist — due 14:30" -->
+    <string name="reminder_notification_text">🔔 Reminder: %1$s — due %2$s</string>
 </resources>
