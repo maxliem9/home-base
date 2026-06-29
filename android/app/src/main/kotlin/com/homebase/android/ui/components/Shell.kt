@@ -82,6 +82,7 @@ enum class HbRoute(
     ZEIT(R.string.nav_time, HbIcons.clock, R.string.nav_short_time),
     NOTIZEN(R.string.nav_notes, HbIcons.note),
     ABWESENHEIT(R.string.nav_calendar, HbIcons.calendar),
+    FAMILIENKALENDER(R.string.nav_family_calendar, HbIcons.grid),
     REZEPTE(R.string.nav_recipes, HbIcons.chef),
     WOCHENPLAN(R.string.nav_meal_plan, HbIcons.utensils),
 }

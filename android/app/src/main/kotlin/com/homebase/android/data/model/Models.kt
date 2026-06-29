@@ -709,6 +709,27 @@ data class MealPlanEntryDto(
 )
 
 /**
+ * A dated calendar event (the #434 entity) — appointment / birthday / vet etc. — overlaid in the
+ * Familienkalender (#435). all_day=true events carry no time (start/end null); timed events carry
+ * "HH:mm[:ss]" strings. With the backend's encodeDefaults=false the optional keys may be absent, so
+ * they all default here.
+ */
+@JsonClass(generateAdapter = true)
+data class CalendarEventDto(
+    val id: String,
+    val title: String,
+    val type: String = "OTHER",
+    val date: String,
+    val allDay: Boolean = true,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val location: String? = null,
+    val notes: String? = null,
+    val createdBy: String,
+    val createdAt: String,
+)
+
+/**
  * Set/replace the meal in a (date, slot) — PUT /meal-plan/{date}/{slot}. Provide EITHER recipeId
  * (a real recipe) OR dishTitle (free text, #293), never both/neither. servings applies to recipes.
  */

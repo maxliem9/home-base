@@ -46,6 +46,7 @@
     <string name="nav_notes">Notizen</string>
     <string name="nav_time">Zeiterfassung</string>
     <string name="nav_calendar">Kalender</string>
+    <string name="nav_family_calendar">Familienkalender</string>
     <string name="nav_recipes">Rezepte</string>
     <string name="nav_meal_plan">Wochenplan</string>
     <!-- Untere Tab-Bar (HB-09, #239): kurze Labels + "Mehr"-Überlauf-Sheet. Die langen
@@ -86,6 +87,22 @@
     <string name="meal_plan_added">%1$d hinzugefügt</string>
     <string name="meal_plan_merged">%1$d zusammengeführt</string>
     <string name="meal_plan_nothing_added">Keine neuen Zutaten</string>
+
+    <!-- Familienkalender (#435) — read-only Monatsraster über Termine/Aufgaben/Abwesenheit/Essensplan -->
+    <string name="family_calendar_title">Familienkalender</string>
+    <string name="family_calendar_eyebrow">Übersicht</string>
+    <string name="family_calendar_today">Heute</string>
+    <string name="family_calendar_detail_empty">Nichts an diesem Tag.</string>
+    <string name="family_calendar_cat_events">Termine</string>
+    <string name="family_calendar_cat_absence">Abwesenheit</string>
+    <string name="family_calendar_cat_todos">Aufgaben</string>
+    <string name="family_calendar_cat_meals">Essensplan</string>
+    <string name="family_calendar_cat_kita">Kita zu</string>
+    <string name="family_calendar_section_events">Termine</string>
+    <string name="family_calendar_section_absence">Abwesenheit</string>
+    <string name="family_calendar_section_kita">Kita</string>
+    <string name="family_calendar_section_todos">Fällige Aufgaben</string>
+    <string name="family_calendar_section_meals">Essensplan</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Benutzername</string>
