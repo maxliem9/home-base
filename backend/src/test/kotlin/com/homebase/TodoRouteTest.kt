@@ -1318,4 +1318,43 @@ class TodoRouteTest {
         assertNotNull(reminderSentAt(id))
         Unit
     }
+
+    // #475: ein syntaktisch kaputter JSON-Body darf nicht in 500 münden. `call.receive<T>()`
+    // wirft bei malformed JSON eine Ktor-BadRequestException; der StatusPages-Handler mappt
+    // sie repo-weit auf 400 INVALID_BODY.
+    @Test
+    fun `POST todo with malformed JSON body returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("{")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(
+            "INVALID_BODY",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun `POST todo with non-JSON body returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("not json")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(
+            "INVALID_BODY",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
 }
