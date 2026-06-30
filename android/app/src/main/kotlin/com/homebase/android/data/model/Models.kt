@@ -405,6 +405,20 @@ data class NoteImageDto(
     val createdAt: String,
 )
 
+// Arbitrary (non-rendered) file attachment on a note (#431/#437). Same shape as NoteImageDto;
+// distinct type so the client renders images as thumbnails and attachments as download chips.
+@JsonClass(generateAdapter = true)
+data class NoteAttachmentDto(
+    val id: String,
+    val noteId: String,
+    val originalName: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val sortOrder: Int,
+    val createdBy: String,
+    val createdAt: String,
+)
+
 @JsonClass(generateAdapter = true)
 data class NoteDto(
     val id: String,
@@ -416,6 +430,9 @@ data class NoteDto(
     val folder: String? = null,
     val visibility: String,
     val images: List<NoteImageDto> = emptyList(),
+    // file attachments (#437). encodeDefaults=false drops an empty array, so the default
+    // turns a missing key into an empty list (#96).
+    val attachments: List<NoteAttachmentDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
     val updatedAt: String,

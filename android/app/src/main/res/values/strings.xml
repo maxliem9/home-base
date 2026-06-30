@@ -298,6 +298,14 @@
     <string name="notes_images_count">Bilder (%1$d)</string>
     <string name="notes_add_image">Bild hinzufügen</string>
     <string name="notes_add_image_needs_save">Bilder können erst nach dem Anlegen der Notiz hinzugefügt werden.</string>
+    <!-- File attachments (#437): non-image documents as download chips -->
+    <string name="notes_attachments">Anhänge</string>
+    <string name="notes_attachments_count">Anhänge (%1$d)</string>
+    <string name="notes_add_attachment">Datei hinzufügen</string>
+    <string name="notes_add_attachment_needs_save">Dateien können erst nach dem Anlegen der Notiz hinzugefügt werden.</string>
+    <string name="notes_attachment_delete_confirm">„%1$s“ löschen? Das kann nicht rückgängig gemacht werden.</string>
+    <string name="notes_attachment_open_failed">Keine App zum Öffnen dieser Datei gefunden.</string>
+    <string name="notes_attachment_download_failed">Anhang konnte nicht geöffnet werden.</string>
     <string name="notes_new_title">Neue Notiz</string>
     <string name="notes_edit_title">Notiz bearbeiten</string>
     <string name="notes_field_title">Titel</string>

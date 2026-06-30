@@ -63,6 +63,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.homebase.android.R
+import com.homebase.android.data.model.NoteAttachmentDto
 import com.homebase.android.data.model.NoteImageDto
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -107,6 +108,7 @@ import com.homebase.android.ui.components.HbTextField
 import com.homebase.android.ui.components.displayName
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.util.FileShare
 import com.homebase.android.ui.util.Format
 
 @Composable
@@ -181,6 +183,25 @@ fun NotesScreen(viewModel: NotesViewModel, currentUser: String?, onOpenDrawer: (
             onSwitchNote = { viewModel.switchEditorTo(it) },
             onAddImages = { items -> openEditor.noteId?.let { viewModel.uploadImages(it, items) } },
             onRemoveImage = { imageId -> openEditor.noteId?.let { viewModel.removeImage(it, imageId) } },
+            onAddAttachments = { items -> openEditor.noteId?.let { viewModel.uploadAttachments(it, items) } },
+            onRemoveAttachment = { attId -> openEditor.noteId?.let { viewModel.removeAttachment(it, attId) } },
+            onOpenAttachment = { att ->
+                val noteId = openEditor.noteId
+                if (noteId != null) {
+                    viewModel.downloadAttachment(noteId, att.id) { result ->
+                        result
+                            .onSuccess { bytes ->
+                                val opened = FileShare.open(context, att.originalName, att.contentType, bytes)
+                                if (!opened) {
+                                    Toast.makeText(context, context.getString(R.string.notes_attachment_open_failed), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .onFailure {
+                                Toast.makeText(context, context.getString(R.string.notes_attachment_download_failed), Toast.LENGTH_SHORT).show()
+                            }
+                    }
+                }
+            },
             onDelete = { viewModel.deleteEditorNote() },
         )
     } else {
@@ -529,6 +550,9 @@ private fun NoteEditor(
     onSwitchNote: (NoteDto) -> Unit,
     onAddImages: (items: List<NoteImageUpload>) -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
+    onAddAttachments: (items: List<NoteAttachmentUpload>) -> Unit,
+    onRemoveAttachment: (attachmentId: String) -> Unit,
+    onOpenAttachment: (NoteAttachmentDto) -> Unit,
     onDelete: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -541,6 +565,8 @@ private fun NoteEditor(
     var focusContent by remember(editor.session) { mutableStateOf(false) }
     var lightbox by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // Pending attachment delete (id + name) — drives the confirm dialog, like the image flow (#437).
+    var confirmDeleteAttachment by remember { mutableStateOf<NoteAttachmentDto?>(null) }
 
     val titleFocus = remember { FocusRequester() }
     val contentFocus = remember { FocusRequester() }
@@ -607,6 +633,24 @@ private fun NoteEditor(
         }
     }
 
+    // Document picker for file attachments (#437): OpenMultipleDocuments offers the whitelisted MIME
+    // types (the backend re-validates). Each chosen file's bytes + name + type go up to the VM, which
+    // uploads them one after another (each its own request, correct sort_order — mirrors the images).
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            val resolver = context.contentResolver
+            val items = uris.mapNotNull { uri ->
+                val type = resolver.getType(uri) ?: "application/octet-stream"
+                val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: "datei"
+                resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?.let { bytes -> NoteAttachmentUpload(bytes, name, type) }
+            }
+            if (items.isNotEmpty()) onAddAttachments(items)
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
             appBar = {
@@ -659,6 +703,12 @@ private fun NoteEditor(
                         onAddImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         onRemoveImage = onRemoveImage,
                         onOpenLightbox = { lightbox = it },
+                        attachments = editor.attachments,
+                        // Attachments, like images, need a persisted note (a server id) to upload against.
+                        canAddAttachment = editor.noteId != null,
+                        onAddAttachment = { attachmentPicker.launch(NoteAttachments.ACCEPT_MIME_TYPES) },
+                        onOpenAttachment = onOpenAttachment,
+                        onRemoveAttachment = { confirmDeleteAttachment = it },
                     )
                 } else {
                     EditorPreview(
@@ -693,6 +743,15 @@ private fun NoteEditor(
             confirmLabel = stringResource(R.string.action_delete),
             onConfirm = { confirmDelete = false; onDelete() },
             onDismiss = { confirmDelete = false },
+        )
+    }
+
+    confirmDeleteAttachment?.let { att ->
+        HbConfirmDialog(
+            message = stringResource(R.string.notes_attachment_delete_confirm, att.originalName),
+            confirmLabel = stringResource(R.string.action_delete),
+            onConfirm = { confirmDeleteAttachment = null; onRemoveAttachment(att.id) },
+            onDismiss = { confirmDeleteAttachment = null },
         )
     }
 }
@@ -744,6 +803,11 @@ private fun EditorForm(
     onAddImage: () -> Unit,
     onRemoveImage: (imageId: String) -> Unit,
     onOpenLightbox: (url: String) -> Unit,
+    attachments: List<NoteAttachmentDto>,
+    canAddAttachment: Boolean,
+    onAddAttachment: () -> Unit,
+    onOpenAttachment: (NoteAttachmentDto) -> Unit,
+    onRemoveAttachment: (NoteAttachmentDto) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         HbField(stringResource(R.string.notes_field_title)) {
@@ -840,6 +904,14 @@ private fun EditorForm(
             onAdd = onAddImage,
             onRemove = onRemoveImage,
             onOpen = onOpenLightbox,
+        )
+        // File-attachment list (non-image documents, #437) — also an editing action.
+        NoteAttachmentsSection(
+            attachments = attachments,
+            canAdd = canAddAttachment,
+            onAdd = onAddAttachment,
+            onOpen = onOpenAttachment,
+            onRemove = onRemoveAttachment,
         )
     }
 }
@@ -1019,6 +1091,109 @@ private fun NoteImagesSection(
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// File attachments (#437) — non-image documents as download chips (icon + name + size).
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun NoteAttachmentsSection(
+    attachments: List<NoteAttachmentDto>,
+    // Attachments need a persisted note (a server id) to upload against — disabled until the first
+    // auto-save creates the note (#437), exactly like images.
+    canAdd: Boolean,
+    onAdd: () -> Unit,
+    onOpen: (NoteAttachmentDto) -> Unit,
+    onRemove: (NoteAttachmentDto) -> Unit,
+) {
+    Column(Modifier.padding(top = 20.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                if (attachments.isEmpty()) stringResource(R.string.notes_attachments)
+                else stringResource(R.string.notes_attachments_count, attachments.size),
+                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                color = Hb.ink2,
+            )
+            HbButton(
+                stringResource(R.string.notes_add_attachment),
+                onClick = onAdd,
+                variant = HbButtonVariant.Secondary,
+                size = HbButtonSize.Sm,
+                icon = HbIcons.plus,
+                enabled = canAdd,
+            )
+        }
+        // Same "needs a saved note first" hint as the image section (the disabled button doesn't dim).
+        if (!canAdd) {
+            Text(
+                stringResource(R.string.notes_add_attachment_needs_save),
+                style = HbType.small,
+                color = Hb.ink3,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+        }
+        if (attachments.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                attachments.forEach { att -> AttachmentChip(att, onOpen = { onOpen(att) }, onRemove = { onRemove(att) }) }
+            }
+        }
+    }
+}
+
+/** A single attachment row: a document icon, the filename, its size, and a delete control. */
+@Composable
+private fun AttachmentChip(
+    attachment: NoteAttachmentDto,
+    onOpen: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(HbRadiusSm)
+            .background(Hb.surface2)
+            .border(1.dp, Hb.lineSoft, HbRadiusSm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .weight(1f)
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            HbIcon(HbIcons.note, size = 18.dp, tint = Hb.ink2)
+            Text(
+                attachment.originalName,
+                style = HbType.body.copy(fontSize = 14.sp),
+                color = Hb.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                NoteAttachments.formatFileSize(attachment.sizeBytes),
+                style = HbType.small.copy(fontSize = 12.sp),
+                color = Hb.ink3,
+            )
+        }
+        Box(
+            Modifier
+                .padding(end = 6.dp)
+                .size(32.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            HbIcon(HbIcons.x, size = 16.dp, tint = Hb.ink3)
         }
     }
 }
