@@ -102,6 +102,8 @@ private fun Application.configureTodoReminders(telegramClient: com.homebase.dige
         // so the fat-jar BC smoke test stays meaningful.
         try {
             notifiers += WebPushNotifier(VapidWebPushSender(vapidPublic, vapidPrivate, vapidSubject))
+            // NOTE: this exact line is grepped verbatim by the fat-jar smoke test in ci.yml (#474) to
+            // prove BouncyCastle/PushService loaded from the shaded jar — don't reword without updating it.
             log.info("Web Push enabled for todo reminders (VAPID configured)")
         } catch (e: Exception) {
             log.error("Web Push disabled: invalid VAPID configuration (keys present but rejected)", e)

@@ -41,10 +41,14 @@ interface WebPushSender {
  */
 class VapidWebPushSender(publicKey: String, privateKey: String, subject: String) : WebPushSender {
     private val logger = LoggerFactory.getLogger(VapidWebPushSender::class.java)
-    private val pushService = PushService(publicKey, privateKey, subject)
 
     init {
-        // Idempotent: addProvider is a no-op if BouncyCastle is already registered.
+        // MUST run before the pushService initializer below: PushService's constructor decodes the
+        // VAPID public key via KeyFactory.getInstance(..., "BC"), so BouncyCastle has to be registered
+        // first — otherwise the constructor throws NoSuchProviderException ("no such provider: BC") and
+        // web push silently never enables. Kotlin runs init blocks and property initializers in
+        // declaration order, so this block precedes `pushService`. Idempotent: addProvider is a no-op
+        // if BouncyCastle is already registered.
         if (Security.getProvider(BouncyCastleProviderName) == null) {
             runCatching {
                 val clazz = Class.forName("org.bouncycastle.jce.provider.BouncyCastleProvider")
@@ -52,6 +56,8 @@ class VapidWebPushSender(publicKey: String, privateKey: String, subject: String)
             }.onFailure { logger.warn("Could not register BouncyCastle provider for web push", it) }
         }
     }
+
+    private val pushService = PushService(publicKey, privateKey, subject)
 
     override fun send(sub: PushSubscriptionRow, payload: String): PushSendResult {
         return try {
