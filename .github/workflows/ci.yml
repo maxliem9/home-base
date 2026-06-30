@@ -220,11 +220,22 @@ jobs:
           # Boot the packaged jar with a user to seed: if the fat jar's Flyway resolver is
           # missing again, migrate() applies nothing, the seeder's first query hits a missing
           # "users" table, and the app dies before binding 8080 — the prod crash, in CI.
+          #
+          # VAPID_* below are THROWAWAY test keys (a valid P-256 keypair from
+          # `npx web-push generate-vapid-keys`), not secrets. Their only purpose: with all three set,
+          # configureTodoReminders constructs VapidWebPushSender → PushService, which loads BouncyCastle
+          # *from the fat jar*. BC packaging in a shaded jar (signed jars / JCE SPI) is the same deploy
+          # blind spot as #9/#122 — exercising it here turns a future dep-bump regression into a red CI
+          # run (NoClassDefFoundError is an Error, not caught by the try/catch in Digest.kt → boot crashes
+          # → the health loop below fails). See issue #474.
           log="$(mktemp)"
           DB_URL=jdbc:postgresql://localhost:5432/homebase_smoke \
           DB_USER=homebase DB_PASSWORD=homebase \
           JWT_SECRET=ci-smoke-secret \
           SEED_USERS=smoke:smokepw \
+          VAPID_PUBLIC_KEY=BDKoIgRxS7usX4ChquA-nTygDoZxjsYrCUttcv_x_f89vWpkodDvSuBTuOvnmfBSm7ZUrl124KdXaHsAvSAjipU \
+          VAPID_PRIVATE_KEY=8G_rdN2SeDDqH1AhLIPvHOYXXO_xn47rXQHqx9S4t-w \
+          VAPID_SUBJECT=mailto:smoke@homebase.local \
             java -jar build/libs/homebase-backend.jar > "$log" 2>&1 &
           app_pid=$!
           trap 'kill "$app_pid" 2>/dev/null || true' EXIT
@@ -248,6 +259,17 @@ jobs:
             echo "::error::Fat jar never became healthy within 90s."
             cat "$log"; exit 1
           fi
+
+          # Prove the Web-Push/BouncyCastle path actually loaded from the fat jar (#474). With valid
+          # VAPID_* set, configureTodoReminders logs this exact line only after VapidWebPushSender →
+          # PushService constructed (which decodes the key via BouncyCastle). The bad-key path is
+          # caught (logs "Web Push disabled: invalid VAPID configuration"), so the *absence* of the
+          # enabled line — even with packaging intact — would mean BC didn't load from the jar.
+          if ! grep -q "Web Push enabled for todo reminders (VAPID configured)" "$log"; then
+            echo "::error::Web push did not enable — BouncyCastle/PushService failed to load from the fat jar (issue #474)."
+            cat "$log"; exit 1
+          fi
+          echo "Fat jar loaded BouncyCastle and enabled web push from valid VAPID keys. ✓"
 
           # Belt-and-suspenders: the prod symptom was `relation "users" does not exist`, and a
           # partial-resolver regression could apply *some* migrations. Assert every V*.sql
