@@ -177,6 +177,40 @@ test.describe('Todos', () => {
     await expect(page.locator('.hb-row', { hasText: 'Zahnarzt' })).toContainText('09:30')
   })
 
+  test('clears a due date in the plan sheet, removing the badge and sending dueDate "" (#468)', async ({ page }) => {
+    // seed a PLANNED todo with both a due date and time so we can prove the cascade clears both
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Reifen wechseln', listId: 'l1', status: 'PLANNED', dueDate: '2026-06-20', dueTime: '08:15' })],
+      [HAUSHALT],
+    )
+    await openApp(page, mock)
+
+    const row = page.locator('.hb-row', { hasText: 'Reifen wechseln' })
+    // the due badge (date + time) is on the row to start
+    await expect(row.locator('.hb-badge')).toContainText('08:15')
+
+    // a dated todo shows no "Planen" button — the plan sheet opens via the row's edit (pencil) action
+    await row.getByRole('button', { name: 'Bearbeiten' }).click()
+    const dialog = page.locator('.hb-sheet')
+    await expect(dialog.locator('input[type="date"]')).toHaveValue('2026-06-20')
+
+    // emptying the date field must actually clear it on save (was a no-op: undefined = unchanged, #468)
+    await dialog.locator('input[type="date"]').fill('')
+    // the time input disables and clears in lockstep with the date
+    await expect(dialog.locator('input[type="time"]')).toBeDisabled()
+
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().endsWith('/todos/t1') && r.method() === 'PUT'),
+      dialog.getByRole('button', { name: 'Planen' }).click(),
+    ])
+    // '' clears the date (#265 convention); the time cascades to '' too
+    expect(req.postDataJSON()).toMatchObject({ dueDate: '', dueTime: '' })
+
+    await expect(page.locator('.hb-sheet')).toHaveCount(0)
+    // the due badge is gone — no date, no leftover time
+    await expect(row.locator('.hb-badge')).toHaveCount(0)
+  })
+
   test('sets a priority via the chip row in the plan sheet (#407)', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Steuer machen', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)

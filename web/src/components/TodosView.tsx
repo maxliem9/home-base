@@ -112,6 +112,7 @@ interface PlanDraft {
   description: string
   assignee: string
   dueDate: string
+  dueDateOriginal: string // due date at open time — only PUT '' (clear) when it was actually emptied (#468)
   dueTime: string // "HH:mm" or '' (#429)
   priority: '' | TodoPriority
   listId: string // target list; '' = no list / inbox (#69; move between lists #409)
@@ -408,9 +409,13 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       // sent every save (null = unchanged on the backend); a blank value clears it back to empty
       description: plan.description.trim(),
       assignee: plan.assignee.trim() || undefined,
-      dueDate: plan.dueDate || undefined,
+      // #468: a value sets the date; an emptied field sends '' (= clear, #265 convention) but only
+      // when there actually was a date at open time — an untouched-empty field stays undefined
+      // (unchanged), so a pure title/description edit never clobbers a concurrent partner change.
+      dueDate: plan.dueDate || (plan.dueDateOriginal ? '' : undefined),
       // sent every save: '' clears the time (#265), a value sets it. Force-clear when there's no
-      // date — a time without a date is meaningless and the backend would reject it.
+      // date — a time without a date is meaningless and the backend would reject it. With a cleared
+      // date this also clears the time, so the row ends up with neither (#468).
       dueTime: plan.dueDate ? plan.dueTime : '',
       priority: plan.priority || undefined,
       // List move (#409): only send when the pick differs from the list at open time,
@@ -698,7 +703,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       listName={crossList && todo.listId ? lists.find((l) => l.id === todo.listId)?.name : undefined}
       onToggleDone={() => toggleDone(todo)}
       onToggleExpand={() => toggleExpand(todo.id)}
-      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', dueTime: dueTimeLabel(todo.dueTime) ?? '', priority: todo.priority ?? '', listId: todo.listId ?? '', listIdOriginal: todo.listId ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
+      onPlan={() => setPlan({ id: todo.id, title: todo.title, description: todo.description ?? '', assignee: todo.assignee ?? '', dueDate: todo.dueDate ?? '', dueDateOriginal: todo.dueDate ?? '', dueTime: dueTimeLabel(todo.dueTime) ?? '', priority: todo.priority ?? '', listId: todo.listId ?? '', listIdOriginal: todo.listId ?? '', recurrenceFreq: todo.recurrence?.freq ?? '', recurrenceInterval: todo.recurrence?.interval ?? 1 })}
       onDelete={() => deleteTodo(todo.id)}
       onToggleSub={(s) => toggleSubtask(todo.id, s)}
       onDeleteSub={(sid) => deleteSubtask(todo.id, sid)}
