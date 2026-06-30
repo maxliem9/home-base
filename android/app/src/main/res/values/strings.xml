@@ -477,6 +477,12 @@
     <string name="recipe_add_section">+ Abschnitt</string>
     <string name="recipe_field_steps">Schritte</string>
     <string name="recipe_steps_placeholder">Ein Schritt pro Zeile …</string>
+    <!-- Rezept-Import aus URL (#460) -->
+    <string name="recipe_import_title">Aus URL importieren</string>
+    <string name="recipe_import_hint">Füge die Adresse einer Rezeptseite ein – wir holen Titel, Zutaten und Schritte, du prüfst und speicherst.</string>
+    <string name="recipe_import_url_label">Rezept-URL</string>
+    <string name="recipe_import_action">Importieren</string>
+    <string name="recipe_importing">Importiere …</string>
 
     <!-- ===== Absence (Familienkalender) ===== -->
     <string name="absence_eyebrow">Familienkalender</string>

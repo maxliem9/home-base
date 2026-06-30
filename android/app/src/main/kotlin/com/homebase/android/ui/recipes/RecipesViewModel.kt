@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.BuildConfig
 import com.homebase.android.data.model.CreateRecipeRequest
+import com.homebase.android.data.model.RecipeDraftDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeImageDto
 import com.homebase.android.data.model.UpdateRecipeRequest
@@ -80,6 +81,15 @@ class RecipesViewModel(
                 }
                 .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
+    }
+
+    /**
+     * Import a recipe draft from a URL (#460) and hand the [Result] to [onResult]; the screen
+     * turns success into a pre-filled editor and failure into an inline error message. Nothing is
+     * persisted — the user reviews/saves via the normal create flow.
+     */
+    fun importRecipe(url: String, onResult: (Result<RecipeDraftDto>) -> Unit) {
+        viewModelScope.launch { onResult(repository.importRecipe(url.trim())) }
     }
 
     fun deleteRecipe(id: String, onDeleted: () -> Unit = {}) {

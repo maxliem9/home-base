@@ -57,6 +57,7 @@ import com.homebase.android.R
 import com.homebase.android.data.model.CreateRecipeRequest
 import com.homebase.android.data.model.IngredientDto
 import com.homebase.android.data.model.IngredientInput
+import com.homebase.android.data.model.RecipeDraftDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeImageDto
 import com.homebase.android.data.model.RecipeStepDto
@@ -183,6 +184,81 @@ internal fun sectionsToIngredients(sections: List<SectionDraft>): List<Ingredien
 internal fun stepsToText(steps: List<RecipeStepDto>): String =
     steps.joinToString("\n") { it.description }
 
+/**
+ * Pre-filled initial state for the recipe editor (#460). Built either from an existing recipe
+ * (edit) or from an imported [RecipeDraftDto] (URL import). Decouples the form sheet from the
+ * source so a draft — which has no id/sortOrder/timestamps — can seed a brand-new recipe.
+ */
+internal data class RecipeFormPrefill(
+    val title: String = "",
+    val categoryCode: String = "DINNER",
+    val servings: String = "",
+    val prep: String = "",
+    val cook: String = "",
+    val description: String = "",
+    val sections: List<SectionDraft> = listOf(SectionDraft()),
+    val stepsText: String = "",
+) {
+    companion object {
+        /** Editor state for editing an existing recipe (empty/new when [recipe] is null). */
+        fun of(recipe: RecipeDto?): RecipeFormPrefill {
+            if (recipe == null) return RecipeFormPrefill()
+            return RecipeFormPrefill(
+                title = recipe.title,
+                categoryCode = canonicalCategory(recipe.category).takeIf { it in CATEGORY_CODES } ?: "DINNER",
+                servings = recipe.servings.toString(),
+                prep = recipe.prepTimeMinutes?.toString() ?: "",
+                cook = recipe.cookTimeMinutes?.toString() ?: "",
+                description = recipe.description ?: "",
+                sections = sectionsFromIngredients(recipe.ingredients),
+                stepsText = stepsToText(recipe.steps),
+            )
+        }
+
+        /**
+         * Editor state pre-filled from an imported draft (#460) — always a NEW recipe (no id), so
+         * the user reviews and saves via the normal create flow. Best-effort fields the page didn't
+         * provide stay blank. The category is folded into the offered set (legacy LUNCH → DINNER,
+         * anything unknown → DINNER) so the chip row always has a valid selection.
+         */
+        fun ofImport(draft: RecipeDraftDto): RecipeFormPrefill = RecipeFormPrefill(
+            title = draft.title,
+            categoryCode = canonicalCategory(draft.category).takeIf { it in CATEGORY_CODES } ?: "DINNER",
+            servings = draft.servings?.toString() ?: "",
+            prep = draft.prepTimeMinutes?.toString() ?: "",
+            cook = draft.cookTimeMinutes?.toString() ?: "",
+            description = draft.description ?: "",
+            sections = sectionsFromInputs(draft.ingredients),
+            stepsText = draft.steps.joinToString("\n") { it.description },
+        )
+    }
+}
+
+/**
+ * Build editor section drafts from imported [IngredientInput]s (#460) — the import counterpart of
+ * [sectionsFromIngredients], which works on stored [IngredientDto]s. Groups consecutive runs that
+ * share a section label (authoring order), shows each amount as editable dot-decimal text, and
+ * yields a single blank section when the draft has no ingredients so the editor always has a row.
+ */
+internal fun sectionsFromInputs(items: List<IngredientInput>): List<SectionDraft> {
+    if (items.isEmpty()) return listOf(SectionDraft())
+    val groups = mutableListOf<Pair<String?, MutableList<IngredientInput>>>()
+    for (ing in items) {
+        val sec = ing.section?.trim()?.takeIf { it.isNotEmpty() }
+        val last = groups.lastOrNull()
+        if (last != null && last.first == sec) last.second.add(ing)
+        else groups.add(sec to mutableListOf(ing))
+    }
+    return groups.map { (section, group) ->
+        SectionDraft(
+            name = section ?: "",
+            ingredients = group.map { ing ->
+                IngredientDraft(name = ing.name, amount = ing.amount?.let { Format.amount(it) } ?: "", unit = ing.unit ?: "")
+            },
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Striped placeholder band ("Foto folgt")
 // ---------------------------------------------------------------------------
@@ -240,6 +316,7 @@ fun RecipesScreen(
             onOpen = { selectedId = it.id },
             onOpenDrawer = onOpenDrawer,
             onSave = { request -> viewModel.saveRecipe(null, request) { saved -> selectedId = saved.id } },
+            onImport = viewModel::importRecipe,
             imageUrl = viewModel::imageUrl,
         )
     }
@@ -255,11 +332,15 @@ private fun RecipeListPage(
     onOpen: (RecipeDto) -> Unit,
     onOpenDrawer: () -> Unit,
     onSave: (CreateRecipeRequest) -> Unit,
+    onImport: (String, (Result<RecipeDraftDto>) -> Unit) -> Unit,
     imageUrl: (RecipeImageDto) -> String,
 ) {
     // null = "all"; otherwise the selected backend enum code (language-independent filter, #207).
     var selectedCode by remember { mutableStateOf<String?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
+    var showImport by remember { mutableStateOf(false) }
+    // When an import succeeds we open the editor pre-filled with the returned draft (#460).
+    var importPrefill by remember { mutableStateOf<RecipeFormPrefill?>(null) }
 
     val recipes = selectedCode?.let { code ->
         state.recipes.filter { canonicalCategory(it.category) == code }
@@ -272,7 +353,12 @@ private fun RecipeListPage(
                     eyebrow = stringResource(R.string.recipe_count_eyebrow, state.recipes.size),
                     title = stringResource(R.string.recipe_title),
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.search, {}) },
+                    actions = {
+                        // "Aus URL importieren" (#460) — paste a recipe URL, the backend extracts a
+                        // draft and the editor opens pre-filled.
+                        HbIconButton(HbIcons.link, { showImport = true })
+                        HbIconButton(HbIcons.search, {})
+                    },
                 )
             },
             fab = { HbFab(onClick = { showNewSheet = true }, label = stringResource(R.string.recipe_fab)) },
@@ -324,6 +410,109 @@ private fun RecipeListPage(
                     showNewSheet = false
                     onSave(request)
                 },
+            )
+        }
+
+        if (showImport) {
+            ImportFromUrlSheet(
+                onImport = onImport,
+                onDismiss = { showImport = false },
+                onImported = { draft ->
+                    showImport = false
+                    importPrefill = RecipeFormPrefill.ofImport(draft)
+                },
+            )
+        }
+
+        // After a successful import the editor opens pre-filled (#460); saving creates a new recipe.
+        importPrefill?.let { prefill ->
+            RecipeFormSheet(
+                existing = null,
+                prefill = prefill,
+                onDismiss = { importPrefill = null },
+                onSave = { request ->
+                    importPrefill = null
+                    onSave(request)
+                },
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// "Aus URL importieren" sheet (#460) — one URL field; posts to /recipes/import.
+// ---------------------------------------------------------------------------
+
+/**
+ * A short, focused bottom sheet with a single URL field (#460). Posting the URL hits the backend
+ * import endpoint; on success the caller opens the editor pre-filled (the user reviews and saves
+ * normally — nothing is persisted by the import). A failure (no recipe data / rejected URL / server
+ * error) shows the repository's German message inline and keeps the sheet open so the user can retry.
+ */
+@Composable
+private fun ImportFromUrlSheet(
+    onImport: (String, (Result<RecipeDraftDto>) -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+    onImported: (RecipeDraftDto) -> Unit,
+) {
+    var url by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val submit = {
+        val trimmed = url.trim()
+        if (trimmed.isNotEmpty() && !busy) {
+            busy = true
+            error = null
+            onImport(trimmed) { result ->
+                result
+                    .onSuccess { draft -> onImported(draft) }
+                    .onFailure { e ->
+                        busy = false
+                        error = e.message
+                    }
+            }
+        }
+    }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.recipe_import_title),
+        footer = {
+            HbButton(
+                stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                if (busy) stringResource(R.string.recipe_importing) else stringResource(R.string.recipe_import_action),
+                onClick = submit,
+                variant = HbButtonVariant.Primary,
+                enabled = url.isNotBlank() && !busy,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        Text(
+            stringResource(R.string.recipe_import_hint),
+            style = HbType.body,
+            color = Hb.ink3,
+        )
+        Spacer(Modifier.size(14.dp))
+        HbField(stringResource(R.string.recipe_import_url_label)) {
+            HbTextField(
+                value = url,
+                onValueChange = { url = it },
+                placeholder = "https://…",
+            )
+        }
+        error?.let { msg ->
+            Spacer(Modifier.size(10.dp))
+            Text(
+                msg,
+                style = HbType.small.copy(fontWeight = FontWeight.Medium),
+                color = Hb.danger,
             )
         }
     }
@@ -1025,27 +1214,24 @@ private fun RecipeFormSheet(
     existing: RecipeDto?,
     onDismiss: () -> Unit,
     onSave: (CreateRecipeRequest) -> Unit,
+    // Pre-filled initial fields (#460): defaults to the existing recipe (edit) or a blank new
+    // recipe; a URL import passes a draft-derived prefill so the editor opens with the imported
+    // data while still saving as a brand-new recipe (existing stays null).
+    prefill: RecipeFormPrefill = RecipeFormPrefill.of(existing),
 ) {
-    var title by remember { mutableStateOf(existing?.title ?: "") }
-    // Carry the stable backend enum code (#207); the chip labels are localized on render. An
-    // existing recipe's code is normalized into the offered set (legacy LUNCH → DINNER), default DINNER.
-    var categoryCode by remember {
-        mutableStateOf(
-            existing?.category
-                ?.let { canonicalCategory(it) }
-                ?.takeIf { it in CATEGORY_CODES }
-                ?: "DINNER",
-        )
-    }
-    var servings by remember { mutableStateOf(existing?.servings?.toString() ?: "") }
-    var prep by remember { mutableStateOf(existing?.prepTimeMinutes?.toString() ?: "") }
-    var cook by remember { mutableStateOf(existing?.cookTimeMinutes?.toString() ?: "") }
-    var description by remember { mutableStateOf(existing?.description ?: "") }
-    var sections by remember { mutableStateOf(sectionsFromIngredients(existing?.ingredients ?: emptyList())) }
+    var title by remember { mutableStateOf(prefill.title) }
+    // Carry the stable backend enum code (#207); the chip labels are localized on render. The
+    // prefill already normalized the code into the offered set (legacy LUNCH → DINNER, default DINNER).
+    var categoryCode by remember { mutableStateOf(prefill.categoryCode) }
+    var servings by remember { mutableStateOf(prefill.servings) }
+    var prep by remember { mutableStateOf(prefill.prep) }
+    var cook by remember { mutableStateOf(prefill.cook) }
+    var description by remember { mutableStateOf(prefill.description) }
+    var sections by remember { mutableStateOf(prefill.sections) }
     // Section-name fields appear once sections are in play; sticky for the editor's lifetime so
     // clearing a name mid-edit doesn't make the field vanish (mirrors web `sectionsShown`).
     var sectionsShown by remember { mutableStateOf(sections.size > 1 || sections.any { it.name.isNotBlank() }) }
-    var stepsText by remember { mutableStateOf(existing?.let { stepsToText(it.steps) } ?: "") }
+    var stepsText by remember { mutableStateOf(prefill.stepsText) }
 
     // Free-text bulk editor for ingredients (paste a list, one per line; "# Name" opens a section).
     // The structured `sections` stay the source of truth — text edits are parsed back into them

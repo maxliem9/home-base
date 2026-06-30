@@ -25,6 +25,14 @@ internal const val GENERIC_ERROR_TEXT = "Serverfehler – bitte später erneut v
  */
 internal const val DATE_CONFLICT_TEXT = "Für dieses Datum gibt es schon einen Eintrag."
 
+/**
+ * Recipe URL-import failures (#460) — wording mirrors web `recipes.importNoData` /
+ * `recipes.importFailed`. NO_DATA is the backend's `NO_RECIPE_DATA` (the page had no recipe);
+ * FAILED covers a rejected URL or any other server error.
+ */
+internal const val RECIPE_IMPORT_NO_DATA_TEXT = "Auf dieser Seite wurden keine Rezeptdaten gefunden."
+internal const val RECIPE_IMPORT_FAILED_TEXT = "Import fehlgeschlagen – bitte URL prüfen."
+
 /** A failure whose [message] is German UI text; the original failure stays as [cause]. */
 internal class ApiException(message: String, cause: Throwable) : Exception(message, cause)
 

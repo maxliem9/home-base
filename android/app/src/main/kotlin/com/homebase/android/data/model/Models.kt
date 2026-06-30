@@ -694,6 +694,29 @@ data class UpdateRecipeRequest(
 @JsonClass(generateAdapter = true)
 data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
+// Request body for POST /recipes/import (#460). The backend fetches the page server-side and
+// extracts schema.org/Recipe JSON-LD.
+@JsonClass(generateAdapter = true)
+data class ImportRecipeRequest(val url: String)
+
+// A best-effort recipe DRAFT extracted from a page by the import endpoint — NOT persisted. The
+// client pre-fills its editor with this and the user reviews/edits before saving normally.
+// Mirrors the backend RecipeDraftDto (reuses IngredientInput/RecipeStepInput). Every field is
+// best-effort: anything the page didn't provide stays null/empty (encodeDefaults=false ⇒ keys
+// may be missing). `sourceUrl` is echoed back so the client knows where it came from.
+@JsonClass(generateAdapter = true)
+data class RecipeDraftDto(
+    val title: String,
+    val description: String? = null,
+    val servings: Int? = null,
+    val prepTimeMinutes: Int? = null,
+    val cookTimeMinutes: Int? = null,
+    val category: String,
+    val ingredients: List<IngredientInput> = emptyList(),
+    val steps: List<RecipeStepInput> = emptyList(),
+    val sourceUrl: String? = null,
+)
+
 // --- Wochenplan / Essensplaner (#218/#250) ---
 // One meal planned into a (date, slot) of the weekly grid; slot ∈ BREAKFAST|LUNCH|DINNER (the
 // planner's own meal times, independent of the recipe categories). Exactly one of recipeId /

@@ -465,6 +465,12 @@
     <string name="recipe_add_section">+ Section</string>
     <string name="recipe_field_steps">Steps</string>
     <string name="recipe_steps_placeholder">One step per line …</string>
+    <!-- Recipe import from URL (#460) -->
+    <string name="recipe_import_title">Import from URL</string>
+    <string name="recipe_import_hint">Paste a recipe page link – we pull the title, ingredients and steps; you review and save.</string>
+    <string name="recipe_import_url_label">Recipe URL</string>
+    <string name="recipe_import_action">Import</string>
+    <string name="recipe_importing">Importing …</string>
 
     <!-- ===== Absence ===== -->
     <string name="absence_eyebrow">Family calendar</string>
