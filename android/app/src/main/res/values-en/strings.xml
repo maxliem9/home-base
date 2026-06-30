@@ -286,6 +286,14 @@
     <string name="notes_images_count">Images (%1$d)</string>
     <string name="notes_add_image">Add image</string>
     <string name="notes_add_image_needs_save">Images can be added once the note has been created.</string>
+    <!-- File attachments (#437): non-image documents as download chips -->
+    <string name="notes_attachments">Attachments</string>
+    <string name="notes_attachments_count">Attachments (%1$d)</string>
+    <string name="notes_add_attachment">Add file</string>
+    <string name="notes_add_attachment_needs_save">Files can be added once the note has been created.</string>
+    <string name="notes_attachment_delete_confirm">Delete “%1$s”? This cannot be undone.</string>
+    <string name="notes_attachment_open_failed">No app found to open this file.</string>
+    <string name="notes_attachment_download_failed">Couldn’t open the attachment.</string>
     <string name="notes_new_title">New note</string>
     <string name="notes_edit_title">Edit note</string>
     <string name="notes_field_title">Title</string>

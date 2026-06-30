@@ -14,14 +14,7 @@ import java.text.Normalizer
 object FileShare {
 
     fun share(context: Context, filename: String, mimeType: String, bytes: ByteArray, chooserTitle: String = "Teilen") {
-        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-        // Keep the export cache from growing: a prior share has handed off by the time
-        // the user triggers another, so stale files are safe to drop.
-        dir.listFiles()?.forEach { it.delete() }
-        val file = File(dir, filename)
-        file.writeBytes(bytes)
-
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val uri = cacheUri(context, filename, bytes)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -30,6 +23,35 @@ object FileShare {
         context.startActivity(
             Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+
+    /**
+     * Opens downloaded bytes in the system viewer (ACTION_VIEW via the chooser) — used for note file
+     * attachments (#437): download → cache → hand off to whatever app handles the MIME type. Returns
+     * false (no exception) if no app can open the type, so the caller can surface a message.
+     */
+    fun open(context: Context, filename: String, mimeType: String, bytes: ByteArray, chooserTitle: String = "Öffnen mit"): Boolean {
+        val uri = cacheUri(context, filename, bytes)
+        val view = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        // Wrap in a chooser so the file always has a target even with several capable apps; bail out
+        // (false) only when the device truly has nothing that can handle the type.
+        if (view.resolveActivity(context.packageManager) == null) return false
+        context.startActivity(Intent.createChooser(view, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        return true
+    }
+
+    /** Writes [bytes] to the shared `exports` cache file and returns its FileProvider content URI. */
+    private fun cacheUri(context: Context, filename: String, bytes: ByteArray) = run {
+        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+        // Keep the cache from growing: a prior share/open has handed off by the time the user
+        // triggers another, so stale files are safe to drop.
+        dir.listFiles()?.forEach { it.delete() }
+        val file = File(dir, filename.ifBlank { "datei" })
+        file.writeBytes(bytes)
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
     /**

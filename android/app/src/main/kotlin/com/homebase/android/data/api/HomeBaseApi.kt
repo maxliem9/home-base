@@ -205,6 +205,26 @@ interface HomeBaseApi {
     @DELETE("notes/{id}/images/{imageId}")
     suspend fun deleteNoteImage(@Path("id") id: String, @Path("imageId") imageId: String): NoteDto
 
+    // File attachments (#437). Upload/delete return the updated note with its attachments embedded.
+    @Multipart
+    @POST("notes/{id}/attachments")
+    suspend fun uploadNoteAttachment(@Path("id") id: String, @Part file: MultipartBody.Part): NoteDto
+
+    @DELETE("notes/{id}/attachments/{attachmentId}")
+    suspend fun deleteNoteAttachment(
+        @Path("id") id: String,
+        @Path("attachmentId") attachmentId: String,
+    ): NoteDto
+
+    // Raw bytes of an attachment (the backend serves it with Content-Disposition: attachment, so the
+    // client downloads to cache and opens it with the system viewer). Auth via `?token=` like images.
+    @Streaming
+    @GET("notes/{id}/attachments/{attachmentId}")
+    suspend fun downloadNoteAttachment(
+        @Path("id") id: String,
+        @Path("attachmentId") attachmentId: String,
+    ): ResponseBody
+
     // --- Time tracking ---
 
     @GET("time/projects")

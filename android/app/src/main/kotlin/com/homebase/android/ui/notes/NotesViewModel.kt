@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.BuildConfig
 import com.homebase.android.data.model.CreateNoteRequest
+import com.homebase.android.data.model.NoteAttachmentDto
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
@@ -44,6 +45,9 @@ data class NotesUiState(
 /** One picked image to upload to a note: its bytes + the original filename and MIME type. */
 data class NoteImageUpload(val bytes: ByteArray, val filename: String, val contentType: String)
 
+/** One picked file attachment to upload to a note (#437): its bytes + original filename and MIME type. */
+data class NoteAttachmentUpload(val bytes: ByteArray, val filename: String, val contentType: String)
+
 /**
  * Auto-save status shown in the editor app bar (#309). [PENDING] (#323) is the offline-resilient
  * state: a save failed and the edit is queued in the durable store for retry — distinct from [ERROR]
@@ -67,6 +71,9 @@ data class NoteEditorState(
     val folder: String,
     val visibility: String,
     val images: List<NoteImageDto> = emptyList(),
+    // file attachments mirror the saved note's list (upload/remove refresh it without touching the
+    // text draft), exactly like [images] (#437).
+    val attachments: List<NoteAttachmentDto> = emptyList(),
     val status: SaveStatus = SaveStatus.IDLE,
     // Bumped once per editor open/switch — NOT on the first-create id capture — so the UI can key
     // its caret-bearing content field on a stable token (reseeds on a note switch, survives the
@@ -258,6 +265,7 @@ class NotesViewModel(
                 folder = "",
                 visibility = "SHARED",
                 images = emptyList(),
+                attachments = emptyList(),
                 status = SaveStatus.IDLE,
                 session = session,
             )
@@ -271,6 +279,7 @@ class NotesViewModel(
                 folder = note.folder ?: "",
                 visibility = note.visibility,
                 images = note.images,
+                attachments = note.attachments,
                 status = SaveStatus.IDLE,
                 session = session,
             )
@@ -483,8 +492,8 @@ class NotesViewModel(
                     _editorState.update { st ->
                         when {
                             st == null -> st
-                            isCreate && st.noteId == null -> st.copy(noteId = note.id, images = note.images, status = SaveStatus.SAVED)
-                            !isCreate && st.noteId == note.id -> st.copy(images = note.images, status = SaveStatus.SAVED)
+                            isCreate && st.noteId == null -> st.copy(noteId = note.id, images = note.images, attachments = note.attachments, status = SaveStatus.SAVED)
+                            !isCreate && st.noteId == note.id -> st.copy(images = note.images, attachments = note.attachments, status = SaveStatus.SAVED)
                             else -> st
                         }
                     }
@@ -621,10 +630,12 @@ class NotesViewModel(
                                 isCreate && st.noteId == null -> st.copy(
                                     noteId = saved.id,
                                     images = saved.images,
+                                    attachments = saved.attachments,
                                     status = if (draftMatchesSent) SaveStatus.SAVED else SaveStatus.SAVING,
                                 )
                                 !isCreate && st.noteId == saved.id -> st.copy(
                                     images = saved.images,
+                                    attachments = saved.attachments,
                                     status = if (draftMatchesSent) SaveStatus.SAVED else st.status,
                                 )
                                 else -> st
@@ -718,6 +729,44 @@ class NotesViewModel(
         }
     }
 
+    // --- File attachments (#437) ---
+
+    /**
+     * Upload several picked files to a note in one go (mirrors [uploadImages]). Each file is its own
+     * request (the backend appends with the right sort_order); we upsert the returned note after each
+     * so chips appear as they land. The first failure (too large / bad type / transport) is surfaced;
+     * partial success is fine — the landed files stay attached.
+     */
+    fun uploadAttachments(noteId: String, items: List<NoteAttachmentUpload>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            var firstError: String? = null
+            for (item in items) {
+                repository.uploadAttachment(noteId, item.bytes, item.filename, item.contentType)
+                    .onSuccess { note -> upsert(note) }
+                    .onFailure { e -> if (firstError == null) firstError = e.message }
+            }
+            firstError?.let { msg -> _uiState.update { it.copy(error = msg) } }
+        }
+    }
+
+    fun removeAttachment(noteId: String, attachmentId: String) {
+        viewModelScope.launch {
+            repository.deleteAttachment(noteId, attachmentId)
+                .onSuccess { note -> upsert(note) }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /**
+     * Download an attachment's bytes and hand them to [onResult] (success → bytes, failure → German
+     * error). The caller opens them with the system viewer (needs a Context, so the hand-off stays in
+     * the composable) — mirrors the recipe-export flow.
+     */
+    fun downloadAttachment(noteId: String, attachmentId: String, onResult: (Result<ByteArray>) -> Unit) {
+        viewModelScope.launch { onResult(repository.downloadAttachment(noteId, attachmentId)) }
+    }
+
     /**
      * Authenticated URL for an image. Coil/<img> can set neither an Authorization header nor a
      * WebSocket subprotocol, so the backend accepts the JWT via the `?token=` query param for these
@@ -740,10 +789,10 @@ class NotesViewModel(
             }
             state.copy(notes = notes)
         }
-        // If the editor is open on this note, fold in the server-owned image gallery (an image
-        // upload/remove, or a partner's change) WITHOUT touching the live text draft / caret (#309).
+        // If the editor is open on this note, fold in the server-owned image gallery + attachment list
+        // (an upload/remove, or a partner's change) WITHOUT touching the live text draft / caret (#309).
         _editorState.update { st ->
-            if (st != null && st.noteId == note.id) st.copy(images = note.images) else st
+            if (st != null && st.noteId == note.id) st.copy(images = note.images, attachments = note.attachments) else st
         }
     }
 
