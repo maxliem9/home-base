@@ -2,6 +2,8 @@ package com.homebase.android.data.repository
 
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateRecipeRequest
+import com.homebase.android.data.model.ImportRecipeRequest
+import com.homebase.android.data.model.RecipeDraftDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.UpdateRecipeRequest
 import com.homebase.android.data.websocket.RecipeWebSocketClient
@@ -30,6 +32,20 @@ class RecipesRepository(
 
     suspend fun deleteRecipe(id: String): Result<Unit> =
         apiCatching { api.deleteRecipe(id) }
+
+    /**
+     * Import a recipe draft from a URL (#460). The draft is NOT persisted — the caller pre-fills
+     * the editor with it. Maps the import-specific HTTP failures to German user-facing text:
+     * the backend's `NO_RECIPE_DATA` (the page held no recipe data) surfaces its own clear message;
+     * every other status (400 URL-rejection, 5xx, …) falls back to the generic import-failed text.
+     */
+    suspend fun importRecipe(url: String): Result<RecipeDraftDto> =
+        apiCatching(
+            mapHttpError = { e ->
+                if (errorCodeOf(e) == "NO_RECIPE_DATA") RECIPE_IMPORT_NO_DATA_TEXT
+                else RECIPE_IMPORT_FAILED_TEXT
+            },
+        ) { api.importRecipe(ImportRecipeRequest(url)) }
 
     suspend fun uploadImage(
         recipeId: String,

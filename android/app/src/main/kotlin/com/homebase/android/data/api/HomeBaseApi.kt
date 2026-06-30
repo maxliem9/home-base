@@ -288,6 +288,11 @@ interface HomeBaseApi {
     @DELETE("recipes/{id}")
     suspend fun deleteRecipe(@Path("id") id: String)
 
+    // Import a recipe DRAFT from a URL (#460). Backend fetches + extracts; nothing is persisted.
+    // 422 NO_RECIPE_DATA = page had no recipe data; 400 = rejected URL (private host, too large…).
+    @POST("recipes/import")
+    suspend fun importRecipe(@Body request: ImportRecipeRequest): RecipeDraftDto
+
     // set (replace) / delete the single cover image; both return the updated recipe
     @Multipart
     @POST("recipes/{id}/images")
