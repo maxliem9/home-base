@@ -43,6 +43,7 @@ import com.homebase.android.ui.aufgaben.isDoneToday
 import com.homebase.android.ui.aufgaben.isDueToday
 import com.homebase.android.ui.aufgaben.isDueTomorrow
 import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbAvatarRow
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbButton
@@ -230,7 +231,7 @@ fun HeuteScreen(
                                             }
                                         }
                                     }
-                                    HbAvatar(todo.assignee)
+                                    HbAvatarRow(todo.assignees)
                                 }
                             }
                         }

@@ -52,7 +52,7 @@ class MoshiRoundTripTest {
     @Test
     fun `TodoDto parses from a minimal payload with all droppable fields omitted`() {
         // Only the fields the backend always sends for an INBOX todo: id/title/status +
-        // created_by/created_at. description, assignee, dueDate, priority, listId, recurrence,
+        // created_by/created_at. description, assignees, dueDate, priority, listId, recurrence,
         // subtasks and doneAt are all omitted (the backend drops them under encodeDefaults=false).
         val json = """
             {
@@ -75,9 +75,9 @@ class MoshiRoundTripTest {
         assertEquals("2026-06-13T08:00:00Z", todo.createdAt)
         // The crux: an omitted list field must default to empty, never null.
         assertEquals("omitted subtasks must default to empty list", emptyList<Any>(), todo.subtasks)
+        assertEquals("omitted assignees must default to empty list", emptyList<Any>(), todo.assignees)
         // Omitted optionals default to null (their declared default).
         assertNull(todo.description)
-        assertNull(todo.assignee)
         assertNull(todo.dueDate)
         assertNull(todo.priority)
         assertNull(todo.listId)
@@ -174,7 +174,7 @@ class MoshiRoundTripTest {
               "id": "33333333-3333-3333-3333-333333333333",
               "title": "Geschirr spülen",
               "status": "PLANNED",
-              "assignee": "max",
+              "assignees": ["max", "bob"],
               "dueDate": "2026-06-14",
               "subtasks": [
                 { "id": "a", "title": "einräumen", "done": false, "sortOrder": 0 },
@@ -191,7 +191,7 @@ class MoshiRoundTripTest {
         assertEquals(2, todo.subtasks.size)
         assertEquals("einräumen", todo.subtasks[0].title)
         assertTrue(todo.subtasks[1].done)
-        assertEquals("max", todo.assignee)
+        assertEquals(listOf("max", "bob"), todo.assignees)
     }
 
     @Test
@@ -253,7 +253,7 @@ class MoshiRoundTripTest {
                 title = "Zahnarzt",
                 dueDate = "",        // user cleared the date → must reach the backend as ""
                 priority = "",       // user cleared the priority → ""
-                assignee = "bob",    // set
+                assignees = listOf("bob", "alice"), // set the whole set
                 status = "INBOX",
                 // description/listId/recurrence left null → must be omitted entirely
             ),
@@ -262,12 +262,28 @@ class MoshiRoundTripTest {
         assertEquals("Zahnarzt", obj["title"])
         assertEquals("", obj["dueDate"])
         assertEquals("", obj["priority"])
-        assertEquals("bob", obj["assignee"])
+        assertEquals(listOf("bob", "alice"), obj["assignees"])
         assertEquals("INBOX", obj["status"])
         // null fields are dropped (unchanged), never sent as JSON null
         assertTrue("null description must be omitted", !obj.containsKey("description"))
         assertTrue("null listId must be omitted", !obj.containsKey("listId"))
         assertTrue("null recurrence must be omitted", !obj.containsKey("recurrence"))
+    }
+
+    @Test
+    fun `UpdateTodoRequest sends an explicit empty assignees array to clear, omits null`() {
+        // List analog of the #265 clear/unchanged convention: [] must reach the backend as an
+        // explicit empty JSON array (clear all assignees), while a null list is omitted (unchanged).
+        // Moshi keeps a non-null empty list but drops null — exactly the two sentinels we need.
+        val cleared = moshi.adapter(Map::class.java).fromJson(
+            moshi.adapter(UpdateTodoRequest::class.java).toJson(UpdateTodoRequest(assignees = emptyList())),
+        )!!
+        assertEquals("empty list must serialize as [] (clear all)", emptyList<Any>(), cleared["assignees"])
+
+        val unchanged = moshi.adapter(Map::class.java).fromJson(
+            moshi.adapter(UpdateTodoRequest::class.java).toJson(UpdateTodoRequest(assignees = null)),
+        )!!
+        assertTrue("null assignees must be omitted (unchanged)", !unchanged.containsKey("assignees"))
     }
 
     @Test

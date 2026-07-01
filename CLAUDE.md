@@ -105,12 +105,27 @@ Damit nicht zwei Menschen/KI-Agenten/Sessions **dasselbe Ticket parallel** anfan
 ## Todo-Domänenmodell
 Status-Flow: INBOX → PLANNED → DONE
 - INBOX:   nur title gesetzt, alle anderen Felder optional
-- PLANNED: mindestens assignee oder due_date gesetzt
+- PLANNED: mindestens ein:e Zuständige:r oder due_date gesetzt
 - DONE:    done_at gesetzt
 
-Felder: id, title, description?, status, assignee?,
+Felder: id, title, description?, status, assignees[],
 due_date?, priority (LOW|MEDIUM|HIGH)?, list_id?,
 recurrence?, created_by, created_at, done_at?
+
+### Zuständige (Mehrfachauswahl, V39)
+Ein Todo kann an **eine beliebige Teilmenge** des Haushalts gehen (niemand, eine:r, „beide"). Statt
+der früheren einzelnen `assignee`-Spalte liegen die Zuständigen in der Join-Tabelle
+`todo_assignees(todo_id → todos, username → users)` (Composite-PK; `V39__todo_multi_assignee.sql`
+legt sie an, backfillt die alte Spalte und dropt sie). DTO-Feld **`assignees: string[]`** (leer =
+weggelassen, encodeDefaults=false → Clients `?? []` bzw. Moshi `= emptyList()`). Update-Konvention
+(#265-Analog als Liste): `null`/fehlend = unverändert, `[]` = alle entfernen, nicht-leer = ganze
+Menge ersetzen. Unbekannte Usernamen werden beim Schreiben mit **400 INVALID_ASSIGNEE** abgelehnt.
+Auf Rezept-/Kalender-/Reminder-Wegen werden die Zuständigen per Join geladen; Ausgabe stabil nach
+Username sortiert. **Benachrichtigungen bleiben haushaltsweit** (geteilter Telegram-Chat + alle
+Web-Push-Subscriptions) — die Zuständigen stehen nur informativ im Text, sie steuern nicht den
+Empfängerkreis. Multiselect-Chips (Web `AssigneePicker`, Android `AssigneeChips`); ein Klick auf
+Datum bzw. Zuständige einer Zeile öffnet einen Quick-Edit-Dialog (Web, „Speichern") nur für dieses
+eine Feld.
 
 ### Wiederkehrende Todos
 Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine RRULE):

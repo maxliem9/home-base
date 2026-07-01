@@ -319,7 +319,7 @@ function DayDetailSheet({ dateIso, bucket, onClose }: { dateIso: string; bucket?
                   <span className="hb-caldetail__label">
                     {dueTimeLabel(todo.dueTime) && <span className="hb-muted">{dueTimeLabel(todo.dueTime)} · </span>}
                     {todo.title}
-                    {todo.assignee && <span className="hb-muted"> · {todo.assignee}</span>}
+                    {(todo.assignees?.length ?? 0) > 0 && <span className="hb-muted"> · {todo.assignees!.join(', ')}</span>}
                   </span>
                 </div>
               ))}

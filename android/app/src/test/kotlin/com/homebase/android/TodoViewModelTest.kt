@@ -385,7 +385,7 @@ class TodoViewModelTest {
 
         // addPlannedTodo is suspend and sequential (no child coroutine), so awaiting it directly in
         // the runTest body returns the success flag.
-        val ok = vm.addPlannedTodo("Steuer", description = "ELSTER", assignee = "alice", dueDate = "2026-07-01", priority = "HIGH")
+        val ok = vm.addPlannedTodo("Steuer", description = "ELSTER", assignees = listOf("alice"), dueDate = "2026-07-01", priority = "HIGH")
 
         assertTrue(ok)
         // single create carrying all the Details fields + the active list; status is server-derived
@@ -394,7 +394,7 @@ class TodoViewModelTest {
                 CreateTodoRequest(
                     title = "Steuer",
                     description = "ELSTER",
-                    assignee = "alice",
+                    assignees = listOf("alice"),
                     dueDate = "2026-07-01",
                     priority = "HIGH",
                     listId = "a",
@@ -414,8 +414,8 @@ class TodoViewModelTest {
         advanceUntilIdle()
         vm.selectList(INBOX_TAB_ID)
 
-        // blank description / empty strings must be dropped, not sent as "" → plain INBOX create
-        vm.addPlannedTodo("Neu", description = "   ", assignee = "", dueDate = "", priority = "")
+        // blank description / empty strings / no assignees must be dropped, not sent → plain INBOX create
+        vm.addPlannedTodo("Neu", description = "   ", assignees = emptyList(), dueDate = "", priority = "")
 
         coVerify { repository.createTodo(CreateTodoRequest(title = "Neu", listId = null)) }
     }
@@ -428,7 +428,7 @@ class TodoViewModelTest {
         val vm = createVm()
         advanceUntilIdle()
 
-        val ok = vm.addPlannedTodo("Neu", assignee = "alice")
+        val ok = vm.addPlannedTodo("Neu", assignees = listOf("alice"))
 
         assertFalse(ok)
         assertEquals("Quick-add kaputt", vm.uiState.value.error)
@@ -441,16 +441,16 @@ class TodoViewModelTest {
         val original = todo(id = "1")
         coEvery { repository.getTodos() } returns Result.success(listOf(original))
         coEvery { repository.updateTodo("1", any()) } returns
-            Result.success(original.copy(status = "PLANNED", assignee = "alice", listId = "a"))
+            Result.success(original.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
 
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignee = "alice"), targetListId = "a")
+        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice")), targetListId = "a")
         advanceUntilIdle()
 
         coVerify {
-            repository.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignee = "alice", listId = "a"))
+            repository.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
         }
     }
 
@@ -492,13 +492,13 @@ class TodoViewModelTest {
         val original = todo(id = "1")
         coEvery { repository.getTodos() } returns Result.success(listOf(original))
         coEvery { repository.updateTodo("1", any()) } returns
-            Result.success(original.copy(status = "PLANNED", assignee = "alice", listId = "a"))
+            Result.success(original.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
 
         val vm = createVm()
         advanceUntilIdle()
         vm.selectList(INBOX_TAB_ID)
 
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignee = "alice"), targetListId = "a")
+        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice")), targetListId = "a")
         advanceUntilIdle()
 
         val state = vm.uiState.value

@@ -1,6 +1,8 @@
 package com.homebase.reminder
 
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodosTable
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.and
@@ -57,7 +59,10 @@ class ReminderService(
             }.forEach { row ->
                 val candidate = ReminderCandidate(
                     title = row[TodosTable.title],
-                    assignee = row[TodosTable.assignee],
+                    assignees = TodoAssigneesTable.selectAll()
+                        .where { TodoAssigneesTable.todoId eq row[TodosTable.id] }
+                        .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+                        .map { it[TodoAssigneesTable.username] },
                     dueDate = row[TodosTable.dueDate]!!,
                     dueTime = row[TodosTable.dueTime]!!,
                     reminderLeadMinutes = row[TodosTable.reminderLeadMinutes],

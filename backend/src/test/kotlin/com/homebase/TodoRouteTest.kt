@@ -82,7 +82,7 @@ class TodoRouteTest {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody(
-                """{"title":"Plan trip","description":"Weekend getaway","assignee":"bob","dueDate":"2026-06-15","priority":"HIGH"}"""
+                """{"title":"Plan trip","description":"Weekend getaway","assignees":["bob"],"dueDate":"2026-06-15","priority":"HIGH"}"""
             )
         }
 
@@ -90,7 +90,7 @@ class TodoRouteTest {
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("Plan trip", body["title"]?.jsonPrimitive?.content)
         assertEquals("Weekend getaway", body["description"]?.jsonPrimitive?.content)
-        assertEquals("bob", body["assignee"]?.jsonPrimitive?.content)
+        assertEquals(listOf("bob"), body["assignees"]?.jsonArray?.map { it.jsonPrimitive.content })
         assertEquals("2026-06-15", body["dueDate"]?.jsonPrimitive?.content)
         assertEquals("HIGH", body["priority"]?.jsonPrimitive?.content)
         // assignee/dueDate present on create ⇒ the todo is born PLANNED (quick-add "all-at-once" flow)
@@ -143,13 +143,48 @@ class TodoRouteTest {
         val response = client.post("/api/v1/todos") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"title":"Anrufen","assignee":"bob"}""")
+            setBody("""{"title":"Anrufen","assignees":["bob"]}""")
         }
 
         assertEquals(HttpStatusCode.Created, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
-        assertEquals("bob", body["assignee"]?.jsonPrimitive?.content)
+        assertEquals(listOf("bob"), body["assignees"]?.jsonArray?.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `POST todo with two assignees is created PLANNED with both`() = testApplication {
+        // multi-assignee (V39): a todo can be assigned to the whole household at once
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Wäsche","assignees":["bob","alice"]}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+        // assignees come back sorted for a stable payload
+        assertEquals(listOf("alice", "bob"), body["assignees"]?.jsonArray?.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `POST todo with an unknown assignee is rejected`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.post("/api/v1/todos") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"title":"Anrufen","assignees":["ghost"]}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("INVALID_ASSIGNEE", body["code"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -205,13 +240,14 @@ class TodoRouteTest {
         val updated = client.put("/api/v1/todos/$id") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"title":"Updated title","status":"PLANNED","assignee":"bob"}""")
+            setBody("""{"title":"Updated title","status":"PLANNED","assignees":["bob"]}""")
         }
 
         assertEquals(HttpStatusCode.OK, updated.status)
         val body = Json.parseToJsonElement(updated.bodyAsText()).jsonObject
         assertEquals("Updated title", body["title"]?.jsonPrimitive?.content)
         assertEquals("PLANNED", body["status"]?.jsonPrimitive?.content)
+        assertEquals(listOf("bob"), body["assignees"]?.jsonArray?.map { it.jsonPrimitive.content })
     }
 
     @Test
@@ -587,9 +623,10 @@ class TodoRouteTest {
     }
 
     @Test
-    fun `PUT todo can set and clear dueDate, priority and assignee`() = testApplication {
-        // Regression for #265: the Android edit sheet sends "" to clear an optional field and a
-        // value to set it. null (absent) must stay "unchanged"; "" must clear to null; a value sets.
+    fun `PUT todo can set and clear dueDate, priority and assignees`() = testApplication {
+        // Regression for #265: the edit sheet sends "" to clear an optional text field and a value to
+        // set it. null (absent) must stay "unchanged"; "" clears text fields to null; a value sets.
+        // Assignees (V39) are a list: null = unchanged, [] = clear all, non-empty = replace.
         configureTestApplication()
         val token = loginAndGetToken()
         val created = client.post("/api/v1/todos") {
@@ -603,13 +640,13 @@ class TodoRouteTest {
         val set = client.put("/api/v1/todos/$id") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"status":"PLANNED","dueDate":"2026-07-01","priority":"HIGH","assignee":"bob"}""")
+            setBody("""{"status":"PLANNED","dueDate":"2026-07-01","priority":"HIGH","assignees":["bob"]}""")
         }
         assertEquals(HttpStatusCode.OK, set.status)
         Json.parseToJsonElement(set.bodyAsText()).jsonObject.let {
             assertEquals("2026-07-01", it["dueDate"]?.jsonPrimitive?.content)
             assertEquals("HIGH", it["priority"]?.jsonPrimitive?.content)
-            assertEquals("bob", it["assignee"]?.jsonPrimitive?.content)
+            assertEquals(listOf("bob"), it["assignees"]?.jsonArray?.map { a -> a.jsonPrimitive.content })
         }
 
         // a partial update with the other fields ABSENT must not wipe them (the reported bug)
@@ -621,20 +658,21 @@ class TodoRouteTest {
         Json.parseToJsonElement(partial.bodyAsText()).jsonObject.let {
             assertEquals("LOW", it["priority"]?.jsonPrimitive?.content)
             assertEquals("2026-07-01", it["dueDate"]?.jsonPrimitive?.content) // untouched
-            assertEquals("bob", it["assignee"]?.jsonPrimitive?.content)       // untouched
+            assertEquals(listOf("bob"), it["assignees"]?.jsonArray?.map { a -> a.jsonPrimitive.content }) // untouched
         }
 
-        // clear each via empty string; assignee/dueDate gone → fall back to INBOX
+        // clear each: dueDate/priority via "" and assignees via []; assignees/dueDate gone → INBOX
         val cleared = client.put("/api/v1/todos/$id") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"status":"INBOX","dueDate":"","priority":"","assignee":""}""")
+            setBody("""{"status":"INBOX","dueDate":"","priority":"","assignees":[]}""")
         }
         assertEquals(HttpStatusCode.OK, cleared.status)
         Json.parseToJsonElement(cleared.bodyAsText()).jsonObject.let {
             assertTrue(it["dueDate"].isNullJson())
             assertTrue(it["priority"].isNullJson())
-            assertTrue(it["assignee"].isNullJson())
+            // empty assignee set is omitted from the payload (encodeDefaults=false)
+            assertTrue(it["assignees"] == null || it["assignees"]?.jsonArray?.isEmpty() == true)
         }
     }
 
@@ -1229,7 +1267,7 @@ class TodoRouteTest {
         val token = loginAndGetToken()
         val created = client.post("/api/v1/todos") {
             bearerAuth(token); contentType(ContentType.Application.Json)
-            setBody("""{"title":"Termin","assignee":"bob","dueDate":"2026-07-01","dueTime":"08:15","reminderLeadMinutes":10}""")
+            setBody("""{"title":"Termin","assignees":["bob"],"dueDate":"2026-07-01","dueTime":"08:15","reminderLeadMinutes":10}""")
         }
         val id = Json.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
 

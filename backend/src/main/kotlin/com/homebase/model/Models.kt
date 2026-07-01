@@ -135,7 +135,9 @@ data class TodoDto(
     val title: String,
     val description: String? = null,
     val status: String,
-    val assignee: String? = null,
+    // Assignees of the todo (V39): any subset of the household. Empty = unassigned. Omitted from
+    // the JSON when empty (encodeDefaults=false) — clients must tolerate a missing key as `[]`.
+    val assignees: List<String> = emptyList(),
     val dueDate: String? = null,
     // Optional time-of-day on the due date, "HH:mm" (#429). Reminder lead = minutes before due;
     // plumbed for the later notification work, no scheduler reads it yet.
@@ -154,7 +156,8 @@ data class TodoDto(
 data class CreateTodoRequest(
     val title: String,
     val description: String? = null,
-    val assignee: String? = null,
+    // Assignees to set on create (V39). null/omitted or empty = unassigned.
+    val assignees: List<String>? = null,
     val dueDate: String? = null,
     // "HH:mm" time-of-day + minutes-before reminder (#429); both require a dueDate.
     val dueTime: String? = null,
@@ -169,8 +172,8 @@ data class UpdateTodoRequest(
     val title: String? = null,
     val description: String? = null,
     val status: String? = null,
-    // null = unchanged; empty string = clear (set to null); otherwise the new value (#265)
-    val assignee: String? = null,
+    // Assignees (V39): null/omitted = unchanged, [] = clear all, non-empty = replace the set.
+    val assignees: List<String>? = null,
     val dueDate: String? = null,
     // dueTime: null = unchanged, "" = clear, "HH:mm" = set (#265 convention, like dueDate).
     val dueTime: String? = null,

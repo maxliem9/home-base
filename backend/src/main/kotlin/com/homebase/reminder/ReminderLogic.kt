@@ -11,7 +11,7 @@ import java.time.LocalTime
  */
 data class ReminderCandidate(
     val title: String,
-    val assignee: String?,
+    val assignees: List<String>,
     val dueDate: LocalDate,
     val dueTime: LocalTime,
     val reminderLeadMinutes: Int?,
@@ -55,10 +55,10 @@ object ReminderLogic {
         else !now.isBefore(start) || now.isBefore(end) // wraps midnight
     }
 
-    /** German reminder line, e.g. "🔔 Erinnerung: Zahnarzt — fällig 14:30 · bob". */
+    /** German reminder line, e.g. "🔔 Erinnerung: Zahnarzt — fällig 14:30 · alice, bob". */
     fun message(c: ReminderCandidate): String {
         val time = "%02d:%02d".format(c.dueTime.hour, c.dueTime.minute)
-        val who = c.assignee?.let { " · $it" } ?: ""
+        val who = if (c.assignees.isNotEmpty()) " · ${c.assignees.joinToString(", ")}" else ""
         return "🔔 Erinnerung: ${c.title} — fällig $time$who"
     }
 }

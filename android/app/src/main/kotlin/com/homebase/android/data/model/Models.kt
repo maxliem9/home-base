@@ -121,7 +121,8 @@ data class TodoDto(
     val title: String,
     val description: String? = null,
     val status: String,
-    val assignee: String? = null,
+    // usernames assigned to this todo; key omitted when empty (encodeDefaults=false server-side)
+    val assignees: List<String> = emptyList(),
     val dueDate: String? = null,
     // optional time-of-day on the due date, "HH:mm" (#429); reminderLeadMinutes = minutes before due
     val dueTime: String? = null,
@@ -139,7 +140,8 @@ data class TodoDto(
 data class CreateTodoRequest(
     val title: String,
     val description: String? = null,
-    val assignee: String? = null,
+    // null/omit or empty = unassigned
+    val assignees: List<String>? = null,
     val dueDate: String? = null,
     val dueTime: String? = null,
     val reminderLeadMinutes: Int? = null,
@@ -153,7 +155,8 @@ data class UpdateTodoRequest(
     val title: String? = null,
     val description: String? = null,
     val status: String? = null,
-    val assignee: String? = null,
+    // null/omit = unchanged, [] = clear all, non-empty = replace the whole set (list analog of #265)
+    val assignees: List<String>? = null,
     val dueDate: String? = null,
     // dueTime: null = unchanged, "" = clear, "HH:mm" = set (#265). reminderLeadMinutes: null =
     // unchanged, negative = clear, >= 0 = set. Clearing dueDate cascades both to null server-side.

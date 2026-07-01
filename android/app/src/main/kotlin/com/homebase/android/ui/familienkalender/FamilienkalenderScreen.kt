@@ -381,7 +381,7 @@ private fun AbsenceRow(a: AbsenceDto) {
 private fun TodoRow(t: TodoDto) {
     // prefix the optional due time, e.g. "14:30 · Zahnarzt" (#429)
     val time = Format.dueTimeShort(t.dueTime)
-    DetailRow(if (time != null) "$time · ${t.title}" else t.title, muted = t.assignee)
+    DetailRow(if (time != null) "$time · ${t.title}" else t.title, muted = t.assignees.joinToString(", ").ifEmpty { null })
 }
 
 @Composable

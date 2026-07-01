@@ -51,7 +51,7 @@ test.describe('Dashboard (Heute)', () => {
   test('stat tiles bucket todos by the (pinned) local day', async ({ page }) => {
     const mock = new MockApi([
       // counts into "Heute fällig" + the "Heute dran" card
-      todo({ id: 't-due-today', title: 'Heute-Task', status: 'PLANNED', dueDate: '2026-06-10', assignee: 'max' }),
+      todo({ id: 't-due-today', title: 'Heute-Task', status: 'PLANNED', dueDate: '2026-06-10', assignees: ['max'] }),
       // overdue is its own bucket — must NOT inflate "Heute fällig"
       todo({ id: 't-overdue', title: 'Überfällig-Task', status: 'PLANNED', dueDate: '2026-06-08' }),
       todo({ id: 't-inbox-old', title: 'Alte Inbox-Idee', createdAt: '2026-06-09T08:00:00Z' }),
@@ -144,7 +144,7 @@ test.describe('Dashboard (Heute)', () => {
     // real clock: the mock stamps doneAt with Node's `new Date()`, which must
     // land on the same local day the page judges "today" by
     const mock = new MockApi([
-      todo({ id: 't1', title: 'Blumen gießen', status: 'PLANNED', dueDate: isoDaysFromNow(0), assignee: 'max' }),
+      todo({ id: 't1', title: 'Blumen gießen', status: 'PLANNED', dueDate: isoDaysFromNow(0), assignees: ['max'] }),
     ])
     await openDashboard(page, mock)
 
