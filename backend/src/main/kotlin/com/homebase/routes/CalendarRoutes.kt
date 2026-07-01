@@ -70,9 +70,11 @@ private val EVENT_EMOJI = mapOf(
  *  - planned meals (recipe-backed or free-text);
  *  - calendar events (#434 — appointments/birthdays/vet; timed ones get a real clock time).
  *
- * Privacy: a todo in the *other* user's PRIVATE list must not leak through the feed, so todos are
- * filtered exactly like `GET /todos` — visible = no list, a SHARED list, or the caller's own
- * PRIVATE list. Absences/kita/meals/events are household-shared and need no per-user filter.
+ * Privacy: the feed is stricter than the in-app `GET /todos`. Because a calendar provider fetches
+ * the `.ics` over a subscription URL (the content thus leaves HomeBase and may be seen by that
+ * provider or anyone the subscriber shares the calendar with), NO PRIVATE-list todo appears —
+ * not even the caller's own. Only list-less and SHARED-list todos are exported.
+ * Absences/kita/meals/events/part-time are household-shared and need no per-user filter.
  *
  * Overlay entries (todos/absences/kita/meals) are all-day VEVENTs (see [ICalBuilder] for the
  * VEVENT-vs-VTODO rationale); part-time free days are all-day VEVENTs with a weekly RRULE; real
@@ -80,7 +82,6 @@ private val EVENT_EMOJI = mapOf(
  */
 fun Route.calendarRoutes() {
     get("/calendar.ics") {
-        val username = call.username()
         val today = LocalDate.now()
         val from = today.minusDays(WINDOW_DAYS_BACK)
         val to = today.plusDays(WINDOW_DAYS_AHEAD)
@@ -89,14 +90,19 @@ fun Route.calendarRoutes() {
         val ical = ICalBuilder()
 
         transaction {
-            // hidden = todos that live in the OTHER user's private list (mirror GET /todos)
+            // hidden = todos in ANY private list. Unlike the in-app GET /todos (which shows the
+            // caller their own private todos), the .ics is fetched by an external calendar provider
+            // (Apple/Google) over a subscription URL that carries a long-lived token — anything in
+            // the feed leaves HomeBase and may be seen by that provider or anyone the subscriber
+            // shares the calendar with. A PRIVATE list must never leave the app, not even the
+            // owner's own; so we exclude every private list, not just the partner's.
             val hiddenListIds = TodoListsTable.selectAll()
-                .where { (TodoListsTable.visibility eq VISIBILITY_PRIVATE) and (TodoListsTable.createdBy neq username) }
+                .where { TodoListsTable.visibility eq VISIBILITY_PRIVATE }
                 .map { it[TodoListsTable.id] }
                 .toSet()
 
-            // Due todos: open (not DONE) with a due_date inside the window and not in a foreign
-            // private list. The successor of a recurring todo carries its own due_date, so the
+            // Due todos: open (not DONE) with a due_date inside the window and not in a private
+            // list. The successor of a recurring todo carries its own due_date, so the
             // "one open instance" invariant means no duplicate dates here.
             TodosTable.selectAll()
                 .where {

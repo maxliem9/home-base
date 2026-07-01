@@ -234,7 +234,7 @@ class CalendarRouteTest {
     }
 
     @Test
-    fun `a todo in the other users private list does not leak into the feed`() = testApplication {
+    fun `no private-list todo leaks into the feed - not even the owner's own`() = testApplication {
         configureTestApplication()
         val bobToken = loginAndGetToken("bob", "password456")
         // Bob makes a private list and a dated todo in it.
@@ -248,13 +248,32 @@ class CalendarRouteTest {
             setBody("""{"title":"Bobs privates Todo","dueDate":"${soon()}","listId":"$listId"}""")
         }
 
-        // Alice's feed must not contain Bob's private todo, but Bob's own feed must.
+        // The .ics is exported to an external calendar provider, so a PRIVATE todo must never
+        // appear — neither in the partner's feed nor in the owner's own.
         val aliceToken = loginAndGetToken("alice", "password123")
         val aliceFeed = client.get("/api/v1/calendar.ics") { bearerAuth(aliceToken) }.bodyAsText()
         assertFalse(aliceFeed.contains("Bobs privates Todo"), "private todo leaked to the partner:\n$aliceFeed")
 
         val bobFeed = client.get("/api/v1/calendar.ics") { bearerAuth(bobToken) }.bodyAsText()
-        assertTrue(bobFeed.contains("Bobs privates Todo"), "owner should see their own private todo")
+        assertFalse(bobFeed.contains("Bobs privates Todo"), "private todo leaked into the owner's own exported feed:\n$bobFeed")
+    }
+
+    @Test
+    fun `a todo in a shared list is exported`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listRes = client.post("/api/v1/todos/lists") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"name":"Gemeinsam","visibility":"SHARED"}""")
+        }
+        val listId = Json.parseToJsonElement(listRes.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Geteiltes Todo","dueDate":"${soon()}","listId":"$listId"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("Geteiltes Todo"), "a SHARED-list todo should be exported:\n$body")
     }
 
     @Test
