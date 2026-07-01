@@ -20,8 +20,8 @@ import java.time.LocalDate
  */
 class FamilienkalenderBucketTest {
 
-    private fun todo(id: String, date: String?, status: String = "PLANNED", assignee: String? = null) =
-        TodoDto(id = id, title = "T-$id", status = status, dueDate = date, assignee = assignee, createdBy = "alice", createdAt = "2026-06-01T08:00:00Z")
+    private fun todo(id: String, date: String?, status: String = "PLANNED", assignees: List<String> = emptyList()) =
+        TodoDto(id = id, title = "T-$id", status = status, dueDate = date, assignees = assignees, createdBy = "alice", createdAt = "2026-06-01T08:00:00Z")
 
     private fun event(id: String, date: String, allDay: Boolean, start: String? = null) =
         CalendarEventDto(id = id, title = "E-$id", date = date, allDay = allDay, startTime = start, createdBy = "alice", createdAt = "2026-06-01T08:00:00Z")

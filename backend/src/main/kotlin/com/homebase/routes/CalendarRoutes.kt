@@ -5,6 +5,7 @@ import com.homebase.db.CalendarEventsTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.RecipesTable
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
 import io.ktor.http.*
@@ -107,8 +108,11 @@ fun Route.calendarRoutes() {
                     if (listId != null && listId in hiddenListIds) return@forEach
                     val due = row[TodosTable.dueDate] ?: return@forEach
                     val title = row[TodosTable.title]
-                    val assignee = row[TodosTable.assignee]
-                    val summary = "✓ " + title + (assignee?.let { " ($it)" } ?: "")
+                    val assignees = TodoAssigneesTable.selectAll()
+                        .where { TodoAssigneesTable.todoId eq row[TodosTable.id] }
+                        .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+                        .map { it[TodoAssigneesTable.username] }
+                    val summary = "✓ " + title + (if (assignees.isNotEmpty()) " (${assignees.joinToString(", ")})" else "")
                     ical.addAllDayEvent(
                         uid = "todo-${row[TodosTable.id]}@homebase",
                         start = due,

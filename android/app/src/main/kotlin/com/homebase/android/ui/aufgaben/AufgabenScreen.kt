@@ -62,6 +62,7 @@ import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
+import com.homebase.android.ui.components.HbAvatarRow
 import com.homebase.android.ui.components.HbBadge
 import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.components.HbBottomSheet
@@ -200,8 +201,8 @@ fun AufgabenScreen(
                     QuickAddBar(
                         placeholder = if (state.inboxActive) stringResource(R.string.todo_quick_add_inbox) else stringResource(R.string.todo_quick_add),
                         householdUsers = householdUsers,
-                        onAdd = { title, description, assignee, dueDate, priority ->
-                            viewModel.addPlannedTodo(title, description, assignee, dueDate, priority)
+                        onAdd = { title, description, assignees, dueDate, priority ->
+                            viewModel.addPlannedTodo(title, description, assignees, dueDate, priority)
                         },
                     )
                 }
@@ -523,7 +524,7 @@ private fun TaskRow(
     // von listen-losen unterscheidbar sind (#71/#77).
     listName: String? = null,
 ) {
-    val undated = todo.dueDate == null && todo.assignee == null
+    val undated = todo.dueDate == null && todo.assignees.isEmpty()
     Column {
         Row(
             Modifier
@@ -601,7 +602,7 @@ private fun TaskRow(
                         size = HbButtonSize.Sm,
                     )
                 } else {
-                    HbAvatar(todo.assignee, size = 26.dp)
+                    HbAvatarRow(todo.assignees, size = 26.dp)
                 }
             }
         }
@@ -812,8 +813,8 @@ private fun EditSheet(
     val isEdit = todo != null
     var title by remember { mutableStateOf(todo?.title ?: "") }
     var description by remember { mutableStateOf(todo?.description ?: "") }
-    // assignee: null = "Niemand"/unset; otherwise a household username
-    var assignee by remember { mutableStateOf(todo?.assignee) }
+    // assignees: empty = "Niemand"/unset; otherwise one or more household usernames (#265 multi)
+    var assignees by remember { mutableStateOf(todo?.assignees ?: emptyList()) }
     // due date as a real LocalDate (null = no date); set via the Material date picker (#265)
     var dueDate by remember { mutableStateOf(Format.parseLocalDate(todo?.dueDate)) }
     // optional time-of-day on the due date (#429); only meaningful with a date
@@ -866,14 +867,15 @@ private fun EditSheet(
                                 UpdateTodoRequest(
                                     title = title.trim(),
                                     description = description.ifBlank { "" },
-                                    // "" clears the field on the backend, a value sets it (#265)
-                                    assignee = assignee ?: "",
+                                    // list analog of the #265 convention: [] clears all assignees,
+                                    // a non-empty list replaces the whole set (Moshi serializes the []).
+                                    assignees = assignees,
                                     dueDate = dueIso ?: "",
                                     // a time is meaningless without a date; "" clears it (and the
                                     // backend also cascades it away when the date itself is cleared)
                                     dueTime = if (dueIso != null) (dueTimeStr ?: "") else "",
                                     priority = priority ?: "",
-                                    status = if (assignee != null || dueIso != null) "PLANNED" else "INBOX",
+                                    status = if (assignees.isNotEmpty() || dueIso != null) "PLANNED" else "INBOX",
                                     // "NONE" clears any existing rule; otherwise set/replace it
                                     recurrence = recurrenceFreq
                                         ?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) }
@@ -944,7 +946,7 @@ private fun EditSheet(
             }
         }
         HbField(stringResource(R.string.todo_field_assignee)) {
-            AssigneeChips(assignee = assignee, householdUsers = householdUsers, onChange = { assignee = it })
+            AssigneeChips(assignees = assignees, householdUsers = householdUsers, onChange = { assignees = it })
         }
         HbField(stringResource(R.string.todo_field_due)) {
             // clearing the date also clears the time — a time without a date is meaningless (#429)
@@ -1025,25 +1027,34 @@ private fun PriorityPick(
 }
 
 /**
- * Assignee picker chips shared by the edit sheet and the quick-add Details panel (#393): one
- * avatar+name chip per household user plus a "Niemand" chip; tapping the active chip clears the
- * assignee (mirrors the web AssigneePicker). A current assignee that isn't a household member
- * (legacy free-text) stays shown so it remains selectable and isn't silently dropped.
+ * Multi-select assignee picker chips shared by the edit sheet and the quick-add Details panel
+ * (#393/#265): one avatar+name chip per household user plus a "Niemand" chip. Tapping a user's chip
+ * toggles that user in/out of the selected set — several can be active at once ("assigned to both").
+ * "Niemand" clears the whole set; it is only highlighted when nobody is selected. Assignees that
+ * aren't household members (legacy) stay shown so they remain selectable and aren't silently dropped.
  */
 @Composable
-private fun AssigneeChips(assignee: String?, householdUsers: List<String>, onChange: (String?) -> Unit) {
-    val chipUsers = assignee
-        ?.takeIf { a -> householdUsers.none { it.equals(a, ignoreCase = true) } }
-        ?.let { householdUsers + it }
-        ?: householdUsers
+private fun AssigneeChips(assignees: List<String>, householdUsers: List<String>, onChange: (List<String>) -> Unit) {
+    // keep any selected non-household assignee visible as its own chip
+    val extras = assignees.filter { a -> householdUsers.none { it.equals(a, ignoreCase = true) } }
+    val chipUsers = householdUsers + extras
+    fun isSelected(user: String) = assignees.any { it.equals(user, ignoreCase = true) }
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         chipUsers.forEach { user ->
-            val active = assignee?.lowercase() == user.lowercase()
-            // tapping the active chip clears the assignee, mirroring the web picker
-            HbPick(active = active, onClick = { onChange(if (active) null else user) }) {
+            val active = isSelected(user)
+            // tapping toggles this user in/out of the set (multi-select)
+            HbPick(
+                active = active,
+                onClick = {
+                    onChange(
+                        if (active) assignees.filterNot { it.equals(user, ignoreCase = true) }
+                        else assignees + user,
+                    )
+                },
+            ) {
                 HbAvatar(user, size = 20.dp)
                 Text(
                     displayName(user),
@@ -1052,11 +1063,11 @@ private fun AssigneeChips(assignee: String?, householdUsers: List<String>, onCha
                 )
             }
         }
-        HbPick(active = assignee == null, onClick = { onChange(null) }) {
+        HbPick(active = assignees.isEmpty(), onClick = { onChange(emptyList()) }) {
             Text(
                 stringResource(R.string.todo_assignee_nobody),
                 style = HbType.label.copy(fontSize = 13.5.sp),
-                color = if (assignee == null) Hb.accentInk else Hb.ink2,
+                color = if (assignees.isEmpty()) Hb.accentInk else Hb.ink2,
             )
         }
     }
@@ -1078,22 +1089,22 @@ private fun AssigneeChips(assignee: String?, householdUsers: List<String>, onCha
 private fun QuickAddBar(
     placeholder: String,
     householdUsers: List<String>,
-    onAdd: suspend (title: String, description: String?, assignee: String?, dueDate: String?, priority: String?) -> Boolean,
+    onAdd: suspend (title: String, description: String?, assignees: List<String>, dueDate: String?, priority: String?) -> Boolean,
 ) {
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var open by remember { mutableStateOf(false) }
     var description by remember { mutableStateOf("") }
-    var assignee by remember { mutableStateOf<String?>(null) }
+    var assignees by remember { mutableStateOf(emptyList<String>()) }
     var dueDate by remember { mutableStateOf<LocalDate?>(null) }
     var priority by remember { mutableStateOf<String?>(null) }
 
     // Any hidden field set lights the accent dot on the toggle, so collapsed-panel state stays visible.
-    val hasDetails = description.isNotBlank() || assignee != null || dueDate != null || priority != null
+    val hasDetails = description.isNotBlank() || assignees.isNotEmpty() || dueDate != null || priority != null
 
     fun resetDetails() {
         description = ""
-        assignee = null
+        assignees = emptyList()
         dueDate = null
         priority = null
         open = false
@@ -1106,7 +1117,7 @@ private fun QuickAddBar(
         // follow-up keystrokes append and the next submit post the merged value (mirrors web #384).
         // Each submit captures its own snapshot, so the two POSTs stay independent.
         val desc = description
-        val asg = assignee
+        val asg = assignees
         val due = dueDate?.toString()
         val prio = priority
         title = ""
@@ -1164,7 +1175,7 @@ private fun QuickAddBar(
                     )
                 }
                 HbField(stringResource(R.string.todo_field_assignee)) {
-                    AssigneeChips(assignee = assignee, householdUsers = householdUsers, onChange = { assignee = it })
+                    AssigneeChips(assignees = assignees, householdUsers = householdUsers, onChange = { assignees = it })
                 }
                 HbField(stringResource(R.string.todo_field_due)) {
                     DueDateField(value = dueDate, onChange = { dueDate = it })

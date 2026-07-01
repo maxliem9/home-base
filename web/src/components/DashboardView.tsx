@@ -311,7 +311,7 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
                     const isOverdue = dueLabel(todo.dueDate)?.tone === 'over'
                     return (
                       <div key={todo.id} className="hb-row">
-                        <Checkbox checked={false} hue={todo.assignee ? userMeta(todo.assignee)?.hue : undefined} onChange={() => markDone(todo)} />
+                        <Checkbox checked={false} hue={todo.assignees?.[0] ? userMeta(todo.assignees[0])?.hue : undefined} onChange={() => markDone(todo)} />
                         <div className="hb-row__main">
                           <div className="hb-row__title">{todo.title}</div>
                           {(isOverdue || todo.priority || todo.recurrence) && (
@@ -326,7 +326,9 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
                             </div>
                           )}
                         </div>
-                        <div className="hb-row__right">{todo.assignee && <Avatar user={todo.assignee} size={26} />}</div>
+                        <div className="hb-row__right">
+                          {(todo.assignees ?? []).map((u) => <Avatar key={u} user={u} size={26} />)}
+                        </div>
                       </div>
                     )
                   })}

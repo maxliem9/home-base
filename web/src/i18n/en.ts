@@ -204,6 +204,8 @@ export const en: Messages = {
     plan: 'Plan',
     markDone: 'Done',
     planTitle: 'Plan task',
+    editDateTitle: 'Edit due date', // quick-edit popover: date/time only, opened from the row
+    editAssigneeTitle: 'Edit assignee', // quick-edit popover: assignees only, opened from the row
     planHint: 'A title is required. An assignee or due date makes it a planned task.',
     titleLabel: 'Title',
     planList: 'List', // list picker in the plan sheet (all todos; move between lists #409)

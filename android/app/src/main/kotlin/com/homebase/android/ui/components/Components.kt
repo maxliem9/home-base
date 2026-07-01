@@ -248,6 +248,29 @@ fun HbAvatar(userId: String?, modifier: Modifier = Modifier, size: Dp = 26.dp) {
     }
 }
 
+/**
+ * A compact, slightly-overlapping row of [HbAvatar]s — one per assignee (#265 multi-assignee).
+ * Empty list falls back to the single "unassigned" avatar pill so a todo with no assignee looks
+ * exactly as before. Overlap keeps two avatars roughly as wide as one-and-a-half.
+ */
+@Composable
+fun HbAvatarRow(userIds: List<String>, modifier: Modifier = Modifier, size: Dp = 26.dp) {
+    if (userIds.isEmpty()) {
+        HbAvatar(null, modifier, size)
+        return
+    }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(-(size * 0.33f))) {
+        userIds.forEach { user ->
+            // Thin surface ring so overlapping avatars read as distinct discs.
+            HbAvatar(
+                user,
+                Modifier.clip(HbPill).border(1.5.dp, Hb.surface, HbPill),
+                size,
+            )
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Section label / divider
 // ---------------------------------------------------------------------------

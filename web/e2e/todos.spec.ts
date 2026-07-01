@@ -151,12 +151,65 @@ test.describe('Todos', () => {
     const dialog = page.locator('.hb-sheet')
     // assignee is now a chip picker (names from /config) instead of a text field
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     // Still in the list, but now shows the assignee avatar instead of a Planen button.
     const row = page.locator('.hb-row', { hasText: 'Steuer machen' })
     await expect(row).toBeVisible()
     await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
+  })
+
+  test('assigns a todo to both household members via the plan sheet (multi-assignee)', async ({ page }) => {
+    const mock = new MockApi([todo({ id: 't1', title: 'Wäsche', listId: 'l1' })], [HAUSHALT])
+    await openApp(page, mock)
+
+    await page.getByRole('button', { name: 'Planen' }).click()
+    const dialog = page.locator('.hb-sheet')
+    // multi-select: picking a second chip adds to the set rather than replacing it
+    await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
+    await dialog.locator('.hb-pick', { hasText: 'Lea' }).click()
+    const put = page.waitForRequest((r) => /\/todos\/t1$/.test(r.url()) && r.method() === 'PUT')
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    expect(JSON.parse((await put).postData() ?? '{}').assignees).toEqual(['max', 'lea'])
+
+    // the row now stacks both avatars and no longer offers a Planen button
+    const row = page.locator('.hb-row', { hasText: 'Wäsche' })
+    await expect(row.getByRole('button', { name: 'Planen' })).toHaveCount(0)
+    await expect(row.locator('.hb-avstack .hb-avatar')).toHaveCount(2)
+  })
+
+  test('quick-edits assignees straight from the row (no plan sheet)', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Müll rausbringen', status: 'PLANNED', assignees: ['max'], listId: 'l1' })],
+      [HAUSHALT],
+    )
+    await openApp(page, mock)
+
+    // clicking the assignee avatars opens the assignee-only quick edit
+    await page.locator('.hb-row', { hasText: 'Müll rausbringen' }).locator('.hb-avstack').click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByText('Zuständig ändern')).toBeVisible()
+    await modal.locator('.hb-pick', { hasText: 'Lea' }).click() // add Lea → both
+    const put = page.waitForRequest((r) => /\/todos\/t1$/.test(r.url()) && r.method() === 'PUT')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    expect(JSON.parse((await put).postData() ?? '{}').assignees).toEqual(['max', 'lea'])
+  })
+
+  test('quick-edits the due date straight from the row date badge', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Termin', status: 'PLANNED', dueDate: '2026-06-20', listId: 'l1' })],
+      [HAUSHALT],
+    )
+    await openApp(page, mock, TOKEN, PINNED)
+
+    // clicking the due badge opens the date-only quick edit (labelled, saves with "Speichern")
+    await page.locator('.hb-row', { hasText: 'Termin' }).locator('.hb-row__chip').first().click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByText('Fälligkeit ändern')).toBeVisible()
+    await modal.locator('input[type="date"]').fill('2026-06-25')
+    const put = page.waitForRequest((r) => /\/todos\/t1$/.test(r.url()) && r.method() === 'PUT')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    expect(JSON.parse((await put).postData() ?? '{}').dueDate).toBe('2026-06-25')
   })
 
   test('plans a todo with a due time and shows it on the row badge (#429)', async ({ page }) => {
@@ -170,7 +223,7 @@ test.describe('Todos', () => {
     await dialog.locator('input[type="date"]').fill('2026-09-01')
     await expect(dialog.locator('input[type="time"]')).toBeEnabled()
     await dialog.locator('input[type="time"]').fill('09:30')
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the row's due badge appends the time after the date label
@@ -201,7 +254,7 @@ test.describe('Todos', () => {
 
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith('/todos/t1') && r.method() === 'PUT'),
-      dialog.getByRole('button', { name: 'Planen' }).click(),
+      dialog.getByRole('button', { name: 'Speichern' }).click(),
     ])
     // '' clears the date (#265 convention); the time cascades to '' too
     expect(req.postDataJSON()).toMatchObject({ dueDate: '', dueTime: '' })
@@ -220,7 +273,7 @@ test.describe('Todos', () => {
     // priority is a chip row now (#407), not a dropdown
     await dialog.locator('.hb-pick', { hasText: 'Hoch' }).click()
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click() // assignee → save allowed
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the row shows the chosen priority label (PriorityDot withLabel)
@@ -236,7 +289,7 @@ test.describe('Todos', () => {
     await dialog.getByPlaceholder('Optionale Notiz …').fill('Belege sammeln')
     // planning still needs an assignee or due date — pick one so the save is allowed
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the saved description renders in the row meta
@@ -251,7 +304,7 @@ test.describe('Todos', () => {
     const dialog = page.locator('.hb-sheet')
     // the title is editable in the sheet now; a title-only change needs no assignee/due date
     await dialog.getByLabel('Titel').fill('Steuererklärung abgeben')
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // row shows the new title; the old one is gone
@@ -265,7 +318,7 @@ test.describe('Todos', () => {
 
   test('completes a todo so it appears under the Erledigt section', async ({ page }) => {
     const mock = new MockApi(
-      [todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignee: 'alice', listId: 'l1' })],
+      [todo({ id: 't1', title: 'Rechnung zahlen', status: 'PLANNED', assignees: ['alice'], listId: 'l1' })],
       [HAUSHALT],
     )
     await openApp(page, mock)
@@ -276,6 +329,13 @@ test.describe('Todos', () => {
     await page.locator('.hb-donehead').click()
     const doneRow = page.locator('.hb-row--done', { hasText: 'Rechnung zahlen' })
     await expect(doneRow).toBeVisible()
+
+    // A completed todo's assignee avatars are read-only: they must NOT be a click target that
+    // opens the assignee quick-edit (which would un-complete it). Regression guard.
+    await expect(doneRow.locator('.hb-avstack')).toBeVisible()
+    await doneRow.locator('.hb-avstack').click()
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(doneRow).toBeVisible() // still done, still in the Erledigt section
   })
 
   test('deletes a todo', async ({ page }) => {
@@ -316,7 +376,7 @@ test.describe('Quick-add details', () => {
     await page.getByRole('button', { name: 'Erfassen' }).click()
     // the POST carries the planning fields (backend then creates it PLANNED)
     const body = JSON.parse((await post).postData() ?? '{}')
-    expect(body).toMatchObject({ title: 'Auto anmelden', listId: 'l1', assignee: 'max', dueDate: '2026-06-15' })
+    expect(body).toMatchObject({ title: 'Auto anmelden', listId: 'l1', assignees: ['max'], dueDate: '2026-06-15' })
 
     // born PLANNED → the row shows the assignee avatar, not a "Planen" button
     const row = page.locator('.hb-row', { hasText: 'Auto anmelden' })
@@ -554,7 +614,7 @@ test.describe('Inbox', () => {
     // inbox todos get an extra list picker in the plan sheet
     await dialog.getByLabel('Liste').selectOption({ label: 'Haushalt' })
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     // gone from the inbox …
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
@@ -630,7 +690,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
 
     await expect(page.locator('.hb-row', { hasText: 'Fenster putzen' })).toHaveCount(0)
     await expect(inboxTab.locator('.hb-tab__count')).toHaveText('1')
@@ -653,7 +713,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
     await dialog.getByLabel('Liste').selectOption({ label: 'Garten' })
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
 
     // moved into Garten, gone from Haushalt
@@ -672,7 +732,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     // "Ohne Liste" clears the list assignment (sends '' → backend #265 clears it)
     await dialog.getByLabel('Liste').selectOption({ value: '' })
-    await dialog.getByRole('button', { name: 'Planen' }).click()
+    await dialog.getByRole('button', { name: 'Speichern' }).click()
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
 
     // gone from the Haushalt list, now list-less in the Inbox

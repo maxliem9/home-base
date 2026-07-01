@@ -30,7 +30,9 @@ export interface Todo {
   title: string
   description?: string
   status: TodoStatus
-  assignee?: string
+  // Assignees (V39): any subset of the household. Omitted from the payload when empty
+  // (encodeDefaults=false) — read sites must tolerate `undefined` as "no assignees".
+  assignees?: string[]
   dueDate?: string
   // optional time-of-day on the due date, "HH:mm" (#429); reminderLeadMinutes = minutes before due
   // (data only for now — the notification work comes later)

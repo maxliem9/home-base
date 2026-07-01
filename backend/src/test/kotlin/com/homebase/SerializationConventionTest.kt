@@ -32,7 +32,7 @@ class SerializationConventionTest {
             title = "Einkaufen",
             // description = null  (Default — darf im JSON nicht auftauchen)
             status = "INBOX",
-            // assignee = null, dueDate = null, priority = null,
+            // assignees = emptyList(), dueDate = null, priority = null,
             // listId = null, recurrence = null, doneAt = null
             createdBy = "max",
             createdAt = "2026-06-11T10:00:00Z"
@@ -42,8 +42,8 @@ class SerializationConventionTest {
         // Felder, die auf ihrem null-Default stehen, dürfen nicht erscheinen
         assertFalse(json.contains("\"description\""),
             "description (null) darf nicht im JSON stehen, war: $json")
-        assertFalse(json.contains("\"assignee\""),
-            "assignee (null) darf nicht im JSON stehen, war: $json")
+        assertFalse(json.contains("\"assignees\""),
+            "assignees (leere Liste) darf nicht im JSON stehen, war: $json")
         assertFalse(json.contains("\"dueDate\""),
             "dueDate (null) darf nicht im JSON stehen, war: $json")
         assertFalse(json.contains("\"priority\""),
@@ -79,7 +79,7 @@ class SerializationConventionTest {
             title = "Einkaufen",
             description = "Milch und Brot",
             status = "PLANNED",
-            assignee = "max",
+            assignees = listOf("max"),
             dueDate = "2026-06-12",
             priority = "HIGH",
             subtasks = listOf(SubtaskDto(id = "s1", title = "Milch", done = false, sortOrder = 0)),
@@ -90,8 +90,8 @@ class SerializationConventionTest {
 
         assertTrue(json.contains("\"description\""),
             "description (gesetzt) muss im JSON stehen, war: $json")
-        assertTrue(json.contains("\"assignee\""),
-            "assignee (gesetzt) muss im JSON stehen, war: $json")
+        assertTrue(json.contains("\"assignees\""),
+            "assignees (gesetzt) muss im JSON stehen, war: $json")
         assertTrue(json.contains("\"dueDate\""),
             "dueDate (gesetzt) muss im JSON stehen, war: $json")
         assertTrue(json.contains("\"priority\""),

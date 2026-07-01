@@ -201,6 +201,8 @@ export const de = {
     plan: 'Planen',
     markDone: 'Erledigt',
     planTitle: 'Aufgabe planen',
+    editDateTitle: 'Fälligkeit ändern', // quick-edit popover: date/time only, opened from the row
+    editAssigneeTitle: 'Zuständig ändern', // quick-edit popover: assignees only, opened from the row
     planHint: 'Titel ist Pflicht. Zuständige:r oder Fälligkeit machen daraus eine geplante Aufgabe.',
     titleLabel: 'Titel',
     planList: 'Liste', // list picker in the plan sheet (all todos; move between lists #409)

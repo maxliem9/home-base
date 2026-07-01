@@ -1,8 +1,10 @@
 package com.homebase.routes
 
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
+import com.homebase.db.UsersTable
 import com.homebase.model.*
 import com.homebase.recurrence.Recurrence
 import com.homebase.ws.WsSessionManager
@@ -134,6 +136,7 @@ fun Route.todoRoutes() {
                         .map { it[TodosTable.id] }
                     if (todoIds.isNotEmpty()) {
                         TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId inList todoIds }
+                        TodoAssigneesTable.deleteWhere { TodoAssigneesTable.todoId inList todoIds }
                         TodosTable.deleteWhere { TodosTable.listId eq id }
                     }
                     TodoListsTable.deleteWhere { TodoListsTable.id eq id }
@@ -171,11 +174,12 @@ fun Route.todoRoutes() {
             // description/priority, which alone can't satisfy PLANNED) stays in the INBOX. This lets
             // the quick-add "all-at-once" flow create a planned todo in a single POST instead of a
             // POST-then-PUT dance.
-            val status = if (!req.assignee.isNullOrBlank() || !req.dueDate.isNullOrBlank()) "PLANNED" else "INBOX"
+            val assignees = normalizeAssignees(req.assignees)
+            val status = if (assignees.isNotEmpty() || !req.dueDate.isNullOrBlank()) "PLANNED" else "INBOX"
             val validationError = validateTodoInput(
                 title = req.title,
                 status = status,
-                assignee = req.assignee,
+                assignees = assignees,
                 dueDate = req.dueDate,
                 dueTime = req.dueTime,
                 reminderLeadMinutes = req.reminderLeadMinutes,
@@ -192,6 +196,12 @@ fun Route.todoRoutes() {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
                 return@post
             }
+            // Every assignee must be a known household user (the join table FKs users.username).
+            val unknownAssignees = transaction { unknownUsers(assignees) }
+            if (unknownAssignees.isNotEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknownAssignees.joinToString(", ")}"))
+                return@post
+            }
 
             val result = transaction {
                 // resolve the target list's visibility, enforcing ownership: a foreign private list
@@ -206,7 +216,6 @@ fun Route.todoRoutes() {
                     it[title] = req.title
                     it[description] = req.description
                     it[TodosTable.status] = status
-                    it[assignee] = req.assignee
                     it[dueDate] = req.dueDate?.let { d -> LocalDate.parse(d) }
                     it[dueTime] = req.dueTime?.takeIf { t -> t.isNotBlank() }?.let { t -> LocalTime.parse(t) }
                     it[reminderLeadMinutes] = req.reminderLeadMinutes
@@ -217,6 +226,7 @@ fun Route.todoRoutes() {
                     it[createdBy] = username
                     it[createdAt] = Instant.now()
                 }
+                setTodoAssignees(id, assignees)
                 val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toTodoDto()
                 val shared = listVisibility != VISIBILITY_PRIVATE
                 TodoMutation(dto, wasShared = shared, isShared = shared)
@@ -255,7 +265,8 @@ fun Route.todoRoutes() {
                 // optional text fields follow the listId convention (#265): null = unchanged,
                 // "" = clear to null, else set. `if present, blank→null` captures all three.
                 val nextDescription = if (req.description != null) req.description.ifBlank { null } else existing[TodosTable.description]
-                val nextAssignee = if (req.assignee != null) req.assignee.ifBlank { null } else existing[TodosTable.assignee]
+                // assignees (V39): null = unchanged (keep the current set), [] = clear, non-empty = replace
+                val nextAssignees = if (req.assignees != null) normalizeAssignees(req.assignees) else loadTodoAssignees(id)
                 val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
                 // due_time follows the #265 string convention; reminder uses negative = clear. Both
                 // are meaningless without a date, so clearing the date cascades them to null (also
@@ -271,10 +282,17 @@ fun Route.todoRoutes() {
                     req.recurrence.freq == Recurrence.CLEAR -> null to null
                     else -> req.recurrence.freq to req.recurrence.interval.coerceAtLeast(1)
                 }
+                // an assignee touched by this request must be a known household user (join-table FK)
+                if (req.assignees != null) {
+                    val unknown = unknownUsers(nextAssignees)
+                    if (unknown.isNotEmpty()) {
+                        return@transaction ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknown.joinToString(", ")}")
+                    }
+                }
                 validateTodoInput(
                     title = req.title ?: existing[TodosTable.title],
                     status = nextStatus,
-                    assignee = nextAssignee,
+                    assignees = nextAssignees,
                     dueDate = nextDueDate,
                     dueTime = nextDueTime,
                     reminderLeadMinutes = nextReminderLead,
@@ -296,7 +314,6 @@ fun Route.todoRoutes() {
                     req.title?.let { v -> it[title] = v }
                     // null = unchanged, "" = clear to null, else set (mirrors assignee/listId, #265)
                     req.description?.let { _ -> it[description] = nextDescription }
-                    req.assignee?.let { _ -> it[assignee] = nextAssignee }
                     req.dueDate?.let { _ -> it[dueDate] = nextDueDate?.let { d -> LocalDate.parse(d) } }
                     // Re-evaluate due_time/reminder when the request touched the date (cascade clear)
                     // or the field itself; leave untouched otherwise.
@@ -334,6 +351,8 @@ fun Route.todoRoutes() {
                     // plain history so the safety-net scheduler never re-spawns from it
                     if (spawnNext) { it[recurrence] = null; it[recurrenceInterval] = null }
                 }
+                // Only rewrite the assignee set when the request carried the field (null = unchanged).
+                if (req.assignees != null) setTodoAssignees(id, nextAssignees)
 
                 var spawned: TodoDto? = null
                 var spawnedShared = false
@@ -351,7 +370,6 @@ fun Route.todoRoutes() {
                         it[title] = req.title ?: existing[TodosTable.title]
                         it[description] = nextDescription
                         it[status] = "PLANNED" // always has a dueDate, so PLANNED is valid
-                        it[assignee] = nextAssignee
                         it[dueDate] = successorDue
                         // carry the due time + reminder onto the successor (it keeps its dueDate anchor)
                         it[dueTime] = nextDueTime?.let { t -> LocalTime.parse(t) }
@@ -376,6 +394,8 @@ fun Route.todoRoutes() {
                                 it[createdAt] = now
                             }
                         }
+                    // the successor inherits the assignee set (recurrence rule moves onto it)
+                    setTodoAssignees(newId, nextAssignees)
                     spawned = TodosTable.selectAll().where { TodosTable.id eq newId }.single().toTodoDto()
                     spawnedShared = listIsShared(newListId)
                 }
@@ -413,6 +433,7 @@ fun Route.todoRoutes() {
                 val shared = listIsShared(existing[TodosTable.listId])
                 // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                 TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
+                TodoAssigneesTable.deleteWhere { TodoAssigneesTable.todoId eq id }
                 TodosTable.deleteWhere { TodosTable.id eq id }
                 existing.toTodoDto() to shared
             }
@@ -661,7 +682,7 @@ private suspend fun broadcastListDelete(list: TodoListDto) {
 private fun validateTodoInput(
     title: String,
     status: String,
-    assignee: String?,
+    assignees: List<String>,
     dueDate: String?,
     priority: String?,
     dueTime: String? = null,
@@ -715,10 +736,39 @@ private fun validateTodoInput(
             return ErrorResponse("INVALID_RECURRENCE", "a recurring todo needs a dueDate as its schedule anchor")
         }
     }
-    if (status == "PLANNED" && assignee.isNullOrBlank() && dueDate.isNullOrBlank()) {
+    if (status == "PLANNED" && assignees.isEmpty() && dueDate.isNullOrBlank()) {
         return ErrorResponse("INVALID_TODO", "PLANNED todos need an assignee or dueDate")
     }
     return null
+}
+
+/** Trim, drop blanks and de-duplicate an incoming assignee list (order-preserving). */
+private fun normalizeAssignees(raw: List<String>?): List<String> =
+    raw?.map { it.trim() }?.filter { it.isNotEmpty() }?.distinct() ?: emptyList()
+
+/** Assignees, sorted for a stable payload. Must run inside a transaction. */
+internal fun loadTodoAssignees(todoId: UUID): List<String> =
+    TodoAssigneesTable.selectAll().where { TodoAssigneesTable.todoId eq todoId }
+        .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+        .map { it[TodoAssigneesTable.username] }
+
+/** Replaces a todo's assignee set with [usernames] (assumed already validated). In a transaction. */
+private fun setTodoAssignees(todoId: UUID, usernames: List<String>) {
+    TodoAssigneesTable.deleteWhere { TodoAssigneesTable.todoId eq todoId }
+    usernames.forEach { u ->
+        TodoAssigneesTable.insert {
+            it[TodoAssigneesTable.todoId] = todoId
+            it[username] = u
+        }
+    }
+}
+
+/** The subset of [usernames] that are not known household users. Empty input → empty. In a transaction. */
+private fun unknownUsers(usernames: List<String>): List<String> {
+    if (usernames.isEmpty()) return emptyList()
+    val known = UsersTable.selectAll().where { UsersTable.username inList usernames }
+        .map { it[UsersTable.username] }.toSet()
+    return usernames.filter { it !in known }
 }
 
 private fun ResultRow.toSubtaskDto() = SubtaskDto(
@@ -747,7 +797,7 @@ internal fun ResultRow.toTodoDto(): TodoDto {
         title = this[TodosTable.title],
         description = this[TodosTable.description],
         status = this[TodosTable.status],
-        assignee = this[TodosTable.assignee],
+        assignees = loadTodoAssignees(todoId),
         dueDate = this[TodosTable.dueDate]?.toString(),
         // LocalTime.toString() is "HH:mm" (or "HH:mm:ss" with seconds) — clients tolerate both.
         dueTime = this[TodosTable.dueTime]?.toString(),
