@@ -2,6 +2,7 @@ package com.homebase
 
 import com.homebase.db.AbsencesTable
 import com.homebase.db.KitaClosuresTable
+import com.homebase.db.PartTimeRulesTable
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -154,6 +155,29 @@ class CalendarRouteTest {
         assertTrue(body.contains("UID:meal-"), "meal event missing")
         assertTrue(body.contains("Abendessen: Lasagne"))
         assertTrue(body.contains("Frühstück: Brötchen holen"))
+    }
+
+    @Test
+    fun `a part-time free day appears as a weekly-recurring all-day banner`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // A standing "off every <weekday>" rule anchored today, so its first occurrence is in
+        // the window. weekday is today's ISO day; BYDAY must match.
+        val start = LocalDate.now()
+        val isoWeekday = start.dayOfWeek.value // 1..7
+        val byDay = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")[isoWeekday - 1]
+        transaction {
+            PartTimeRulesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "alice"; it[weekday] = isoWeekday
+                it[startDate] = start; it[endDate] = null
+            }
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:parttime-"), "part-time event missing:\n$body")
+        assertTrue(body.contains("SUMMARY:Teilzeit frei: alice"), "part-time summary missing:\n$body")
+        assertTrue(body.contains("RRULE:FREQ=WEEKLY;BYDAY=$byDay"), "weekly RRULE missing:\n$body")
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${start.toString().replace("-", "")}"), "all-day DTSTART missing:\n$body")
     }
 
     @Test

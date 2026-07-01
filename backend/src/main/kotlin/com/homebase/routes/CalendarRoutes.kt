@@ -4,6 +4,7 @@ import com.homebase.db.AbsencesTable
 import com.homebase.db.CalendarEventsTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.MealPlanEntriesTable
+import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.RecipesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
@@ -64,6 +65,7 @@ private val EVENT_EMOJI = mapOf(
  * Contents (no new schema — reuses the existing reads):
  *  - due todos (open only — DONE ones are history, not upcoming), each on its `due_date`;
  *  - absences (Urlaub/Krank/Kind-krank, half-days noted in the title);
+ *  - part-time free days (a standing "off every <weekday>" rule, as a weekly-recurring banner);
  *  - kita closures (household-wide);
  *  - planned meals (recipe-backed or free-text);
  *  - calendar events (#434 — appointments/birthdays/vet; timed ones get a real clock time).
@@ -73,7 +75,8 @@ private val EVENT_EMOJI = mapOf(
  * PRIVATE list. Absences/kita/meals/events are household-shared and need no per-user filter.
  *
  * Overlay entries (todos/absences/kita/meals) are all-day VEVENTs (see [ICalBuilder] for the
- * VEVENT-vs-VTODO rationale); real events with a start time get a timed VEVENT instead.
+ * VEVENT-vs-VTODO rationale); part-time free days are all-day VEVENTs with a weekly RRULE; real
+ * events with a start time get a timed VEVENT instead.
  */
 fun Route.calendarRoutes() {
     get("/calendar.ics") {
@@ -148,6 +151,36 @@ fun Route.calendarRoutes() {
                         uid = "kita-${row[KitaClosuresTable.id]}@homebase",
                         start = row[KitaClosuresTable.date],
                         summary = "Kita: ${row[KitaClosuresTable.label]}",
+                        dtStamp = now,
+                    )
+                }
+
+            // Part-time free days: a standing "off every <weekday>" rule per person. These are
+            // computed day-states (never persisted per date), so the feed emits each rule as one
+            // weekly-recurring all-day banner the client expands. Skip rules that already ended
+            // before the window; anchor the series on the first matching weekday >= start_date.
+            PartTimeRulesTable.selectAll()
+                .where {
+                    (PartTimeRulesTable.endDate.isNull()) or (PartTimeRulesTable.endDate greaterEq from)
+                }
+                .orderBy(PartTimeRulesTable.startDate to SortOrder.ASC)
+                .forEach { row ->
+                    val weekday = row[PartTimeRulesTable.weekday] // ISO 1..7
+                    if (weekday !in 1..7) return@forEach
+                    val startDate = row[PartTimeRulesTable.startDate]
+                    val endDate = row[PartTimeRulesTable.endDate]
+                    // Advance start_date forward to the first day that actually falls on `weekday`.
+                    val delta = ((weekday - startDate.dayOfWeek.value) % 7 + 7) % 7
+                    val firstOccurrence = startDate.plusDays(delta.toLong())
+                    // A rule whose [start, end] span is too narrow to contain even one occurrence
+                    // never fires — skip it (no VEVENT with a DTSTART past its own UNTIL).
+                    if (endDate != null && firstOccurrence.isAfter(endDate)) return@forEach
+                    ical.addRecurringWeeklyAllDayEvent(
+                        uid = "parttime-${row[PartTimeRulesTable.id]}@homebase",
+                        firstOccurrence = firstOccurrence,
+                        weekday = weekday,
+                        until = endDate,
+                        summary = "Teilzeit frei: ${row[PartTimeRulesTable.userId]}",
                         dtStamp = now,
                     )
                 }

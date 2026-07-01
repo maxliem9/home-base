@@ -34,6 +34,9 @@ private val UTC_STAMP_FORMAT: DateTimeFormatter =
 /** Max content octets per line before folding (RFC 5545 §3.1: 75 octets, excluding CRLF). */
 private const val FOLD_LIMIT = 75
 
+/** RFC 5545 §3.3.10 BYDAY codes, indexed by ISO weekday (1=Mon … 7=Sun). */
+private val ISO_WEEKDAY_BYDAY = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+
 /** Escapes a TEXT value per RFC 5545 §3.3.11: backslash, semicolon, comma, and newlines. */
 internal fun icalEscapeText(value: String): String =
     value
@@ -126,6 +129,41 @@ internal class ICalBuilder(
             lines += "LOCATION:${icalEscapeText(location)}"
         }
         lines += "TRANSP:${if (transparent) "TRANSPARENT" else "OPAQUE"}"
+        lines += "END:VEVENT"
+    }
+
+    /**
+     * Adds a weekly-recurring all-day VEVENT — the idiomatic (and compact) way to represent a
+     * standing "off every <weekday>" arrangement such as a part-time free day (issue #427). Rather
+     * than materialising one banner per occurrence, we emit a single VEVENT anchored on
+     * [firstOccurrence] (which MUST fall on the target ISO [weekday]) with an RRULE the client
+     * expands itself.
+     *
+     * [until] is the inclusive last date the rule applies (or null for an open-ended arrangement).
+     * Because the series is all-day (DATE-valued DTSTART), the RRULE UNTIL must also be a DATE value
+     * (RFC 5545 §3.3.10). Like the other overlay banners these are TRANSPARENT (free/background),
+     * not busy.
+     */
+    fun addRecurringWeeklyAllDayEvent(
+        uid: String,
+        firstOccurrence: LocalDate,
+        weekday: Int,
+        until: LocalDate?,
+        summary: String,
+        dtStamp: Instant,
+    ) {
+        lines += "BEGIN:VEVENT"
+        lines += "UID:${uid}"
+        lines += "DTSTAMP:${UTC_STAMP_FORMAT.format(dtStamp)}"
+        lines += "DTSTART;VALUE=DATE:${DATE_FORMAT.format(firstOccurrence)}"
+        lines += "DTEND;VALUE=DATE:${DATE_FORMAT.format(firstOccurrence.plusDays(1))}"
+        lines += "SUMMARY:${icalEscapeText(summary)}"
+        val rrule = StringBuilder("RRULE:FREQ=WEEKLY;BYDAY=${ISO_WEEKDAY_BYDAY[weekday - 1]}")
+        if (until != null) {
+            rrule.append(";UNTIL=${DATE_FORMAT.format(until)}")
+        }
+        lines += rrule.toString()
+        lines += "TRANSP:TRANSPARENT"
         lines += "END:VEVENT"
     }
 
