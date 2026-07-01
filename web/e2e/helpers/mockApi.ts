@@ -37,6 +37,10 @@ export interface AbsenceSeed {
 
 export const TOKEN = 'test-jwt-token'
 
+// iCal-feed categories (#427), in the backend's canonical display order. Mirrors
+// CalendarFeedSection.all; the subscribe modal renders a checkbox per id.
+const CALENDAR_FEED_SECTIONS = ['todos', 'absences', 'parttime', 'kita', 'meals', 'events']
+
 // `Buffer` is a Node global present in the Playwright runtime; the e2e tsconfig
 // has no @types/node, so declare just the calls we use here.
 declare const Buffer: {
@@ -106,6 +110,9 @@ export class MockApi {
   // "Erledigt"-history window length in days (#356). Default mirrors the backend + clients;
   // TodosView reads it on mount. Kept at 14 so the #340 show-all window test stays accurate.
   private doneWindowDays = 14
+  // Per-user iCal-feed category selection (#427). null = unset (all categories); the subscribe
+  // modal reads it on open and PUTs the full selection on each toggle.
+  private calendarFeedSections: string[] | null = null
   // Per-user key/value prefs (#100). The app loads these on mount (theme) and
   // upserts via PUT /user-prefs/{key}.
   private userPrefs: Record<string, string> = {}
@@ -669,6 +676,22 @@ export class MockApi {
       }
       this.doneWindowDays = days
       return this.json(route, { days: this.doneWindowDays })
+    }
+
+    // Per-user iCal-feed category selection (#427). Mirrors /config/calendar-feed: GET returns
+    // {sections, availableSections} (unset = all); PUT validates a subset (INVALID_SECTION) and
+    // stores it in canonical order. Per-user, but the mock is single-user so one field suffices.
+    if (path.endsWith('/config/calendar-feed') && method === 'GET') {
+      const sections = this.calendarFeedSections ?? CALENDAR_FEED_SECTIONS
+      return this.json(route, { sections, availableSections: CALENDAR_FEED_SECTIONS })
+    }
+    if (path.endsWith('/config/calendar-feed') && method === 'PUT') {
+      const ids: string[] = JSON.parse(req.postData() ?? '{}').sections ?? []
+      if (ids.some((id) => !CALENDAR_FEED_SECTIONS.includes(id))) {
+        return this.json(route, { code: 'INVALID_SECTION', message: 'unknown' }, 400)
+      }
+      this.calendarFeedSections = CALENDAR_FEED_SECTIONS.filter((id) => ids.includes(id))
+      return this.json(route, { sections: this.calendarFeedSections, availableSections: CALENDAR_FEED_SECTIONS })
     }
 
     // Change own password (#100). Mirrors UserRoutes: WEAK_PASSWORD (<8 chars),

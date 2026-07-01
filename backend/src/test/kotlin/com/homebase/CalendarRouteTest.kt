@@ -2,6 +2,7 @@ package com.homebase
 
 import com.homebase.db.AbsencesTable
 import com.homebase.db.KitaClosuresTable
+import com.homebase.db.PartTimeRulesTable
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -157,6 +158,29 @@ class CalendarRouteTest {
     }
 
     @Test
+    fun `a part-time free day appears as a weekly-recurring all-day banner`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        // A standing "off every <weekday>" rule anchored today, so its first occurrence is in
+        // the window. weekday is today's ISO day; BYDAY must match.
+        val start = LocalDate.now()
+        val isoWeekday = start.dayOfWeek.value // 1..7
+        val byDay = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")[isoWeekday - 1]
+        transaction {
+            PartTimeRulesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "alice"; it[weekday] = isoWeekday
+                it[startDate] = start; it[endDate] = null
+            }
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:parttime-"), "part-time event missing:\n$body")
+        assertTrue(body.contains("SUMMARY:Teilzeit frei: alice"), "part-time summary missing:\n$body")
+        assertTrue(body.contains("RRULE:FREQ=WEEKLY;BYDAY=$byDay"), "weekly RRULE missing:\n$body")
+        assertTrue(body.contains("DTSTART;VALUE=DATE:${start.toString().replace("-", "")}"), "all-day DTSTART missing:\n$body")
+    }
+
+    @Test
     fun `a timed calendar event appears with a real DTSTART and DTEND`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
@@ -210,7 +234,7 @@ class CalendarRouteTest {
     }
 
     @Test
-    fun `a todo in the other users private list does not leak into the feed`() = testApplication {
+    fun `no private-list todo leaks into the feed - not even the owner's own`() = testApplication {
         configureTestApplication()
         val bobToken = loginAndGetToken("bob", "password456")
         // Bob makes a private list and a dated todo in it.
@@ -224,13 +248,101 @@ class CalendarRouteTest {
             setBody("""{"title":"Bobs privates Todo","dueDate":"${soon()}","listId":"$listId"}""")
         }
 
-        // Alice's feed must not contain Bob's private todo, but Bob's own feed must.
+        // The .ics is exported to an external calendar provider, so a PRIVATE todo must never
+        // appear — neither in the partner's feed nor in the owner's own.
         val aliceToken = loginAndGetToken("alice", "password123")
         val aliceFeed = client.get("/api/v1/calendar.ics") { bearerAuth(aliceToken) }.bodyAsText()
         assertFalse(aliceFeed.contains("Bobs privates Todo"), "private todo leaked to the partner:\n$aliceFeed")
 
         val bobFeed = client.get("/api/v1/calendar.ics") { bearerAuth(bobToken) }.bodyAsText()
-        assertTrue(bobFeed.contains("Bobs privates Todo"), "owner should see their own private todo")
+        assertFalse(bobFeed.contains("Bobs privates Todo"), "private todo leaked into the owner's own exported feed:\n$bobFeed")
+    }
+
+    @Test
+    fun `a todo in a shared list is exported`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val listRes = client.post("/api/v1/todos/lists") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"name":"Gemeinsam","visibility":"SHARED"}""")
+        }
+        val listId = Json.parseToJsonElement(listRes.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"Geteiltes Todo","dueDate":"${soon()}","listId":"$listId"}""")
+        }
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("Geteiltes Todo"), "a SHARED-list todo should be exported:\n$body")
+    }
+
+    @Test
+    fun `the feed includes only the caller's selected categories`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(4)
+        // Seed three different categories.
+        transaction {
+            AbsencesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "alice"; it[date] = LocalDate.parse(day); it[type] = "URLAUB"; it[half] = null
+            }
+            KitaClosuresTable.insert {
+                it[id] = UUID.randomUUID(); it[date] = LocalDate.parse(day); it[label] = "Brückentag"
+            }
+        }
+        val recipeId = createRecipe(token, "Lasagne")
+        client.put("/api/v1/meal-plan/$day/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId"}""")
+        }
+
+        // Restrict alice's feed to absences only.
+        val cfg = client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"sections":["absences"]}""")
+        }
+        assertEquals(HttpStatusCode.OK, cfg.status)
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:absence-"), "selected category (absences) should appear:\n$body")
+        assertFalse(body.contains("UID:meal-"), "deselected category (meals) leaked:\n$body")
+        assertFalse(body.contains("UID:kita-"), "deselected category (kita) leaked:\n$body")
+    }
+
+    @Test
+    fun `the feed selection is per-user`() = testApplication {
+        configureTestApplication()
+        val aliceToken = loginAndGetToken("alice", "password123")
+        val bobToken = loginAndGetToken("bob", "password456")
+        val day = soon(5)
+        transaction {
+            KitaClosuresTable.insert {
+                it[id] = UUID.randomUUID(); it[date] = LocalDate.parse(day); it[label] = "Ferien"
+            }
+        }
+
+        // Alice deselects everything; Bob leaves his feed untouched (= all categories).
+        client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(aliceToken); contentType(ContentType.Application.Json)
+            setBody("""{"sections":[]}""")
+        }
+
+        val aliceFeed = client.get("/api/v1/calendar.ics") { bearerAuth(aliceToken) }.bodyAsText()
+        assertFalse(aliceFeed.contains("UID:kita-"), "alice deselected kita — must be absent:\n$aliceFeed")
+
+        val bobFeed = client.get("/api/v1/calendar.ics") { bearerAuth(bobToken) }.bodyAsText()
+        assertTrue(bobFeed.contains("UID:kita-"), "bob's untouched feed should still include kita:\n$bobFeed")
+    }
+
+    @Test
+    fun `the calendar-feed config rejects an unknown section id`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"sections":["absences","bogus"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
     }
 
     @Test

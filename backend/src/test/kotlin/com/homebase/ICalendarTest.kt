@@ -104,6 +104,43 @@ class ICalendarTest {
     }
 
     @Test
+    fun `a recurring weekly all-day event emits an RRULE anchored on the first occurrence`() {
+        // 2026-01-05 is a Monday (ISO weekday 1). An open-ended rule → no UNTIL, TRANSPARENT.
+        val ical = ICalBuilder()
+        ical.addRecurringWeeklyAllDayEvent(
+            uid = "parttime-1@homebase",
+            firstOccurrence = LocalDate.of(2026, 1, 5),
+            weekday = 1,
+            until = null,
+            summary = "Teilzeit frei: alice",
+            dtStamp = Instant.EPOCH,
+        )
+        val body = ical.build()
+        assertTrue(body.contains("DTSTART;VALUE=DATE:20260105"), "all-day DTSTART missing:\n$body")
+        assertTrue(body.contains("DTEND;VALUE=DATE:20260106"), "exclusive DTEND missing:\n$body")
+        assertTrue(body.contains("RRULE:FREQ=WEEKLY;BYDAY=MO"), "weekly Monday RRULE missing:\n$body")
+        assertTrue("UNTIL" !in body, "open-ended rule must not carry an UNTIL:\n$body")
+        assertTrue(body.contains("TRANSP:TRANSPARENT"), "part-time banner should be free/background")
+    }
+
+    @Test
+    fun `a bounded recurring event carries a DATE-valued UNTIL`() {
+        // 2026-01-09 is a Friday (ISO weekday 5); an end date must appear as a DATE-valued UNTIL.
+        val ical = ICalBuilder()
+        ical.addRecurringWeeklyAllDayEvent(
+            uid = "parttime-2@homebase",
+            firstOccurrence = LocalDate.of(2026, 1, 9),
+            weekday = 5,
+            until = LocalDate.of(2026, 6, 26),
+            summary = "Teilzeit frei: bob",
+            dtStamp = Instant.EPOCH,
+        )
+        val body = ical.build()
+        assertTrue(body.contains("BYDAY=FR"), "Friday BYDAY missing:\n$body")
+        assertTrue(body.contains("UNTIL=20260626"), "DATE-valued UNTIL missing:\n$body")
+    }
+
+    @Test
     fun `a late-evening event with no end rolls the default hour into the next day`() {
         // Regression: the +1h default must advance the *instant* (and thus the date), not wrap to
         // an earlier same-day time. 23:30 Berlin (UTC+1) = 22:30 UTC; +1h = 23:30 UTC same day.
