@@ -26,6 +26,7 @@ import com.homebase.db.ShoppingTemplateItemsTable
 import com.homebase.db.ShoppingTemplatesTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.db.TimeWorkTargetsTable
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
@@ -76,7 +77,7 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
         transaction {
             SchemaUtils.create(
                 AppSettingsTable, UserPrefsTable,
-                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, ShoppingListsTable, ShoppingItemsTable,
+                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, TodoAssigneesTable, ShoppingListsTable, ShoppingItemsTable,
                 ShoppingItemStatsTable, ShoppingCategoriesTable, ShoppingCategoryRulesTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
                 NotesTable, NoteImagesTable, NoteAttachmentsTable,
                 ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,

@@ -4,9 +4,12 @@ import com.homebase.db.AbsencesTable
 import com.homebase.db.CalendarEventsTable
 import com.homebase.db.KitaClosuresTable
 import com.homebase.db.MealPlanEntriesTable
+import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.RecipesTable
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
+import com.homebase.db.UserPrefsTable
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -61,19 +64,27 @@ private val EVENT_EMOJI = mapOf(
  * note-image / WebSocket loads use) — calendar apps can set neither an Authorization header nor a
  * WebSocket subprotocol. nginx masks `token=` in its access log; we never log it here.
  *
+ * Configurable per subscriber (#427): each user picks which categories their own feed carries via
+ * `/config/calendar-feed` (stored per-user in `user_prefs`); an untouched account gets all of them.
+ * The selection is read here at request time and gates each category block below.
+ *
  * Contents (no new schema — reuses the existing reads):
  *  - due todos (open only — DONE ones are history, not upcoming), each on its `due_date`;
  *  - absences (Urlaub/Krank/Kind-krank, half-days noted in the title);
+ *  - part-time free days (a standing "off every <weekday>" rule, as a weekly-recurring banner);
  *  - kita closures (household-wide);
  *  - planned meals (recipe-backed or free-text);
  *  - calendar events (#434 — appointments/birthdays/vet; timed ones get a real clock time).
  *
- * Privacy: a todo in the *other* user's PRIVATE list must not leak through the feed, so todos are
- * filtered exactly like `GET /todos` — visible = no list, a SHARED list, or the caller's own
- * PRIVATE list. Absences/kita/meals/events are household-shared and need no per-user filter.
+ * Privacy: the feed is stricter than the in-app `GET /todos`. Because a calendar provider fetches
+ * the `.ics` over a subscription URL (the content thus leaves HomeBase and may be seen by that
+ * provider or anyone the subscriber shares the calendar with), NO PRIVATE-list todo appears —
+ * not even the caller's own. Only list-less and SHARED-list todos are exported.
+ * Absences/kita/meals/events/part-time are household-shared and need no per-user filter.
  *
  * Overlay entries (todos/absences/kita/meals) are all-day VEVENTs (see [ICalBuilder] for the
- * VEVENT-vs-VTODO rationale); real events with a start time get a timed VEVENT instead.
+ * VEVENT-vs-VTODO rationale); part-time free days are all-day VEVENTs with a weekly RRULE; real
+ * events with a start time get a timed VEVENT instead.
  */
 fun Route.calendarRoutes() {
     get("/calendar.ics") {
@@ -86,14 +97,30 @@ fun Route.calendarRoutes() {
         val ical = ICalBuilder()
 
         transaction {
-            // hidden = todos that live in the OTHER user's private list (mirror GET /todos)
+            // Which categories this subscriber wants in their feed (#427). Per-user; unset = all.
+            val sections = CalendarFeedSection.parseSelection(
+                UserPrefsTable.selectAll()
+                    .where {
+                        (UserPrefsTable.userId eq username) and
+                            (UserPrefsTable.key eq UserPrefsTable.CALENDAR_FEED_SECTIONS)
+                    }
+                    .singleOrNull()?.get(UserPrefsTable.value),
+            )
+
+          if (CalendarFeedSection.TODOS in sections) {
+            // hidden = todos in ANY private list. Unlike the in-app GET /todos (which shows the
+            // caller their own private todos), the .ics is fetched by an external calendar provider
+            // (Apple/Google) over a subscription URL that carries a long-lived token — anything in
+            // the feed leaves HomeBase and may be seen by that provider or anyone the subscriber
+            // shares the calendar with. A PRIVATE list must never leave the app, not even the
+            // owner's own; so we exclude every private list, not just the partner's.
             val hiddenListIds = TodoListsTable.selectAll()
-                .where { (TodoListsTable.visibility eq VISIBILITY_PRIVATE) and (TodoListsTable.createdBy neq username) }
+                .where { TodoListsTable.visibility eq VISIBILITY_PRIVATE }
                 .map { it[TodoListsTable.id] }
                 .toSet()
 
-            // Due todos: open (not DONE) with a due_date inside the window and not in a foreign
-            // private list. The successor of a recurring todo carries its own due_date, so the
+            // Due todos: open (not DONE) with a due_date inside the window and not in a private
+            // list. The successor of a recurring todo carries its own due_date, so the
             // "one open instance" invariant means no duplicate dates here.
             TodosTable.selectAll()
                 .where {
@@ -107,8 +134,11 @@ fun Route.calendarRoutes() {
                     if (listId != null && listId in hiddenListIds) return@forEach
                     val due = row[TodosTable.dueDate] ?: return@forEach
                     val title = row[TodosTable.title]
-                    val assignee = row[TodosTable.assignee]
-                    val summary = "✓ " + title + (assignee?.let { " ($it)" } ?: "")
+                    val assignees = TodoAssigneesTable.selectAll()
+                        .where { TodoAssigneesTable.todoId eq row[TodosTable.id] }
+                        .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+                        .map { it[TodoAssigneesTable.username] }
+                    val summary = "✓ " + title + (if (assignees.isNotEmpty()) " (${assignees.joinToString(", ")})" else "")
                     ical.addAllDayEvent(
                         uid = "todo-${row[TodosTable.id]}@homebase",
                         start = due,
@@ -117,7 +147,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.ABSENCES in sections) {
             // Absences (household-shared). Half-days note vm/nm in the title.
             AbsencesTable.selectAll()
                 .where { (AbsencesTable.date greaterEq from) and (AbsencesTable.date lessEq to) }
@@ -138,7 +170,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.KITA in sections) {
             // Kita closures (household-wide background marker).
             KitaClosuresTable.selectAll()
                 .where { (KitaClosuresTable.date greaterEq from) and (KitaClosuresTable.date lessEq to) }
@@ -151,7 +185,41 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.PART_TIME in sections) {
+            // Part-time free days: a standing "off every <weekday>" rule per person. These are
+            // computed day-states (never persisted per date), so the feed emits each rule as one
+            // weekly-recurring all-day banner the client expands. Skip rules that already ended
+            // before the window; anchor the series on the first matching weekday >= start_date.
+            PartTimeRulesTable.selectAll()
+                .where {
+                    (PartTimeRulesTable.endDate.isNull()) or (PartTimeRulesTable.endDate greaterEq from)
+                }
+                .orderBy(PartTimeRulesTable.startDate to SortOrder.ASC)
+                .forEach { row ->
+                    val weekday = row[PartTimeRulesTable.weekday] // ISO 1..7
+                    if (weekday !in 1..7) return@forEach
+                    val startDate = row[PartTimeRulesTable.startDate]
+                    val endDate = row[PartTimeRulesTable.endDate]
+                    // Advance start_date forward to the first day that actually falls on `weekday`.
+                    val delta = ((weekday - startDate.dayOfWeek.value) % 7 + 7) % 7
+                    val firstOccurrence = startDate.plusDays(delta.toLong())
+                    // A rule whose [start, end] span is too narrow to contain even one occurrence
+                    // never fires — skip it (no VEVENT with a DTSTART past its own UNTIL).
+                    if (endDate != null && firstOccurrence.isAfter(endDate)) return@forEach
+                    ical.addRecurringWeeklyAllDayEvent(
+                        uid = "parttime-${row[PartTimeRulesTable.id]}@homebase",
+                        firstOccurrence = firstOccurrence,
+                        weekday = weekday,
+                        until = endDate,
+                        summary = "Teilzeit frei: ${row[PartTimeRulesTable.userId]}",
+                        dtStamp = now,
+                    )
+                }
+          }
+
+          if (CalendarFeedSection.MEALS in sections) {
             // Planned meals — recipe-backed (joined title) or free text (#293). LEFT join so
             // free-text entries (no recipe) come through too.
             (MealPlanEntriesTable leftJoin RecipesTable).selectAll()
@@ -170,7 +238,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.EVENTS in sections) {
             // Calendar events (#434) — household-shared. Timed events get a real DTSTART/DTEND;
             // all-day (or time-less) ones a date banner. notes -> DESCRIPTION, location -> LOCATION.
             val zone = ZoneId.systemDefault()
@@ -209,6 +279,7 @@ fun Route.calendarRoutes() {
                         )
                     }
                 }
+          }
         }
 
         call.response.header(

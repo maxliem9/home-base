@@ -1,8 +1,10 @@
 package com.homebase.reminder
 
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodosTable
 import com.homebase.notifications.privateTodoListIds
 import com.homebase.notifications.todoIsShareable
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.and
@@ -22,8 +24,9 @@ import java.time.ZoneId
  * long downtime) are retired silently.
  *
  * Privacy note: like the existing morning digest, this sends to the one shared household chat
- * (and, since #429 Phase 2b, to every registered browser) without a per-list visibility filter —
- * the digest already establishes that the chat sees every dated todo's title.
+ * (and, since #429 Phase 2b, to every registered browser) without per-*user* routing. Todos in a
+ * PRIVATE list are omitted, though (via [privateTodoListIds]) — otherwise their title would leak to
+ * the partner over the shared channel.
  *
  * Delivery channel(s) are abstracted behind [notifier] (#429 Phase 2b): the firing model is
  * channel-agnostic. In production it is a [CompositeReminderNotifier] over Telegram + Web Push,
@@ -63,7 +66,10 @@ class ReminderService(
                 if (!row.todoIsShareable(privateLists)) return@forEach
                 val candidate = ReminderCandidate(
                     title = row[TodosTable.title],
-                    assignee = row[TodosTable.assignee],
+                    assignees = TodoAssigneesTable.selectAll()
+                        .where { TodoAssigneesTable.todoId eq row[TodosTable.id] }
+                        .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+                        .map { it[TodoAssigneesTable.username] },
                     dueDate = row[TodosTable.dueDate]!!,
                     dueTime = row[TodosTable.dueTime]!!,
                     reminderLeadMinutes = row[TodosTable.reminderLeadMinutes],

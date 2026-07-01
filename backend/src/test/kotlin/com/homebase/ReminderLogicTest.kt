@@ -14,8 +14,8 @@ import kotlin.test.assertTrue
 /** Pure timing/decision tests for the todo reminder scheduler (#429 Phase 2a). */
 class ReminderLogicTest {
 
-    private fun candidate(date: String, time: String, lead: Int? = null, title: String = "Zahnarzt", assignee: String? = null) =
-        ReminderCandidate(title, assignee, LocalDate.parse(date), LocalTime.parse(time), lead)
+    private fun candidate(date: String, time: String, lead: Int? = null, title: String = "Zahnarzt", assignees: List<String> = emptyList()) =
+        ReminderCandidate(title, assignees, LocalDate.parse(date), LocalTime.parse(time), lead)
 
     @Test
     fun `fire moment subtracts the lead from the due time`() {
@@ -53,8 +53,10 @@ class ReminderLogicTest {
     }
 
     @Test
-    fun `message renders the time and optional assignee`() {
+    fun `message renders the time and optional assignees`() {
         assertEquals("🔔 Erinnerung: Zahnarzt — fällig 14:30", ReminderLogic.message(candidate("2026-07-01", "14:30")))
-        assertEquals("🔔 Erinnerung: Müll — fällig 07:05 · bob", ReminderLogic.message(candidate("2026-07-01", "07:05", title = "Müll", assignee = "bob")))
+        assertEquals("🔔 Erinnerung: Müll — fällig 07:05 · bob", ReminderLogic.message(candidate("2026-07-01", "07:05", title = "Müll", assignees = listOf("bob"))))
+        // multiple assignees are listed
+        assertEquals("🔔 Erinnerung: Müll — fällig 07:05 · alice, bob", ReminderLogic.message(candidate("2026-07-01", "07:05", title = "Müll", assignees = listOf("alice", "bob"))))
     }
 }

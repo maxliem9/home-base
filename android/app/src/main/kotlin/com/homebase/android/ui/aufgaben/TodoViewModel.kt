@@ -309,15 +309,15 @@ class TodoViewModel(
      * the fire-and-forget [addTodo] wrapper sets the global error for the quick-add bars so the
      * screen toast covers them without the sheet path double-notifying (#288).
      *
-     * The optional planning fields ([description]/[assignee]/[dueDate]/[priority]) carry the
+     * The optional planning fields ([description]/[assignees]/[dueDate]/[priority]) carry the
      * quick-add "Details" panel (#393, mirrors the web QuickAdd). Each is only sent when set; the
-     * backend derives the status from them (assignee OR dueDate ⇒ PLANNED, else INBOX), so a plain
-     * title-only call still creates an INBOX todo.
+     * backend derives the status from them (any assignee OR dueDate ⇒ PLANNED, else INBOX), so a
+     * plain title-only call still creates an INBOX todo.
      */
     suspend fun createTodo(
         title: String,
         description: String? = null,
-        assignee: String? = null,
+        assignees: List<String> = emptyList(),
         dueDate: String? = null,
         priority: String? = null,
     ): Result<TodoDto> {
@@ -326,7 +326,7 @@ class TodoViewModel(
             CreateTodoRequest(
                 title = title.trim(),
                 description = description?.trim()?.ifBlank { null },
-                assignee = assignee?.ifBlank { null },
+                assignees = assignees.ifEmpty { null },
                 dueDate = dueDate?.ifBlank { null },
                 priority = priority?.ifBlank { null },
                 listId = listId,
@@ -344,12 +344,12 @@ class TodoViewModel(
     suspend fun addPlannedTodo(
         title: String,
         description: String? = null,
-        assignee: String? = null,
+        assignees: List<String> = emptyList(),
         dueDate: String? = null,
         priority: String? = null,
     ): Boolean {
         if (title.isBlank()) return false
-        return createTodo(title, description, assignee, dueDate, priority)
+        return createTodo(title, description, assignees, dueDate, priority)
             .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
             .isSuccess
     }
@@ -389,7 +389,7 @@ class TodoViewModel(
     /** Toggle a todo between DONE and open (PLANNED when it has a plan, else INBOX). */
     fun toggleDone(todo: TodoDto) {
         val newStatus = if (todo.status == "DONE") {
-            if (todo.assignee != null || todo.dueDate != null) "PLANNED" else "INBOX"
+            if (todo.assignees.isNotEmpty() || todo.dueDate != null) "PLANNED" else "INBOX"
         } else "DONE"
         updateTodo(todo.id, UpdateTodoRequest(status = newStatus))
     }

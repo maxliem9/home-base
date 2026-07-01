@@ -1,13 +1,16 @@
 package com.homebase.routes
 
 import com.homebase.db.AppSettingsTable
+import com.homebase.db.UserPrefsTable
 import com.homebase.digest.DigestSection
 import com.homebase.model.AppConfigResponse
+import com.homebase.model.CalendarFeedConfigResponse
 import com.homebase.model.DigestConfigResponse
 import com.homebase.model.DoneWindowConfigResponse
 import com.homebase.model.ErrorResponse
 import com.homebase.model.RecurringConfigResponse
 import com.homebase.model.RemindersConfigResponse
+import com.homebase.model.UpdateCalendarFeedRequest
 import com.homebase.model.UpdateConfigRequest
 import com.homebase.model.UpdateDigestRequest
 import com.homebase.model.UpdateDoneWindowRequest
@@ -20,6 +23,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -178,6 +182,61 @@ fun Route.configRoutes(
         }
         upsertSetting(AppSettingsTable.DONE_WINDOW_DAYS, days.toString())
         call.respond(DoneWindowConfigResponse(days = days))
+    }
+
+    // Which categories the caller's iCal subscription feed includes (#427). PER USER (unlike the
+    // shared app_settings config above) — the selection is keyed by the authenticated caller, so
+    // each subscriber tailors their own feed. Unset = all categories (back-compat). GET returns the
+    // current selection + the full available list; PUT replaces the selection (validated subset).
+    get("/config/calendar-feed") {
+        call.respond(currentCalendarFeedConfig(call.username()))
+    }
+
+    put("/config/calendar-feed") {
+        val ids = call.receive<UpdateCalendarFeedRequest>().sections.map { it.trim() }
+        val allowedIds = CalendarFeedSection.all.map { it.id }.toSet()
+        if (ids.any { it !in allowedIds }) {
+            return@put call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorResponse("INVALID_SECTION", "sections must be a subset of $allowedIds"),
+            )
+        }
+        // De-dupe while keeping the canonical display order, so the stored value is stable.
+        val csv = CalendarFeedSection.all.filter { it.id in ids.toSet() }.joinToString(",") { it.id }
+        upsertUserPref(call.username(), UserPrefsTable.CALENDAR_FEED_SECTIONS, csv)
+        call.respond(currentCalendarFeedConfig(call.username()))
+    }
+}
+
+/** One user's current iCal-feed category selection (unset = all) + the full available list (#427). */
+private fun currentCalendarFeedConfig(username: String): CalendarFeedConfigResponse {
+    val selected = CalendarFeedSection.parseSelection(
+        readUserPref(username, UserPrefsTable.CALENDAR_FEED_SECTIONS),
+    )
+    return CalendarFeedConfigResponse(
+        sections = CalendarFeedSection.all.filter { it in selected }.map { it.id },
+        availableSections = CalendarFeedSection.all.map { it.id },
+    )
+}
+
+/** Reads one (user, key) pref value, or null if unset. */
+private fun readUserPref(username: String, prefKey: String): String? = transaction {
+    UserPrefsTable.selectAll()
+        .where { (UserPrefsTable.userId eq username) and (UserPrefsTable.key eq prefKey) }
+        .singleOrNull()?.get(UserPrefsTable.value)
+}
+
+/** Upserts one (user, key) pref (update-then-insert; the composite PK guards duplicates). */
+private fun upsertUserPref(username: String, prefKey: String, prefValue: String) {
+    transaction {
+        val updated = UserPrefsTable.update({
+            (UserPrefsTable.userId eq username) and (UserPrefsTable.key eq prefKey)
+        }) { it[value] = prefValue }
+        if (updated == 0) UserPrefsTable.insert {
+            it[userId] = username
+            it[key] = prefKey
+            it[value] = prefValue
+        }
     }
 }
 

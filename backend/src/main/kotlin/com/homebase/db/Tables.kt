@@ -67,6 +67,11 @@ object UserPrefsTable : Table("user_prefs") {
     // First consumer: the UI theme. Kept here so the writer (route) and any future
     // reader can't drift on the key name.
     const val THEME = "theme"
+
+    // Which categories a user's iCal subscription feed includes (#427): a compact CSV of
+    // CalendarFeedSection ids. Per-user so each subscriber tailors their own feed; unset = all
+    // (back-compat with the pre-toggle feed). Written via /config/calendar-feed, read by the feed.
+    const val CALENDAR_FEED_SECTIONS = "calendar_feed_sections"
 }
 
 object UsersTable : Table("users") {
@@ -95,7 +100,8 @@ object TodosTable : Table("todos") {
     val title = text("title")
     val description = text("description").nullable()
     val status = varchar("status", 20)
-    val assignee = varchar("assignee", 50).nullable()
+    // Assignees moved to the todo_assignees join table (V39) — a todo can be assigned to any
+    // subset of the household. See TodoAssigneesTable.
     val dueDate = date("due_date").nullable()
     // Optional time-of-day on the due date (#429) + optional reminder lead in minutes. Both require
     // a due_date (DB CHECK); reminder_lead is plumbed for the later notification work.
@@ -113,6 +119,17 @@ object TodosTable : Table("todos") {
     // delivered/retired; NULL = not yet reminded (re-armed when the due moment is edited).
     val reminderSentAt = timestamp("reminder_sent_at").nullable()
     override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * Assignees of a todo (join table, V39). A todo can be assigned to any subset of the household
+ * (zero, one, or several users); "both" is simply two rows. Replaces the former single
+ * todos.assignee column. `username` FKs users(username); the pair is unique (composite PK).
+ */
+object TodoAssigneesTable : Table("todo_assignees") {
+    val todoId = uuid("todo_id")
+    val username = varchar("username", 50)
+    override val primaryKey = PrimaryKey(todoId, username)
 }
 
 object TodoSubtasksTable : Table("todo_subtasks") {

@@ -204,6 +204,8 @@ export const en: Messages = {
     plan: 'Plan',
     markDone: 'Done',
     planTitle: 'Plan task',
+    editDateTitle: 'Edit due date', // quick-edit popover: date/time only, opened from the row
+    editAssigneeTitle: 'Edit assignee', // quick-edit popover: assignees only, opened from the row
     planHint: 'A title is required. An assignee or due date makes it a planned task.',
     titleLabel: 'Title',
     planList: 'List', // list picker in the plan sheet (all todos; move between lists #409)
@@ -973,6 +975,17 @@ export const en: Messages = {
     subscribeCopy: 'Copy link',
     subscribeCopied: 'Copied!',
     subscribeNote: 'The link contains your personal access token — do not share it.',
+    subscribeIncludeLabel: 'What should it include?',
+    subscribeIncludeHint: 'Applies to your own feed only — saved as you tap.',
+    subscribeSaveFailed: 'Could not be saved.',
+    feedSection: {
+      todos: 'Due tasks',
+      absences: 'Absences',
+      parttime: 'Part-time days off',
+      kita: 'Kita closures',
+      meals: 'Meal plan',
+      events: 'Events',
+    },
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Calendar',

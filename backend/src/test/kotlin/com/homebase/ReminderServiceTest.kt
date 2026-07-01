@@ -1,5 +1,6 @@
 package com.homebase
 
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
 import com.homebase.reminder.ReminderNotifier
@@ -37,7 +38,7 @@ class ReminderServiceTest {
             url = "jdbc:h2:mem:reminder_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
             driver = "org.h2.Driver",
         )
-        transaction { SchemaUtils.create(TodosTable, TodoListsTable) }
+        transaction { SchemaUtils.create(TodosTable, TodoListsTable, TodoAssigneesTable) }
     }
 
     private fun insertTodo(
@@ -46,7 +47,7 @@ class ReminderServiceTest {
         dueTime: LocalTime?,
         lead: Int? = null,
         status: String = "PLANNED",
-        assignee: String? = null,
+        assignees: List<String> = emptyList(),
         listId: UUID? = null,
     ): UUID = transaction {
         val id = UUID.randomUUID()
@@ -54,13 +55,18 @@ class ReminderServiceTest {
             it[TodosTable.id] = id
             it[TodosTable.title] = title
             it[TodosTable.status] = status
-            it[TodosTable.assignee] = assignee
             it[TodosTable.dueDate] = dueDate
             it[TodosTable.dueTime] = dueTime
             it[TodosTable.reminderLeadMinutes] = lead
             it[TodosTable.listId] = listId
             it[TodosTable.createdBy] = "alice"
             it[TodosTable.createdAt] = Instant.now()
+        }
+        assignees.forEach { u ->
+            TodoAssigneesTable.insert {
+                it[TodoAssigneesTable.todoId] = id
+                it[TodoAssigneesTable.username] = u
+            }
         }
         id
     }

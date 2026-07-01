@@ -1,5 +1,6 @@
 package com.homebase
 
+import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoSubtasksTable
 import com.homebase.db.TodosTable
 import com.homebase.recurrence.Recurrence
@@ -98,7 +99,7 @@ class RecurrenceTest {
             url = "jdbc:h2:mem:recurrence_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
             driver = "org.h2.Driver",
         )
-        transaction { SchemaUtils.create(TodosTable, TodoSubtasksTable) }
+        transaction { SchemaUtils.create(TodosTable, TodoSubtasksTable, TodoAssigneesTable) }
     }
 
     private fun insertRecurring(
