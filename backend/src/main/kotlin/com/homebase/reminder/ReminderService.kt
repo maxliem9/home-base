@@ -1,6 +1,8 @@
 package com.homebase.reminder
 
 import com.homebase.db.TodosTable
+import com.homebase.notifications.privateTodoListIds
+import com.homebase.notifications.todoIsShareable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.and
@@ -49,12 +51,16 @@ class ReminderService(
         // delivery — a crash mid-send loses one reminder rather than risking a duplicate.
         val messages = transaction {
             val out = mutableListOf<String>()
+            // Private-list todos never surface in the shared reminder (it reaches the one household
+            // chat + all push devices) — that would leak their title to the partner.
+            val privateLists = privateTodoListIds()
             TodosTable.selectAll().where {
                 (TodosTable.status neq "DONE") and
                     TodosTable.dueDate.isNotNull() and
                     TodosTable.dueTime.isNotNull() and
                     TodosTable.reminderSentAt.isNull()
             }.forEach { row ->
+                if (!row.todoIsShareable(privateLists)) return@forEach
                 val candidate = ReminderCandidate(
                     title = row[TodosTable.title],
                     assignee = row[TodosTable.assignee],
