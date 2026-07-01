@@ -58,7 +58,6 @@ import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.ui.components.HbAppBar
-import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonVariant
@@ -488,9 +487,15 @@ private fun OpenItemRow(
         ShoppingItemIcon(item)
         ItemNameBlock(item, done = false)
         if (pending) SyncBadge()
-        HbAvatar(item.createdBy, size = 24.dp)
-        HbIconButton(HbIcons.edit, onEdit)
-        CategoryMoveMenu(current = item.category, categories = categories, onPick = onMove)
+        // Trailing actions cluster tightly (their 44dp hit boxes already carry the visual gap);
+        // the wide row spacing (13dp) is only for the checkbox/icon/name lead-in.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy((-4).dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HbIconButton(HbIcons.edit, onEdit)
+            CategoryMoveMenu(current = item.category, categories = categories, onPick = onMove)
+        }
     }
 }
 
@@ -501,7 +506,6 @@ private fun CheckedItemRow(item: ShoppingItemDto, pending: Boolean, onToggle: ()
         ShoppingItemIcon(item, muted = true)
         ItemNameBlock(item, done = true)
         if (pending) SyncBadge()
-        HbAvatar(item.createdBy, size = 24.dp)
     }
 }
 
@@ -609,7 +613,7 @@ private fun ShoppingTile(
 
 /** Single rendering seam for an item's icon (#443): designed SVG via Coil, emoji as the fallback. */
 @Composable
-private fun ShoppingItemIcon(item: ShoppingItemDto, muted: Boolean = false, size: Dp = 26.dp) {
+private fun ShoppingItemIcon(item: ShoppingItemDto, muted: Boolean = false, size: Dp = 30.dp) {
     SvgIcon(ShoppingIcons.assetForItem(item), fallbackEmoji = item.icon, size = size, muted = muted)
 }
 
