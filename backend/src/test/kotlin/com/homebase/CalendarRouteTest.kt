@@ -277,6 +277,75 @@ class CalendarRouteTest {
     }
 
     @Test
+    fun `the feed includes only the caller's selected categories`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val day = soon(4)
+        // Seed three different categories.
+        transaction {
+            AbsencesTable.insert {
+                it[id] = UUID.randomUUID(); it[userId] = "alice"; it[date] = LocalDate.parse(day); it[type] = "URLAUB"; it[half] = null
+            }
+            KitaClosuresTable.insert {
+                it[id] = UUID.randomUUID(); it[date] = LocalDate.parse(day); it[label] = "Brückentag"
+            }
+        }
+        val recipeId = createRecipe(token, "Lasagne")
+        client.put("/api/v1/meal-plan/$day/DINNER") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"recipeId":"$recipeId"}""")
+        }
+
+        // Restrict alice's feed to absences only.
+        val cfg = client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"sections":["absences"]}""")
+        }
+        assertEquals(HttpStatusCode.OK, cfg.status)
+
+        val body = client.get("/api/v1/calendar.ics") { bearerAuth(token) }.bodyAsText()
+        assertTrue(body.contains("UID:absence-"), "selected category (absences) should appear:\n$body")
+        assertFalse(body.contains("UID:meal-"), "deselected category (meals) leaked:\n$body")
+        assertFalse(body.contains("UID:kita-"), "deselected category (kita) leaked:\n$body")
+    }
+
+    @Test
+    fun `the feed selection is per-user`() = testApplication {
+        configureTestApplication()
+        val aliceToken = loginAndGetToken("alice", "password123")
+        val bobToken = loginAndGetToken("bob", "password456")
+        val day = soon(5)
+        transaction {
+            KitaClosuresTable.insert {
+                it[id] = UUID.randomUUID(); it[date] = LocalDate.parse(day); it[label] = "Ferien"
+            }
+        }
+
+        // Alice deselects everything; Bob leaves his feed untouched (= all categories).
+        client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(aliceToken); contentType(ContentType.Application.Json)
+            setBody("""{"sections":[]}""")
+        }
+
+        val aliceFeed = client.get("/api/v1/calendar.ics") { bearerAuth(aliceToken) }.bodyAsText()
+        assertFalse(aliceFeed.contains("UID:kita-"), "alice deselected kita — must be absent:\n$aliceFeed")
+
+        val bobFeed = client.get("/api/v1/calendar.ics") { bearerAuth(bobToken) }.bodyAsText()
+        assertTrue(bobFeed.contains("UID:kita-"), "bob's untouched feed should still include kita:\n$bobFeed")
+    }
+
+    @Test
+    fun `the calendar-feed config rejects an unknown section id`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val res = client.put("/api/v1/config/calendar-feed") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"sections":["absences","bogus"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, res.status)
+    }
+
+    @Test
     fun `text escaping and a long summary fold correctly`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

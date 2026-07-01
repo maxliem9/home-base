@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { API_BASE } from '../../api'
+import { API_BASE, safeFetch } from '../../api'
 import type { Absence, CalendarEvent, CalendarEventType, KitaClosure, MealPlanEntry, Todo } from '../../types'
-import { Avatar, Button, IconButton, Modal, PageHead, Sheet } from '../../ui/primitives'
+import { Avatar, Button, Checkbox, IconButton, Modal, PageHead, Sheet } from '../../ui/primitives'
 import { Icon } from '../../ui/Icon'
 import { CATEGORY_ICON } from '../../lib/cover'
 import { dueTimeLabel } from '../../ui/format'
@@ -355,6 +355,45 @@ function SubscribeModal({ token, onClose }: { token: string; onClose: () => void
   // note-image loads. Absolute URL so a subscriber can paste it straight into Apple/Google.
   const feedUrl = `${window.location.origin}${API_BASE}/calendar.ics?token=${encodeURIComponent(token)}`
 
+  // Which categories THIS user's feed includes (#427). Per-user config; loaded from
+  // /config/calendar-feed, and toggling a box auto-saves the full selection (PUT). Boxes stay
+  // disabled until the GET lands so a late read can't clobber a fresh toggle.
+  const [available, setAvailable] = useState<string[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [loaded, setLoaded] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    safeFetch(token, `${API_BASE}/config/calendar-feed`).then(async (result) => {
+      if (!alive) return
+      if (result.ok && result.res.ok) {
+        const data: { sections?: string[]; availableSections?: string[] } = await result.res.json()
+        // encodeDefaults=false (CLAUDE.md): an empty selection arrives as a missing key.
+        setAvailable(data.availableSections ?? [])
+        setSelected(new Set(data.sections ?? []))
+      }
+      setLoaded(true)
+    })
+    return () => { alive = false }
+  }, [token])
+
+  const toggle = useCallback(async (id: string) => {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+    setSaveFailed(false)
+    // Persist in the backend's display order so the stored value is stable + readable.
+    const sections = available.filter((s) => next.has(s))
+    const result = await safeFetch(token, `${API_BASE}/config/calendar-feed`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sections }),
+    })
+    if (!result.ok || !result.res.ok) setSaveFailed(true)
+  }, [selected, available, token])
+
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(feedUrl)
@@ -390,6 +429,28 @@ function SubscribeModal({ token, onClose }: { token: string; onClose: () => void
         aria-label={t('familienkalender.subscribeTitle')}
       />
       <p className="hb-muted" style={{ marginBottom: 0, fontSize: 13 }}>{t('familienkalender.subscribeNote')}</p>
+
+      {/* Per-category selection (#427): what this subscriber's feed carries. Auto-saves on toggle.
+          Deliberately NOT wrapped in a single <label> (that would swallow every row into one name). */}
+      {available.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="hb-field__label">{t('familienkalender.subscribeIncludeLabel')}</div>
+          <p className="hb-muted" style={{ margin: '2px 0 8px', fontSize: 13 }}>{t('familienkalender.subscribeIncludeHint')}</p>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {available.map((id) => (
+              <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: loaded ? 'pointer' : 'default' }}>
+                <Checkbox checked={selected.has(id)} onChange={() => { if (loaded) toggle(id) }} />
+                <span>{t(`familienkalender.feedSection.${id}`, { defaultValue: id })}</span>
+              </label>
+            ))}
+          </div>
+          {saveFailed && (
+            <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>
+              {t('familienkalender.subscribeSaveFailed')}
+            </p>
+          )}
+        </div>
+      )}
     </Modal>
   )
 }

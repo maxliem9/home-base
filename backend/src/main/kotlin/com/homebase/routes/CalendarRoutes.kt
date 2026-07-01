@@ -8,6 +8,7 @@ import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.RecipesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
+import com.homebase.db.UserPrefsTable
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -62,6 +63,10 @@ private val EVENT_EMOJI = mapOf(
  * note-image / WebSocket loads use) — calendar apps can set neither an Authorization header nor a
  * WebSocket subprotocol. nginx masks `token=` in its access log; we never log it here.
  *
+ * Configurable per subscriber (#427): each user picks which categories their own feed carries via
+ * `/config/calendar-feed` (stored per-user in `user_prefs`); an untouched account gets all of them.
+ * The selection is read here at request time and gates each category block below.
+ *
  * Contents (no new schema — reuses the existing reads):
  *  - due todos (open only — DONE ones are history, not upcoming), each on its `due_date`;
  *  - absences (Urlaub/Krank/Kind-krank, half-days noted in the title);
@@ -82,6 +87,7 @@ private val EVENT_EMOJI = mapOf(
  */
 fun Route.calendarRoutes() {
     get("/calendar.ics") {
+        val username = call.username()
         val today = LocalDate.now()
         val from = today.minusDays(WINDOW_DAYS_BACK)
         val to = today.plusDays(WINDOW_DAYS_AHEAD)
@@ -90,6 +96,17 @@ fun Route.calendarRoutes() {
         val ical = ICalBuilder()
 
         transaction {
+            // Which categories this subscriber wants in their feed (#427). Per-user; unset = all.
+            val sections = CalendarFeedSection.parseSelection(
+                UserPrefsTable.selectAll()
+                    .where {
+                        (UserPrefsTable.userId eq username) and
+                            (UserPrefsTable.key eq UserPrefsTable.CALENDAR_FEED_SECTIONS)
+                    }
+                    .singleOrNull()?.get(UserPrefsTable.value),
+            )
+
+          if (CalendarFeedSection.TODOS in sections) {
             // hidden = todos in ANY private list. Unlike the in-app GET /todos (which shows the
             // caller their own private todos), the .ics is fetched by an external calendar provider
             // (Apple/Google) over a subscription URL that carries a long-lived token — anything in
@@ -126,7 +143,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.ABSENCES in sections) {
             // Absences (household-shared). Half-days note vm/nm in the title.
             AbsencesTable.selectAll()
                 .where { (AbsencesTable.date greaterEq from) and (AbsencesTable.date lessEq to) }
@@ -147,7 +166,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.KITA in sections) {
             // Kita closures (household-wide background marker).
             KitaClosuresTable.selectAll()
                 .where { (KitaClosuresTable.date greaterEq from) and (KitaClosuresTable.date lessEq to) }
@@ -160,7 +181,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.PART_TIME in sections) {
             // Part-time free days: a standing "off every <weekday>" rule per person. These are
             // computed day-states (never persisted per date), so the feed emits each rule as one
             // weekly-recurring all-day banner the client expands. Skip rules that already ended
@@ -190,7 +213,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.MEALS in sections) {
             // Planned meals — recipe-backed (joined title) or free text (#293). LEFT join so
             // free-text entries (no recipe) come through too.
             (MealPlanEntriesTable leftJoin RecipesTable).selectAll()
@@ -209,7 +234,9 @@ fun Route.calendarRoutes() {
                         dtStamp = now,
                     )
                 }
+          }
 
+          if (CalendarFeedSection.EVENTS in sections) {
             // Calendar events (#434) — household-shared. Timed events get a real DTSTART/DTEND;
             // all-day (or time-less) ones a date banner. notes -> DESCRIPTION, location -> LOCATION.
             val zone = ZoneId.systemDefault()
@@ -248,6 +275,7 @@ fun Route.calendarRoutes() {
                         )
                     }
                 }
+          }
         }
 
         call.response.header(

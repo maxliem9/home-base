@@ -67,6 +67,11 @@ object UserPrefsTable : Table("user_prefs") {
     // First consumer: the UI theme. Kept here so the writer (route) and any future
     // reader can't drift on the key name.
     const val THEME = "theme"
+
+    // Which categories a user's iCal subscription feed includes (#427): a compact CSV of
+    // CalendarFeedSection ids. Per-user so each subscriber tailors their own feed; unset = all
+    // (back-compat with the pre-toggle feed). Written via /config/calendar-feed, read by the feed.
+    const val CALENDAR_FEED_SECTIONS = "calendar_feed_sections"
 }
 
 object UsersTable : Table("users") {

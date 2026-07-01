@@ -77,6 +77,20 @@ data class DoneWindowConfigResponse(val days: Int)
 @Serializable
 data class UpdateDoneWindowRequest(val days: Int)
 
+// Which categories the caller's iCal subscription feed includes (#427). PER USER (stored in
+// user_prefs), so each subscriber tailors their own feed; an untouched account gets all categories.
+//  - sections: the category ids currently included (the user's selection).
+//  - availableSections: every category the feed can include, in display order (drives the checkbox
+//    group + labels client-side). Mirrors the digest {sections, availableSections} shape.
+@Serializable
+data class CalendarFeedConfigResponse(
+    val sections: List<String>,
+    val availableSections: List<String>,
+)
+
+@Serializable
+data class UpdateCalendarFeedRequest(val sections: List<String>)
+
 // Per-user preference write (#100). The key is in the path; this is just the value.
 // GET /user-prefs returns a plain Map<String, String> (no wrapper DTO) so new keys
 // surface without a model change. First consumer: 'theme' (light|dark|system).

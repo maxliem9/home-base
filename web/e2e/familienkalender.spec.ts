@@ -95,6 +95,27 @@ test.describe('Familienkalender', () => {
     await expect(field).toHaveValue(new RegExp(`/api/v1/calendar\\.ics\\?token=${TOKEN}`))
   })
 
+  test('the subscribe modal lets you pick which categories the feed includes (#427)', async ({ page }) => {
+    await open(page, seeded())
+    await page.getByRole('button', { name: 'Abonnieren' }).click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal).toBeVisible()
+    // All six categories render as toggle rows, checked by default (unset = all).
+    await expect(modal.getByRole('checkbox')).toHaveCount(6)
+    const mealRow = modal.locator('label', { hasText: 'Essensplan' })
+    const mealBox = mealRow.getByRole('checkbox')
+    await expect(mealBox).toHaveAttribute('aria-checked', 'true')
+
+    // Deselecting a category PUTs the reduced selection (auto-save on toggle).
+    const putP = page.waitForRequest((r) => r.url().endsWith('/config/calendar-feed') && r.method() === 'PUT')
+    await mealBox.click()
+    const put = await putP
+    const sent: string[] = JSON.parse(put.postData() ?? '{}').sections
+    expect(sent).not.toContain('meals')
+    expect(sent).toContain('todos')
+    await expect(mealBox).toHaveAttribute('aria-checked', 'false')
+  })
+
   test('month navigation moves to the next month', async ({ page }) => {
     await open(page, seeded())
     // June seeds visible

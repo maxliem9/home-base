@@ -973,6 +973,17 @@ export const en: Messages = {
     subscribeCopy: 'Copy link',
     subscribeCopied: 'Copied!',
     subscribeNote: 'The link contains your personal access token — do not share it.',
+    subscribeIncludeLabel: 'What should it include?',
+    subscribeIncludeHint: 'Applies to your own feed only — saved as you tap.',
+    subscribeSaveFailed: 'Could not be saved.',
+    feedSection: {
+      todos: 'Due tasks',
+      absences: 'Absences',
+      parttime: 'Part-time days off',
+      kita: 'Kita closures',
+      meals: 'Meal plan',
+      events: 'Events',
+    },
   },
   abwesenheit: {
     headerTitle: 'HomeBase — Calendar',
