@@ -1,6 +1,8 @@
 package com.homebase.digest
 
 import com.homebase.db.TodosTable
+import com.homebase.notifications.privateTodoListIds
+import com.homebase.notifications.todoIsShareable
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
@@ -40,21 +42,25 @@ class MorningDigestService(
 ) : DigestSource {
 
     fun buildDigest(today: LocalDate): MorningDigestContent = transaction {
+        // Private-list todos are omitted — the briefing goes to the shared chat, so their titles
+        // would leak to the other member (see privateTodoListIds).
+        val privateLists = privateTodoListIds()
+
         val dueToday = TodosTable.selectAll().where {
             (TodosTable.status neq "DONE") and (TodosTable.dueDate eq today)
-        }.orderBy(TodosTable.title, SortOrder.ASC).map { it[TodosTable.title] }
+        }.orderBy(TodosTable.title, SortOrder.ASC).filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
         val overdue = TodosTable.selectAll().where {
             (TodosTable.status neq "DONE") and (TodosTable.dueDate less today)
         }.orderBy(TodosTable.dueDate to SortOrder.ASC, TodosTable.title to SortOrder.ASC)
-            .map { it[TodosTable.title] }
+            .filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
         // The standing triage pile: unplanned AND undated. A still-INBOX todo that has a due
         // date already shows under dueToday/overdue, so excluding dated ones keeps it from
         // being listed twice (the common case — INBOX items have no due date — is unaffected).
         val inbox = TodosTable.selectAll().where {
             (TodosTable.status eq "INBOX") and (TodosTable.dueDate.isNull())
-        }.orderBy(TodosTable.createdAt, SortOrder.ASC).map { it[TodosTable.title] }
+        }.orderBy(TodosTable.createdAt, SortOrder.ASC).filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
         val calendar = familyCalendarFor(today)
 

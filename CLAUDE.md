@@ -345,8 +345,12 @@ VAPID ruht er komplett.
 - **In-app konfigurierbar** (Einstellungen → Benachrichtigungen, `app_settings`, pro Tick gelesen):
   An/Aus (`REMINDERS_ENABLED`, unset = an) + optionale **Ruhezeiten** (`REMINDER_QUIET_START/END`,
   „HH:mm", paarweise; in der Ruhezeit wird der ganze Pass übersprungen, Erinnerungen kommen danach
-  nach). Endpunkt `/config/reminders` (GET/PUT). **Privacy wie der Morgen-Digest:** ein gemeinsamer
-  Chat, kein Pro-Listen-Sichtbarkeitsfilter.
+  nach). Endpunkt `/config/reminders` (GET/PUT). **Privacy:** gesendet wird an den einen gemeinsamen
+  Chat (+ alle Push-Geräte), ohne Pro-*Nutzer*-Zustellung. Todos in einer **PRIVATE-Liste werden
+  jedoch ausgeblendet** — sonst leakte ihr Titel an die*den Partner*in (Helper
+  `notifications/privateTodoListIds` + `ResultRow.todoIsShareable`, geteilt mit beiden Digests). Da
+  die Kanäle geteilt sind, ist Weglassen die einzige datenschutzwahrende Option (auch der Eigentümer
+  bekommt für private Todos keine Erinnerung). Listenlose und SHARED-Listen-Todos sind unberührt.
 - **Zustell-Seam (Phase 2b):** `ReminderService` fragt nur *ob* gefeuert wird (`ReminderLogic`,
   rein) und übergibt den Text an einen `ReminderNotifier` — Kanal-agnostisch. In Prod ein
   `CompositeReminderNotifier` über `TelegramReminderNotifier` (wie Phase 2a) **+** `WebPushNotifier`;

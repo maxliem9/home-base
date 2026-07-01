@@ -1,6 +1,7 @@
 package com.homebase
 
 import com.homebase.db.TodoAssigneesTable
+import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
 import com.homebase.reminder.ReminderNotifier
 import com.homebase.reminder.ReminderService
@@ -37,7 +38,7 @@ class ReminderServiceTest {
             url = "jdbc:h2:mem:reminder_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
             driver = "org.h2.Driver",
         )
-        transaction { SchemaUtils.create(TodosTable, TodoAssigneesTable) }
+        transaction { SchemaUtils.create(TodosTable, TodoListsTable, TodoAssigneesTable) }
     }
 
     private fun insertTodo(
@@ -47,6 +48,7 @@ class ReminderServiceTest {
         lead: Int? = null,
         status: String = "PLANNED",
         assignees: List<String> = emptyList(),
+        listId: UUID? = null,
     ): UUID = transaction {
         val id = UUID.randomUUID()
         TodosTable.insert {
@@ -56,6 +58,7 @@ class ReminderServiceTest {
             it[TodosTable.dueDate] = dueDate
             it[TodosTable.dueTime] = dueTime
             it[TodosTable.reminderLeadMinutes] = lead
+            it[TodosTable.listId] = listId
             it[TodosTable.createdBy] = "alice"
             it[TodosTable.createdAt] = Instant.now()
         }
@@ -64,6 +67,19 @@ class ReminderServiceTest {
                 it[TodoAssigneesTable.todoId] = id
                 it[TodoAssigneesTable.username] = u
             }
+        }
+        id
+    }
+
+    /** Creates a todo list of the given visibility and returns its id. */
+    private fun insertList(visibility: String): UUID = transaction {
+        val id = UUID.randomUUID()
+        TodoListsTable.insert {
+            it[TodoListsTable.id] = id
+            it[TodoListsTable.name] = "Liste $visibility"
+            it[TodoListsTable.visibility] = visibility
+            it[TodoListsTable.createdBy] = "alice"
+            it[TodoListsTable.createdAt] = Instant.now()
         }
         id
     }
@@ -90,6 +106,30 @@ class ReminderServiceTest {
         // a second pass must not re-send (fire-once)
         svc.runOnce(now.plusMinutes(1))
         assertEquals(1, client.messages.size)
+    }
+
+    @Test
+    fun `a todo in a private list never fires (would leak to the shared chat)`() = runBlocking {
+        val client = FakeNotifier()
+        val privateList = insertList("PRIVATE")
+        val id = insertTodo("Geheimtermin", LocalDate.parse("2026-07-01"), LocalTime.parse("14:30"), listId = privateList)
+
+        service(client).runOnce(now)
+
+        assertTrue(client.messages.isEmpty())
+        // skipped, not stamped — so it can still fire later if the list is made shared
+        assertNull(sentAt(id))
+    }
+
+    @Test
+    fun `a todo in a shared list fires normally`() = runBlocking {
+        val client = FakeNotifier()
+        val sharedList = insertList("SHARED")
+        insertTodo("Offener Termin", LocalDate.parse("2026-07-01"), LocalTime.parse("14:30"), listId = sharedList)
+
+        service(client).runOnce(now)
+
+        assertEquals(listOf("🔔 Erinnerung: Offener Termin — fällig 14:30"), client.messages)
     }
 
     @Test

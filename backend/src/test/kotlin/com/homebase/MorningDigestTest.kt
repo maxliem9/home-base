@@ -2,6 +2,7 @@ package com.homebase
 
 import com.homebase.db.AbsencesTable
 import com.homebase.db.KitaClosuresTable
+import com.homebase.db.TodoListsTable
 import com.homebase.db.TodosTable
 import com.homebase.digest.DigestScheduler
 import com.homebase.digest.DigestSection
@@ -42,10 +43,10 @@ class MorningDigestTest {
             url = "jdbc:h2:mem:morning_digest_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
             driver = "org.h2.Driver",
         )
-        transaction { SchemaUtils.create(TodosTable, AbsencesTable, KitaClosuresTable) }
+        transaction { SchemaUtils.create(TodosTable, TodoListsTable, AbsencesTable, KitaClosuresTable) }
     }
 
-    private fun insertTodo(title: String, status: String, dueDate: LocalDate? = null) = transaction {
+    private fun insertTodo(title: String, status: String, dueDate: LocalDate? = null, listId: UUID? = null) = transaction {
         TodosTable.insert {
             it[TodosTable.id] = UUID.randomUUID()
             it[TodosTable.title] = title
@@ -53,7 +54,21 @@ class MorningDigestTest {
             it[TodosTable.createdBy] = "alice"
             it[TodosTable.createdAt] = today.atTime(9, 0).atZone(zone).toInstant()
             it[TodosTable.dueDate] = dueDate
+            it[TodosTable.listId] = listId
         }
+    }
+
+    /** Creates a todo list of the given visibility and returns its id. */
+    private fun insertList(visibility: String): UUID = transaction {
+        val id = UUID.randomUUID()
+        TodoListsTable.insert {
+            it[TodoListsTable.id] = id
+            it[TodoListsTable.name] = "Liste $visibility"
+            it[TodoListsTable.visibility] = visibility
+            it[TodoListsTable.createdBy] = "alice"
+            it[TodoListsTable.createdAt] = today.atTime(0, 0).atZone(zone).toInstant()
+        }
+        id
     }
 
     private fun insertAbsence(userId: String, type: String, date: LocalDate = today, half: String? = null) = transaction {
@@ -99,6 +114,26 @@ class MorningDigestTest {
         assertEquals(listOf("alice — Urlaub", "bob — Krank (vormittags)"), content.absent)
         assertEquals(listOf("Brückentag"), content.kitaClosed)
         assertFalse(content.isEmpty)
+    }
+
+    @Test
+    fun `buildDigest omits todos in a private list (they'd leak to the shared chat)`() {
+        val privateList = insertList("PRIVATE")
+        val sharedList = insertList("SHARED")
+
+        // one per section in a PRIVATE list — none may surface
+        insertTodo("Geheim heute", status = "PLANNED", dueDate = today, listId = privateList)
+        insertTodo("Geheim überfällig", status = "PLANNED", dueDate = today.minusDays(2), listId = privateList)
+        insertTodo("Geheim inbox", status = "INBOX", listId = privateList)
+        // shared-list + list-less counterparts must still appear
+        insertTodo("Offen heute", status = "PLANNED", dueDate = today, listId = sharedList)
+        insertTodo("Offen inbox", status = "INBOX") // list-less
+
+        val content = service.buildDigest(today)
+
+        assertEquals(listOf("Offen heute"), content.dueToday)
+        assertTrue(content.overdue.isEmpty()) // the only overdue todo was private
+        assertEquals(listOf("Offen inbox"), content.inbox)
     }
 
     @Test

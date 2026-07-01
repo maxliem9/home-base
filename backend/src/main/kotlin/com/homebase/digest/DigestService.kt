@@ -1,6 +1,8 @@
 package com.homebase.digest
 
 import com.homebase.db.TodosTable
+import com.homebase.notifications.privateTodoListIds
+import com.homebase.notifications.todoIsShareable
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
@@ -62,21 +64,25 @@ class DigestService(
         val tomorrow = today.plusDays(1)
 
         return transaction {
+            // Private-list todos are omitted — the digest goes to the shared chat, so their titles
+            // would leak to the other member (see privateTodoListIds).
+            val privateLists = privateTodoListIds()
+
             val doneToday = TodosTable.selectAll().where {
                 (TodosTable.status eq "DONE") and
                     (TodosTable.doneAt greaterEq startOfToday) and
                     (TodosTable.doneAt less startOfTomorrow)
-            }.map { it[TodosTable.title] }
+            }.filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
             val newInbox = TodosTable.selectAll().where {
                 (TodosTable.status eq "INBOX") and
                     (TodosTable.createdAt greaterEq startOfToday) and
                     (TodosTable.createdAt less startOfTomorrow)
-            }.map { it[TodosTable.title] }
+            }.filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
             val dueTomorrow = TodosTable.selectAll().where {
                 TodosTable.dueDate eq tomorrow
-            }.map { it[TodosTable.title] }
+            }.filter { it.todoIsShareable(privateLists) }.map { it[TodosTable.title] }
 
             // Look-ahead: tomorrow's family calendar (#182), same helper the morning briefing uses.
             val calendar = familyCalendarFor(tomorrow)
