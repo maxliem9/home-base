@@ -329,6 +329,13 @@ test.describe('Todos', () => {
     await page.locator('.hb-donehead').click()
     const doneRow = page.locator('.hb-row--done', { hasText: 'Rechnung zahlen' })
     await expect(doneRow).toBeVisible()
+
+    // A completed todo's assignee avatars are read-only: they must NOT be a click target that
+    // opens the assignee quick-edit (which would un-complete it). Regression guard.
+    await expect(doneRow.locator('.hb-avstack')).toBeVisible()
+    await doneRow.locator('.hb-avstack').click()
+    await expect(page.locator('.hb-modal')).toHaveCount(0)
+    await expect(doneRow).toBeVisible() // still done, still in the Erledigt section
   })
 
   test('deletes a todo', async ({ page }) => {
