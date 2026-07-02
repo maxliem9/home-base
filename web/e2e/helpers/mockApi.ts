@@ -1506,7 +1506,7 @@ export class MockApi {
           .map(esc)
           .join(';'),
       )
-      const csv = '\uFEFF' + ['Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung', ...lines].join('\r\n') + '\r\n'
+      const csv = '\uFEFFsep=;\r\n' + ['Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung', ...lines].join('\r\n') + '\r\n'
       const filename =
         from && to ? `zeiterfassung_${from.slice(0, 10)}_${to.slice(0, 10)}.csv` : 'zeiterfassung_export.csv'
       return route.fulfill({

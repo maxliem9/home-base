@@ -373,6 +373,8 @@ class TimeRouteTest {
         )
         val body = res.bodyAsText()
         assertTrue(body.startsWith("\uFEFF"), "CSV must start with a UTF-8 BOM for Excel")
+        // sep=; directive right after the BOM so Excel parses the semicolon delimiter
+        assertTrue(body.startsWith("\uFEFFsep=;\r\n"), "CSV must carry a sep=; directive after the BOM: $body")
         assertTrue(body.contains("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung"), "missing header row")
         assertTrue(body.contains("Garten"), "missing project name")
         assertTrue(body.contains("Rasen"), "missing description")
@@ -392,8 +394,8 @@ class TimeRouteTest {
         }
 
         val body = client.get("/api/v1/time/export.csv") { bearerAuth(token) }.bodyAsText()
-        // only the header row, no data line for the still-running entry
-        assertEquals(1, body.trim().lines().size, "running entry leaked into export: $body")
+        // only the sep= directive + header row, no data line for the still-running entry
+        assertEquals(2, body.trim().lines().size, "running entry leaked into export: $body")
     }
 
     @Test

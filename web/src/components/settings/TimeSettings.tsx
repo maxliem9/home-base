@@ -453,9 +453,27 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
   )
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+// From/To bounds (YYYY-MM-DD) of the calendar month containing `ref`, offset by
+// `monthDelta` months (0 = same month, -1 = previous month). new Date(y, m+1, 0)
+// yields the last day of month m, which also handles year rollover for the offset.
+function monthBounds(ref: Date, monthDelta: number): { from: string; to: string } {
+  const y = ref.getFullYear()
+  const m = ref.getMonth() + monthDelta
+  const first = new Date(y, m, 1)
+  const last = new Date(y, m + 1, 0)
+  return {
+    from: `${first.getFullYear()}-${pad2(first.getMonth() + 1)}-01`,
+    to: `${last.getFullYear()}-${pad2(last.getMonth() + 1)}-${pad2(last.getDate())}`,
+  }
+}
+
 // CSV export with optional date-range and project filters. All fields are
 // optional; an empty form exports every completed entry. Includes archived
 // projects so their history can still be exported. Moved here from TimeView (#99).
+// Quick-select buttons and a month picker fill the from/to range for whole months
+// (#491); the free from/to date pickers stay for arbitrary ranges.
 function ExportModal({ projects, onExport, onClose }: {
   projects: Project[]
   onExport: (opts: { from?: string; to?: string; projectId?: string }) => void
@@ -465,6 +483,22 @@ function ExportModal({ projects, onExport, onClose }: {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [projectId, setProjectId] = useState('')
+  // Month picker value (YYYY-MM); empty until a month is chosen or a quick button used.
+  const [month, setMonth] = useState('')
+
+  // Apply a whole month to the from/to range and reflect it in the month picker.
+  const applyMonth = (ref: Date, monthDelta: number) => {
+    const { from: f, to: tt } = monthBounds(ref, monthDelta)
+    setFrom(f)
+    setTo(tt)
+    setMonth(f.slice(0, 7))
+  }
+  const onMonthChange = (value: string) => {
+    setMonth(value)
+    if (!value) return
+    const [y, m] = value.split('-').map(Number)
+    applyMonth(new Date(y, m - 1, 1), 0)
+  }
 
   return (
     <Modal
@@ -481,9 +515,18 @@ function ExportModal({ projects, onExport, onClose }: {
       }
     >
       <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.exportHint')}</p>
+      <Field label={t('time.exportQuickMonth')} group>
+        <div className="hb-stack" style={{ gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button size="sm" variant="secondary" onClick={() => applyMonth(new Date(), -1)}>{t('time.exportLastMonth')}</Button>
+            <Button size="sm" variant="secondary" onClick={() => applyMonth(new Date(), 0)}>{t('time.exportThisMonth')}</Button>
+          </div>
+          <TextInput type="month" value={month} onChange={onMonthChange} />
+        </div>
+      </Field>
       <div className="hb-formgrid">
-        <Field label={t('time.from')}><TextInput type="date" value={from} onChange={setFrom} /></Field>
-        <Field label={t('time.to')}><TextInput type="date" value={to} onChange={setTo} /></Field>
+        <Field label={t('time.from')}><TextInput type="date" value={from} onChange={(v) => { setFrom(v); setMonth('') }} /></Field>
+        <Field label={t('time.to')}><TextInput type="date" value={to} onChange={(v) => { setTo(v); setMonth('') }} /></Field>
       </div>
       <Field label={t('time.project')}>
         <Select value={projectId} onChange={setProjectId}>

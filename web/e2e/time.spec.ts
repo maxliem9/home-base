@@ -401,6 +401,22 @@ test.describe('Time tracking', () => {
     expect(download.suggestedFilename()).toMatch(/^zeiterfassung_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/)
   })
 
+  test('quick month buttons fill the from/to range with whole-month bounds', async ({ page }) => {
+    const mock = new MockApi().seedProjects([project({ id: 'p1', name: 'ProjektEins', color: '#4F7A52' })])
+    await openTimeSettings(page, mock)
+
+    await page.locator('.hb-settings-body').getByRole('button', { name: 'CSV herunterladen' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByRole('button', { name: 'Letzter Monat' }).click()
+
+    // A whole month spans from the 1st to the last day of the same month.
+    const from = await modal.getByLabel('Von').inputValue()
+    const to = await modal.getByLabel('Bis').inputValue()
+    expect(from).toMatch(/^\d{4}-\d{2}-01$/)
+    expect(to.slice(0, 7)).toBe(from.slice(0, 7))
+    expect(new Date(`${to}T00:00:00`).getTime()).toBeGreaterThanOrEqual(new Date(`${from}T00:00:00`).getTime())
+  })
+
   // --- Partner-Einträge: Aktionen mit Confirm-Dialog (#129) -----------------
 
   test('deleting a partner entry asks via the custom confirm dialog', async ({ page }) => {
