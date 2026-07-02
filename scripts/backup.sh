@@ -2,7 +2,11 @@
 # Back up everything that persists:
 #   1. the Postgres database (logical dump, with DROPs so it restores cleanly)
 #   2. the uploaded note images (the `uploads` volume — NOT in the DB dump!)
-# Output goes to ./backups/ (override: scripts/backup.sh <dir>).
+# Output goes to ./backups/ (override dir: scripts/backup.sh <dir>).
+# The DB dump and the images archive share ONE timestamp so a pair always
+# belongs together. Override that stamp to line up with an external run:
+#   scripts/backup.sh [dir] [stamp]      # positional
+#   STAMP=20260701-020000 scripts/backup.sh   # or via env
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,7 +14,8 @@ command -v docker >/dev/null || { echo "✗ docker not found" >&2; exit 1; }
 DB_USER="$(grep -E '^DB_USER=' .env 2>/dev/null | head -n1 | cut -d= -f2-)"; DB_USER="${DB_USER:-homebase}"
 
 OUT="${1:-backups}"; mkdir -p "$OUT"
-STAMP="$(date +%Y%m%d-%H%M%S)"
+STAMP="${2:-${STAMP:-$(date +%Y%m%d-%H%M%S)}}"
+[[ "$STAMP" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "✗ invalid stamp: '$STAMP'" >&2; exit 1; }
 
 echo "↳ dumping database…"
 docker compose exec -T db pg_dump --clean --if-exists -U "$DB_USER" homebase > "$OUT/db-$STAMP.sql"
