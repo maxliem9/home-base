@@ -7,6 +7,8 @@
 # belongs together. Override that stamp to line up with an external run:
 #   scripts/backup.sh [dir] [stamp]      # positional
 #   STAMP=20260701-020000 scripts/backup.sh   # or via env
+# After a successful run, old backup sets are pruned so only the newest
+# KEEP (default 5) remain. Disable pruning with KEEP=0.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,3 +33,16 @@ docker run --rm -v "$VOL:/data:ro" -v "$PWD/$OUT:/backup" alpine \
 
 echo "✓ backup complete:"
 ls -lh "$OUT/db-$STAMP.sql" "$OUT/uploads-$STAMP.tar.gz"
+
+# Retention: keep only the newest KEEP backup sets (a set = the db dump +
+# its matching uploads archive, paired by stamp). Prune runs last, so a
+# failure above never deletes an existing backup. KEEP=0 disables it.
+KEEP="${KEEP:-5}"
+if [[ "$KEEP" =~ ^[0-9]+$ && "$KEEP" -gt 0 ]]; then
+  ( ls -t "$OUT"/db-*.sql 2>/dev/null || true ) | tail -n +"$((KEEP + 1))" \
+  | while IFS= read -r f; do
+      s="${f#"$OUT"/db-}"; s="${s%.sql}"   # recover the stamp from the filename
+      rm -f -- "$f" "$OUT/uploads-$s.tar.gz"
+      echo "  ✗ pruned old backup $s"
+    done
+fi
