@@ -34,15 +34,23 @@ docker run --rm -v "$VOL:/data:ro" -v "$PWD/$OUT:/backup" alpine \
 echo "✓ backup complete:"
 ls -lh "$OUT/db-$STAMP.sql" "$OUT/uploads-$STAMP.tar.gz"
 
-# Retention: keep only the newest KEEP backup sets (a set = the db dump +
-# its matching uploads archive, paired by stamp). Prune runs last, so a
-# failure above never deletes an existing backup. KEEP=0 disables it.
+# Retention: keep only the newest KEEP backup *sets*. A set is a db dump
+# WITH its matching uploads archive (paired by stamp); an incomplete pair —
+# a stray file, or a half-written set from an aborted run — is ignored and
+# left untouched. Ordering is by stamp (the sortable %Y%m%d-%H%M%S in the
+# name), so it survives mtime churn if backups are ever copied between
+# machines. Prune runs last, so a failure above never deletes an existing
+# backup. KEEP=0 (or non-numeric) disables it.
 KEEP="${KEEP:-5}"
 if [[ "$KEEP" =~ ^[0-9]+$ && "$KEEP" -gt 0 ]]; then
-  ( ls -t "$OUT"/db-*.sql 2>/dev/null || true ) | tail -n +"$((KEEP + 1))" \
+  ( ls "$OUT"/db-*.sql 2>/dev/null || true ) | sort -r \
   | while IFS= read -r f; do
-      s="${f#"$OUT"/db-}"; s="${s%.sql}"   # recover the stamp from the filename
-      rm -f -- "$f" "$OUT/uploads-$s.tar.gz"
+      s="$(basename "$f")"; s="${s#db-}"; s="${s%.sql}"   # stamp from filename
+      [[ -f "$OUT/uploads-$s.tar.gz" ]] && printf '%s\n' "$s"   # complete sets only
+    done \
+  | tail -n +"$((KEEP + 1))" \
+  | while IFS= read -r s; do
+      rm -f -- "$OUT/db-$s.sql" "$OUT/uploads-$s.tar.gz"
       echo "  ✗ pruned old backup $s"
     done
 fi
