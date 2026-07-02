@@ -548,6 +548,9 @@ private val FILENAME_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 private fun buildTimeCsv(rows: List<CsvRow>, zone: ZoneId): String {
     val sb = StringBuilder()
     sb.append('\uFEFF') // BOM → Excel detects UTF-8 and renders umlauts correctly
+    // `sep=;` directive: tells Excel the delimiter is a semicolon before it guesses
+    // from the locale (comma in some regions). Must be the first line after the BOM.
+    sb.append("sep=;\r\n")
     sb.append("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung\r\n")
     for (r in rows) {
         val seconds = Duration.between(r.startedAt, r.stoppedAt).seconds
