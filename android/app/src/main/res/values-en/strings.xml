@@ -113,7 +113,6 @@
     <string name="dashboard_stat_inbox">In the inbox</string>
     <string name="dashboard_stat_overdue">Overdue</string>
     <string name="dashboard_stat_due_tomorrow">Due tomorrow</string>
-    <string name="dashboard_stat_done_today">Done today</string>
     <string name="dashboard_today_card">On today</string>
     <string name="dashboard_all_tasks">All tasks</string>
     <string name="dashboard_nothing_today">Nothing for today</string>

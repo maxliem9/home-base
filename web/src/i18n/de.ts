@@ -168,7 +168,6 @@ export const de = {
     statInbox: 'In der Inbox',
     statOverdue: 'Überfällig',
     statDueTomorrow: 'Morgen fällig',
-    statDoneToday: 'Heute erledigt',
     // "Heute dran" card
     todayTitle: 'Heute dran',
     allTasks: 'Alle Aufgaben',

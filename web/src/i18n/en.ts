@@ -171,7 +171,6 @@ export const en: Messages = {
     statInbox: 'In the Inbox',
     statOverdue: 'Overdue',
     statDueTomorrow: 'Due tomorrow',
-    statDoneToday: 'Done today',
     // "Heute dran" card
     todayTitle: 'On today',
     allTasks: 'All tasks',

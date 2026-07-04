@@ -120,7 +120,6 @@
     <string name="dashboard_stat_inbox">In der Inbox</string>
     <string name="dashboard_stat_overdue">Überfällig</string>
     <string name="dashboard_stat_due_tomorrow">Morgen fällig</string>
-    <string name="dashboard_stat_done_today">Heute erledigt</string>
     <string name="dashboard_today_card">Heute dran</string>
     <string name="dashboard_all_tasks">Alle Aufgaben</string>
     <string name="dashboard_nothing_today">Nichts für heute</string>
