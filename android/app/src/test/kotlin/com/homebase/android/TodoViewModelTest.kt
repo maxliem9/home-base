@@ -12,6 +12,7 @@ import com.homebase.android.ui.aufgaben.ALL_TAB_ID
 import com.homebase.android.ui.aufgaben.DONE_TAB_ID
 import com.homebase.android.ui.aufgaben.DONE_WINDOW_DAYS
 import com.homebase.android.ui.aufgaben.INBOX_TAB_ID
+import com.homebase.android.ui.aufgaben.OVERDUE_TAB_ID
 import com.homebase.android.ui.aufgaben.TODAY_TAB_ID
 import com.homebase.android.ui.aufgaben.TOMORROW_TAB_ID
 import com.homebase.android.ui.aufgaben.TodoViewModel
@@ -679,9 +680,21 @@ class TodoViewModelTest {
 
         assertEquals(1, s.inboxCount) // status INBOX
         assertEquals(6, s.allOpenCount) // every non-DONE todo (2 today + tomo + over + far + inbox)
+        assertEquals(1, s.overdueCount) // over
         assertEquals(2, s.todayCount) // today1, today2
         assertEquals(1, s.tomorrowCount) // tomo
         assertEquals(1, s.doneTodayCount) // doneToday (doneOld is outside today)
+    }
+
+    @Test
+    fun `Ueberfaellig tab lists only overdue open todos across lists`() = runTest {
+        val vm = smartVm()
+        advanceUntilIdle()
+        vm.selectList(OVERDUE_TAB_ID)
+
+        val s = vm.uiState.value
+        assertEquals(TodosFocus.OVERDUE, s.smartTab)
+        assertEquals(listOf("over"), s.visibleTodos.map { it.id })
     }
 
     @Test

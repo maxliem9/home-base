@@ -118,8 +118,8 @@
     <string name="dashboard_quick_add">Schnell erfassen …</string>
     <string name="dashboard_stat_due_today">Heute fällig</string>
     <string name="dashboard_stat_inbox">In der Inbox</string>
+    <string name="dashboard_stat_overdue">Überfällig</string>
     <string name="dashboard_stat_due_tomorrow">Morgen fällig</string>
-    <string name="dashboard_stat_done_today">Heute erledigt</string>
     <string name="dashboard_today_card">Heute dran</string>
     <string name="dashboard_all_tasks">Alle Aufgaben</string>
     <string name="dashboard_nothing_today">Nichts für heute</string>
@@ -153,11 +153,14 @@
     <string name="todo_done_section">Erledigt</string>
     <!-- Smart-/listenübergreifende Tabs (#255/#256) — von den Dashboard-Kacheln verlinkt -->
     <string name="todo_tab_all">Alle</string>
+    <string name="todo_tab_overdue">Überfällig</string>
     <string name="todo_tab_today">Heute</string>
     <string name="todo_tab_tomorrow">Morgen</string>
     <string name="todo_tab_done">Erledigt</string>
     <string name="todo_all_empty_title">Noch keine Aufgaben</string>
     <string name="todo_all_empty_hint">Lege Aufgaben in einer Liste oder der Inbox an.</string>
+    <string name="todo_overdue_empty_title">Nichts überfällig</string>
+    <string name="todo_overdue_empty_hint">Alles rechtzeitig erledigt.</string>
     <string name="todo_today_empty_title">Heute nichts fällig</string>
     <string name="todo_today_empty_hint">Keine offenen Aufgaben mit Fälligkeit heute.</string>
     <string name="todo_tomorrow_empty_title">Morgen nichts fällig</string>

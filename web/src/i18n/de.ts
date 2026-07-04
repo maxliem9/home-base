@@ -166,8 +166,8 @@ export const de = {
     // stat tiles
     statDueToday: 'Heute fällig',
     statInbox: 'In der Inbox',
+    statOverdue: 'Überfällig',
     statDueTomorrow: 'Morgen fällig',
-    statDoneToday: 'Heute erledigt',
     // "Heute dran" card
     todayTitle: 'Heute dran',
     allTasks: 'Alle Aufgaben',
@@ -270,6 +270,7 @@ export const de = {
     bucketNone: 'Ohne Datum',
     // Smart-/listenübergreifende Tabs (#255/#256) — von den Dashboard-Kacheln verlinkt
     tabAll: 'Alle',
+    tabOverdue: 'Überfällig',
     tabToday: 'Heute',
     tabTomorrow: 'Morgen',
     tabDone: 'Erledigt',
@@ -278,6 +279,8 @@ export const de = {
     listsAria: 'Listen',
     allEmpty: 'Noch keine Aufgaben',
     allEmptyHint: 'Lege Aufgaben in einer Liste oder der Inbox an.',
+    overdueEmpty: 'Nichts überfällig',
+    overdueEmptyHint: 'Alles rechtzeitig erledigt.',
     todayEmpty: 'Heute nichts fällig',
     todayEmptyHint: 'Keine offenen Aufgaben mit Fälligkeit heute.',
     tomorrowEmpty: 'Morgen nichts fällig',

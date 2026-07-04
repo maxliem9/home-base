@@ -39,9 +39,9 @@ import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.aufgaben.TodosFocus
-import com.homebase.android.ui.aufgaben.isDoneToday
 import com.homebase.android.ui.aufgaben.isDueToday
 import com.homebase.android.ui.aufgaben.isDueTomorrow
+import com.homebase.android.ui.aufgaben.isOverdue
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAvatarRow
 import com.homebase.android.ui.components.HbAppBar
@@ -99,8 +99,8 @@ fun HeuteScreen(
     val dueTodayCount = todoState.todos.count(::isDueToday)
     // Same rule as the Inbox-tab badge in AufgabenScreen (TodoUiState.inboxCount, #71/#77).
     val inboxCount = todoState.inboxCount
+    val overdueCount = todoState.todos.count(::isOverdue)
     val dueTomorrowCount = todoState.todos.count(::isDueTomorrow)
-    val doneTodayCount = todoState.todos.count(::isDoneToday)
 
     // "Heute dran" (#307): overdue (due date strictly before today, not done) belong here too —
     // they're still things to do today. Overdue first (DueGroup.order: overdue=0, today=1), each
@@ -177,12 +177,12 @@ fun HeuteScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(HbIcons.calendar, dueTodayCount.toString(), stringResource(R.string.dashboard_stat_due_today), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.TODAY) })
                     StatCard(HbIcons.inbox, inboxCount.toString(), stringResource(R.string.dashboard_stat_inbox), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.INBOX) })
+                    StatCard(HbIcons.flag, overdueCount.toString(), stringResource(R.string.dashboard_stat_overdue), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.OVERDUE) })
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCard(HbIcons.calendar, dueTodayCount.toString(), stringResource(R.string.dashboard_stat_due_today), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.TODAY) })
                     StatCard(HbIcons.clock, dueTomorrowCount.toString(), stringResource(R.string.dashboard_stat_due_tomorrow), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.TOMORROW) })
-                    StatCard(HbIcons.checkCircle, doneTodayCount.toString(), stringResource(R.string.dashboard_stat_done_today), Modifier.weight(1f), onClick = { onOpenTodos(TodosFocus.DONE) })
                 }
             }
 
