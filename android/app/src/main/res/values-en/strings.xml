@@ -111,6 +111,7 @@
     <string name="dashboard_quick_add">Quick capture …</string>
     <string name="dashboard_stat_due_today">Due today</string>
     <string name="dashboard_stat_inbox">In the inbox</string>
+    <string name="dashboard_stat_overdue">Overdue</string>
     <string name="dashboard_stat_due_tomorrow">Due tomorrow</string>
     <string name="dashboard_stat_done_today">Done today</string>
     <string name="dashboard_today_card">On today</string>
@@ -146,11 +147,14 @@
     <string name="todo_done_section">Done</string>
     <!-- Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles -->
     <string name="todo_tab_all">All</string>
+    <string name="todo_tab_overdue">Overdue</string>
     <string name="todo_tab_today">Today</string>
     <string name="todo_tab_tomorrow">Tomorrow</string>
     <string name="todo_tab_done">Done</string>
     <string name="todo_all_empty_title">No tasks yet</string>
     <string name="todo_all_empty_hint">Add tasks in a list or the Inbox.</string>
+    <string name="todo_overdue_empty_title">Nothing overdue</string>
+    <string name="todo_overdue_empty_hint">Everything done on time.</string>
     <string name="todo_today_empty_title">Nothing due today</string>
     <string name="todo_today_empty_hint">No open tasks due today.</string>
     <string name="todo_tomorrow_empty_title">Nothing due tomorrow</string>

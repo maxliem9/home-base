@@ -169,6 +169,7 @@ export const en: Messages = {
     // stat tiles
     statDueToday: 'Due today',
     statInbox: 'In the Inbox',
+    statOverdue: 'Overdue',
     statDueTomorrow: 'Due tomorrow',
     statDoneToday: 'Done today',
     // "Heute dran" card
@@ -273,6 +274,7 @@ export const en: Messages = {
     bucketNone: 'No date',
     // Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles
     tabAll: 'All',
+    tabOverdue: 'Overdue',
     tabToday: 'Today',
     tabTomorrow: 'Tomorrow',
     tabDone: 'Done',
@@ -281,6 +283,8 @@ export const en: Messages = {
     listsAria: 'Lists',
     allEmpty: 'No tasks yet',
     allEmptyHint: 'Add tasks in a list or the Inbox.',
+    overdueEmpty: 'Nothing overdue',
+    overdueEmptyHint: 'Everything done on time.',
     todayEmpty: 'Nothing due today',
     todayEmptyHint: 'No open tasks due today.',
     tomorrowEmpty: 'Nothing due tomorrow',
