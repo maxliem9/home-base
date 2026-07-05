@@ -40,7 +40,7 @@
 
     <!-- ===== Drawer / navigation ===== -->
     <string name="drawer_sync_active">Echtzeit-Sync aktiv</string>
-    <string name="nav_today">Heute</string>
+    <string name="nav_today">Dashboard</string>
     <string name="nav_tasks">Aufgaben</string>
     <string name="nav_shopping">Einkaufsliste</string>
     <string name="nav_notes">Notizen</string>
@@ -56,7 +56,7 @@
     <!-- a11y (#298): onClick-Label des "Mehr"-Tabs — TalkBack liest "Doppeltippen, um …",
          macht klar, dass ein Menü/Sheet geöffnet wird (Pendant zu web aria-haspopup="dialog"). -->
     <string name="nav_more_opens_sheet">weitere Bereiche öffnen</string>
-    <string name="nav_short_today">Start</string>
+    <string name="nav_short_today">Dashboard</string>
     <string name="nav_short_tasks">Aufgaben</string>
     <string name="nav_short_shopping">Einkauf</string>
     <string name="nav_short_time">Zeit</string>

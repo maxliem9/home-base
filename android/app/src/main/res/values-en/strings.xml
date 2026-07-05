@@ -34,7 +34,7 @@
 
     <!-- ===== Drawer / navigation ===== -->
     <string name="drawer_sync_active">Real-time sync on</string>
-    <string name="nav_today">Today</string>
+    <string name="nav_today">Dashboard</string>
     <string name="nav_tasks">Tasks</string>
     <string name="nav_shopping">Shopping list</string>
     <string name="nav_notes">Notes</string>
@@ -49,7 +49,7 @@
     <!-- a11y (#298): onClick label of the "More" tab — TalkBack reads "double tap to …",
          making clear it opens a menu/sheet (counterpart to web aria-haspopup="dialog"). -->
     <string name="nav_more_opens_sheet">open more areas</string>
-    <string name="nav_short_today">Today</string>
+    <string name="nav_short_today">Dashboard</string>
     <string name="nav_short_tasks">Tasks</string>
     <string name="nav_short_shopping">Shopping</string>
     <string name="nav_short_time">Time</string>
