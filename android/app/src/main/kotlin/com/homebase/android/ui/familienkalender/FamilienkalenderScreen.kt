@@ -19,12 +19,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.AbsenceDto
 import com.homebase.android.data.model.CalendarEventDto
+import com.homebase.android.data.model.CalendarFeedConfigResponse
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.ui.abwesenheit.AbsTypes
@@ -41,6 +46,7 @@ import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
@@ -48,8 +54,10 @@ import com.homebase.android.ui.components.HbScreenScaffold
 import com.homebase.android.ui.components.HbToast
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
+import com.homebase.android.ui.util.FileShare
 import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -79,6 +87,7 @@ fun FamilienkalenderScreen(
     val gridDays = remember(state.monthAnchor) { state.gridDays }
 
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var showSubscribe by remember { mutableStateOf(false) }
     LaunchedEffect(state.error) { if (state.error != null) { delay(3000); viewModel.clearError() } }
 
     HbScreenScaffold(
@@ -87,6 +96,10 @@ fun FamilienkalenderScreen(
                 title = stringResource(R.string.family_calendar_title),
                 eyebrow = stringResource(R.string.family_calendar_eyebrow),
                 onLeft = onOpenDrawer,
+                actions = {
+                    // Subscribe to the caller's personal iCal feed (#488): opens the share sheet.
+                    HbIconButton(HbIcons.link, onClick = { showSubscribe = true })
+                },
             )
         },
         overlay = {
@@ -95,6 +108,14 @@ fun FamilienkalenderScreen(
                     date = date,
                     bucket = buckets[date],
                     onDismiss = { selectedDate = null },
+                )
+            }
+            if (showSubscribe) {
+                SubscribeSheet(
+                    feedUrl = viewModel.feedUrl,
+                    loadConfig = viewModel::loadFeedConfig,
+                    saveConfig = viewModel::saveFeedConfig,
+                    onDismiss = { showSubscribe = false },
                 )
             }
             if (state.error != null) HbToast(message = state.error!!, icon = null)
@@ -399,3 +420,176 @@ private fun mealSlotLabelRes(slot: String): Int = when (slot) {
 
 /** "HH:mm" from an "HH:mm[:ss]" string. */
 private fun shortTime(t: String): String = if (t.length >= 5) t.substring(0, 5) else t
+
+// --- iCal subscription (#488) ----------------------------------------------
+
+/**
+ * Subscribe-to-iCal-feed sheet — the Android pendant of the web SubscribeModal. Shows the caller's
+ * personal feed URL (copy to clipboard + system share sheet) with the "the link carries your token,
+ * don't share it" warning, plus the per-user category selection (#427) that auto-saves on every
+ * toggle. Mirrors the web behaviour: the checkboxes stay disabled until the GET lands, so a late
+ * read can't clobber a fresh toggle.
+ */
+@Composable
+private fun SubscribeSheet(
+    feedUrl: String,
+    loadConfig: suspend () -> Result<CalendarFeedConfigResponse>,
+    saveConfig: suspend (List<String>) -> Result<CalendarFeedConfigResponse>,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    var available by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var loaded by remember { mutableStateOf(false) }
+    var saveFailed by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+    val chooserTitle = stringResource(R.string.family_calendar_subscribe_chooser)
+
+    // Load the per-user selection once; enable the checkboxes only after it lands.
+    LaunchedEffect(Unit) {
+        loadConfig().onSuccess {
+            available = it.availableSections
+            selected = it.sections.toSet()
+        }
+        loaded = true
+    }
+    LaunchedEffect(copied) { if (copied) { delay(2000); copied = false } }
+
+    fun copyUrl() {
+        clipboard.setText(AnnotatedString(feedUrl))
+        copied = true
+    }
+
+    fun toggle(id: String) {
+        if (!loaded) return
+        val next = if (id in selected) selected - id else selected + id
+        selected = next
+        saveFailed = false
+        // Persist in the backend's display order so the stored value stays stable + readable.
+        val sections = available.filter { it in next }
+        scope.launch { saveConfig(sections).onFailure { saveFailed = true } }
+    }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.family_calendar_subscribe_title),
+        footer = {
+            HbButton(
+                stringResource(R.string.action_close),
+                onDismiss,
+                variant = HbButtonVariant.Secondary,
+                modifier = Modifier.weight(1f),
+            )
+        },
+    ) {
+        Text(
+            stringResource(R.string.family_calendar_subscribe_intro),
+            style = HbType.body,
+            color = Hb.ink2,
+        )
+
+        // Read-only feed URL; tapping the box copies the full string (the view is truncated only).
+        Text(
+            feedUrl,
+            style = HbType.small,
+            color = Hb.ink2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Hb.paper, RoundedCornerShape(10.dp))
+                .border(1.dp, Hb.lineSoft, RoundedCornerShape(10.dp))
+                .clickable { copyUrl() }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+
+        // Warn before the share action, not after — the link carries a personal, long-lived token.
+        Text(
+            stringResource(R.string.family_calendar_subscribe_note),
+            style = HbType.small,
+            color = Hb.ink3,
+        )
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HbButton(
+                text = if (copied) {
+                    stringResource(R.string.family_calendar_subscribe_copied)
+                } else {
+                    stringResource(R.string.family_calendar_subscribe_copy)
+                },
+                onClick = { copyUrl() },
+                icon = HbIcons.link,
+                modifier = Modifier.weight(1f),
+            )
+            HbButton(
+                text = stringResource(R.string.family_calendar_subscribe_share),
+                onClick = { FileShare.shareText(context, feedUrl, chooserTitle) },
+                variant = HbButtonVariant.Soft,
+                icon = HbIcons.send,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        // Per-category selection (#427): what THIS subscriber's feed carries. Auto-saves on toggle.
+        if (available.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        stringResource(R.string.family_calendar_subscribe_include_label),
+                        style = HbType.small.copy(fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink2,
+                    )
+                    Text(
+                        stringResource(R.string.family_calendar_subscribe_include_hint),
+                        style = HbType.small,
+                        color = Hb.ink3,
+                    )
+                }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    available.forEach { id ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(enabled = loaded) { toggle(id) }
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            HbCheck(checked = id in selected, onCheckedChange = { toggle(id) }, size = 22.dp)
+                            Text(feedSectionLabel(id), style = HbType.body, color = Hb.ink)
+                        }
+                    }
+                }
+                if (saveFailed) {
+                    Text(
+                        stringResource(R.string.family_calendar_subscribe_save_failed),
+                        style = HbType.small,
+                        color = Hb.danger,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Section-id → localized label for the iCal-feed category checkboxes (#488), mirroring the web
+ * i18n `familienkalender.feedSection.*`. The backend's availableSections drives which rows show
+ * (in its display order); this only labels them, with a raw-id fallback so a new server-side
+ * section never renders blank.
+ */
+@Composable
+private fun feedSectionLabel(id: String): String = when (id) {
+    "todos" -> stringResource(R.string.family_calendar_feed_section_todos)
+    "absences" -> stringResource(R.string.family_calendar_feed_section_absences)
+    "parttime" -> stringResource(R.string.family_calendar_feed_section_parttime)
+    "kita" -> stringResource(R.string.family_calendar_feed_section_kita)
+    "meals" -> stringResource(R.string.family_calendar_feed_section_meals)
+    "events" -> stringResource(R.string.family_calendar_feed_section_events)
+    else -> id
+}

@@ -103,6 +103,24 @@
     <string name="family_calendar_section_kita">Kita</string>
     <string name="family_calendar_section_todos">Fällige Aufgaben</string>
     <string name="family_calendar_section_meals">Essensplan</string>
+    <!-- iCal-Abo-Feed abonnieren (#488, spiegelt web familienkalender.subscribe*) -->
+    <string name="family_calendar_subscribe">Abonnieren</string>
+    <string name="family_calendar_subscribe_title">In deinem Kalender abonnieren</string>
+    <string name="family_calendar_subscribe_intro">Abonniere diesen Feed einmal in Apple oder Google Kalender — dann erscheinen fällige Aufgaben, Abwesenheiten, Kita-Schließtage und der Essensplan automatisch auf deinem Handy.</string>
+    <string name="family_calendar_subscribe_copy">Link kopieren</string>
+    <string name="family_calendar_subscribe_copied">Kopiert!</string>
+    <string name="family_calendar_subscribe_share">Teilen</string>
+    <string name="family_calendar_subscribe_note">Der Link enthält dein persönliches Zugangs-Token — teile ihn nicht.</string>
+    <string name="family_calendar_subscribe_include_label">Was soll enthalten sein?</string>
+    <string name="family_calendar_subscribe_include_hint">Gilt nur für deinen eigenen Feed — wird beim Antippen gespeichert.</string>
+    <string name="family_calendar_subscribe_save_failed">Konnte nicht gespeichert werden.</string>
+    <string name="family_calendar_subscribe_chooser">Kalender-Link teilen</string>
+    <string name="family_calendar_feed_section_todos">Fällige Aufgaben</string>
+    <string name="family_calendar_feed_section_absences">Abwesenheiten</string>
+    <string name="family_calendar_feed_section_parttime">Teilzeit-freie Tage</string>
+    <string name="family_calendar_feed_section_kita">Kita-Schließtage</string>
+    <string name="family_calendar_feed_section_meals">Essensplan</string>
+    <string name="family_calendar_feed_section_events">Termine</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Benutzername</string>
