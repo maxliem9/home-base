@@ -357,6 +357,15 @@ export const en: Messages = {
     suggestionsHint: 'Frequently bought',
     moveCategory: 'Move to category',
     moveFailed: 'Category could not be changed.',
+    // Own categories per list (#412): a list can use its own category set instead of the shared
+    // catalog (e.g. a hardware store). Managed inline on the list; starts with just "Other".
+    ownCategories: 'Own categories for this list',
+    ownCategoriesHint: 'Give this list its own category set instead of the shared household one — handy for e.g. a hardware store.',
+    manageCategories: 'Manage categories',
+    manageCategoriesTitle: 'Categories: {name}',
+    ownCategoriesCardTitle: 'Own categories',
+    ownCategoriesCardHint: 'For this list only. Unassigned items land in "Other".',
+    listUpdateFailed: 'The list could not be updated.',
     // Offline sync: checking an item off without a connection is remembered locally
     // and replayed automatically; until then the item carries the notSynced marker
     // (shopping without Wi-Fi).

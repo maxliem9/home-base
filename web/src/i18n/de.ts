@@ -354,6 +354,15 @@ export const de = {
     suggestionsHint: 'Häufig gekauft',
     moveCategory: 'In Kategorie verschieben',
     moveFailed: 'Kategorie konnte nicht geändert werden.',
+    // Eigene Kategorien pro Liste (#412): eine Liste kann statt des geteilten Katalogs ihren eigenen
+    // Satz führen (z. B. Baumarkt). Verwaltung inline auf der Liste, startet mit „Sonstiges".
+    ownCategories: 'Eigene Kategorien für diese Liste',
+    ownCategoriesHint: 'Statt der geteilten Haushalts-Kategorien bekommt diese Liste ihren eigenen Satz — praktisch für z. B. Baumarkt.',
+    manageCategories: 'Kategorien verwalten',
+    manageCategoriesTitle: 'Kategorien: {name}',
+    ownCategoriesCardTitle: 'Eigene Kategorien',
+    ownCategoriesCardHint: 'Nur für diese Liste. Nicht zugeordnete Artikel landen in „Sonstiges".',
+    listUpdateFailed: 'Liste konnte nicht geändert werden.',
     // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
     // nachgeholt; bis dahin trägt das Produkt den notSynced-Marker (Einkaufen ohne WLAN).
     notSynced: 'Noch nicht synchronisiert',

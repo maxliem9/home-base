@@ -861,12 +861,13 @@ export class MockApi {
       return this.json(route, this.shoppingLists)
     }
     if (path.endsWith('/shopping/lists') && method === 'POST') {
-      const { name } = JSON.parse(req.postData() ?? '{}')
+      const { name, ownCategories } = JSON.parse(req.postData() ?? '{}')
       const list: ShoppingList = {
         id: `shoplist-${this.nextShopListId++}`,
         name,
         createdBy: 'alice',
         createdAt: new Date().toISOString(),
+        ...(ownCategories ? { ownCategories: true } : {}), // #412
       }
       this.shoppingLists.push(list)
       return this.json(route, list, 201)
@@ -1057,18 +1058,27 @@ export class MockApi {
     // DELETE protects OTHER (400 CATEGORY_PROTECTED) and reassigns its items to OTHER. Each mutation
     // broadcasts SHOPPING_CATEGORY_CHANGED. GET returns the catalog sorted by sortOrder.
     if (path.endsWith('/shopping/categories') && method === 'GET') {
-      return this.json(route, [...this.shoppingCategories].sort((a, b) => a.sortOrder - b.sortOrder))
+      // Per-list scope (#412): ?listId of an own-categories list → its custom rows + the shared OTHER;
+      // else (no listId / a shared list) → the shared household catalog (rows without a listId).
+      const listId = url.searchParams.get('listId') || undefined
+      const own = !!listId && this.shoppingLists.find((l) => l.id === listId)?.ownCategories
+      const scoped = own
+        ? this.shoppingCategories.filter((c) => c.listId === listId || c.key === 'OTHER')
+        : this.shoppingCategories.filter((c) => !c.listId)
+      return this.json(route, [...scoped].sort((a, b) => a.sortOrder - b.sortOrder))
     }
     if (path.endsWith('/shopping/categories') && method === 'POST') {
       const b = JSON.parse(req.postData() ?? '{}') as { label?: string; emoji?: string; sortOrder?: number }
       const label = (b.label ?? '').trim()
       if (!label) return this.json(route, { code: 'INVALID_CATEGORY', message: 'blank label' }, 400)
+      const listId = url.searchParams.get('listId') || undefined // #412: scope the new category to a list
       const base = label.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `CAT_${this.nextShopCategoryId}`
       let key = base
       let n = 2
       while (this.shoppingCategories.some((c) => c.key === key)) key = `${base}_${n++}`
-      const sortOrder = b.sortOrder ?? Math.max(-1, ...this.shoppingCategories.map((c) => c.sortOrder)) + 1
-      const cat: ShoppingCategory = { key, label, emoji: (b.emoji ?? '').trim() || '🛒', sortOrder, isBuiltin: false }
+      // default sort order is relative to the target scope (the list's own rows, or the shared set)
+      const sortOrder = b.sortOrder ?? Math.max(-1, ...this.shoppingCategories.filter((c) => (c.listId ?? undefined) === listId).map((c) => c.sortOrder)) + 1
+      const cat: ShoppingCategory = { key, label, emoji: (b.emoji ?? '').trim() || '🛒', sortOrder, isBuiltin: false, ...(listId ? { listId } : {}) }
       this.nextShopCategoryId++
       this.shoppingCategories.push(cat)
       return this.jsonWithFrames(route, cat, 201, 'shopping', [{ type: 'SHOPPING_CATEGORY_CHANGED', payload: cat }])
