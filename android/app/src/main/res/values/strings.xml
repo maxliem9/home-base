@@ -104,7 +104,6 @@
     <string name="family_calendar_section_todos">Fällige Aufgaben</string>
     <string name="family_calendar_section_meals">Essensplan</string>
     <!-- iCal-Abo-Feed abonnieren (#488, spiegelt web familienkalender.subscribe*) -->
-    <string name="family_calendar_subscribe">Abonnieren</string>
     <string name="family_calendar_subscribe_title">In deinem Kalender abonnieren</string>
     <string name="family_calendar_subscribe_intro">Abonniere diesen Feed einmal in Apple oder Google Kalender — dann erscheinen fällige Aufgaben, Abwesenheiten, Kita-Schließtage und der Essensplan automatisch auf deinem Handy.</string>
     <string name="family_calendar_subscribe_copy">Link kopieren</string>
