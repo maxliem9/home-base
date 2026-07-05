@@ -10,6 +10,7 @@ import com.homebase.shopping.GroceryCatalog
 import com.homebase.shopping.ShoppingCatalog
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
+import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -64,6 +65,7 @@ fun Route.shoppingRoutes() {
                         it[name] = req.name.trim()
                         it[createdBy] = username
                         it[createdAt] = Instant.now()
+                        it[ownCategories] = req.ownCategories
                     }
                     ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.single().toListDto()
                 }
@@ -83,6 +85,9 @@ fun Route.shoppingRoutes() {
                         ?: return@transaction null
                     ShoppingListsTable.update({ ShoppingListsTable.id eq id }) {
                         req.name?.let { v -> it[name] = v.trim() }
+                        // #412: flip the list between its own category set and the shared catalog. Custom
+                        // category rows are kept when reverting (hidden), so re-enabling is lossless.
+                        req.ownCategories?.let { v -> it[ownCategories] = v }
                     }
                     ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.single().toListDto()
                 }
@@ -101,6 +106,7 @@ fun Route.shoppingRoutes() {
                         ?: return@transaction null
                     // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                     ShoppingItemsTable.deleteWhere { ShoppingItemsTable.listId eq id }
+                    ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.listId eq id } // #412: own categories
                     ShoppingListsTable.deleteWhere { ShoppingListsTable.id eq id }
                     existing.toListDto()
                 }
@@ -116,15 +122,17 @@ fun Route.shoppingRoutes() {
         // ---- Categories (editable catalog, #411): the household manages its own grocery categories.
         // Shared like the lists; builtins are editable AND deletable too (except OTHER, the fallback). ----
         route("/categories") {
+            // GET /shopping/categories[?listId=L] (#412): the category set a list renders — its own set
+            // (custom rows + the shared OTHER fallback) if it opted in, else the shared household catalog
+            // (#411). No listId, or a shared/non-own list, → the shared catalog (Settings uses this).
             get {
-                val cats = transaction {
-                    ShoppingCategoriesTable.selectAll()
-                        .orderBy(ShoppingCategoriesTable.sortOrder to SortOrder.ASC, ShoppingCategoriesTable.key to SortOrder.ASC)
-                        .map { it.toCategoryDto() }
-                }
+                val listId = call.categoryScopeListId() ?: return@get
+                val cats = transaction { categoriesForList(listId.value) }
                 call.respond(cats)
             }
 
+            // POST /shopping/categories[?listId=L] (#412): create a category. With listId it becomes that
+            // list's own category (the list should already have own_categories = true); without, a shared one.
             post {
                 val req = call.receive<CreateShoppingCategoryRequest>()
                 val label = req.label.trim()
@@ -133,18 +141,31 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "label and emoji must not be blank"))
                     return@post
                 }
+                val scopeId = (call.categoryScopeListId() ?: return@post).value
                 val created = transaction {
+                    if (scopeId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq scopeId }.empty()) {
+                        return@transaction null
+                    }
                     val key = uniqueCategoryKey(label)
+                    // default sort order is relative to the target scope (the list's own set — excluding
+                    // the shared OTHER — or the shared catalog), so a first custom category lands before OTHER
                     val order = req.sortOrder
-                        ?: ((ShoppingCategoriesTable.selectAll().maxOfOrNull { it[ShoppingCategoriesTable.sortOrder] } ?: -1) + 1)
+                        ?: ((ShoppingCategoriesTable.selectAll()
+                            .where { if (scopeId != null) ShoppingCategoriesTable.listId eq scopeId else ShoppingCategoriesTable.listId.isNull() }
+                            .maxOfOrNull { it[ShoppingCategoriesTable.sortOrder] } ?: -1) + 1)
                     ShoppingCategoriesTable.insert {
                         it[ShoppingCategoriesTable.key] = key
                         it[ShoppingCategoriesTable.label] = label
                         it[ShoppingCategoriesTable.emoji] = emoji
                         it[sortOrder] = order
                         it[isBuiltin] = false
+                        it[ShoppingCategoriesTable.listId] = scopeId
                     }
                     ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.single().toCategoryDto()
+                }
+                if (created == null) {
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
+                    return@post
                 }
                 broadcastCategory("SHOPPING_CATEGORY_CHANGED", created)
                 call.respond(HttpStatusCode.Created, created)
@@ -222,7 +243,9 @@ fun Route.shoppingRoutes() {
                 }
                 val iconProvided = req.icon?.trim()?.takeIf { it.isNotBlank() }
                 val saved = transaction {
-                    if (req.category !in ShoppingCatalog.liveKeys()) return@transaction null
+                    // the auto-resolve dictionary is shared/global (#412), so a rule may only target a
+                    // shared category key — not a per-list custom one
+                    if (req.category !in ShoppingCatalog.liveKeysForList(null)) return@transaction null
                     val updated = ShoppingCategoryRulesTable.update({ ShoppingCategoryRulesTable.normalizedName eq normalized }) {
                         it[displayName] = display
                         it[category] = req.category
@@ -272,8 +295,11 @@ fun Route.shoppingRoutes() {
         get("/suggestions") {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 300
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
+            // #412: scope the resolved categories/icons to the target list's set (unknown → OTHER). The
+            // suggestion NAMES stay household-global for now — a per-list usage tally is a later extension.
+            val scope = call.categoryScopeListId() ?: return@get
             val suggestions = transaction {
-                val liveKeys = ShoppingCatalog.liveKeys()
+                val liveKeys = ShoppingCatalog.liveKeysForList(scope.value)
                 val rules = ShoppingCatalog.loadRules()
                 fun liveCat(cat: String) = if (cat in liveKeys) cat else GroceryCatalog.OTHER
                 val merged = LinkedHashMap<String, ShoppingSuggestionDto>()
@@ -330,7 +356,7 @@ fun Route.shoppingRoutes() {
                 if (listId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }.empty()) {
                     return@transaction false
                 }
-                val liveKeys = ShoppingCatalog.liveKeys() // load once; categorize each new line against it (#411)
+                val liveKeys = ShoppingCatalog.liveKeysForList(listId) // categorize against the target list's set (#411/#412)
                 val rules = ShoppingCatalog.loadRules()
                 // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
                 val working = ShoppingItemsTable.selectAll()
@@ -429,7 +455,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeys())
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeysForList(listId)) // #412: the item's list scope
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -471,13 +497,15 @@ fun Route.shoppingRoutes() {
             val newIcon = req.icon?.takeIf { it.isNotBlank() }
 
             val item = transaction {
-                ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
+                val existing = ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
                     ?: return@transaction null
                 if (targetListId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq targetListId }.empty()) {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
-                // category override must be a live catalog key (#411: validated against the DB)
-                if (newCategory != null && newCategory !in ShoppingCatalog.liveKeys()) {
+                // category override must be a live catalog key (#411), validated against the item's
+                // DESTINATION list's set (#412): the list it's being moved to, else its current list.
+                val finalListId = if (req.listId != null) targetListId else existing[ShoppingItemsTable.listId]
+                if (newCategory != null && newCategory !in ShoppingCatalog.liveKeysForList(finalListId)) {
                     return@transaction ErrorResponse("INVALID_CATEGORY", "category must be a known key")
                 }
 
@@ -550,6 +578,7 @@ private fun ResultRow.toListDto() = ShoppingListDto(
     name = this[ShoppingListsTable.name],
     createdBy = this[ShoppingListsTable.createdBy],
     createdAt = this[ShoppingListsTable.createdAt].toString(),
+    ownCategories = this[ShoppingListsTable.ownCategories],
 )
 
 private fun ResultRow.toDto() = ShoppingItemDto(
@@ -572,6 +601,7 @@ private fun ResultRow.toCategoryDto() = ShoppingCategoryDto(
     emoji = this[ShoppingCategoriesTable.emoji],
     sortOrder = this[ShoppingCategoriesTable.sortOrder],
     isBuiltin = this[ShoppingCategoriesTable.isBuiltin],
+    listId = this[ShoppingCategoriesTable.listId]?.toString(),
 )
 
 private fun ResultRow.toCategoryRuleDto() = ShoppingCategoryRuleDto(
@@ -580,6 +610,46 @@ private fun ResultRow.toCategoryRuleDto() = ShoppingCategoryRuleDto(
     category = this[ShoppingCategoryRulesTable.category],
     icon = this[ShoppingCategoryRulesTable.icon],
 )
+
+// ---- Per-list category scope (#412) -------------------------------------------------------------
+
+/** An optional list scope for the category routes: null value = the shared household catalog. */
+@JvmInline
+private value class ListScope(val value: UUID?)
+
+/**
+ * Parse the optional `?listId=` category-scope query param (#412). Returns a [ListScope] (whose value
+ * is the parsed UUID, or null when the param is absent = shared catalog), or null AFTER responding 400
+ * on a malformed UUID — call as `val s = call.categoryScopeListId() ?: return@get`.
+ */
+private suspend fun ApplicationCall.categoryScopeListId(): ListScope? {
+    val raw = request.queryParameters["listId"]?.takeIf { it.isNotBlank() } ?: return ListScope(null)
+    val uuid = runCatching { UUID.fromString(raw) }.getOrNull() ?: run {
+        respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
+        return null
+    }
+    return ListScope(uuid)
+}
+
+/**
+ * The ordered category DTOs a list renders (#412). Mirrors [ShoppingCatalog.liveKeysForList]'s scope
+ * rule: a list that opted into its own set → its custom rows + the shared OTHER fallback; every other
+ * list (and no listId) → the shared household catalog. Call inside a transaction.
+ */
+private fun categoriesForList(listId: UUID?): List<ShoppingCategoryDto> {
+    val own = listId != null &&
+        ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }
+            .firstOrNull()?.get(ShoppingListsTable.ownCategories) == true
+    val query = if (own) {
+        ShoppingCategoriesTable.selectAll()
+            .where { (ShoppingCategoriesTable.listId eq listId) or (ShoppingCategoriesTable.key eq GroceryCatalog.OTHER) }
+    } else {
+        ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.listId.isNull() }
+    }
+    return query
+        .orderBy(ShoppingCategoriesTable.sortOrder to SortOrder.ASC, ShoppingCategoriesTable.key to SortOrder.ASC)
+        .map { it.toCategoryDto() }
+}
 
 /**
  * Generate a stable, unique category key from a label: uppercase ASCII slug (non-alnum → "_"), capped
