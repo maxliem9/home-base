@@ -163,6 +163,9 @@ data class TodoDto(
     val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
+    // Last time any field of the todo changed. Stamped on every mutating write; equals createdAt for
+    // a never-edited todo. A fired reminder does not bump it (internal bookkeeping, not a user edit).
+    val updatedAt: String,
     val doneAt: String? = null
 )
 

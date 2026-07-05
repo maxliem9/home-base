@@ -212,6 +212,10 @@ export const en: Messages = {
     planListInbox: 'No list (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
     assignee: 'Assignee',
     assigneeNone: 'Nobody',
+    // Provenance line in the expanded row panel + edit sheet
+    metaCreated: 'Created by {who}', // followed by "· 3 days ago"; {who}=creator (i18next prefix "{")
+    metaUpdated: 'Edited', // followed by "· 1 h ago"; only when edited since creation
+    metaDone: 'Done', // followed by "· 2 h ago"
     dueDate: 'Due on',
     dueTime: 'Time',
     priority: 'Priority',

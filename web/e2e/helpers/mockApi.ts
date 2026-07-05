@@ -809,6 +809,7 @@ export class MockApi {
       // Mirror TodoRoutes.kt: an assignee or due date on create makes the todo PLANNED (the
       // quick-add "all-at-once" flow); a bare title — or only description/priority — stays INBOX.
       const status = (assignees?.length || dueDate) ? 'PLANNED' : 'INBOX'
+      const now = new Date().toISOString()
       const todo: Todo = {
         id: `todo-${this.nextId++}`,
         title,
@@ -823,7 +824,9 @@ export class MockApi {
         description: description || undefined,
         subtasks: [],
         createdBy: 'alice',
-        createdAt: new Date().toISOString(),
+        createdAt: now,
+        // create stamps updatedAt = createdAt (mirror the backend)
+        updatedAt: now,
       }
       this.todos.unshift(todo)
       // The echo deliberately beats the REST response (pre-frame) — worst-case
@@ -840,6 +843,8 @@ export class MockApi {
         const body = JSON.parse(req.postData() ?? '{}')
         if (idx === -1) return this.json(route, { message: 'not found' }, 404)
         const updated: Todo = { ...this.todos[idx], ...body }
+        // every PUT is an edit → bump the last-modified stamp (mirror the backend)
+        updated.updatedAt = new Date().toISOString()
         if (body.listId === '') updated.listId = undefined
         // #265 clearing: "" clears the time; a negative reminder clears it (mirror the backend)
         if (body.dueTime === '') updated.dueTime = undefined
@@ -1852,6 +1857,7 @@ export function todo(partial: Partial<Todo> & { id: string; title: string }): To
     status: 'INBOX',
     createdBy: 'alice',
     createdAt: '2026-06-01T08:00:00Z',
+    updatedAt: '2026-06-01T08:00:00Z',
     ...partial,
   }
 }

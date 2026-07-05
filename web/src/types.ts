@@ -44,6 +44,8 @@ export interface Todo {
   subtasks?: Subtask[]
   createdBy: string
   createdAt: string
+  // last time any field changed; equals createdAt for a never-edited todo (backend stamps it)
+  updatedAt: string
   doneAt?: string
 }
 
