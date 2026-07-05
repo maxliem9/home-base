@@ -96,6 +96,23 @@
     <string name="family_calendar_section_kita">Daycare</string>
     <string name="family_calendar_section_todos">Due tasks</string>
     <string name="family_calendar_section_meals">Meal plan</string>
+    <!-- iCal subscription feed (#488, mirrors web familienkalender.subscribe*) -->
+    <string name="family_calendar_subscribe_title">Subscribe in your calendar</string>
+    <string name="family_calendar_subscribe_intro">Subscribe to this feed once in Apple or Google Calendar — due tasks, absences, daycare closures and the meal plan then show up automatically on your phone.</string>
+    <string name="family_calendar_subscribe_copy">Copy link</string>
+    <string name="family_calendar_subscribe_copied">Copied!</string>
+    <string name="family_calendar_subscribe_share">Share</string>
+    <string name="family_calendar_subscribe_note">The link contains your personal access token — do not share it.</string>
+    <string name="family_calendar_subscribe_include_label">What should it include?</string>
+    <string name="family_calendar_subscribe_include_hint">Applies to your own feed only — saved as you tap.</string>
+    <string name="family_calendar_subscribe_save_failed">Could not be saved.</string>
+    <string name="family_calendar_subscribe_chooser">Share calendar link</string>
+    <string name="family_calendar_feed_section_todos">Due tasks</string>
+    <string name="family_calendar_feed_section_absences">Absences</string>
+    <string name="family_calendar_feed_section_parttime">Part-time days off</string>
+    <string name="family_calendar_feed_section_kita">Kita closures</string>
+    <string name="family_calendar_feed_section_meals">Meal plan</string>
+    <string name="family_calendar_feed_section_events">Events</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Username</string>

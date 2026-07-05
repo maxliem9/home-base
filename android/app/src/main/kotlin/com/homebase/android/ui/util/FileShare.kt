@@ -27,6 +27,21 @@ object FileShare {
     }
 
     /**
+     * Opens the system share sheet for a plain-text payload (no file) — used for the Familienkalender
+     * iCal subscription URL (#488). The token rides in the URL's query string, so this shares a
+     * link, not an attachment; ACTION_SEND with text/plain lets the user drop it into any app.
+     */
+    fun shareText(context: Context, text: String, chooserTitle: String = "Teilen") {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(
+            Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    /**
      * Opens downloaded bytes in the system viewer (ACTION_VIEW via the chooser) — used for note file
      * attachments (#437): download → cache → hand off to whatever app handles the MIME type. Returns
      * false (no exception) if no app can open the type, so the caller can surface a message.

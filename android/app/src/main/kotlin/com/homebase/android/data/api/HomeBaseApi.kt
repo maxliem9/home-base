@@ -44,6 +44,14 @@ interface HomeBaseApi {
     @PUT("config/done-window")
     suspend fun updateDoneWindow(@Body request: DoneWindowConfigResponse): DoneWindowConfigResponse
 
+    // Per-user iCal-feed category selection (#427/#488): {sections, availableSections}. GET reads
+    // the caller's selection (unset = all); PUT replaces it with a validated subset.
+    @GET("config/calendar-feed")
+    suspend fun getCalendarFeed(): CalendarFeedConfigResponse
+
+    @PUT("config/calendar-feed")
+    suspend fun updateCalendarFeed(@Body request: UpdateCalendarFeedRequest): CalendarFeedConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 

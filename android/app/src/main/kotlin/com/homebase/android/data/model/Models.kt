@@ -87,6 +87,27 @@ data class RecurringConfigResponse(val time: String)
 @JsonClass(generateAdapter = true)
 data class DoneWindowConfigResponse(val days: Int)
 
+/**
+ * GET/PUT /config/calendar-feed (#427/#488): which categories the caller's PERSONAL iCal
+ * subscription feed carries. [sections] = the selected ids, [availableSections] = every
+ * selectable id — both in the backend's display order. Unset server-side = all (back-compat).
+ * Both `= emptyList()` so a missing key (the `encodeDefaults=false` convention) deserialises to
+ * an empty list rather than failing. GET-only response shape; the PUT uses [UpdateCalendarFeedRequest].
+ */
+@JsonClass(generateAdapter = true)
+data class CalendarFeedConfigResponse(
+    val sections: List<String> = emptyList(),
+    val availableSections: List<String> = emptyList(),
+)
+
+/**
+ * Body for PUT /config/calendar-feed: the full selection to persist (a validated subset of
+ * availableSections). Unlike the digest PATCH, the feed selection is always sent whole — an
+ * empty list means "nothing", not "unchanged".
+ */
+@JsonClass(generateAdapter = true)
+data class UpdateCalendarFeedRequest(val sections: List<String>)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
 // avatarHue (Teil von #100): the member's chosen avatar hue (0..359), or null/absent for
