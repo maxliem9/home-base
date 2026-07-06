@@ -119,7 +119,7 @@ export const en: Messages = {
     main: 'Main navigation', // aria-label for the main (bottom/side) nav landmark
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
-      dashboard: 'Home',
+      dashboard: 'Dashboard',
       todos: 'Tasks',
       shopping: 'Shopping',
       notes: 'Notes',
@@ -169,8 +169,8 @@ export const en: Messages = {
     // stat tiles
     statDueToday: 'Due today',
     statInbox: 'In the Inbox',
+    statOverdue: 'Overdue',
     statDueTomorrow: 'Due tomorrow',
-    statDoneToday: 'Done today',
     // "Heute dran" card
     todayTitle: 'On today',
     allTasks: 'All tasks',
@@ -218,6 +218,10 @@ export const en: Messages = {
     planDone: 'Done',
     assignee: 'Assignee',
     assigneeNone: 'Nobody',
+    // Provenance line in the expanded row panel + edit sheet
+    metaCreated: 'Created by {who}', // followed by "· 3 days ago"; {who}=creator (i18next prefix "{")
+    metaUpdated: 'Edited', // followed by "· 1 h ago"; only when edited since creation
+    metaDone: 'Done', // followed by "· 2 h ago"
     dueDate: 'Due on',
     dueTime: 'Time',
     priority: 'Priority',
@@ -279,6 +283,7 @@ export const en: Messages = {
     bucketNone: 'No date',
     // Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles
     tabAll: 'All',
+    tabOverdue: 'Overdue',
     tabToday: 'Today',
     tabTomorrow: 'Tomorrow',
     tabDone: 'Done',
@@ -287,6 +292,8 @@ export const en: Messages = {
     listsAria: 'Lists',
     allEmpty: 'No tasks yet',
     allEmptyHint: 'Add tasks in a list or the Inbox.',
+    overdueEmpty: 'Nothing overdue',
+    overdueEmptyHint: 'Everything done on time.',
     todayEmpty: 'Nothing due today',
     todayEmptyHint: 'No open tasks due today.',
     tomorrowEmpty: 'Nothing due tomorrow',
@@ -363,6 +370,15 @@ export const en: Messages = {
     suggestionsHint: 'Frequently bought',
     moveCategory: 'Move to category',
     moveFailed: 'Category could not be changed.',
+    // Own categories per list (#412): a list can use its own category set instead of the shared
+    // catalog (e.g. a hardware store). Managed inline on the list; starts with just "Other".
+    ownCategories: 'Own categories for this list',
+    ownCategoriesHint: 'Give this list its own category set instead of the shared household one — handy for e.g. a hardware store.',
+    manageCategories: 'Manage categories',
+    manageCategoriesTitle: 'Categories: {name}',
+    ownCategoriesCardTitle: 'Own categories',
+    ownCategoriesCardHint: 'For this list only. Unassigned items land in "Other".',
+    listUpdateFailed: 'The list could not be updated.',
     // Offline sync: checking an item off without a connection is remembered locally
     // and replayed automatically; until then the item carries the notSynced marker
     // (shopping without Wi-Fi).

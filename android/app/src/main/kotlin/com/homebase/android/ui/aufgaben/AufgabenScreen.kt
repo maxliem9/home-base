@@ -151,7 +151,7 @@ fun AufgabenScreen(
     }
     // "Heute"/"Morgen" are a single due-day → flat list (no buckets); the done-only "Erledigt" tab
     // gets its own flat render below. Inbox/Alle/lists keep due-bucket grouping (mirrors web).
-    val flatOpenList = smartTab == TodosFocus.TODAY || smartTab == TodosFocus.TOMORROW
+    val flatOpenList = smartTab == TodosFocus.OVERDUE || smartTab == TodosFocus.TODAY || smartTab == TodosFocus.TOMORROW
     // Quick-add only where the add target is unambiguous (Inbox or a real list), like web.
     val showQuickAdd = state.inboxActive || state.activeList != null
     // The collapsible done footer rides along on Inbox/Alle/lists; the "Erledigt" tab shows done
@@ -183,6 +183,7 @@ fun AufgabenScreen(
                 inboxCount = state.inboxCount,
                 smartTab = smartTab,
                 allOpenCount = state.allOpenCount,
+                overdueCount = state.overdueCount,
                 todayCount = state.todayCount,
                 tomorrowCount = state.tomorrowCount,
                 doneTodayCount = state.doneTodayCount,
@@ -364,6 +365,7 @@ private fun ListTabs(
     inboxCount: Int,
     smartTab: TodosFocus?,
     allOpenCount: Int,
+    overdueCount: Int,
     todayCount: Int,
     tomorrowCount: Int,
     doneTodayCount: Int,
@@ -387,14 +389,21 @@ private fun ListTabs(
             active = inboxActive,
             onClick = { onSelect(INBOX_TAB_ID) },
         )
-        // Cross-list "smart" tabs (#256): Alle · Heute · Morgen · Erledigt — counts mirror the
-        // dashboard stat tiles exactly. Sit between the Inbox and the list tabs (matches web order).
+        // Cross-list "smart" tabs (#256): Alle · Überfällig · Heute · Morgen · Erledigt — counts mirror
+        // the dashboard stat tiles exactly. Sit between the Inbox and the list tabs (matches web order).
         ListTab(
             name = stringResource(R.string.todo_tab_all),
             count = allOpenCount,
             icon = HbIcons.archive,
             active = smartTab == TodosFocus.ALL,
             onClick = { onSelect(ALL_TAB_ID) },
+        )
+        ListTab(
+            name = stringResource(R.string.todo_tab_overdue),
+            count = overdueCount,
+            icon = HbIcons.flag,
+            active = smartTab == TodosFocus.OVERDUE,
+            onClick = { onSelect(OVERDUE_TAB_ID) },
         )
         ListTab(
             name = stringResource(R.string.todo_tab_today),
@@ -623,6 +632,7 @@ private fun TaskRow(
                 onToggle = onToggleSubtask,
                 onAdd = onAddSubtask,
             )
+            TaskMeta(todo, Modifier.padding(start = 38.dp, end = 2.dp, bottom = 12.dp))
         }
     }
 }
@@ -716,6 +726,44 @@ private fun SubtasksPanel(
                     },
                     iconSize = 18.dp,
                     tint = Hb.accent,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Read-only provenance line for a todo: who created it + when, last edit (only shown when it
+ * differs from creation), and completion time. Mirrors the web `TodoMeta` — surfaced both in a
+ * row's expanded panel and at the bottom of the edit sheet. Relative wording ("vor 3 Tagen").
+ */
+@Composable
+private fun TaskMeta(todo: TodoDto, modifier: Modifier = Modifier) {
+    val creator = displayName(todo.createdBy)
+    val wasEdited = todo.updatedAt.isNotBlank() && todo.updatedAt != todo.createdAt
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
+        Column(
+            Modifier.padding(top = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "${stringResource(R.string.todo_meta_created, creator)} · ${Format.relativeTime(todo.createdAt)}",
+                style = HbType.meta,
+                color = Hb.ink3,
+            )
+            if (wasEdited) {
+                Text(
+                    "${stringResource(R.string.todo_meta_updated)} · ${Format.relativeTime(todo.updatedAt)}",
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                )
+            }
+            todo.doneAt?.let { done ->
+                Text(
+                    "${stringResource(R.string.todo_meta_done)} · ${Format.relativeTime(done)}",
+                    style = HbType.meta,
+                    color = Hb.ink3,
                 )
             }
         }
@@ -1023,6 +1071,10 @@ private fun EditSheet(
                     )
                 }
             }
+        }
+        // read-only provenance (who/when created, last edit, completion) — edit mode only
+        if (todo != null) {
+            TaskMeta(todo, Modifier.padding(top = 2.dp))
         }
     }
 }
@@ -1419,6 +1471,7 @@ private fun NewListSheet(
 /** String-resource id for a smart tab's label/title (Alle · Heute · Morgen · Erledigt). */
 private fun smartTabLabelRes(focus: TodosFocus): Int = when (focus) {
     TodosFocus.ALL -> R.string.todo_tab_all
+    TodosFocus.OVERDUE -> R.string.todo_tab_overdue
     TodosFocus.TODAY -> R.string.todo_tab_today
     TodosFocus.TOMORROW -> R.string.todo_tab_tomorrow
     TodosFocus.DONE -> R.string.todo_tab_done
@@ -1438,6 +1491,11 @@ private fun SmartEmpty(inboxActive: Boolean, smartTab: TodosFocus?) {
             HbIcons.checkCircle,
             stringResource(R.string.todo_all_empty_title),
             stringResource(R.string.todo_all_empty_hint),
+        )
+        smartTab == TodosFocus.OVERDUE -> HbEmpty(
+            HbIcons.flag,
+            stringResource(R.string.todo_overdue_empty_title),
+            stringResource(R.string.todo_overdue_empty_hint),
         )
         smartTab == TodosFocus.TODAY -> HbEmpty(
             HbIcons.calendar,

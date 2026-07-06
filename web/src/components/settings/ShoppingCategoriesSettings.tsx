@@ -88,13 +88,19 @@ export function ShoppingCategoriesSettings({ token, onLogout }: { token: string;
 
 // --- Categories card -------------------------------------------------------
 
-function CategoriesCard({ token, onLogout, categories, loading, onChanged, onError }: {
+// Exported so the per-list category manager (#412, shopping list "eigene Kategorien") can reuse it.
+// `listId` scopes CREATE to that list's own set; edit/delete/reorder go by the (globally unique) key
+// and need no scope. `title`/`hint` override the settings-page copy.
+export function CategoriesCard({ token, onLogout, categories, loading, onChanged, onError, listId, title, hint }: {
   token: string
   onLogout: () => void
   categories: ShoppingCategory[]
   loading: boolean
   onChanged: () => Promise<void>
   onError: (msg: string | null) => void
+  listId?: string
+  title?: string
+  hint?: string
 }) {
   const { t } = useTranslation()
   // null = no editor open; { key? } = the add (no key) or edit (with key) form.
@@ -107,11 +113,12 @@ function CategoriesCard({ token, onLogout, categories, loading, onChanged, onErr
     setBusy(true)
     onError(null)
     const body = JSON.stringify({ label: draft.label.trim(), emoji: draft.emoji.trim() || DEFAULT_ITEM_ICON })
+    const createUrl = listId ? `${API_BASE}/shopping/categories?listId=${listId}` : `${API_BASE}/shopping/categories`
     const result = draft.key
       ? await safeFetch(token, `${API_BASE}/shopping/categories/${encodeURIComponent(draft.key)}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
         })
-      : await safeFetch(token, `${API_BASE}/shopping/categories`, {
+      : await safeFetch(token, createUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
         })
     setBusy(false)
@@ -158,8 +165,8 @@ function CategoriesCard({ token, onLogout, categories, loading, onChanged, onErr
     <Card className="hb-card--pad">
       <div className="hb-cardhead">
         <div>
-          <h3>{t('settings.shoppingCatsTitle')}</h3>
-          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.shoppingCatsHint')}</p>
+          <h3>{title ?? t('settings.shoppingCatsTitle')}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{hint ?? t('settings.shoppingCatsHint')}</p>
         </div>
         {!draft && (
           <Button size="sm" icon="plus" onClick={() => setDraft({ label: '', emoji: '' })}>{t('settings.shoppingCatAdd')}</Button>

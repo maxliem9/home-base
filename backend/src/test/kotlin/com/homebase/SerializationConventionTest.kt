@@ -35,7 +35,8 @@ class SerializationConventionTest {
             // assignees = emptyList(), dueDate = null, priority = null,
             // listId = null, recurrence = null, doneAt = null
             createdBy = "max",
-            createdAt = "2026-06-11T10:00:00Z"
+            createdAt = "2026-06-11T10:00:00Z",
+            updatedAt = "2026-06-11T10:00:00Z"
         )
         val json = appJson.encodeToString(TodoDto.serializer(), todo)
 
@@ -64,7 +65,8 @@ class SerializationConventionTest {
             status = "INBOX",
             // subtasks = emptyList()  (Default — darf im JSON nicht auftauchen)
             createdBy = "max",
-            createdAt = "2026-06-11T10:00:00Z"
+            createdAt = "2026-06-11T10:00:00Z",
+            updatedAt = "2026-06-11T10:00:00Z"
         )
         val json = appJson.encodeToString(TodoDto.serializer(), todo)
 
@@ -84,7 +86,8 @@ class SerializationConventionTest {
             priority = "HIGH",
             subtasks = listOf(SubtaskDto(id = "s1", title = "Milch", done = false, sortOrder = 0)),
             createdBy = "max",
-            createdAt = "2026-06-11T10:00:00Z"
+            createdAt = "2026-06-11T10:00:00Z",
+            updatedAt = "2026-06-11T10:00:00Z"
         )
         val json = appJson.encodeToString(TodoDto.serializer(), todo)
 

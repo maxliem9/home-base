@@ -44,6 +44,14 @@ interface HomeBaseApi {
     @PUT("config/done-window")
     suspend fun updateDoneWindow(@Body request: DoneWindowConfigResponse): DoneWindowConfigResponse
 
+    // Per-user iCal-feed category selection (#427/#488): {sections, availableSections}. GET reads
+    // the caller's selection (unset = all); PUT replaces it with a validated subset.
+    @GET("config/calendar-feed")
+    suspend fun getCalendarFeed(): CalendarFeedConfigResponse
+
+    @PUT("config/calendar-feed")
+    suspend fun updateCalendarFeed(@Body request: UpdateCalendarFeedRequest): CalendarFeedConfigResponse
+
     @GET("users")
     suspend fun getUsers(): List<UserDto>
 
@@ -114,8 +122,9 @@ interface HomeBaseApi {
     @GET("shopping")
     suspend fun getShoppingItems(): List<ShoppingItemDto>
 
+    // listId (#412): scope the suggestions' resolved categories to a list's set (unknown → OTHER).
     @GET("shopping/suggestions")
-    suspend fun getShoppingSuggestions(): List<ShoppingSuggestion>
+    suspend fun getShoppingSuggestions(@Query("listId") listId: String? = null): List<ShoppingSuggestion>
 
     @POST("shopping")
     suspend fun createShoppingItem(@Body request: CreateShoppingItemRequest): ShoppingItemDto
@@ -157,13 +166,19 @@ interface HomeBaseApi {
     @DELETE("shopping/templates/{id}")
     suspend fun deleteShoppingTemplate(@Path("id") id: String)
 
-    // --- Shopping categories (editable catalog, #411) ---
+    // --- Shopping categories (editable catalog, #411; per-list scope #412) ---
 
+    // listId (#412): the effective set for a list — its own categories (+ shared OTHER) if it opted in,
+    // else the shared household catalog. Absent → the shared catalog (Settings uses this).
     @GET("shopping/categories")
-    suspend fun getShoppingCategories(): List<ShoppingCategoryDto>
+    suspend fun getShoppingCategories(@Query("listId") listId: String? = null): List<ShoppingCategoryDto>
 
+    // listId (#412): create the category in that list's own set instead of the shared catalog.
     @POST("shopping/categories")
-    suspend fun createShoppingCategory(@Body request: CreateShoppingCategoryRequest): ShoppingCategoryDto
+    suspend fun createShoppingCategory(
+        @Body request: CreateShoppingCategoryRequest,
+        @Query("listId") listId: String? = null,
+    ): ShoppingCategoryDto
 
     @PUT("shopping/categories/{key}")
     suspend fun updateShoppingCategory(@Path("key") key: String, @Body request: UpdateShoppingCategoryRequest): ShoppingCategoryDto

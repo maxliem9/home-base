@@ -2,6 +2,7 @@ package com.homebase.db
 
 import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.javatime.CurrentTimestamp
 import org.jetbrains.exposed.sql.javatime.timestamp
 import org.jetbrains.exposed.sql.javatime.date
 import org.jetbrains.exposed.sql.javatime.time
@@ -113,7 +114,12 @@ object TodosTable : Table("todos") {
     val recurrence = varchar("recurrence", 10).nullable()
     val recurrenceInterval = integer("recurrence_interval").nullable()
     val createdBy = varchar("created_by", 50)
-    val createdAt = timestamp("created_at")
+    // created_at/updated_at both carry a DB-level default mirroring the migrations' `DEFAULT NOW()`,
+    // so the Exposed-built schema (H2 unit tests via SchemaUtils.create) stays faithful and fills them
+    // when an insert omits the column. Prod/route inserts set both explicitly, overriding the default;
+    // tests that predate a column rely on it.
+    val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp)
+    val updatedAt = timestamp("updated_at").defaultExpression(CurrentTimestamp)
     val doneAt = timestamp("done_at").nullable()
     // Fire-once bookkeeping for the reminder scheduler (#429 Phase 2a): set when a reminder was
     // delivered/retired; NULL = not yet reminded (re-armed when the due moment is edited).
@@ -147,6 +153,9 @@ object ShoppingListsTable : Table("shopping_lists") {
     val name = text("name")
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
+    // Per-list category set (#412): when true this list uses its OWN categories (the
+    // shopping_categories rows tagged with its id) instead of the shared household catalog (#411).
+    val ownCategories = bool("own_categories").default(false)
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -193,6 +202,11 @@ object ShoppingCategoriesTable : Table("shopping_categories") {
     val emoji = varchar("emoji", 32)
     val sortOrder = integer("sort_order")
     val isBuiltin = bool("is_builtin")
+    // Category scope (#412): NULL = the shared household catalog (#411, all pre-#412 rows); a list id =
+    // that list's own categories. `key` stays the globally unique PK; OTHER stays the single shared row.
+    // Plain nullable uuid like ShoppingItemsTable.listId — the FK + ON DELETE CASCADE live in the
+    // migration (Postgres); the list-DELETE route cascades explicitly for the H2 test DB.
+    val listId = uuid("list_id").nullable()
     override val primaryKey = PrimaryKey(key)
 }
 

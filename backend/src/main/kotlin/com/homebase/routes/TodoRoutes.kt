@@ -211,6 +211,7 @@ fun Route.todoRoutes() {
                         ?: return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 } else null
                 val id = UUID.randomUUID()
+                val createdNow = Instant.now()
                 TodosTable.insert {
                     it[TodosTable.id] = id
                     it[title] = req.title
@@ -224,7 +225,8 @@ fun Route.todoRoutes() {
                     it[recurrence] = req.recurrence?.freq
                     it[recurrenceInterval] = req.recurrence?.let { r -> r.interval.coerceAtLeast(1) }
                     it[createdBy] = username
-                    it[createdAt] = Instant.now()
+                    it[createdAt] = createdNow
+                    it[updatedAt] = createdNow
                 }
                 setTodoAssignees(id, assignees)
                 val dto = TodosTable.selectAll().where { TodosTable.id eq id }.single().toTodoDto()
@@ -350,6 +352,8 @@ fun Route.todoRoutes() {
                     // the rule moves to the freshly spawned successor; the completed instance becomes
                     // plain history so the safety-net scheduler never re-spawns from it
                     if (spawnNext) { it[recurrence] = null; it[recurrenceInterval] = null }
+                    // any PUT that reaches here is a real edit → bump the last-modified stamp
+                    it[updatedAt] = Instant.now()
                 }
                 // Only rewrite the assignee set when the request carried the field (null = unchanged).
                 if (req.assignees != null) setTodoAssignees(id, nextAssignees)
@@ -380,6 +384,7 @@ fun Route.todoRoutes() {
                         it[recurrenceInterval] = nextRecInterval ?: 1
                         it[createdBy] = existing[TodosTable.createdBy]
                         it[createdAt] = now
+                        it[updatedAt] = now
                     }
                     // carry the subtasks over as a fresh, unchecked checklist for the new instance
                     TodoSubtasksTable.selectAll().where { TodoSubtasksTable.todoId eq id }
@@ -808,6 +813,7 @@ internal fun ResultRow.toTodoDto(): TodoDto {
         subtasks = subtasks,
         createdBy = this[TodosTable.createdBy],
         createdAt = this[TodosTable.createdAt].toString(),
+        updatedAt = this[TodosTable.updatedAt].toString(),
         doneAt = this[TodosTable.doneAt]?.toString(),
     )
 }

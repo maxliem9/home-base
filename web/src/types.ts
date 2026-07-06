@@ -44,6 +44,8 @@ export interface Todo {
   subtasks?: Subtask[]
   createdBy: string
   createdAt: string
+  // last time any field changed; equals createdAt for a never-edited todo (backend stamps it)
+  updatedAt: string
   doneAt?: string
 }
 
@@ -52,6 +54,9 @@ export interface ShoppingList {
   name: string
   createdBy: string
   createdAt: string
+  // Per-list category set (#412): true = this list uses its own categories (managed inline on the
+  // list) instead of the shared household catalog. Omitted by the backend when false.
+  ownCategories?: boolean
 }
 
 export interface ShoppingItem {
@@ -107,6 +112,8 @@ export interface ShoppingCategory {
   emoji: string
   sortOrder: number
   isBuiltin: boolean
+  // Scope (#412): omitted = shared household catalog; a list id = that list's own category.
+  listId?: string
 }
 
 // Editable auto-resolve rule (#411): a written item name → category + emoji that new items auto-fill.

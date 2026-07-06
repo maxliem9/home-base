@@ -427,4 +427,154 @@ class ShoppingCategoryRouteTest {
         assertTrue(pizzaRule != null, "the pizza rule should still exist after its category is deleted")
         assertEquals("OTHER", pizzaRule!!["category"]?.jsonPrimitive?.content)
     }
+
+    // ---- Per-list category sets (#412) ----
+
+    private suspend fun ApplicationTestBuilder.createList(token: String, name: String, ownCategories: Boolean = false): JsonObject =
+        Json.parseToJsonElement(
+            client.post("/api/v1/shopping/lists") {
+                bearerAuth(token); contentType(ContentType.Application.Json)
+                setBody("""{"name":${JsonPrimitive(name)},"ownCategories":$ownCategories}""")
+            }.bodyAsText()
+        ).jsonObject
+
+    private suspend fun ApplicationTestBuilder.categoriesFor(token: String, listId: String): JsonArray =
+        Json.parseToJsonElement(client.get("/api/v1/shopping/categories?listId=$listId") { bearerAuth(token) }.bodyAsText()).jsonArray
+
+    private suspend fun ApplicationTestBuilder.createCategoryFor(token: String, label: String, emoji: String, listId: String): JsonObject =
+        Json.parseToJsonElement(
+            client.post("/api/v1/shopping/categories?listId=$listId") {
+                bearerAuth(token); contentType(ContentType.Application.Json)
+                setBody("""{"label":${JsonPrimitive(label)},"emoji":${JsonPrimitive(emoji)}}""")
+            }.bodyAsText()
+        ).jsonObject
+
+    private suspend fun ApplicationTestBuilder.addItemTo(token: String, name: String, listId: String?): JsonObject {
+        val body = if (listId != null) """{"name":${JsonPrimitive(name)},"listId":"$listId"}""" else """{"name":${JsonPrimitive(name)}}"""
+        val res = client.post("/api/v1/shopping") { bearerAuth(token); contentType(ContentType.Application.Json); setBody(body) }
+        assertEquals(HttpStatusCode.Created, res.status)
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject
+    }
+
+    private suspend fun ApplicationTestBuilder.putList(token: String, listId: String, body: String) =
+        client.put("/api/v1/shopping/lists/$listId") { bearerAuth(token); contentType(ContentType.Application.Json); setBody(body) }
+
+    @Test
+    fun `an own-categories list starts with only the shared Sonstiges`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val list = createList(token, "Baumarkt", ownCategories = true)
+        assertEquals(true, list["ownCategories"]?.jsonPrimitive?.boolean)
+        val cats = categoriesFor(token, list["id"]!!.jsonPrimitive.content).map { it.jsonObject }
+        assertEquals(1, cats.size)
+        assertEquals("OTHER", cats.single()["key"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `custom categories are scoped to their list and absent from the shared catalog`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val listId = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", listId)
+        assertEquals(listId, werkzeug["listId"]?.jsonPrimitive?.content)
+        val key = werkzeug["key"]!!.jsonPrimitive.content
+
+        // visible in the list's own set (custom before the shared OTHER) …
+        assertEquals(listOf(key, "OTHER"), categoriesFor(token, listId).map { it.jsonObject["key"]?.jsonPrimitive?.content })
+        // … but NOT in the shared household catalog (still the seeded 10)
+        assertEquals(10, categories(token).size)
+        assertTrue(categories(token).none { it.jsonObject["key"]?.jsonPrimitive?.content == key })
+    }
+
+    @Test
+    fun `resolution and remembered corrections are per list scope`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val shared = createList(token, "Wocheneinkauf")["id"]!!.jsonPrimitive.content
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // grocery rules don't apply in the Baumarkt scope → OTHER
+        val hammer = addItemTo(token, "Hammer", baumarkt)
+        assertEquals("OTHER", hammer["category"]?.jsonPrimitive?.content)
+        // move it into the custom category (remembered for future adds)
+        client.put("/api/v1/shopping/${hammer["id"]!!.jsonPrimitive.content}") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$werkzeug"}""")
+        }
+        // a re-add in the SAME list inherits the remembered custom category …
+        assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+        // … but the same name in a shared/grocery list can't use the out-of-scope key → OTHER
+        assertEquals("OTHER", addItemTo(token, "Hammer", shared)["category"]?.jsonPrimitive?.content)
+        // a grocery staple still resolves normally in the shared list …
+        assertEquals("DAIRY", addItemTo(token, "Milch", shared)["category"]?.jsonPrimitive?.content)
+        // … yet collapses to OTHER inside the Baumarkt scope
+        assertEquals("OTHER", addItemTo(token, "Joghurt", baumarkt)["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `category override is validated against the item's list scope`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val shared = createList(token, "Wocheneinkauf")["id"]!!.jsonPrimitive.content
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // custom key is valid for its own list …
+        val inBaumarkt = addItemTo(token, "Bohrer", baumarkt)["id"]!!.jsonPrimitive.content
+        assertEquals(HttpStatusCode.OK, client.put("/api/v1/shopping/$inBaumarkt") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$werkzeug"}""")
+        }.status)
+        // … but rejected on an item in a shared list (out of scope)
+        val inShared = addItemTo(token, "Apfel", shared)["id"]!!.jsonPrimitive.content
+        assertEquals(HttpStatusCode.BadRequest, client.put("/api/v1/shopping/$inShared") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$werkzeug"}""")
+        }.status)
+        // and a grocery key is rejected inside the own-categories list
+        assertEquals(HttpStatusCode.BadRequest, client.put("/api/v1/shopping/$inBaumarkt") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"DAIRY"}""")
+        }.status)
+    }
+
+    @Test
+    fun `suggestions remap categories to the requested list scope`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        addItem(token, "Milch") // seed a household usage for a DAIRY staple
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+
+        assertEquals("DAIRY", suggestions(token, q = "milch").map { it.jsonObject }.first()["category"]?.jsonPrimitive?.content)
+        // in the Baumarkt scope the same suggestion's category collapses to OTHER (DAIRY is out of scope)
+        val scoped = Json.parseToJsonElement(
+            client.get("/api/v1/shopping/suggestions?q=milch&listId=$baumarkt") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray.map { it.jsonObject }.first()
+        assertEquals("OTHER", scoped["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `flipping own-categories off hides the custom set and back on restores it`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val listId = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val key = createCategoryFor(token, "Werkzeug", "🔧", listId)["key"]!!.jsonPrimitive.content
+
+        // revert to the shared catalog → the scoped GET returns the shared set (custom hidden)
+        assertEquals(HttpStatusCode.OK, putList(token, listId, """{"ownCategories":false}""").status)
+        val sharedView = categoriesFor(token, listId).map { it.jsonObject["key"]?.jsonPrimitive?.content }
+        assertEquals(10, sharedView.size)
+        assertTrue(sharedView.none { it == key })
+
+        // flip back on → the custom category returns (kept in the DB — lossless)
+        assertEquals(HttpStatusCode.OK, putList(token, listId, """{"ownCategories":true}""").status)
+        assertTrue(categoriesFor(token, listId).any { it.jsonObject["key"]?.jsonPrimitive?.content == key })
+    }
+
+    @Test
+    fun `deleting a list removes its own categories`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val listId = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val key = createCategoryFor(token, "Werkzeug", "🔧", listId)["key"]!!.jsonPrimitive.content
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$listId") { bearerAuth(token) }.status)
+        assertTrue(categories(token).none { it.jsonObject["key"]?.jsonPrimitive?.content == key })
+    }
 }

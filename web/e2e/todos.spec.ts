@@ -796,6 +796,49 @@ test.describe('Subtasks', () => {
   })
 })
 
+test.describe('Metadaten', () => {
+  test('shows creator + created time in the expanded row; edit line only after an edit', async ({ page }) => {
+    const mock = new MockApi(
+      [
+        // never edited: updatedAt == createdAt → no "Geändert" line
+        todo({ id: 't1', title: 'Fahrrad reparieren', listId: 'l1', createdBy: 'alice', createdAt: '2026-06-08T09:00:00Z', updatedAt: '2026-06-08T09:00:00Z' }),
+        // edited after creation → "Geändert" line present
+        todo({ id: 't2', title: 'Konto kündigen', listId: 'l1', createdBy: 'bob', createdAt: '2026-06-01T09:00:00Z', updatedAt: '2026-06-09T09:00:00Z' }),
+      ],
+      [HAUSHALT],
+    )
+    await openApp(page, mock, TOKEN, PINNED)
+
+    // collapsed rows hide the metadata (it lives in the expand panel)
+    await expect(page.getByText('Erstellt von', { exact: false })).toHaveCount(0)
+
+    // never-edited todo: creator shown, no "Geändert"
+    const r1 = page.locator('.hb-todo', { hasText: 'Fahrrad reparieren' })
+    await r1.getByRole('button', { name: 'Unteraufgaben' }).click()
+    await expect(r1.getByText('Erstellt von Alice', { exact: false })).toBeVisible()
+    await expect(r1.getByText('Geändert', { exact: false })).toHaveCount(0)
+
+    // edited todo: creator + "Geändert"
+    const r2 = page.locator('.hb-todo', { hasText: 'Konto kündigen' })
+    await r2.getByRole('button', { name: 'Unteraufgaben' }).click()
+    await expect(r2.getByText('Erstellt von Bob', { exact: false })).toBeVisible()
+    await expect(r2.getByText('Geändert', { exact: false })).toBeVisible()
+  })
+
+  test('shows metadata at the bottom of the edit sheet', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Fahrrad reparieren', listId: 'l1', createdBy: 'alice', createdAt: '2026-06-08T09:00:00Z', updatedAt: '2026-06-08T09:00:00Z' })],
+      [HAUSHALT],
+    )
+    await openApp(page, mock, TOKEN, PINNED)
+
+    const row = page.locator('.hb-row', { hasText: 'Fahrrad reparieren' })
+    await row.getByRole('button', { name: 'Planen' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet.getByText('Erstellt von Alice', { exact: false })).toBeVisible()
+  })
+})
+
 test.describe('Navigation', () => {
   test('switches between the sidebar nav tabs', async ({ page }) => {
     await openApp(page, new MockApi([]))
@@ -811,8 +854,8 @@ test.describe('Navigation', () => {
   })
 })
 
-// Cross-list "smart" tabs (#256): Alle / Heute / Morgen / Erledigt span every
-// list, sit between the Inbox and the list tabs, and mirror the dashboard tiles.
+// Cross-list "smart" tabs (#256): Alle / Überfällig / Heute / Morgen / Erledigt span
+// every list, sit between the Inbox and the list tabs, and mirror the dashboard tiles.
 test.describe('Smart views', () => {
   const SMART_LISTS = [list({ id: 'l1', name: 'Haushalt' }), list({ id: 'l2', name: 'Arbeit' })]
   const smartTodos = () => [
@@ -830,9 +873,10 @@ test.describe('Smart views', () => {
   test('shows the cross-list tabs with counts that mirror the dashboard tiles', async ({ page }) => {
     await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
 
-    // order: Inbox, Alle, Heute, Morgen, Erledigt, then the list tabs
+    // order: Inbox, Alle, Überfällig, Heute, Morgen, Erledigt, then the list tabs
     await expect(tabCount(page, 'Inbox')).toHaveText('2') // status INBOX (s5, s6)
     await expect(tabCount(page, 'Alle')).toHaveText('7') // every open todo
+    await expect(tabCount(page, 'Überfällig')).toHaveText('1') // s4
     await expect(tabCount(page, 'Heute')).toHaveText('2') // s1, s2
     await expect(tabCount(page, 'Morgen')).toHaveText('1') // s3
     await expect(tabCount(page, 'Erledigt')).toHaveText('1') // s7
@@ -851,6 +895,19 @@ test.describe('Smart views', () => {
     await expect(page.locator('.hb-row', { hasText: 'Rechnung zahlen' })).toHaveCount(0) // overdue
     // cross-list rows carry their origin list as meta
     await expect(page.locator('.hb-row', { hasText: 'Standup' })).toContainText('Arbeit')
+    // smart views are read/triage only — no quick-add input
+    await expect(page.locator('.hb-quickadd')).toHaveCount(0)
+  })
+
+  test('Überfällig lists only overdue open todos across lists', async ({ page }) => {
+    await openApp(page, new MockApi(smartTodos(), SMART_LISTS), TOKEN, PINNED)
+    await page.getByRole('tab', { name: 'Überfällig' }).click()
+
+    await expect(page.locator('.hb-row', { hasText: 'Rechnung zahlen' })).toBeVisible() // s4, overdue
+    await expect(page.locator('.hb-row', { hasText: 'Müll rausbringen' })).toHaveCount(0) // today
+    await expect(page.locator('.hb-row', { hasText: 'Standup' })).toHaveCount(0) // today
+    // cross-list rows carry their origin list as meta
+    await expect(page.locator('.hb-row', { hasText: 'Rechnung zahlen' })).toContainText('Arbeit')
     // smart views are read/triage only — no quick-add input
     await expect(page.locator('.hb-quickadd')).toHaveCount(0)
   })

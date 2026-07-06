@@ -34,7 +34,7 @@
 
     <!-- ===== Drawer / navigation ===== -->
     <string name="drawer_sync_active">Real-time sync on</string>
-    <string name="nav_today">Today</string>
+    <string name="nav_today">Dashboard</string>
     <string name="nav_tasks">Tasks</string>
     <string name="nav_shopping">Shopping list</string>
     <string name="nav_notes">Notes</string>
@@ -49,7 +49,7 @@
     <!-- a11y (#298): onClick label of the "More" tab — TalkBack reads "double tap to …",
          making clear it opens a menu/sheet (counterpart to web aria-haspopup="dialog"). -->
     <string name="nav_more_opens_sheet">open more areas</string>
-    <string name="nav_short_today">Today</string>
+    <string name="nav_short_today">Dashboard</string>
     <string name="nav_short_tasks">Tasks</string>
     <string name="nav_short_shopping">Shopping</string>
     <string name="nav_short_time">Time</string>
@@ -96,6 +96,23 @@
     <string name="family_calendar_section_kita">Daycare</string>
     <string name="family_calendar_section_todos">Due tasks</string>
     <string name="family_calendar_section_meals">Meal plan</string>
+    <!-- iCal subscription feed (#488, mirrors web familienkalender.subscribe*) -->
+    <string name="family_calendar_subscribe_title">Subscribe in your calendar</string>
+    <string name="family_calendar_subscribe_intro">Subscribe to this feed once in Apple or Google Calendar — due tasks, absences, daycare closures and the meal plan then show up automatically on your phone.</string>
+    <string name="family_calendar_subscribe_copy">Copy link</string>
+    <string name="family_calendar_subscribe_copied">Copied!</string>
+    <string name="family_calendar_subscribe_share">Share</string>
+    <string name="family_calendar_subscribe_note">The link contains your personal access token — do not share it.</string>
+    <string name="family_calendar_subscribe_include_label">What should it include?</string>
+    <string name="family_calendar_subscribe_include_hint">Applies to your own feed only — saved as you tap.</string>
+    <string name="family_calendar_subscribe_save_failed">Could not be saved.</string>
+    <string name="family_calendar_subscribe_chooser">Share calendar link</string>
+    <string name="family_calendar_feed_section_todos">Due tasks</string>
+    <string name="family_calendar_feed_section_absences">Absences</string>
+    <string name="family_calendar_feed_section_parttime">Part-time days off</string>
+    <string name="family_calendar_feed_section_kita">Kita closures</string>
+    <string name="family_calendar_feed_section_meals">Meal plan</string>
+    <string name="family_calendar_feed_section_events">Events</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Username</string>
@@ -111,8 +128,8 @@
     <string name="dashboard_quick_add">Quick capture …</string>
     <string name="dashboard_stat_due_today">Due today</string>
     <string name="dashboard_stat_inbox">In the inbox</string>
+    <string name="dashboard_stat_overdue">Overdue</string>
     <string name="dashboard_stat_due_tomorrow">Due tomorrow</string>
-    <string name="dashboard_stat_done_today">Done today</string>
     <string name="dashboard_today_card">On today</string>
     <string name="dashboard_all_tasks">All tasks</string>
     <string name="dashboard_nothing_today">Nothing for today</string>
@@ -144,13 +161,20 @@
     <string name="todo_plan">Plan</string>
     <string name="todo_add_subtask">Add subtask …</string>
     <string name="todo_done_section">Done</string>
+    <!-- Provenance line (expanded row panel + edit sheet): "Created by X · 3 days ago" -->
+    <string name="todo_meta_created">Created by %1$s</string>
+    <string name="todo_meta_updated">Edited</string>
+    <string name="todo_meta_done">Done</string>
     <!-- Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles -->
     <string name="todo_tab_all">All</string>
+    <string name="todo_tab_overdue">Overdue</string>
     <string name="todo_tab_today">Today</string>
     <string name="todo_tab_tomorrow">Tomorrow</string>
     <string name="todo_tab_done">Done</string>
     <string name="todo_all_empty_title">No tasks yet</string>
     <string name="todo_all_empty_hint">Add tasks in a list or the Inbox.</string>
+    <string name="todo_overdue_empty_title">Nothing overdue</string>
+    <string name="todo_overdue_empty_hint">Everything done on time.</string>
     <string name="todo_today_empty_title">Nothing due today</string>
     <string name="todo_today_empty_hint">No open tasks due today.</string>
     <string name="todo_tomorrow_empty_title">Nothing due tomorrow</string>
@@ -218,6 +242,13 @@
     <string name="shopping_new_list_title">New list</string>
     <string name="shopping_list_name_placeholder">e.g. Drugstore</string>
     <string name="shopping_lists_shared_hint">All shopping lists are shared.</string>
+    <!-- Own categories per list (#412) -->
+    <string name="shopping_own_categories">Own categories for this list</string>
+    <string name="shopping_own_categories_hint">Give this list its own category set instead of the shared household one — handy for e.g. a hardware store.</string>
+    <string name="shopping_manage_categories">Manage categories</string>
+    <string name="shopping_manage_categories_title">Categories: %1$s</string>
+    <string name="shopping_own_categories_card_title">Own categories</string>
+    <string name="shopping_own_categories_card_hint">For this list only. Unassigned items land in "Other".</string>
     <string name="shopping_add_item_title">Item</string>
     <string name="shopping_item_name_placeholder">e.g. Tomatoes</string>
     <plurals name="shopping_sync_banner">

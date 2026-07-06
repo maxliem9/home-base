@@ -24,7 +24,7 @@ import {
   Sheet,
   TextInput,
 } from '../ui/primitives'
-import { dueLabel, dueTimeLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
+import { absDateTime, dueLabel, dueTimeLabel, localDateIso, relTime, userMeta, usernameFromToken } from '../ui/format'
 import { useHouseholdUsers } from '../hooks/useHouseholdUsers'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -38,10 +38,11 @@ const INBOX_ID = '__inbox__'
 // are reachable from the dashboard stat tiles. Sentinel ids never collide with
 // the UUID list ids.
 const ALL_ID = '__all__'
+const OVERDUE_ID = '__overdue__'
 const TODAY_ID = '__today__'
 const TOMORROW_ID = '__tomorrow__'
 const DONE_ID = '__done__'
-const SMART_IDS = [ALL_ID, TODAY_ID, TOMORROW_ID, DONE_ID]
+const SMART_IDS = [ALL_ID, OVERDUE_ID, TODAY_ID, TOMORROW_ID, DONE_ID]
 const isVirtualTab = (id: string | null): boolean => id === INBOX_ID || (!!id && SMART_IDS.includes(id))
 
 // Persist the last-active tab so re-entering the view lands where the user left
@@ -87,10 +88,11 @@ const byDueThenPriority = (a: Todo, c: Todo): number => {
 }
 
 // Deep-link target the dashboard can ask the todos view to open (stat tiles).
-export type TodosFocus = 'inbox' | 'all' | 'today' | 'tomorrow' | 'done'
+export type TodosFocus = 'inbox' | 'all' | 'overdue' | 'today' | 'tomorrow' | 'done'
 const FOCUS_TO_ID: Record<TodosFocus, string> = {
   inbox: INBOX_ID,
   all: ALL_ID,
+  overdue: OVERDUE_ID,
   today: TODAY_ID,
   tomorrow: TOMORROW_ID,
   done: DONE_ID,
@@ -225,6 +227,8 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // The latest draft stashed by closePlan when a save is already in flight — so the resolving save
   // still drains the final keystroke after the sheet closed and planRef was nulled (close-race fix).
   const planFlushRef = useRef<PlanDraft | null>(null)
+  // the live todo behind the open plan sheet — source of the read-only metadata block (#502)
+  const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
   // Per-field quick-edit popovers opened straight from a row: the due date/time only, or the
   // assignees only — a lighter path than the full plan sheet. Only the edited field is captured;
   // the *other* anchor (and the DONE state) is re-read live from `todos` on save so a concurrent
@@ -714,12 +718,13 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
 
   const inboxActive = activeId === INBOX_ID
   const allActive = activeId === ALL_ID
+  const overdueActive = activeId === OVERDUE_ID
   const todayActive = activeId === TODAY_ID
   const tomorrowActive = activeId === TOMORROW_ID
   const doneActive = activeId === DONE_ID
   // Cross-list views (inbox + smart tabs) span every list, so their rows show the
   // origin list as meta and they offer no single quick-add target.
-  const crossList = inboxActive || allActive || todayActive || tomorrowActive || doneActive
+  const crossList = inboxActive || allActive || overdueActive || todayActive || tomorrowActive || doneActive
   const active = crossList ? null : lists.find((l) => l.id === activeId) ?? null
   const openCount = (id: string) => todos.filter((x) => x.listId === id && x.status !== 'DONE').length
 
@@ -733,6 +738,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const doneWindowStart = new Date()
   doneWindowStart.setDate(doneWindowStart.getDate() - (doneWindowDays - 1))
   const doneWindowStartIso = localDateIso(doneWindowStart)
+  const isOverdue = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'over'
   const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
   const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso
   const isDoneToday = (x: Todo) => x.status === 'DONE' && !!x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso
@@ -755,6 +761,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const inboxOpenCount = todos.filter((x) => x.status === 'INBOX').length
   // smart-tab counts — mirror the dashboard stat tiles exactly (#256)
   const allOpenCount = todos.filter((x) => x.status !== 'DONE').length
+  const overdueCount = todos.filter(isOverdue).length
   const todayCount = todos.filter(isDueToday).length
   const tomorrowCount = todos.filter(isDueTomorrow).length
   const doneTodayCount = todos.filter(isDoneToday).length
@@ -764,15 +771,17 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     ? inboxTodos
     : allActive
       ? todos
-      : todayActive
-        ? todos.filter(isDueToday)
-        : tomorrowActive
-          ? todos.filter(isDueTomorrow)
-          : doneActive
-            ? todos.filter(isDoneShown) // "Erledigt"-Tab: letzte N Tage (#263) bzw. alles bei "Alle anzeigen" (#340)
-            : active
-              ? todos.filter((x) => x.listId === active.id)
-              : []
+      : overdueActive
+        ? todos.filter(isOverdue)
+        : todayActive
+          ? todos.filter(isDueToday)
+          : tomorrowActive
+            ? todos.filter(isDueTomorrow)
+            : doneActive
+              ? todos.filter(isDoneShown) // "Erledigt"-Tab: letzte N Tage (#263) bzw. alles bei "Alle anzeigen" (#340)
+              : active
+                ? todos.filter((x) => x.listId === active.id)
+                : []
   const openTodos = viewTodos.filter((x) => x.status !== 'DONE')
   // Done section/tab content: the shared "last N days" window (#263), or — with
   // "Alle anzeigen" (#340) — the full history. Caps the "Alle" (and per-list)
@@ -791,6 +800,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const showOpenEmpty = openTodos.length === 0 && !((inboxActive || allActive) && done.length > 0)
   const smartTabs = [
     { id: ALL_ID, label: t('todos.tabAll'), icon: 'archive', count: allOpenCount },
+    { id: OVERDUE_ID, label: t('todos.tabOverdue'), icon: 'flag', count: overdueCount },
     { id: TODAY_ID, label: t('todos.tabToday'), icon: 'calendar', count: todayCount },
     { id: TOMORROW_ID, label: t('todos.tabTomorrow'), icon: 'clock', count: tomorrowCount },
     { id: DONE_ID, label: t('todos.tabDone'), icon: 'checkCircle', count: doneTodayCount },
@@ -972,6 +982,8 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 <EmptyState icon="inbox" title={t('inbox.empty')} hint={t('inbox.emptyHint')} />
               ) : allActive ? (
                 <EmptyState icon="checkCircle" title={t('todos.allEmpty')} hint={t('todos.allEmptyHint')} />
+              ) : overdueActive ? (
+                <EmptyState icon="flag" title={t('todos.overdueEmpty')} hint={t('todos.overdueEmptyHint')} />
               ) : todayActive ? (
                 <EmptyState icon="calendar" title={t('todos.todayEmpty')} hint={t('todos.todayEmptyHint')} />
               ) : tomorrowActive ? (
@@ -1138,6 +1150,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
                 )}
               </div>
             </Field>
+            {planTodo && <TodoMeta todo={planTodo} />}
           </>
         )}
       </Sheet>
@@ -1369,6 +1382,33 @@ function QuickAdd({
   )
 }
 
+// Read-only provenance line for a todo: who created it + when, last edit (only when it differs
+// from creation), and completion time. Shown both in a row's expanded panel and in the edit sheet
+// (#). Relative wording on the surface, absolute date+time in the hover title.
+function TodoMeta({ todo }: { todo: Todo }) {
+  const { t } = useTranslation()
+  const creator = userMeta(todo.createdBy)?.name ?? todo.createdBy
+  const wasEdited = !!todo.updatedAt && todo.updatedAt !== todo.createdAt
+  return (
+    <div
+      className="hb-muted"
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '2px 14px',
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: '1px solid var(--line-soft)',
+        fontSize: 12,
+      }}
+    >
+      <span title={absDateTime(todo.createdAt)}>{t('todos.metaCreated', { who: creator })} · {relTime(todo.createdAt)}</span>
+      {wasEdited && <span title={absDateTime(todo.updatedAt)}>{t('todos.metaUpdated')} · {relTime(todo.updatedAt)}</span>}
+      {todo.doneAt && <span title={absDateTime(todo.doneAt)}>{t('todos.metaDone')} · {relTime(todo.doneAt)}</span>}
+    </div>
+  )
+}
+
 function TodoRow({
   todo,
   open,
@@ -1504,6 +1544,7 @@ function TodoRow({
               onKeyDown={(e) => e.key === 'Enter' && onAddSub()}
             />
           </div>
+          <TodoMeta todo={todo} />
         </div>
       )}
     </div>

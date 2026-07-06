@@ -52,7 +52,8 @@ class MoshiRoundTripTest {
     @Test
     fun `TodoDto parses from a minimal payload with all droppable fields omitted`() {
         // Only the fields the backend always sends for an INBOX todo: id/title/status +
-        // created_by/created_at. description, assignees, dueDate, priority, listId, recurrence,
+        // created_by/created_at/updated_at (updatedAt has no default, so it is never dropped —
+        // like createdAt). description, assignees, dueDate, priority, listId, recurrence,
         // subtasks and doneAt are all omitted (the backend drops them under encodeDefaults=false).
         val json = """
             {
@@ -60,7 +61,8 @@ class MoshiRoundTripTest {
               "title": "Milch kaufen",
               "status": "INBOX",
               "createdBy": "max",
-              "createdAt": "2026-06-13T08:00:00Z"
+              "createdAt": "2026-06-13T08:00:00Z",
+              "updatedAt": "2026-06-13T08:00:00Z"
             }
         """.trimIndent()
 
@@ -73,6 +75,7 @@ class MoshiRoundTripTest {
         assertEquals("INBOX", todo.status)
         assertEquals("max", todo.createdBy)
         assertEquals("2026-06-13T08:00:00Z", todo.createdAt)
+        assertEquals("2026-06-13T08:00:00Z", todo.updatedAt)
         // The crux: an omitted list field must default to empty, never null.
         assertEquals("omitted subtasks must default to empty list", emptyList<Any>(), todo.subtasks)
         assertEquals("omitted assignees must default to empty list", emptyList<Any>(), todo.assignees)
@@ -181,7 +184,8 @@ class MoshiRoundTripTest {
                 { "id": "b", "title": "ausräumen", "done": true, "sortOrder": 1 }
               ],
               "createdBy": "max",
-              "createdAt": "2026-06-13T08:00:00Z"
+              "createdAt": "2026-06-13T08:00:00Z",
+              "updatedAt": "2026-06-13T08:00:00Z"
             }
         """.trimIndent()
 

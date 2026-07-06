@@ -2,10 +2,13 @@ package com.homebase.shopping
 
 import com.homebase.db.ShoppingCategoriesTable
 import com.homebase.db.ShoppingCategoryRulesTable
+import com.homebase.db.ShoppingListsTable
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
+import java.util.UUID
 
 /**
  * DB-backed view over the editable shopping catalog (#411): the category LIST (`shopping_categories`)
@@ -54,6 +57,30 @@ object ShoppingCatalog {
     /** The live set of category keys. Call inside a transaction; load once per operation. */
     fun liveKeys(): Set<String> =
         ShoppingCategoriesTable.selectAll().mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
+
+    /**
+     * The category keys a given list resolves against (#412). A list that opted into its own set
+     * (`own_categories = true`) sees its private categories (rows tagged with its id) plus the shared
+     * OTHER fallback; every other list — and the null/unfiled bucket — sees the shared household
+     * catalog (rows with a null list_id). Call inside a transaction; load once per operation.
+     *
+     * This is the ONLY per-list seam: because [resolve]/resolveForItem remap any key not in this set
+     * to [GroceryCatalog.OTHER], the shared auto-resolve rules and the remembered corrections (stats)
+     * self-filter to each list's scope without themselves being scoped.
+     */
+    fun liveKeysForList(listId: UUID?): Set<String> {
+        val own = listId != null &&
+            ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }
+                .firstOrNull()?.get(ShoppingListsTable.ownCategories) == true
+        val rows = if (own) {
+            // the list's own categories + the single shared OTHER row (globally unique key)
+            ShoppingCategoriesTable.selectAll()
+                .where { (ShoppingCategoriesTable.listId eq listId) or (ShoppingCategoriesTable.key eq GroceryCatalog.OTHER) }
+        } else {
+            ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.listId.isNull() }
+        }
+        return rows.mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
+    }
 
     /**
      * Load the auto-resolve dictionary into an in-memory matcher. Call inside a transaction, once per

@@ -35,12 +35,13 @@ const val INBOX_TAB_ID = "__inbox__"
  * list and are reachable from the dashboard stat tiles. UUID list ids never collide.
  */
 const val ALL_TAB_ID = "__all__"
+const val OVERDUE_TAB_ID = "__overdue__"
 const val TODAY_TAB_ID = "__today__"
 const val TOMORROW_TAB_ID = "__tomorrow__"
 const val DONE_TAB_ID = "__done__"
 
 /** All virtual (non-list) tab ids — the cross-list views that show origin-list meta and no quick-add. */
-private val SMART_TAB_IDS = setOf(ALL_TAB_ID, TODAY_TAB_ID, TOMORROW_TAB_ID, DONE_TAB_ID)
+private val SMART_TAB_IDS = setOf(ALL_TAB_ID, OVERDUE_TAB_ID, TODAY_TAB_ID, TOMORROW_TAB_ID, DONE_TAB_ID)
 private fun isVirtualTab(id: String?): Boolean = id == INBOX_TAB_ID || id in SMART_TAB_IDS
 
 /**
@@ -64,6 +65,7 @@ const val DONE_WINDOW_DAYS = 14
 enum class TodosFocus(val tabId: String) {
     INBOX(INBOX_TAB_ID),
     ALL(ALL_TAB_ID),
+    OVERDUE(OVERDUE_TAB_ID),
     TODAY(TODAY_TAB_ID),
     TOMORROW(TOMORROW_TAB_ID),
     DONE(DONE_TAB_ID),
@@ -124,6 +126,7 @@ data class TodoUiState(
         get() = when {
             inboxActive -> todos.filter { it.status == "INBOX" || it.listId == null }
             smartTab == TodosFocus.ALL -> todos
+            smartTab == TodosFocus.OVERDUE -> todos.filter(::isOverdue)
             smartTab == TodosFocus.TODAY -> todos.filter(::isDueToday)
             smartTab == TodosFocus.TOMORROW -> todos.filter(::isDueTomorrow)
             // "Erledigt"-Tab: über alle Listen, letzte N Tage (#263, N konfigurierbar #356) bzw.
@@ -137,6 +140,9 @@ data class TodoUiState(
 
     /** "Alle" tab badge: open todos across every list — mirrors the dashboard exactly (#256). */
     val allOpenCount: Int get() = todos.count { it.status != "DONE" }
+
+    /** "Überfällig" tab badge: open, overdue todos across every list — mirrors the dashboard tile. */
+    val overdueCount: Int get() = todos.count(::isOverdue)
 
     /** "Heute" tab badge: open, due-today todos across every list — mirrors the dashboard tile (#256). */
     val todayCount: Int get() = todos.count(::isDueToday)
@@ -153,6 +159,10 @@ data class TodoUiState(
 
 // --- Cross-list smart-view predicates (#256/#263) — local-date semantics in the device zone,
 // mirroring the web (dueLabel tone / localDateIso). Shared by TodoUiState above and HeuteScreen. ---
+
+/** Open todo whose due date is in the past (the dashboard "Überfällig" rule). */
+internal fun isOverdue(t: TodoDto): Boolean =
+    t.status != "DONE" && Format.dueGroup(t.dueDate) == Format.DueGroup.UEBERFAELLIG
 
 /** Open todo whose due date is today (the dashboard "Heute fällig" rule). */
 internal fun isDueToday(t: TodoDto): Boolean =

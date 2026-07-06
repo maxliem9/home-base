@@ -116,7 +116,7 @@ export const de = {
     main: 'Hauptnavigation', // aria-label for the main (bottom/side) nav landmark
     // Short labels for the mobile bottom tab bar (7 items must fit on a 360px phone).
     short: {
-      dashboard: 'Start',
+      dashboard: 'Dashboard',
       todos: 'Aufgaben',
       shopping: 'Einkauf',
       notes: 'Notizen',
@@ -166,8 +166,8 @@ export const de = {
     // stat tiles
     statDueToday: 'Heute fällig',
     statInbox: 'In der Inbox',
+    statOverdue: 'Überfällig',
     statDueTomorrow: 'Morgen fällig',
-    statDoneToday: 'Heute erledigt',
     // "Heute dran" card
     todayTitle: 'Heute dran',
     allTasks: 'Alle Aufgaben',
@@ -215,6 +215,10 @@ export const de = {
     planDone: 'Fertig',
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
+    // Metadaten-Zeile (Provenienz) im ausgeklappten Row-Panel + Edit-Sheet
+    metaCreated: 'Erstellt von {who}', // gefolgt von „· vor 3 Tagen"; {who}=Ersteller (i18next-Prefix „{")
+    metaUpdated: 'Geändert', // gefolgt von „· vor 1 Std"; nur wenn seit dem Anlegen editiert
+    metaDone: 'Erledigt', // gefolgt von „· vor 2 Std"
     dueDate: 'Fällig am',
     dueTime: 'Uhrzeit',
     priority: 'Priorität',
@@ -276,6 +280,7 @@ export const de = {
     bucketNone: 'Ohne Datum',
     // Smart-/listenübergreifende Tabs (#255/#256) — von den Dashboard-Kacheln verlinkt
     tabAll: 'Alle',
+    tabOverdue: 'Überfällig',
     tabToday: 'Heute',
     tabTomorrow: 'Morgen',
     tabDone: 'Erledigt',
@@ -284,6 +289,8 @@ export const de = {
     listsAria: 'Listen',
     allEmpty: 'Noch keine Aufgaben',
     allEmptyHint: 'Lege Aufgaben in einer Liste oder der Inbox an.',
+    overdueEmpty: 'Nichts überfällig',
+    overdueEmptyHint: 'Alles rechtzeitig erledigt.',
     todayEmpty: 'Heute nichts fällig',
     todayEmptyHint: 'Keine offenen Aufgaben mit Fälligkeit heute.',
     tomorrowEmpty: 'Morgen nichts fällig',
@@ -360,6 +367,15 @@ export const de = {
     suggestionsHint: 'Häufig gekauft',
     moveCategory: 'In Kategorie verschieben',
     moveFailed: 'Kategorie konnte nicht geändert werden.',
+    // Eigene Kategorien pro Liste (#412): eine Liste kann statt des geteilten Katalogs ihren eigenen
+    // Satz führen (z. B. Baumarkt). Verwaltung inline auf der Liste, startet mit „Sonstiges".
+    ownCategories: 'Eigene Kategorien für diese Liste',
+    ownCategoriesHint: 'Statt der geteilten Haushalts-Kategorien bekommt diese Liste ihren eigenen Satz — praktisch für z. B. Baumarkt.',
+    manageCategories: 'Kategorien verwalten',
+    manageCategoriesTitle: 'Kategorien: {name}',
+    ownCategoriesCardTitle: 'Eigene Kategorien',
+    ownCategoriesCardHint: 'Nur für diese Liste. Nicht zugeordnete Artikel landen in „Sonstiges".',
+    listUpdateFailed: 'Liste konnte nicht geändert werden.',
     // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
     // nachgeholt; bis dahin trägt das Produkt den notSynced-Marker (Einkaufen ohne WLAN).
     notSynced: 'Noch nicht synchronisiert',

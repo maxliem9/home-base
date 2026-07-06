@@ -87,6 +87,27 @@ data class RecurringConfigResponse(val time: String)
 @JsonClass(generateAdapter = true)
 data class DoneWindowConfigResponse(val days: Int)
 
+/**
+ * GET/PUT /config/calendar-feed (#427/#488): which categories the caller's PERSONAL iCal
+ * subscription feed carries. [sections] = the selected ids, [availableSections] = every
+ * selectable id — both in the backend's display order. Unset server-side = all (back-compat).
+ * Both `= emptyList()` so a missing key (the `encodeDefaults=false` convention) deserialises to
+ * an empty list rather than failing. GET-only response shape; the PUT uses [UpdateCalendarFeedRequest].
+ */
+@JsonClass(generateAdapter = true)
+data class CalendarFeedConfigResponse(
+    val sections: List<String> = emptyList(),
+    val availableSections: List<String> = emptyList(),
+)
+
+/**
+ * Body for PUT /config/calendar-feed: the full selection to persist (a validated subset of
+ * availableSections). Unlike the digest PATCH, the feed selection is always sent whole — an
+ * empty list means "nothing", not "unchanged".
+ */
+@JsonClass(generateAdapter = true)
+data class UpdateCalendarFeedRequest(val sections: List<String>)
+
 // A household member. From GET /api/v1/users — used to resolve "the other user" for
 // shared timers, since the usernames are configurable, not hard-codeable.
 // avatarHue (Teil von #100): the member's chosen avatar hue (0..359), or null/absent for
@@ -133,6 +154,8 @@ data class TodoDto(
     val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
+    // last time any field changed; equals createdAt for a never-edited todo (backend stamps it)
+    val updatedAt: String,
     val doneAt: String? = null,
 )
 
@@ -264,13 +287,20 @@ data class ShoppingListDto(
     val name: String,
     val createdBy: String,
     val createdAt: String,
+    // Per-list category set (#412): true = this list uses its own categories (managed inline on the
+    // list) instead of the shared household catalog. Omitted by the backend when false → defaults false.
+    val ownCategories: Boolean = false,
 )
 
 @JsonClass(generateAdapter = true)
-data class CreateShoppingListRequest(val name: String)
+data class CreateShoppingListRequest(val name: String, val ownCategories: Boolean = false)
 
 @JsonClass(generateAdapter = true)
-data class UpdateShoppingListRequest(val name: String? = null)
+data class UpdateShoppingListRequest(
+    val name: String? = null,
+    // #412: null = unchanged; flip between the list's own set and the shared catalog (lossless).
+    val ownCategories: Boolean? = null,
+)
 
 @JsonClass(generateAdapter = true)
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
@@ -352,6 +382,8 @@ data class ShoppingCategoryDto(
     val emoji: String,
     val sortOrder: Int,
     val isBuiltin: Boolean,
+    // Scope (#412): null = shared household catalog; a list id = that list's own category.
+    val listId: String? = null,
 )
 
 /** Create a category: label + emoji (both required); sortOrder optional (appended when omitted). */

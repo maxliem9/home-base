@@ -548,3 +548,68 @@ test.describe('Shopping categories & suggestions', () => {
     await expect(trigger).toBeFocused()
   })
 })
+
+// Per-list category sets (#412): a list can use its own categories instead of the shared catalog.
+test.describe('Shopping — own categories per list (#412)', () => {
+  test('an own-categories list groups by its own set and offers a manage button', async ({ page }) => {
+    const BAUMARKT = shoppingList({ id: 'sl9', name: 'Baumarkt', ownCategories: true })
+    const mock = new MockApi([], [], [BAUMARKT], [
+      shoppingItem({ id: 'i1', name: 'Bohrer', listId: 'sl9', category: 'WERKZEUG', icon: '🔧' }),
+    ]).seedShoppingCategories([
+      { key: 'PRODUCE', label: 'Obst & Gemüse', emoji: '🥦', sortOrder: 0, isBuiltin: true },
+      { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
+      { key: 'WERKZEUG', label: 'Werkzeug', emoji: '🔧', sortOrder: 0, isBuiltin: false, listId: 'sl9' },
+    ])
+    await openShopping(page, mock)
+
+    // grouping uses the list's own scope: its custom "Werkzeug" header shows …
+    await expect(page.locator('.hb-cathead', { hasText: 'Werkzeug' })).toBeVisible()
+    // … and the shared household category is NOT rendered for this list
+    await expect(page.getByText('Obst & Gemüse')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Kategorien verwalten' })).toBeVisible()
+  })
+
+  test('toggling "own categories" switches the list between its own set and the shared catalog', async ({ page }) => {
+    const mock = new MockApi([], [], [shoppingList({ id: 'sl1', name: 'Wocheneinkauf' })], [
+      shoppingItem({ id: 'i1', name: 'Äpfel', listId: 'sl1', category: 'PRODUCE', icon: '🍎' }),
+    ])
+    await openShopping(page, mock)
+
+    // shared by default → grouped under the household catalog, no manage button
+    await expect(page.locator('.hb-cathead', { hasText: 'Obst & Gemüse' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Kategorien verwalten' })).toHaveCount(0)
+
+    // turn on own categories → PUT carries ownCategories:true
+    const putP = page.waitForRequest((r) => /\/shopping\/lists\/sl1$/.test(r.url()) && r.method() === 'PUT')
+    await page.getByText('Eigene Kategorien für diese Liste').click()
+    expect((await putP).postDataJSON()).toMatchObject({ ownCategories: true })
+
+    // now the list uses its own (still empty → just Sonstiges) set: the apple falls into "Sonstiges"
+    await expect(page.getByRole('button', { name: 'Kategorien verwalten' })).toBeVisible()
+    await expect(page.locator('.hb-cathead', { hasText: 'Obst & Gemüse' })).toHaveCount(0)
+    await expect(page.locator('.hb-cathead', { hasText: 'Sonstiges' })).toBeVisible()
+  })
+
+  test('manage sheet adds a category scoped to the list (POST carries listId)', async ({ page }) => {
+    const BAUMARKT = shoppingList({ id: 'sl9', name: 'Baumarkt', ownCategories: true })
+    const mock = new MockApi([], [], [BAUMARKT], []).seedShoppingCategories([
+      { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
+    ])
+    await openShopping(page, mock)
+
+    await page.getByRole('button', { name: 'Kategorien verwalten' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet.getByRole('heading', { name: 'Kategorien: Baumarkt' })).toBeVisible()
+
+    await sheet.getByRole('button', { name: 'Kategorie hinzufügen' }).click()
+    await sheet.getByLabel('Emoji', { exact: true }).fill('🔧')
+    await sheet.getByLabel('Bezeichnung', { exact: true }).fill('Werkzeug')
+
+    // the create request is scoped to this list via ?listId=
+    const reqP = page.waitForRequest((r) => /\/shopping\/categories\?listId=sl9$/.test(r.url()) && r.method() === 'POST')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toMatchObject({ label: 'Werkzeug', emoji: '🔧' })
+
+    await expect(sheet.getByText('Werkzeug')).toBeVisible()
+  })
+})
