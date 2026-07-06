@@ -161,6 +161,10 @@
     <string name="todo_plan">Plan</string>
     <string name="todo_add_subtask">Add subtask …</string>
     <string name="todo_done_section">Done</string>
+    <!-- Provenance line (expanded row panel + edit sheet): "Created by X · 3 days ago" -->
+    <string name="todo_meta_created">Created by %1$s</string>
+    <string name="todo_meta_updated">Edited</string>
+    <string name="todo_meta_done">Done</string>
     <!-- Smart / cross-list tabs (#255/#256) — linked from the dashboard stat tiles -->
     <string name="todo_tab_all">All</string>
     <string name="todo_tab_overdue">Overdue</string>

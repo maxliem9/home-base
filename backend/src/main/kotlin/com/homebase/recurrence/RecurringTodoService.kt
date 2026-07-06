@@ -10,6 +10,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
+import java.time.Instant
 import java.time.LocalDate
 
 /** A todo whose due date the safety-net advanced, plus whether it lives in a shared list. */
@@ -43,7 +44,10 @@ class RecurringTodoService {
             val newDue = Recurrence.rollOpenDueForward(due, freq, interval, today)
             if (newDue.isEqual(due)) continue
             val todoId = row[TodosTable.id]
-            TodosTable.update({ TodosTable.id eq todoId }) { it[dueDate] = newDue }
+            TodosTable.update({ TodosTable.id eq todoId }) {
+                it[dueDate] = newDue
+                it[updatedAt] = Instant.now()
+            }
             val dto = TodosTable.selectAll().where { TodosTable.id eq todoId }.single().toTodoDto()
             rolled += RolledTodo(dto, shared = listIsShared(row[TodosTable.listId]))
         }

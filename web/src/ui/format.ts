@@ -61,6 +61,13 @@ export function relTime(isoStr: string): string {
   return t('fmt.weeksAgo', { n: Math.round(days / 7) })
 }
 
+/** Absolute date + time for metadata tooltips: "3. Juli 2026, 14:30" (de) / "Jul 3, 2026, 14:30" (en). */
+export function absDateTime(isoStr: string): string {
+  const d = new Date(isoStr)
+  const date = isEn() ? `${mon(d.getMonth())} ${d.getDate()}, ${d.getFullYear()}` : `${d.getDate()}. ${mon(d.getMonth())} ${d.getFullYear()}`
+  return `${date}, ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 // --- numbers --------------------------------------------------------------
 // Decimal/thousands separators follow the active UI language (#238 / HB-07, #223):
 // German renders a comma decimal + dot grouping ("1.234,5"), English a dot decimal +

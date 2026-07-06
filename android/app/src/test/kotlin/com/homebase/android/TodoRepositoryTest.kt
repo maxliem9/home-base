@@ -29,7 +29,7 @@ class TodoRepositoryTest {
 
     private fun todo(id: String = "1", title: String = "Test") = TodoDto(
         id = id, title = title, status = "INBOX",
-        createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+        createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
     @Before

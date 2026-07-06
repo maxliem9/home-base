@@ -624,6 +624,7 @@ private fun TaskRow(
                 onToggle = onToggleSubtask,
                 onAdd = onAddSubtask,
             )
+            TaskMeta(todo, Modifier.padding(start = 38.dp, end = 2.dp, bottom = 12.dp))
         }
     }
 }
@@ -717,6 +718,44 @@ private fun SubtasksPanel(
                     },
                     iconSize = 18.dp,
                     tint = Hb.accent,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Read-only provenance line for a todo: who created it + when, last edit (only shown when it
+ * differs from creation), and completion time. Mirrors the web `TodoMeta` — surfaced both in a
+ * row's expanded panel and at the bottom of the edit sheet. Relative wording ("vor 3 Tagen").
+ */
+@Composable
+private fun TaskMeta(todo: TodoDto, modifier: Modifier = Modifier) {
+    val creator = displayName(todo.createdBy)
+    val wasEdited = todo.updatedAt.isNotBlank() && todo.updatedAt != todo.createdAt
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
+        Column(
+            Modifier.padding(top = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                "${stringResource(R.string.todo_meta_created, creator)} · ${Format.relativeTime(todo.createdAt)}",
+                style = HbType.meta,
+                color = Hb.ink3,
+            )
+            if (wasEdited) {
+                Text(
+                    "${stringResource(R.string.todo_meta_updated)} · ${Format.relativeTime(todo.updatedAt)}",
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                )
+            }
+            todo.doneAt?.let { done ->
+                Text(
+                    "${stringResource(R.string.todo_meta_done)} · ${Format.relativeTime(done)}",
+                    style = HbType.meta,
+                    color = Hb.ink3,
                 )
             }
         }
@@ -1012,6 +1051,10 @@ private fun EditSheet(
                     )
                 }
             }
+        }
+        // read-only provenance (who/when created, last edit, completion) — edit mode only
+        if (todo != null) {
+            TaskMeta(todo, Modifier.padding(top = 2.dp))
         }
     }
 }

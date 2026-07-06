@@ -209,6 +209,10 @@ export const de = {
     planListInbox: 'Ohne Liste (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
+    // Metadaten-Zeile (Provenienz) im ausgeklappten Row-Panel + Edit-Sheet
+    metaCreated: 'Erstellt von {who}', // gefolgt von „· vor 3 Tagen"; {who}=Ersteller (i18next-Prefix „{")
+    metaUpdated: 'Geändert', // gefolgt von „· vor 1 Std"; nur wenn seit dem Anlegen editiert
+    metaDone: 'Erledigt', // gefolgt von „· vor 2 Std"
     dueDate: 'Fällig am',
     dueTime: 'Uhrzeit',
     priority: 'Priorität',

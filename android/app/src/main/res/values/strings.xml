@@ -168,6 +168,10 @@
     <string name="todo_plan">Planen</string>
     <string name="todo_add_subtask">Unteraufgabe hinzufügen …</string>
     <string name="todo_done_section">Erledigt</string>
+    <!-- Provenienz-Zeile (erweitertes Row-Panel + Edit-Sheet): „Erstellt von X · vor 3 Tagen" -->
+    <string name="todo_meta_created">Erstellt von %1$s</string>
+    <string name="todo_meta_updated">Geändert</string>
+    <string name="todo_meta_done">Erledigt</string>
     <!-- Smart-/listenübergreifende Tabs (#255/#256) — von den Dashboard-Kacheln verlinkt -->
     <string name="todo_tab_all">Alle</string>
     <string name="todo_tab_overdue">Überfällig</string>

@@ -154,6 +154,8 @@ data class TodoDto(
     val subtasks: List<SubtaskDto> = emptyList(),
     val createdBy: String,
     val createdAt: String,
+    // last time any field changed; equals createdAt for a never-edited todo (backend stamps it)
+    val updatedAt: String,
     val doneAt: String? = null,
 )
 

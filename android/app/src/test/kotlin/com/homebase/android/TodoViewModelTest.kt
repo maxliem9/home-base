@@ -52,7 +52,7 @@ class TodoViewModelTest {
         doneAt: String? = null,
     ) = TodoDto(
         id = id, title = title, status = status, listId = listId, dueDate = dueDate, doneAt = doneAt,
-        createdBy = "alice", createdAt = "2026-01-01T00:00:00Z",
+        createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
     private fun list(id: String, name: String = "Liste $id") = TodoListDto(
