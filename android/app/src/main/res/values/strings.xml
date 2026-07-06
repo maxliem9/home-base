@@ -40,7 +40,7 @@
 
     <!-- ===== Drawer / navigation ===== -->
     <string name="drawer_sync_active">Echtzeit-Sync aktiv</string>
-    <string name="nav_today">Heute</string>
+    <string name="nav_today">Dashboard</string>
     <string name="nav_tasks">Aufgaben</string>
     <string name="nav_shopping">Einkaufsliste</string>
     <string name="nav_notes">Notizen</string>
@@ -56,7 +56,7 @@
     <!-- a11y (#298): onClick-Label des "Mehr"-Tabs — TalkBack liest "Doppeltippen, um …",
          macht klar, dass ein Menü/Sheet geöffnet wird (Pendant zu web aria-haspopup="dialog"). -->
     <string name="nav_more_opens_sheet">weitere Bereiche öffnen</string>
-    <string name="nav_short_today">Start</string>
+    <string name="nav_short_today">Dashboard</string>
     <string name="nav_short_tasks">Aufgaben</string>
     <string name="nav_short_shopping">Einkauf</string>
     <string name="nav_short_time">Zeit</string>
@@ -103,6 +103,23 @@
     <string name="family_calendar_section_kita">Kita</string>
     <string name="family_calendar_section_todos">Fällige Aufgaben</string>
     <string name="family_calendar_section_meals">Essensplan</string>
+    <!-- iCal-Abo-Feed abonnieren (#488, spiegelt web familienkalender.subscribe*) -->
+    <string name="family_calendar_subscribe_title">In deinem Kalender abonnieren</string>
+    <string name="family_calendar_subscribe_intro">Abonniere diesen Feed einmal in Apple oder Google Kalender — dann erscheinen fällige Aufgaben, Abwesenheiten, Kita-Schließtage und der Essensplan automatisch auf deinem Handy.</string>
+    <string name="family_calendar_subscribe_copy">Link kopieren</string>
+    <string name="family_calendar_subscribe_copied">Kopiert!</string>
+    <string name="family_calendar_subscribe_share">Teilen</string>
+    <string name="family_calendar_subscribe_note">Der Link enthält dein persönliches Zugangs-Token — teile ihn nicht.</string>
+    <string name="family_calendar_subscribe_include_label">Was soll enthalten sein?</string>
+    <string name="family_calendar_subscribe_include_hint">Gilt nur für deinen eigenen Feed — wird beim Antippen gespeichert.</string>
+    <string name="family_calendar_subscribe_save_failed">Konnte nicht gespeichert werden.</string>
+    <string name="family_calendar_subscribe_chooser">Kalender-Link teilen</string>
+    <string name="family_calendar_feed_section_todos">Fällige Aufgaben</string>
+    <string name="family_calendar_feed_section_absences">Abwesenheiten</string>
+    <string name="family_calendar_feed_section_parttime">Teilzeit-freie Tage</string>
+    <string name="family_calendar_feed_section_kita">Kita-Schließtage</string>
+    <string name="family_calendar_feed_section_meals">Essensplan</string>
+    <string name="family_calendar_feed_section_events">Termine</string>
 
     <!-- ===== Login ===== -->
     <string name="login_username">Benutzername</string>
@@ -118,8 +135,8 @@
     <string name="dashboard_quick_add">Schnell erfassen …</string>
     <string name="dashboard_stat_due_today">Heute fällig</string>
     <string name="dashboard_stat_inbox">In der Inbox</string>
+    <string name="dashboard_stat_overdue">Überfällig</string>
     <string name="dashboard_stat_due_tomorrow">Morgen fällig</string>
-    <string name="dashboard_stat_done_today">Heute erledigt</string>
     <string name="dashboard_today_card">Heute dran</string>
     <string name="dashboard_all_tasks">Alle Aufgaben</string>
     <string name="dashboard_nothing_today">Nichts für heute</string>
@@ -157,11 +174,14 @@
     <string name="todo_meta_done">Erledigt</string>
     <!-- Smart-/listenübergreifende Tabs (#255/#256) — von den Dashboard-Kacheln verlinkt -->
     <string name="todo_tab_all">Alle</string>
+    <string name="todo_tab_overdue">Überfällig</string>
     <string name="todo_tab_today">Heute</string>
     <string name="todo_tab_tomorrow">Morgen</string>
     <string name="todo_tab_done">Erledigt</string>
     <string name="todo_all_empty_title">Noch keine Aufgaben</string>
     <string name="todo_all_empty_hint">Lege Aufgaben in einer Liste oder der Inbox an.</string>
+    <string name="todo_overdue_empty_title">Nichts überfällig</string>
+    <string name="todo_overdue_empty_hint">Alles rechtzeitig erledigt.</string>
     <string name="todo_today_empty_title">Heute nichts fällig</string>
     <string name="todo_today_empty_hint">Keine offenen Aufgaben mit Fälligkeit heute.</string>
     <string name="todo_tomorrow_empty_title">Morgen nichts fällig</string>

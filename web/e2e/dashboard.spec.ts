@@ -40,7 +40,7 @@ test.describe('Dashboard (Heute)', () => {
   test('shows zeros and the empty states with no data', async ({ page }) => {
     await openDashboard(page, new MockApi())
 
-    for (const label of ['Heute fällig', 'In der Inbox', 'Morgen fällig', 'Heute erledigt']) {
+    for (const label of ['In der Inbox', 'Überfällig', 'Heute fällig', 'Morgen fällig']) {
       await expect(tile(page, label)).toHaveText('0')
     }
     await expect(page.getByText('Für heute nichts geplant')).toBeVisible()
@@ -65,8 +65,8 @@ test.describe('Dashboard (Heute)', () => {
 
     await expect(tile(page, 'Heute fällig')).toHaveText('1') // overdue stays out of this tile (#307)
     await expect(tile(page, 'In der Inbox')).toHaveText('2') // whole inbox, age-independent (#71)
+    await expect(tile(page, 'Überfällig')).toHaveText('1') // overdue has its own tile now
     await expect(tile(page, 'Morgen fällig')).toHaveText('1')
-    await expect(tile(page, 'Heute erledigt')).toHaveText('1')
 
     // "Heute dran" lists overdue + today's, overdue first and flagged "Überfällig" (#307)
     const card = page.locator('.hb-heute-grid > .hb-card').first()
@@ -149,7 +149,6 @@ test.describe('Dashboard (Heute)', () => {
     await openDashboard(page, mock)
 
     await expect(tile(page, 'Heute fällig')).toHaveText('1')
-    await expect(tile(page, 'Heute erledigt')).toHaveText('0')
 
     const row = page.locator('.hb-row', { hasText: 'Blumen gießen' })
     const requestPromise = page.waitForRequest((r) => r.url().includes('/api/v1/todos/t1') && r.method() === 'PUT')
@@ -161,7 +160,6 @@ test.describe('Dashboard (Heute)', () => {
     // the row leaves "Heute dran" immediately; the tiles follow
     await expect(page.getByText('Für heute nichts geplant')).toBeVisible()
     await expect(tile(page, 'Heute fällig')).toHaveText('0')
-    await expect(tile(page, 'Heute erledigt')).toHaveText('1')
   })
 
   test('shopping peek lists only open items and checks one off', async ({ page }) => {
@@ -293,15 +291,15 @@ test.describe('Dashboard (Heute)', () => {
     await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveClass(/is-active/)
 
     await back()
+    await page.locator('.hb-stat', { hasText: 'Überfällig' }).click()
+    await expect(page.getByRole('tab', { name: 'Überfällig' })).toHaveClass(/is-active/)
+
+    await back()
     await page.locator('.hb-stat', { hasText: 'Heute fällig' }).click()
     await expect(page.getByRole('tab', { name: 'Heute' })).toHaveClass(/is-active/)
 
     await back()
     await page.locator('.hb-stat', { hasText: 'Morgen fällig' }).click()
     await expect(page.getByRole('tab', { name: 'Morgen' })).toHaveClass(/is-active/)
-
-    await back()
-    await page.locator('.hb-stat', { hasText: 'Heute erledigt' }).click()
-    await expect(page.getByRole('tab', { name: 'Erledigt' })).toHaveClass(/is-active/)
   })
 })

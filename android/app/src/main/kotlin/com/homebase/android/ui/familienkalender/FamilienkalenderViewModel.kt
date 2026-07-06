@@ -2,8 +2,10 @@ package com.homebase.android.ui.familienkalender
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.homebase.android.BuildConfig
 import com.homebase.android.data.model.AbsenceDto
 import com.homebase.android.data.model.CalendarEventDto
+import com.homebase.android.data.model.CalendarFeedConfigResponse
 import com.homebase.android.data.model.KitaClosureDto
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.TodoDto
@@ -103,6 +105,22 @@ class FamilienkalenderViewModel(
 
     private val _uiState = MutableStateFlow(FamilienkalenderUiState(isLoading = true))
     val uiState: StateFlow<FamilienkalenderUiState> = _uiState.asStateFlow()
+
+    /**
+     * The caller's personal iCal subscription URL (#488), mirroring the web SubscribeModal. The JWT
+     * rides in the query string — calendar apps (Apple/Google) can set neither an Authorization
+     * header nor a WS subprotocol, so the backend accepts `?token=` here (same path as note images).
+     * BuildConfig.BASE_URL already ends with `…/api/v1/`; a JWT is URL-safe (base64url + dots), so no
+     * percent-encoding is needed. The token is personal — the UI warns not to share the link.
+     */
+    val feedUrl: String = BuildConfig.BASE_URL.trimEnd('/') + "/calendar.ics?token=" + token
+
+    /** Load the caller's feed category selection + the full available list (for the subscribe sheet). */
+    suspend fun loadFeedConfig(): Result<CalendarFeedConfigResponse> = repository.getCalendarFeedConfig()
+
+    /** Persist the caller's feed category selection (the full set; empty = nothing). */
+    suspend fun saveFeedConfig(sections: List<String>): Result<CalendarFeedConfigResponse> =
+        repository.updateCalendarFeedConfig(sections)
 
     // The currently in-flight load, cancelled when a newer one starts (rapid month nav / WS bursts).
     private var loadJob: Job? = null

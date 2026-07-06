@@ -242,7 +242,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
   const tomorrowIso = localDateIso(tomorrow)
-  const todayIso = localDateIso()
 
   // Stat tile stays due-today-only; the overdue items live in their own bucket (#307).
   const dueToday = todos.filter((x) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today')
@@ -254,7 +253,6 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const todayAndOverdue = [...overdue, ...dueToday]
   const dueTomorrow = todos.filter((x) => x.status !== 'DONE' && x.dueDate === tomorrowIso)
   const inboxCount = todos.filter((x) => x.status === 'INBOX').length
-  const doneToday = todos.filter((x) => x.status === 'DONE' && x.doneAt && localDateIso(new Date(x.doneAt)) === todayIso)
   const openShop = shopping.filter((s) => !s.checked)
   // own timer first, then the partner's
   const runningSorted = [...running].sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : 0))
@@ -288,10 +286,10 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
       ) : (
         <>
           <div className="hb-stats">
-            <StatTile value={dueToday.length} label={t('dashboard.statDueToday')} icon="calendar" onClick={() => onOpenTodos('today')} />
             <StatTile value={inboxCount} label={t('dashboard.statInbox')} icon="inbox" onClick={() => onOpenTodos('inbox')} />
+            <StatTile value={overdue.length} label={t('dashboard.statOverdue')} icon="flag" onClick={() => onOpenTodos('overdue')} />
+            <StatTile value={dueToday.length} label={t('dashboard.statDueToday')} icon="calendar" onClick={() => onOpenTodos('today')} />
             <StatTile value={dueTomorrow.length} label={t('dashboard.statDueTomorrow')} icon="clock" onClick={() => onOpenTodos('tomorrow')} />
-            <StatTile value={doneToday.length} label={t('dashboard.statDoneToday')} icon="checkCircle" onClick={() => onOpenTodos('done')} />
           </div>
 
           <div className="hb-heute-grid">
