@@ -8,6 +8,7 @@ import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Sheet, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
+import { CategoriesCard } from './settings/ShoppingCategoriesSettings'
 import { itemDisplayParts, splitQuantity } from './shoppingQuantity'
 import {
   BUILTIN_CATEGORIES,
@@ -87,6 +88,8 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [templateToast, setTemplateToast] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
   const [editItem, setEditItem] = useState<ShoppingItem | null>(null)
+  // Per-list category manager open (#412), for the active list's own set.
+  const [manageCats, setManageCats] = useState(false)
   // Durable queue of check-offs not yet acknowledged by the backend (offline-safe).
   const [pending, setPending] = useState<Record<string, PendingCheck>>(loadPending)
   const pendingRef = useRef(pending)
@@ -139,23 +142,28 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
 
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
 
-  // Preload the most-used items once for the quick-add autocomplete; filtered client-side as the
-  // user types (#389). Non-fatal — an empty list just means no suggestions are shown.
+  // Preload the most-used items for the quick-add autocomplete; filtered client-side as the user
+  // types (#389). Scoped to the active list (#412) so a list with its own categories gets its own
+  // scope's category mapping. Non-fatal — an empty list just means no suggestions are shown.
   const fetchSuggestions = useCallback(async () => {
-    const result = await safeFetch(token, `${API_BASE}/shopping/suggestions`)
+    const url = activeId ? `${API_BASE}/shopping/suggestions?listId=${activeId}` : `${API_BASE}/shopping/suggestions`
+    const result = await safeFetch(token, url)
     if (!result.ok || !result.res.ok) return
     setSuggestions((await result.res.json()) as ShoppingSuggestion[])
-  }, [token])
+  }, [token, activeId])
 
   useEffect(() => { void fetchSuggestions() }, [fetchSuggestions])
 
   // Editable category catalog (#411): managed under Settings; reloaded here on a category change so
-  // grouping headers + the "move to category" menu reflect edits/additions/deletions.
+  // grouping headers + the "move to category" menu reflect edits/additions/deletions. Scoped to the
+  // active list (#412): a list with `ownCategories` renders its own set (custom + shared „Sonstiges"),
+  // every other list the shared household catalog.
   const fetchCategories = useCallback(async () => {
-    const result = await safeFetch(token, `${API_BASE}/shopping/categories`)
+    const url = activeId ? `${API_BASE}/shopping/categories?listId=${activeId}` : `${API_BASE}/shopping/categories`
+    const result = await safeFetch(token, url)
     if (!result.ok || !result.res.ok) return
     setCategories((await result.res.json()) as ShoppingCategory[])
-  }, [token])
+  }, [token, activeId])
 
   useEffect(() => { void fetchCategories() }, [fetchCategories])
 
@@ -519,6 +527,33 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     }
   }
 
+  // Toggle whether the active list uses its OWN category set instead of the shared catalog (#412).
+  // Optimistic; on success refetch the scoped categories so the grouping headers update at once.
+  // Non-destructive either way — the backend keeps a list's custom categories when reverting.
+  const toggleOwnCategories = async (next: boolean) => {
+    if (!active) return
+    setLists((prev) => prev.map((l) => (l.id === active.id ? { ...l, ownCategories: next } : l)))
+    if (!next) setManageCats(false)
+    const result = await safeFetch(token, `${API_BASE}/shopping/lists/${active.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ownCategories: next }),
+    })
+    if (!result.ok) {
+      await fetchAll()
+      return flashError(errorText(null, t('shopping.listUpdateFailed')))
+    }
+    const { res } = result
+    if (res.status === 401) return onLogout()
+    if (!res.ok) {
+      await fetchAll()
+      return flashError(errorText(await errorCode(res), t('shopping.listUpdateFailed')))
+    }
+    const updated: ShoppingList = await res.json()
+    setLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))
+    void fetchCategories()
+  }
+
   const active = lists.find((l) => l.id === activeId) ?? null
   const itemsOf = (id: string) => items.filter((i) => i.listId === id)
   const openCount = (id: string) => itemsOf(id).filter((i) => !i.checked).length
@@ -803,12 +838,30 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
             </div>
           )}
 
-          {lists.length > 1 && (
-            <button className="hb-link hb-link--danger" style={{ marginTop: 26, display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
-              <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
-              {t('shopping.deleteListNamed', { name: active.name })}
-            </button>
-          )}
+          {/* Per-list options (#412): own category set + management, grouped with the delete action. */}
+          <div style={{ marginTop: 26, paddingTop: 18, borderTop: '1px solid var(--line)', display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+              <Checkbox checked={!!active.ownCategories} onChange={(v) => toggleOwnCategories(v)} />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div
+                  style={{ fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+                  onClick={() => toggleOwnCategories(!active.ownCategories)}
+                >
+                  {t('shopping.ownCategories')}
+                </div>
+                <div className="hb-muted" style={{ fontSize: 13 }}>{t('shopping.ownCategoriesHint')}</div>
+              </div>
+              {active.ownCategories && (
+                <Button size="sm" variant="ghost" icon="tag" onClick={() => setManageCats(true)}>{t('shopping.manageCategories')}</Button>
+              )}
+            </div>
+            {lists.length > 1 && (
+              <button className="hb-link hb-link--danger" style={{ display: 'block' }} onClick={() => setConfirmDeleteList(true)}>
+                <Icon name="trash" size={14} stroke={2} style={{ verticalAlign: '-2px', marginRight: 5 }} />
+                {t('shopping.deleteListNamed', { name: active.name })}
+              </button>
+            )}
+          </div>
         </>
       )}
 
@@ -833,6 +886,16 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       </Modal>
 
       {newListOpen && <NewListModal onClose={() => setNewListOpen(false)} onCreate={createList} />}
+
+      {manageCats && active?.ownCategories && (
+        <ListCategoriesSheet
+          token={token}
+          listId={active.id}
+          listName={active.name}
+          onLogout={onLogout}
+          onClose={() => setManageCats(false)}
+        />
+      )}
 
       {editItem && (
         <EditItemSheet
@@ -1182,6 +1245,64 @@ function IconPicker({
         </div>
       )}
     </Modal>
+  )
+}
+
+// Per-list category manager (#412): a Sheet reusing the Settings CategoriesCard, scoped to this list.
+// Only the list's OWN categories are editable here (custom rows); „Sonstiges" (the shared OTHER
+// fallback) stays managed household-wide under Settings and is never shown as editable.
+function ListCategoriesSheet({ token, listId, listName, onLogout, onClose }: {
+  token: string
+  listId: string
+  listName: string
+  onLogout: () => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [cats, setCats] = useState<ShoppingCategory[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchCats = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/shopping/categories?listId=${listId}`)
+    if (!result.ok) return notifyTransportError()
+    if (result.res.status === 401) return onLogout()
+    if (result.res.ok) setCats((await result.res.json()) as ShoppingCategory[])
+  }, [token, listId, onLogout])
+
+  useEffect(() => { void fetchCats().finally(() => setLoading(false)) }, [fetchCats])
+
+  // Live updates ride the shared "shopping" channel (a partner's edit) — refetch on the broadcast.
+  useWebSocket({ url: WS_URL, token }, (raw) => {
+    try {
+      if (JSON.parse(raw).type === 'SHOPPING_CATEGORY_CHANGED') void fetchCats()
+    } catch {
+      // ignore malformed frames
+    }
+  })
+
+  const own = cats.filter((c) => c.listId === listId)
+
+  return (
+    <Sheet open onClose={onClose} title={t('shopping.manageCategoriesTitle', { name: listName })} width={560}>
+      <CategoriesCard
+        token={token}
+        onLogout={onLogout}
+        categories={own}
+        loading={loading}
+        onChanged={fetchCats}
+        onError={setError}
+        listId={listId}
+        title={t('shopping.ownCategoriesCardTitle')}
+        hint={t('shopping.ownCategoriesCardHint')}
+      />
+      {error && (
+        <div className="hb-toast hb-toast--error" role="alert" style={{ marginTop: 12 }}>
+          <Icon name="x" size={18} stroke={2.4} />
+          {error}
+        </div>
+      )}
+    </Sheet>
   )
 }
 
