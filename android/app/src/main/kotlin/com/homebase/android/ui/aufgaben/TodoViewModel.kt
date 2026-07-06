@@ -615,7 +615,9 @@ class TodoViewModel(
         description = todo.description ?: "",
         assignees = todo.assignees,
         dueDate = todo.dueDate,
-        dueTime = todo.dueTime,
+        // Normalize exactly like the sheet's draft (parse → "HH:mm") so a legacy "HH:mm:ss" value can't
+        // make the baseline differ from an untouched draft and fire a phantom auto-save on open.
+        dueTime = if (todo.dueDate != null) Format.parseLocalTime(todo.dueTime)?.let { Format.hhmm(it) } else null,
         priority = todo.priority,
         recurrence = todo.recurrence,
         targetListId = null,

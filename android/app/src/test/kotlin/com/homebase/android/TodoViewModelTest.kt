@@ -863,6 +863,22 @@ class TodoViewModelTest {
     }
 
     @Test
+    fun `opening a todo whose dueTime is HH mm ss does not phantom-save`() = runTest {
+        // Legacy value with seconds; the sheet pushes the normalized "HH:mm" for the same time, so the
+        // baseline must normalize too (else opening alone would look dirty and auto-save — the fix).
+        val existing = todo(id = "1", title = "T", status = "PLANNED", dueDate = "2026-07-10").copy(dueTime = "14:30:00")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = "T", dueDate = "2026-07-10", dueTime = "14:30"), valid = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateTodo(any(), any()) }
+    }
+
+    @Test
     fun `createTodoFromDraft creates the todo with all fields (never auto-created)`() = runTest {
         coEvery { repository.getTodos() } returns Result.success(emptyList())
         val slot = slot<CreateTodoRequest>()
