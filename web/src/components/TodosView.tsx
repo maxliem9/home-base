@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from 'react'
+import { useState, useEffect, useCallback, useId, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
@@ -129,6 +129,51 @@ interface PlanDraft {
   recurrenceInterval: number
 }
 
+// Live auto-save in the plan sheet (edits persist automatically ~1s after the last change + on close;
+// parity with the notes editor and the Android edit sheet). Debounce window in ms.
+const PLAN_AUTOSAVE_DELAY = 900
+
+// The PUT body for a plan-sheet save (shared by the debounced save + the flush-on-close).
+// Conflict-avoidance (#265/#406/#409/#468): assignees/dueDate/listId are only sent when they differ
+// from the *Original baseline (rebased after each save), so an untouched field never clobbers a
+// concurrent partner edit; title/description/dueTime/priority/recurrence are always sent.
+function planBody(p: PlanDraft): Record<string, unknown> {
+  return {
+    // an assignee or due date makes it PLANNED; with neither it belongs in the INBOX
+    status: p.assignees.length > 0 || p.dueDate ? 'PLANNED' : 'INBOX',
+    title: p.title.trim(),
+    description: p.description.trim(),
+    assignees: sameAssignees(p.assignees, p.assigneesOriginal) ? undefined : p.assignees,
+    // #468: send '' (clear) only when there actually was a date at open time; a value sets it.
+    dueDate: p.dueDate || (p.dueDateOriginal ? '' : undefined),
+    // a time without a date is meaningless — force-clear it when the date is gone.
+    dueTime: p.dueDate ? p.dueTime : '',
+    priority: p.priority || undefined,
+    listId: p.listId !== p.listIdOriginal ? p.listId : undefined,
+    // freq "NONE" clears any existing rule; otherwise set/replace it
+    recurrence: p.recurrenceFreq ? { freq: p.recurrenceFreq, interval: p.recurrenceInterval } : { freq: 'NONE' },
+  }
+}
+
+// Fingerprint of the *editable* fields (excludes the *Original conflict baselines) — the dirty check
+// so the debounce never fires a redundant save. Assignees are order-insensitive (like sameAssignees).
+function planFingerprint(p: PlanDraft): string {
+  return JSON.stringify([
+    p.title,
+    p.description,
+    [...p.assignees].sort(),
+    p.dueDate,
+    p.dueTime,
+    p.priority,
+    p.listId,
+    p.recurrenceFreq,
+    p.recurrenceInterval,
+  ])
+}
+
+// A draft may be saved only with a non-blank title and — if it recurs — a due date as the anchor.
+const planValid = (p: PlanDraft): boolean => !!p.title.trim() && !(p.recurrenceFreq && !p.dueDate)
+
 // Optional planning fields the quick-add "Details" panel can carry on create. Each is omitted from
 // the POST when empty; an assignee or dueDate makes the backend create the todo as PLANNED.
 interface QuickAddExtra {
@@ -171,7 +216,18 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const [activeId, setActiveId] = useState<string | null>(initialFocus ? FOCUS_TO_ID[initialFocus] : loadActiveTab())
   const [submitting, setSubmitting] = useState(false)
   const [plan, setPlan] = useState<PlanDraft | null>(null)
-  // the live todo behind the open plan sheet — source of the read-only metadata block (#)
+  // Plan-sheet live auto-save (parity with the notes editor + Android edit sheet): a debounced save
+  // fires ~1s after the last edit and again on close. `planStatus` drives the footer chip; the refs
+  // let async callbacks (debounce / flush-on-close) read the latest draft and serialize saves.
+  const [planStatus, setPlanStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const planRef = useRef<PlanDraft | null>(null)
+  const planSavedRef = useRef<string | null>(null) // fingerprint last persisted (dirty check)
+  const planSavingRef = useRef(false) // serializes saves so two ticks can't double-PUT
+  const planTimer = useRef<ReturnType<typeof setTimeout>>()
+  // The latest draft stashed by closePlan when a save is already in flight — so the resolving save
+  // still drains the final keystroke after the sheet closed and planRef was nulled (close-race fix).
+  const planFlushRef = useRef<PlanDraft | null>(null)
+  // the live todo behind the open plan sheet — source of the read-only metadata block (#502)
   const planTodo = plan ? todos.find((x) => x.id === plan.id) ?? null : null
   // Per-field quick-edit popovers opened straight from a row: the due date/time only, or the
   // assignees only — a lighter path than the full plan sheet. Only the edited field is captured;
@@ -414,43 +470,78 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     }
   }
 
-  const handlePlan = async () => {
+  // Live auto-save for the plan sheet: PUT the current draft (dirty + valid only), rebase
+  // the conflict-avoidance baselines to what we saved, and — if the draft changed mid-PUT — persist the
+  // newer version (mirrors the Android save loop). Invoked via savePlanRef from the debounce + on close.
+  const savePlan = async (explicit?: PlanDraft) => {
+    const p = explicit ?? planRef.current
+    if (!p || planSavingRef.current || !planValid(p)) return
+    const fp = planFingerprint(p)
+    if (fp === planSavedRef.current) return // not dirty → no redundant save
+    planSavingRef.current = true
+    setPlanStatus('saving')
+    const ok = await patchTodo(p.id, planBody(p))
+    planSavingRef.current = false
+    if (!ok) return setPlanStatus('error') // toast already shown; keep the sheet open to retry
+    planSavedRef.current = fp
+    setPlanStatus('saved')
+    // Rebase the *Original baselines to the just-saved values so a later save doesn't re-send an
+    // unchanged field (and can't clobber a concurrent partner edit). Only the baselines change —
+    // never the user's in-progress editable values.
+    setPlan((cur) =>
+      cur && cur.id === p.id
+        ? { ...cur, assigneesOriginal: p.assignees, dueDateOriginal: p.dueDate, listIdOriginal: p.listId }
+        : cur,
+    )
+    // A keystroke that landed mid-PUT is still dirty → persist the newer version. The newest draft of
+    // THIS todo is either the live one (still editing) or the one stashed by closePlan (sheet closed
+    // mid-save) — pick whichever matches p.id so the last edit survives the close race. Settles once
+    // the draft stops changing.
+    const stashed = planFlushRef.current
+    planFlushRef.current = null
+    const now = [planRef.current, stashed].find((d): d is PlanDraft => !!d && d.id === p.id)
+    if (now && planFingerprint(now) !== fp) savePlan(now)
+  }
+
+  // Keep a live handle to the latest savePlan closure so the debounce / close (which subscribe only to
+  // `plan`) always call the current one without re-arming their timers every render.
+  const savePlanRef = useRef(savePlan)
+  useEffect(() => {
+    savePlanRef.current = savePlan
+  })
+  // Mirror the draft into a ref so async callbacks read the latest without re-subscribing.
+  useEffect(() => {
+    planRef.current = plan
+  }, [plan])
+  // Seed the dirty baseline + reset status when a different todo's sheet opens (not on every keystroke).
+  useEffect(() => {
     if (!plan) return
-    if (!plan.title.trim()) return
-    // a recurrence needs a due date as its schedule anchor (backend enforces this too)
-    if (plan.recurrenceFreq && !plan.dueDate) return
-    // assignee/due-date make it a PLANNED todo; a pure title/description edit leaves the
-    // status untouched (undefined = unchanged), so renaming an inbox todo doesn't silently plan it (#406)
-    const ok = await patchTodo(plan.id, {
-      // an assignee or due date makes it PLANNED; with neither it belongs in the INBOX (setting this
-      // explicitly lets the sheet clear the last anchor without tripping the backend's PLANNED rule).
-      status: plan.assignees.length > 0 || plan.dueDate ? 'PLANNED' : 'INBOX',
-      title: plan.title.trim(),
-      // sent every save (null = unchanged on the backend); a blank value clears it back to empty
-      description: plan.description.trim(),
-      // Assignees (V39): only sent when the set actually changed (else undefined = unchanged), so a
-      // pure title/date edit never clobbers a concurrent partner reassignment. [] clears all.
-      assignees: sameAssignees(plan.assignees, plan.assigneesOriginal) ? undefined : plan.assignees,
-      // #468: a value sets the date; an emptied field sends '' (= clear, #265 convention) but only
-      // when there actually was a date at open time — an untouched-empty field stays undefined
-      // (unchanged), so a pure title/description edit never clobbers a concurrent partner change.
-      dueDate: plan.dueDate || (plan.dueDateOriginal ? '' : undefined),
-      // sent every save: '' clears the time (#265), a value sets it. Force-clear when there's no
-      // date — a time without a date is meaningless and the backend would reject it. With a cleared
-      // date this also clears the time, so the row ends up with neither (#468).
-      dueTime: plan.dueDate ? plan.dueTime : '',
-      priority: plan.priority || undefined,
-      // List move (#409): only send when the pick differs from the list at open time,
-      // so an untouched picker never clobbers a concurrent partner move. Backend #265
-      // convention: '' clears the list (→ inbox), an id sets it, absent = unchanged.
-      listId: plan.listId !== plan.listIdOriginal ? plan.listId : undefined,
-      // freq "NONE" clears any existing rule; otherwise set/replace it
-      recurrence: plan.recurrenceFreq
-        ? { freq: plan.recurrenceFreq, interval: plan.recurrenceInterval }
-        : { freq: 'NONE' },
-    })
-    // keep the modal open on failure (toast shows the reason) so the user can retry
-    if (ok) setPlan(null)
+    planSavedRef.current = planFingerprint(plan)
+    planSavingRef.current = false
+    planFlushRef.current = null
+    setPlanStatus('idle')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan?.id])
+  // Debounced live save: ~900ms after the last edit (parity with the notes editor + Android sheet).
+  useEffect(() => {
+    if (!plan) return
+    clearTimeout(planTimer.current)
+    planTimer.current = setTimeout(() => savePlanRef.current(), PLAN_AUTOSAVE_DELAY)
+    return () => clearTimeout(planTimer.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan])
+
+  // Closing the sheet (✕ / outside / Esc / "Fertig") flushes a pending save, then closes. The PUT runs
+  // to completion even after the sheet is gone (patchTodo isn't tied to the sheet), so the last edit is
+  // never lost; a failure still surfaces via the toast.
+  const closePlan = () => {
+    clearTimeout(planTimer.current)
+    // If a save is already in flight, stash the latest draft so THAT save drains the final keystroke
+    // after we null the plan below; otherwise flush now. Either way the last edit is never lost.
+    if (planSavingRef.current) planFlushRef.current = planRef.current
+    else void savePlanRef.current()
+    setPlan(null)
+    setPlanStatus('idle')
   }
 
   // Quick-edit: save just the due date/time from the row popover. Recomputes status the same way the
@@ -945,17 +1036,27 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
 
       <Sheet
         open={!!plan}
-        onClose={() => setPlan(null)}
+        onClose={closePlan}
         title={t('todos.planTitle')}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setPlan(null)}>{t('common.cancel')}</Button>
-            <Button
-              onClick={handlePlan}
-              disabled={!plan || !plan.title.trim() || (!!plan.recurrenceFreq && !plan.dueDate)}
+            {/* Auto-save: no Save/Cancel — edits persist live. A status chip on the left, "Fertig" to close. */}
+            <span
+              className="hb-muted"
+              aria-live="polite"
+              style={{ marginRight: 'auto', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              {t('common.save')}
-            </Button>
+              {planStatus === 'saving' && t('todos.autosaveSaving')}
+              {planStatus === 'saved' && (
+                <>
+                  <Icon name="check" size={13} stroke={2.4} /> {t('todos.autosaveSaved')}
+                </>
+              )}
+              {planStatus === 'error' && (
+                <span style={{ color: 'var(--clay)' }}>{t('todos.autosaveError')}</span>
+              )}
+            </span>
+            <Button onClick={closePlan}>{t('todos.planDone')}</Button>
           </>
         }
       >

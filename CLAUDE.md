@@ -297,6 +297,20 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   im Inbox-Tab postet ohne `listId`; das Edit-Sheet bietet beim Planen
   listen-loser Todos eine Listen-Auswahl. Das frühere Catch-all-Verhalten des
   ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
+- **Edit-Sheet: Auto-Save beim Bearbeiten (live, wie der Notizen-Editor); Neuanlage explizit.**
+  Ein **bestehendes** Todo im Edit-Sheet hat **keinen** „Speichern"-Button mehr — Änderungen
+  persistieren automatisch (~1 s debounced nach der letzten Eingabe **plus** beim Schließen über
+  ✕/Scrim/Back). Die Orchestrierung liegt im **`TodoViewModel`** (nicht im Composable), damit ein
+  Save das Schließen des Sheets überlebt (analog `NotesViewModel`): `openTodoEditor`
+  (Baseline/Dirty-Check), `updateTodoDraft` (Debounce), `closeTodoEditor` (Flush + Editor leeren),
+  `discardTodoEditor` (Papierkorb = löscht das Todo). Saves sind **serialisiert** (`saveJob`-Loop).
+  Das Sheet schiebt pro Feldänderung einen normalisierten `TodoDraft`; ungültige Entwürfe (leerer
+  Titel / Wiederholung ohne Fälligkeit) speichern nicht. Status-Chip (Speichert…/Gespeichert) +
+  In-Sheet-Fehler; ein fehlgeschlagener Close-Save fällt auf den globalen Toast zurück.
+  **Neue Todos werden bewusst NICHT auto-angelegt:** das Erstell-Sheet hat „Abbrechen"/„Erstellen"
+  (Schließen/Back = verwerfen, nur der Button legt an — `createTodoFromDraft`, sendet **alle** Felder
+  inkl. Uhrzeit/Wiederholung). So spawnt ein „Titel tippen und zumachen" kein Geister-Todo. Web-Todos
+  haben denselben Ansatz (Edit-Panel auto-saved, Neuanlage per Quick-Add/Plan-Button).
 - Kein Hilt für MVP — manuelle DI reicht
 - **Compose-Layout-Falle (CI-Guard, #348):** In `Column { Box(weight=1f){…}; <bar> }` misst Compose
   das nicht-gewichtete Kind zuerst mit voller Höhe — nutzt es `fillMaxHeight()`/`fillMaxSize()`,

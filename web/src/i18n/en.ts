@@ -210,6 +210,12 @@ export const en: Messages = {
     titleLabel: 'Title',
     planList: 'List', // list picker in the plan sheet (all todos; move between lists #409)
     planListInbox: 'No list (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
+    // Live auto-save chip + close button in the plan sheet — edits persist automatically (parity with
+    // the notes editor and the Android edit sheet).
+    autosaveSaving: 'Saving…',
+    autosaveSaved: 'Saved',
+    autosaveError: 'Not saved',
+    planDone: 'Done',
     assignee: 'Assignee',
     assigneeNone: 'Nobody',
     // Provenance line in the expanded row panel + edit sheet

@@ -207,6 +207,12 @@ export const de = {
     titleLabel: 'Titel',
     planList: 'Liste', // list picker in the plan sheet (all todos; move between lists #409)
     planListInbox: 'Ohne Liste (Inbox)', // empty option of the plan-sheet list picker (#69/#409)
+    // Live auto-save chip + close button in the plan sheet — edits persist automatically (parity with
+    // the notes editor and the Android edit sheet).
+    autosaveSaving: 'Speichert…',
+    autosaveSaved: 'Gespeichert',
+    autosaveError: 'Nicht gespeichert',
+    planDone: 'Fertig',
     assignee: 'Zuständig',
     assigneeNone: 'Niemand',
     // Metadaten-Zeile (Provenienz) im ausgeklappten Row-Panel + Edit-Sheet

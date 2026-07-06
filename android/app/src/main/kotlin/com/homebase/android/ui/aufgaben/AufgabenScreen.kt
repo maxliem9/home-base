@@ -2,6 +2,7 @@
 
 package com.homebase.android.ui.aufgaben
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,7 +60,6 @@ import com.homebase.android.data.model.RecurrenceDto
 import com.homebase.android.data.model.SubtaskDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
-import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAvatarRow
@@ -317,17 +317,25 @@ fun AufgabenScreen(
 
         // Sheets — siblings of the scaffold, overlaying the whole screen.
         when (val s = sheet) {
-            is AufgabenSheet.Edit -> EditSheet(
-                todo = s.todo,
-                lists = state.lists,
-                householdUsers = householdUsers,
-                onDismiss = { sheet = null },
-                // suspend saves return null on success / the error message on failure, so the
-                // sheet stays open and shows the reason inline instead of silently reverting (#277)
-                onSaveCreate = { title -> viewModel.createTodo(title).exceptionOrNull()?.message },
-                onSaveEdit = { id, req, targetListId -> viewModel.saveTodo(id, req, targetListId).exceptionOrNull()?.message },
-                onDelete = { id -> viewModel.deleteTodo(id) },
-            )
+            is AufgabenSheet.Edit -> {
+                // Editing an existing todo auto-saves (VM-owned so it survives the sheet closing); a new
+                // todo (s.todo == null) is created only via the button, so no editor is opened for it.
+                val editor by viewModel.todoEditor.collectAsStateWithLifecycle()
+                LaunchedEffect(s) { s.todo?.let { viewModel.openTodoEditor(it) } }
+                EditSheet(
+                    todo = s.todo,
+                    lists = state.lists,
+                    householdUsers = householdUsers,
+                    onDismiss = { sheet = null },
+                    editor = if (s.todo != null) editor else null,
+                    onDraftChange = { draft, valid -> viewModel.updateTodoDraft(draft, valid) },
+                    onClose = { viewModel.closeTodoEditor(); sheet = null },
+                    onDiscard = { id -> viewModel.discardTodoEditor(id); sheet = null },
+                    // suspend create returns null on success / the error message on failure so the sheet
+                    // stays open and shows it inline (#277); new todos are created only here, never on close.
+                    onCreate = { draft -> viewModel.createTodoFromDraft(draft).exceptionOrNull()?.message },
+                )
+            }
             AufgabenSheet.NewList -> NewListSheet(
                 onDismiss = { sheet = null },
                 onCreate = { name, visibility -> viewModel.createList(name, visibility) },
@@ -852,11 +860,16 @@ private fun EditSheet(
     lists: List<TodoListDto>,
     householdUsers: List<String>,
     onDismiss: () -> Unit,
-    // Saves are suspending and return null on success / a user-facing error message on failure,
-    // so the sheet can stay open and surface the reason inline instead of silently reverting (#277).
-    onSaveCreate: suspend (String) -> String?,
-    onSaveEdit: suspend (String, UpdateTodoRequest, String?) -> String?,
-    onDelete: (String) -> Unit,
+    // EDIT (todo != null): live auto-save orchestrated in the ViewModel (survives the sheet closing).
+    // The sheet pushes a normalized draft on every change (onDraftChange, debounced VM-side), reads
+    // progress from [editor], flushes on leaving via onClose, and drops the todo via onDiscard (trash).
+    editor: TodoEditorState?,
+    onDraftChange: (TodoDraft, Boolean) -> Unit,
+    onClose: () -> Unit,
+    onDiscard: (String) -> Unit,
+    // CREATE (todo == null): explicit commit only — closing/back DISCARDS (a new todo is never
+    // auto-created). Returns null on success / a user-facing message on failure to show inline.
+    onCreate: suspend (TodoDraft) -> String?,
 ) {
     val isEdit = todo != null
     var title by remember { mutableStateOf(todo?.title ?: "") }
@@ -876,77 +889,84 @@ private fun EditSheet(
     // Liste (#77, wie der Web-Plan-Dialog). Null = „Bleibt in der Inbox".
     val showListPicker = isEdit && todo?.listId == null && lists.isNotEmpty()
     var targetListId by remember { mutableStateOf<String?>(null) }
-    // Save in flight + the last in-sheet save error (#277). On failure the sheet stays open and
-    // shows the message; only a successful save dismisses it (mirrors the web plan modal).
+    val valid = title.isNotBlank() && !recurrenceNeedsDue
+
+    // The normalized draft — pushed live to the VM while editing, or committed by the create button.
+    // A time without a date is dropped here too (kept consistent with the VM builders).
+    val draft = TodoDraft(
+        title = title,
+        description = description,
+        assignees = assignees,
+        dueDate = dueDate?.toString(),
+        dueTime = if (dueDate != null) dueTime?.let { Format.hhmm(it) } else null,
+        priority = priority,
+        recurrence = recurrenceFreq?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) },
+        targetListId = targetListId,
+    )
+
+    // create-only: explicit-commit in-flight guard + inline error (edit surfaces the VM's editor.error).
     val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
-    var saveError by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
+
+    // Editing auto-saves live; a new todo does NOT (it is created only via the button).
+    if (isEdit) {
+        LaunchedEffect(draft, valid) { onDraftChange(draft, valid) }
+    }
+
+    // Leaving an EDIT sheet auto-saves the last change then closes (pushing the draft synchronously
+    // first captures a fast "type then immediately close"). A CREATE sheet just discards on close — a
+    // new todo is never auto-created, only committed with the button.
+    fun leave() {
+        if (isEdit) {
+            onDraftChange(draft, valid)
+            onClose()
+        } else {
+            onDismiss()
+        }
+    }
+    // Back = leave the sheet. Without this Android back would pop the whole screen.
+    BackHandler(enabled = true) { leave() }
 
     HbBottomSheet(
-        onDismiss = onDismiss,
+        onDismiss = { leave() },
         title = if (isEdit) stringResource(R.string.todo_edit_title) else stringResource(R.string.todo_new_title),
         footer = {
             if (isEdit) {
+                // Edit auto-saves: no Save/Cancel — trash discards (deletes the todo) + a live status label.
                 HbButton(
                     text = "",
-                    onClick = {
-                        onDelete(todo!!.id)
-                        onDismiss()
-                    },
+                    onClick = { onDiscard(todo!!.id) },
                     variant = HbButtonVariant.Danger,
                     icon = HbIcons.trash,
                 )
-            }
-            Spacer(Modifier.weight(1f))
-            HbButton(text = stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
-            HbButton(
-                text = stringResource(R.string.action_save),
-                enabled = !recurrenceNeedsDue && !saving && title.isNotBlank(),
-                onClick = {
-                    if (title.isBlank() || saving) return@HbButton
-                    saving = true
-                    saveError = null
-                    scope.launch {
-                        val error = if (isEdit) {
-                            val dueIso = dueDate?.toString()
-                            val dueTimeStr = dueTime?.let { Format.hhmm(it) }
-                            onSaveEdit(
-                                todo!!.id,
-                                UpdateTodoRequest(
-                                    title = title.trim(),
-                                    description = description.ifBlank { "" },
-                                    // list analog of the #265 convention: [] clears all assignees,
-                                    // a non-empty list replaces the whole set (Moshi serializes the []).
-                                    assignees = assignees,
-                                    dueDate = dueIso ?: "",
-                                    // a time is meaningless without a date; "" clears it (and the
-                                    // backend also cascades it away when the date itself is cleared)
-                                    dueTime = if (dueIso != null) (dueTimeStr ?: "") else "",
-                                    priority = priority ?: "",
-                                    status = if (assignees.isNotEmpty() || dueIso != null) "PLANNED" else "INBOX",
-                                    // "NONE" clears any existing rule; otherwise set/replace it
-                                    recurrence = recurrenceFreq
-                                        ?.let { RecurrenceDto(it, intervalText.toIntOrNull()?.coerceIn(1, 1000) ?: 1) }
-                                        ?: RecurrenceDto("NONE"),
-                                ),
-                                // target list picked while planning (#77); null = stays in the inbox
-                                targetListId,
-                            )
-                        } else {
-                            onSaveCreate(title.trim())
+                Spacer(Modifier.weight(1f))
+                AutosaveStatusLabel(editor?.status ?: TodoSaveStatus.IDLE)
+            } else {
+                // New todo: explicit commit. Cancel/close discards; only "Erstellen" creates it.
+                Spacer(Modifier.weight(1f))
+                HbButton(text = stringResource(R.string.action_cancel), onClick = onDismiss, variant = HbButtonVariant.Secondary)
+                HbButton(
+                    text = stringResource(R.string.action_create),
+                    enabled = valid && !creating,
+                    onClick = {
+                        if (!valid || creating) return@HbButton
+                        creating = true
+                        createError = null
+                        scope.launch {
+                            val error = onCreate(draft)
+                            creating = false
+                            if (error == null) onDismiss() else createError = error
                         }
-                        saving = false
-                        // null = saved → close; otherwise keep the sheet open and show the reason
-                        if (error == null) onDismiss() else saveError = error
-                    }
-                },
-                variant = HbButtonVariant.Primary,
-            )
+                    },
+                    variant = HbButtonVariant.Primary,
+                )
+            }
         },
     ) {
-        // In-sheet save error (#277): stays until the next save attempt so the user sees why the
-        // save did not go through instead of the sheet closing on a stale value.
-        saveError?.let { msg ->
+        // In-sheet error (#277): the live auto-save (edit) or the explicit create failed. Stays until
+        // the next attempt succeeds, so the user sees why rather than assuming it saved.
+        (if (isEdit) editor?.error else createError)?.let { msg ->
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -1056,6 +1076,30 @@ private fun EditSheet(
         if (todo != null) {
             TaskMeta(todo, Modifier.padding(top = 2.dp))
         }
+    }
+}
+
+/**
+ * Muted live-save indicator in the edit sheet footer: "Speichert …" while a save is in flight,
+ * "Gespeichert" once it lands, nothing while idle/typing. Mirrors the notes editor's status chip.
+ */
+@Composable
+private fun AutosaveStatusLabel(status: TodoSaveStatus) {
+    when (status) {
+        TodoSaveStatus.SAVING -> Text(
+            stringResource(R.string.todo_autosave_saving),
+            style = HbType.small,
+            color = Hb.ink2,
+        )
+        TodoSaveStatus.SAVED -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            HbIcon(HbIcons.checkCircle, size = 15.dp, tint = Hb.ink2)
+            Text(stringResource(R.string.todo_autosave_saved), style = HbType.small, color = Hb.ink2)
+        }
+        // IDLE (typing/opening) shows nothing; ERROR is surfaced by the error box above the fields.
+        TodoSaveStatus.IDLE, TodoSaveStatus.ERROR -> {}
     }
 }
 

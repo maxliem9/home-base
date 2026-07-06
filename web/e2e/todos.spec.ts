@@ -151,7 +151,7 @@ test.describe('Todos', () => {
     const dialog = page.locator('.hb-sheet')
     // assignee is now a chip picker (names from /config) instead of a text field
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     // Still in the list, but now shows the assignee avatar instead of a Planen button.
     const row = page.locator('.hb-row', { hasText: 'Steuer machen' })
@@ -169,7 +169,7 @@ test.describe('Todos', () => {
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
     await dialog.locator('.hb-pick', { hasText: 'Lea' }).click()
     const put = page.waitForRequest((r) => /\/todos\/t1$/.test(r.url()) && r.method() === 'PUT')
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
     expect(JSON.parse((await put).postData() ?? '{}').assignees).toEqual(['max', 'lea'])
 
     // the row now stacks both avatars and no longer offers a Planen button
@@ -223,7 +223,7 @@ test.describe('Todos', () => {
     await dialog.locator('input[type="date"]').fill('2026-09-01')
     await expect(dialog.locator('input[type="time"]')).toBeEnabled()
     await dialog.locator('input[type="time"]').fill('09:30')
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the row's due badge appends the time after the date label
@@ -254,7 +254,7 @@ test.describe('Todos', () => {
 
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith('/todos/t1') && r.method() === 'PUT'),
-      dialog.getByRole('button', { name: 'Speichern' }).click(),
+      dialog.getByRole('button', { name: 'Fertig' }).click(),
     ])
     // '' clears the date (#265 convention); the time cascades to '' too
     expect(req.postDataJSON()).toMatchObject({ dueDate: '', dueTime: '' })
@@ -273,7 +273,7 @@ test.describe('Todos', () => {
     // priority is a chip row now (#407), not a dropdown
     await dialog.locator('.hb-pick', { hasText: 'Hoch' }).click()
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click() // assignee → save allowed
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the row shows the chosen priority label (PriorityDot withLabel)
@@ -289,7 +289,7 @@ test.describe('Todos', () => {
     await dialog.getByPlaceholder('Optionale Notiz …').fill('Belege sammeln')
     // planning still needs an assignee or due date — pick one so the save is allowed
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // the saved description renders in the row meta
@@ -304,7 +304,7 @@ test.describe('Todos', () => {
     const dialog = page.locator('.hb-sheet')
     // the title is editable in the sheet now; a title-only change needs no assignee/due date
     await dialog.getByLabel('Titel').fill('Steuererklärung abgeben')
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
     // row shows the new title; the old one is gone
@@ -614,7 +614,7 @@ test.describe('Inbox', () => {
     // inbox todos get an extra list picker in the plan sheet
     await dialog.getByLabel('Liste').selectOption({ label: 'Haushalt' })
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     // gone from the inbox …
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
@@ -690,7 +690,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
     await dialog.locator('.hb-pick', { hasText: 'Max' }).click()
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
 
     await expect(page.locator('.hb-row', { hasText: 'Fenster putzen' })).toHaveCount(0)
     await expect(inboxTab.locator('.hb-tab__count')).toHaveText('1')
@@ -713,7 +713,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     await expect(dialog.getByLabel('Liste')).toHaveValue('l1')
     await dialog.getByLabel('Liste').selectOption({ label: 'Garten' })
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
 
     // moved into Garten, gone from Haushalt
@@ -732,7 +732,7 @@ test.describe('Inbox', () => {
     const dialog = page.locator('.hb-sheet')
     // "Ohne Liste" clears the list assignment (sends '' → backend #265 clears it)
     await dialog.getByLabel('Liste').selectOption({ value: '' })
-    await dialog.getByRole('button', { name: 'Speichern' }).click()
+    await dialog.getByRole('button', { name: 'Fertig' }).click()
     await expect(page.locator('.hb-sheet')).toHaveCount(0)
 
     // gone from the Haushalt list, now list-less in the Inbox

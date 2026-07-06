@@ -190,6 +190,8 @@
     <string name="due_group_no_date">No date</string>
     <string name="todo_edit_title">Edit task</string>
     <string name="todo_new_title">New task</string>
+    <string name="todo_autosave_saving">Saving …</string>
+    <string name="todo_autosave_saved">Saved</string>
     <string name="todo_field_list">List</string>
     <string name="todo_stays_in_inbox">Stays in the inbox</string>
     <string name="todo_field_assignee">Assignee</string>
