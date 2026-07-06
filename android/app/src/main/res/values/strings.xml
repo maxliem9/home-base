@@ -178,6 +178,8 @@
     <string name="due_group_no_date">Ohne Datum</string>
     <string name="todo_edit_title">Aufgabe bearbeiten</string>
     <string name="todo_new_title">Neue Aufgabe</string>
+    <string name="todo_autosave_saving">Speichert …</string>
+    <string name="todo_autosave_saved">Gespeichert</string>
     <string name="todo_field_list">Liste</string>
     <string name="todo_stays_in_inbox">Bleibt in der Inbox</string>
     <string name="todo_field_assignee">Zuständig</string>

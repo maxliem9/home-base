@@ -3,6 +3,7 @@ package com.homebase.android.ui.aufgaben
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.CreateTodoRequest
+import com.homebase.android.data.model.RecurrenceDto
 import com.homebase.android.data.model.SubtaskDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
@@ -12,6 +13,8 @@ import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.ui.util.Format
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -188,6 +191,82 @@ internal fun isDoneShown(t: TodoDto, showAll: Boolean, windowDays: Int = DONE_WI
 internal fun doneLocalDate(doneAt: String?): LocalDate? =
     Format.parseInstant(doneAt)?.atZone(ZoneId.systemDefault())?.toLocalDate()
 
+// ---------------------------------------------------------------------------
+// Edit-sheet auto-save — orchestrated in the ViewModel (survives the sheet closing), mirroring the
+// notes editor. Editing an EXISTING todo pushes a normalized [TodoDraft] on every field change; the
+// ViewModel debounces + serializes the saves and reports progress via [TodoEditorState]. New todos are
+// created explicitly with the create button (see [createTodoFromDraft]) — never auto-created, so a
+// stray "type a title and close" never spawns a todo.
+// ---------------------------------------------------------------------------
+
+/** Debounce window for the edit sheet's live auto-save — matches the notes editor (~1s after the last change). */
+private const val TODO_AUTOSAVE_DEBOUNCE_MS = 1000L
+
+/** Live auto-save status shown in the edit sheet footer (parity with the notes editor). */
+enum class TodoSaveStatus { IDLE, SAVING, SAVED, ERROR }
+
+/**
+ * The full editable state of a todo, normalized to the shapes the backend expects. Value semantics
+ * (data class) drive the dirty check: the sheet only saves when the draft differs from what was last
+ * persisted. [targetListId] is the list a *list-less* todo is filed into while planning (#77); it is
+ * only honored on an update whose todo is still list-less (mirrors [TodoViewModel.saveTodo]).
+ */
+data class TodoDraft(
+    val title: String,
+    val description: String,
+    val assignees: List<String>,
+    /** ISO date ("yyyy-MM-dd") or null. */
+    val dueDate: String?,
+    /** "HH:mm" or null; only meaningful with a date. */
+    val dueTime: String?,
+    val priority: String?,
+    /** null = no recurrence rule. */
+    val recurrence: RecurrenceDto?,
+    val targetListId: String?,
+)
+
+/**
+ * Progress of the open edit sheet's live auto-save (EXISTING todos only — a new todo is created
+ * explicitly, never auto-saved). [id] is the todo being edited; [session] bumps once per open so the
+ * sheet can key state on it.
+ */
+data class TodoEditorState(
+    val id: String,
+    val status: TodoSaveStatus = TodoSaveStatus.IDLE,
+    val error: String? = null,
+    val session: Int = 0,
+)
+
+/** Build the create request from a draft (null/omit semantics: blank/empty ⇒ omitted, backend derives status). */
+internal fun TodoDraft.toCreateRequest(listId: String?): CreateTodoRequest = CreateTodoRequest(
+    title = title.trim(),
+    description = description.ifBlank { null },
+    assignees = assignees.ifEmpty { null },
+    dueDate = dueDate,
+    // a time is meaningless without a date
+    dueTime = if (dueDate != null) dueTime else null,
+    priority = priority,
+    recurrence = recurrence,
+    listId = listId,
+)
+
+/**
+ * Build the update request from a draft (#265/#429 convention: "" clears a field, a time without a
+ * date is dropped, status is derived from assignee/date, and a null recurrence clears the rule with
+ * freq "NONE"). Pure + top-level so it's unit-testable and matches the create mapping field-for-field.
+ */
+internal fun TodoDraft.toUpdateRequest(): UpdateTodoRequest = UpdateTodoRequest(
+    title = title.trim(),
+    description = description.ifBlank { "" },
+    // list analog of the #265 convention: [] clears all assignees, a non-empty list replaces the set.
+    assignees = assignees,
+    dueDate = dueDate ?: "",
+    dueTime = if (dueDate != null) (dueTime ?: "") else "",
+    priority = priority ?: "",
+    status = if (assignees.isNotEmpty() || dueDate != null) "PLANNED" else "INBOX",
+    recurrence = recurrence ?: RecurrenceDto("NONE"),
+)
+
 class TodoViewModel(
     private val repository: TodoRepository,
     private val configRepository: ConfigRepository,
@@ -196,6 +275,30 @@ class TodoViewModel(
 
     private val _uiState = MutableStateFlow(TodoUiState(isLoading = true))
     val uiState: StateFlow<TodoUiState> = _uiState.asStateFlow()
+
+    // --- Edit-sheet auto-save ---
+    private val _todoEditor = MutableStateFlow<TodoEditorState?>(null)
+    val todoEditor: StateFlow<TodoEditorState?> = _todoEditor.asStateFlow()
+
+    /** Debounce timer: cancelled + re-armed on each field change, fires the save after the quiet window. */
+    private var autosaveJob: Job? = null
+
+    /**
+     * The single in-flight save loop, or null/!isActive when idle. Saves are **serialized** through it:
+     * while it runs no second save starts (so a live create can't double-POST); when it finishes it
+     * re-checks the draft and saves again, so a keystroke that landed mid-save is still persisted.
+     */
+    private var saveJob: Job? = null
+
+    /** Latest pushed draft + whether it may be saved (blank title / recurrence-without-date ⇒ false). */
+    private var pendingDraft: TodoDraft? = null
+    private var pendingValid: Boolean = false
+
+    /** What is currently persisted on the server (dirty check). Null for a not-yet-created todo. */
+    private var savedSnapshot: TodoDraft? = null
+
+    /** Monotonic editor-session counter; bumped on each open. */
+    private var editorSession = 0
 
     init {
         load()
@@ -385,6 +488,138 @@ class TodoViewModel(
         return repository.updateTodo(id, effective)
             .onSuccess { upsertTodo(it) }
     }
+
+    // --- Edit-sheet auto-save (existing todos): open → live draft pushes → flush/close ---
+
+    /**
+     * Explicitly create a todo from the edit sheet's draft. New todos are **not** auto-saved (the user
+     * commits with the create button), so a stray "type a title and close" never spawns one. Full-field
+     * create incl. due time + recurrence; upserts on success. Deliberately does not set the global error
+     * — the create sheet surfaces the returned message inline (like [createTodo], #277/#288).
+     */
+    suspend fun createTodoFromDraft(draft: TodoDraft): Result<TodoDto> =
+        repository.createTodo(draft.toCreateRequest(_uiState.value.activeList?.id)).onSuccess { upsertTodo(it) }
+
+    /**
+     * Begin a live auto-save session for an existing [todo]. Seeds the dirty baseline to the loaded
+     * state, so opening alone never saves; the first keystroke is the first dirty change.
+     */
+    fun openTodoEditor(todo: TodoDto) {
+        autosaveJob?.cancel()
+        saveJob?.cancel()
+        pendingDraft = null
+        pendingValid = false
+        editorSession += 1
+        savedSnapshot = draftOf(todo)
+        _todoEditor.value = TodoEditorState(id = todo.id, session = editorSession)
+    }
+
+    /**
+     * Apply an edit-sheet field change and (re)arm the debounced auto-save. Each call cancels the
+     * pending timer and starts a fresh [TODO_AUTOSAVE_DEBOUNCE_MS] window, so we persist ~1s after the
+     * last change rather than on every keystroke. A no-op change (draft already saved) or an invalid
+     * draft (blank title / recurrence without a due date) clears the timer and saves nothing — the last
+     * valid save stays on the server.
+     */
+    fun updateTodoDraft(draft: TodoDraft, valid: Boolean) {
+        if (_todoEditor.value == null) return
+        pendingDraft = draft
+        pendingValid = valid
+        autosaveJob?.cancel()
+        if (!valid || !isDirty(draft)) return
+        // clear a stale "Gespeichert" as soon as a new edit lands
+        if (_todoEditor.value?.status == TodoSaveStatus.SAVED) setEditorStatus(TodoSaveStatus.IDLE)
+        autosaveJob = viewModelScope.launch {
+            delay(TODO_AUTOSAVE_DEBOUNCE_MS)
+            requestTodoSave()
+        }
+    }
+
+    /**
+     * Flush the pending draft immediately (no debounce), then clear the editor — called when the sheet
+     * closes via ✕/scrim/back, so the last change is never lost between the final keystroke and the
+     * debounce. Runs in the ViewModel scope so it outlives the sheet's composition; a close-save that
+     * fails surfaces via the global toast (the in-sheet marker is already gone).
+     */
+    fun closeTodoEditor() {
+        autosaveJob?.cancel()
+        viewModelScope.launch {
+            requestTodoSave()
+            saveJob?.join()
+            if (_todoEditor.value?.status == TodoSaveStatus.ERROR) {
+                _uiState.update { it.copy(error = _todoEditor.value?.error) }
+            }
+            _todoEditor.value = null
+            pendingDraft = null
+            savedSnapshot = null
+        }
+    }
+
+    /**
+     * Discard the edit session without saving (the trash action): deletes an already-created todo
+     * ([id] non-null) or just drops a not-yet-created draft. Cancels any in-flight/pending save.
+     */
+    fun discardTodoEditor(id: String?) {
+        autosaveJob?.cancel()
+        saveJob?.cancel()
+        pendingDraft = null
+        savedSnapshot = null
+        _todoEditor.value = null
+        if (id != null) deleteTodo(id)
+    }
+
+    /** Whether [draft] differs from what's persisted (no snapshot yet ⇒ a brand-new todo is always dirty). */
+    private fun isDirty(draft: TodoDraft): Boolean = savedSnapshot?.let { it != draft } ?: true
+
+    private fun setEditorStatus(status: TodoSaveStatus, error: String? = null) =
+        _todoEditor.update { it?.copy(status = status, error = error) }
+
+    /**
+     * Start the serialized save loop if it isn't already running. A running loop re-checks the draft
+     * when it finishes a request, so we never start a second concurrent save (no duplicate create) yet
+     * never drop a mid-save edit either.
+     */
+    private fun requestTodoSave() {
+        if (saveJob?.isActive == true) return
+        saveJob = viewModelScope.launch {
+            while (true) {
+                val draft = pendingDraft ?: break
+                if (!pendingValid || !isDirty(draft)) break
+                val ok = saveTodoOnce(draft)
+                if (!ok) break
+            }
+        }
+    }
+
+    /** Persist [draft] once (update — new todos are created explicitly, not through this loop). */
+    private suspend fun saveTodoOnce(draft: TodoDraft): Boolean {
+        val editor = _todoEditor.value ?: return false
+        setEditorStatus(TodoSaveStatus.SAVING)
+        // reuse saveTodo for the list-less filing guard (#77) + upsert
+        return saveTodo(editor.id, draft.toUpdateRequest(), draft.targetListId).fold(
+            onSuccess = {
+                savedSnapshot = draft
+                setEditorStatus(TodoSaveStatus.SAVED)
+                true
+            },
+            onFailure = { e ->
+                setEditorStatus(TodoSaveStatus.ERROR, e.message)
+                false
+            },
+        )
+    }
+
+    /** The todo's loaded server state as a draft — the dirty baseline for an existing todo. */
+    private fun draftOf(todo: TodoDto): TodoDraft = TodoDraft(
+        title = todo.title,
+        description = todo.description ?: "",
+        assignees = todo.assignees,
+        dueDate = todo.dueDate,
+        dueTime = todo.dueTime,
+        priority = todo.priority,
+        recurrence = todo.recurrence,
+        targetListId = null,
+    )
 
     /** Toggle a todo between DONE and open (PLANNED when it has a plan, else INBOX). */
     fun toggleDone(todo: TodoDto) {

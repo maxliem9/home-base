@@ -1,10 +1,15 @@
 package com.homebase.android
 
 import com.homebase.android.data.model.CreateTodoRequest
+import com.homebase.android.data.model.RecurrenceDto
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.model.DoneWindowConfigResponse
+import com.homebase.android.ui.aufgaben.TodoDraft
+import com.homebase.android.ui.aufgaben.TodoSaveStatus
+import com.homebase.android.ui.aufgaben.toCreateRequest
+import com.homebase.android.ui.aufgaben.toUpdateRequest
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
@@ -775,5 +780,141 @@ class TodoViewModelTest {
         assertFalse(s.inboxActive)
         assertEquals(TodosFocus.TODAY, s.smartTab)
         assertEquals(listOf("t"), s.visibleTodos.map { it.id })
+    }
+
+    // --- Edit-sheet auto-save -------------------------------------------------------------
+
+    private fun draft(
+        title: String = "A",
+        description: String = "",
+        assignees: List<String> = emptyList(),
+        dueDate: String? = null,
+        dueTime: String? = null,
+        priority: String? = null,
+        recurrence: RecurrenceDto? = null,
+        targetListId: String? = null,
+    ) = TodoDraft(title, description, assignees, dueDate, dueTime, priority, recurrence, targetListId)
+
+    @Test
+    fun `toCreateRequest omits blank and empty fields`() {
+        val req = draft(title = "  Buy milk  ").toCreateRequest(listId = null)
+        assertEquals("Buy milk", req.title)
+        assertNull(req.description)
+        assertNull(req.assignees)
+        assertNull(req.dueDate)
+        assertNull(req.recurrence)
+    }
+
+    @Test
+    fun `toUpdateRequest clears missing fields and derives status`() {
+        // A date but no explicit assignees ⇒ PLANNED; no recurrence ⇒ freq NONE; blank desc ⇒ "".
+        val planned = draft(title = "T", dueDate = "2026-07-10").toUpdateRequest()
+        assertEquals("PLANNED", planned.status)
+        assertEquals("2026-07-10", planned.dueDate)
+        assertEquals("", planned.description)
+        assertEquals("NONE", planned.recurrence?.freq)
+
+        // No assignees, no date ⇒ INBOX; a time is dropped without a date.
+        val inbox = draft(title = "T", dueTime = "07:30").toUpdateRequest()
+        assertEquals("INBOX", inbox.status)
+        assertEquals("", inbox.dueDate)
+        assertEquals("", inbox.dueTime)
+    }
+
+    @Test
+    fun `editing an existing todo auto-saves after the debounce`() = runTest {
+        val existing = todo(id = "1", title = "Old", status = "INBOX")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val slot = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers {
+            Result.success(existing.copy(title = slot.captured.title ?: existing.title))
+        }
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openTodoEditor(existing)
+        // an unchanged push must NOT save
+        vm.updateTodoDraft(draft(title = "Old"), valid = true)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { repository.updateTodo(any(), any()) }
+
+        // a changed title auto-saves once the debounce elapses
+        vm.updateTodoDraft(draft(title = "New"), valid = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.updateTodo("1", any()) }
+        assertEquals("New", slot.captured.title)
+        assertEquals(TodoSaveStatus.SAVED, vm.todoEditor.value?.status)
+    }
+
+    @Test
+    fun `editing to a blank title holds the auto-save`() = runTest {
+        val existing = todo(id = "1", title = "Old", status = "INBOX")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openTodoEditor(existing)
+        // an invalid draft (blank title) must never be persisted
+        vm.updateTodoDraft(draft(title = "   "), valid = false)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { repository.updateTodo(any(), any()) }
+    }
+
+    @Test
+    fun `createTodoFromDraft creates the todo with all fields (never auto-created)`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        val slot = slot<CreateTodoRequest>()
+        coEvery { repository.createTodo(capture(slot)) } answers {
+            Result.success(todo(id = "c1", title = slot.captured.title))
+        }
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // opening the sheet for a new todo does NOT touch the repository — only the explicit commit does
+        val result = vm.createTodoFromDraft(
+            draft(title = "Fresh", description = "d", dueDate = "2026-07-10", recurrence = RecurrenceDto("WEEKLY", 2)),
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals("Fresh", slot.captured.title)
+        assertEquals("d", slot.captured.description)
+        assertEquals("2026-07-10", slot.captured.dueDate)
+        assertEquals("WEEKLY", slot.captured.recurrence?.freq)
+        assertEquals(listOf("c1"), vm.uiState.value.todos.map { it.id }) // upserted into the list
+    }
+
+    @Test
+    fun `closeTodoEditor flushes the last edit without waiting for the debounce`() = runTest {
+        val existing = todo(id = "e1", title = "Old", status = "INBOX")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.updateTodo(eq("e1"), any()) } returns Result.success(existing.copy(title = "New"))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = "New"), valid = true)
+        // close BEFORE advancing past the debounce window — the flush must still persist the edit
+        vm.closeTodoEditor()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.updateTodo("e1", any()) }
+        assertNull(vm.todoEditor.value) // editor cleared after the flush
+    }
+
+    @Test
+    fun `discardTodoEditor deletes an already-created todo`() = runTest {
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.deleteTodo("x1") } returns Result.success(Unit)
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openTodoEditor(todo(id = "x1"))
+        vm.discardTodoEditor("x1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.deleteTodo("x1") }
+        assertNull(vm.todoEditor.value)
     }
 }
