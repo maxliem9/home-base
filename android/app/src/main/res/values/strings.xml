@@ -252,6 +252,13 @@
     <string name="shopping_new_list_title">Neue Liste</string>
     <string name="shopping_list_name_placeholder">z. B. Drogerie</string>
     <string name="shopping_lists_shared_hint">Alle Einkaufslisten sind geteilt.</string>
+    <!-- Eigene Kategorien pro Liste (#412) -->
+    <string name="shopping_own_categories">Eigene Kategorien für diese Liste</string>
+    <string name="shopping_own_categories_hint">Statt der geteilten Haushalts-Kategorien bekommt diese Liste ihren eigenen Satz — praktisch für z. B. Baumarkt.</string>
+    <string name="shopping_manage_categories">Kategorien verwalten</string>
+    <string name="shopping_manage_categories_title">Kategorien: %1$s</string>
+    <string name="shopping_own_categories_card_title">Eigene Kategorien</string>
+    <string name="shopping_own_categories_card_hint">Nur für diese Liste. Nicht zugeordnete Artikel landen in „Sonstiges".</string>
     <string name="shopping_add_item_title">Artikel</string>
     <string name="shopping_item_name_placeholder">z. B. Tomaten</string>
     <plurals name="shopping_sync_banner">

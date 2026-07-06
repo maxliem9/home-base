@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
+import com.homebase.android.data.model.ShoppingCategoryDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.ShoppingSuggestion
@@ -60,7 +61,9 @@ import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
+import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.settings.CategoriesCard
 import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbEmpty
@@ -94,6 +97,7 @@ fun ShoppingScreen(
     var addItemText by remember { mutableStateOf("") }
     var showNewListSheet by remember { mutableStateOf(false) }
     var showAddItemSheet by remember { mutableStateOf(false) }
+    var showManageCats by remember { mutableStateOf(false) } // per-list category manager (#412)
     var editingItem by remember { mutableStateOf<ShoppingItemDto?>(null) }
     // Template flows (#215): the list/manage sheet, an in-flight create-or-edit form, an apply
     // selection sheet (for a chosen template), a pending delete confirm, and the add-result toast.
@@ -236,6 +240,20 @@ fun ShoppingScreen(
                         }
                     }
                 }
+
+                // Per-list options (#412): own-category toggle + manager, at the foot of the list.
+                state.activeList?.let { active ->
+                    Spacer(Modifier.size(28.dp))
+                    OwnCategoriesFooter(
+                        on = active.ownCategories,
+                        onToggle = { viewModel.toggleOwnCategories(it) },
+                        onManage = {
+                            viewModel.loadManageCategories()
+                            showManageCats = true
+                        },
+                    )
+                    Spacer(Modifier.size(12.dp))
+                }
             }
         }
 
@@ -267,6 +285,19 @@ fun ShoppingScreen(
                     viewModel.updateItemDetails(item, name, quantity, note)
                     editingItem = null
                 },
+            )
+        }
+
+        // Per-list category manager (#412): reuses the Settings CategoriesCard, scoped to this list.
+        val activeForManage = state.activeList
+        if (showManageCats && activeForManage != null && activeForManage.ownCategories) {
+            ManageCategoriesSheet(
+                listName = activeForManage.name,
+                categories = state.manageCategories,
+                onSave = { key, label, emoji -> viewModel.saveManageCategory(key, label, emoji) },
+                onDelete = { viewModel.deleteManageCategory(it) },
+                onMove = { index, dir -> viewModel.moveManageCategory(index, dir) },
+                onDismiss = { showManageCats = false },
             )
         }
 
@@ -806,6 +837,78 @@ private fun SyncBanner(count: Int, onRetry: () -> Unit) {
 // ---------------------------------------------------------------------------
 // Sheets
 // ---------------------------------------------------------------------------
+
+// Per-list own-categories footer (#412): a small on/off toggle + label + "manage" button, mirroring
+// the web ShoppingView footer. Shown under the item list for the active list.
+@Composable
+private fun OwnCategoriesFooter(on: Boolean, onToggle: (Boolean) -> Unit, onManage: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        OwnCategoriesToggle(on = on, onClick = { onToggle(!on) })
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(stringResource(R.string.shopping_own_categories), style = HbType.rowTitle, color = Hb.ink)
+            Text(
+                stringResource(R.string.shopping_own_categories_hint),
+                style = HbType.small.copy(fontSize = 12.5.sp),
+                color = Hb.ink3,
+            )
+        }
+        if (on) {
+            HbButton(
+                stringResource(R.string.shopping_manage_categories),
+                onClick = onManage,
+                variant = HbButtonVariant.Secondary,
+                size = HbButtonSize.Sm,
+            )
+        }
+    }
+}
+
+/** Small pill on/off toggle (mirrors the Abwesenheit ToggleSwitch) for the own-categories switch. */
+@Composable
+private fun OwnCategoriesToggle(on: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(width = 46.dp, height = 27.dp)
+            .clip(HbPill)
+            .background(if (on) Hb.accent else Hb.surface3)
+            .clickable { onClick() }
+            .padding(3.dp),
+        contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Box(Modifier.size(21.dp).clip(HbPill).background(Color.White))
+    }
+}
+
+// Per-list "Kategorien verwalten" sheet (#412): reuses the Settings CategoriesCard, scoped to the
+// active list's own set. „Sonstiges" (shared OTHER) is managed household-wide and not shown here.
+@Composable
+private fun ManageCategoriesSheet(
+    listName: String,
+    categories: List<ShoppingCategoryDto>,
+    onSave: (String?, String, String) -> Unit,
+    onDelete: (String) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.shopping_manage_categories_title, listName),
+    ) {
+        CategoriesCard(
+            categories = categories,
+            loading = false,
+            onSave = onSave,
+            onDelete = onDelete,
+            onMove = onMove,
+            title = stringResource(R.string.shopping_own_categories_card_title),
+            hint = stringResource(R.string.shopping_own_categories_card_hint),
+        )
+    }
+}
 
 @Composable
 private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {

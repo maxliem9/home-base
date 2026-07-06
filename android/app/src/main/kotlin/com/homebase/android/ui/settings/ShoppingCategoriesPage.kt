@@ -113,28 +113,35 @@ internal fun ShoppingCategoriesPage(viewModel: ShoppingCategoriesViewModel, onBa
 /** Draft for the inline add/edit category form. `key == null` → add; else edit. */
 private data class CategoryDraft(val key: String?, val label: String, val emoji: String)
 
+// internal so the per-list "Kategorien verwalten" sheet (#412, shopping screen) reuses this exact card.
+// [title]/[hint] override the settings-page copy for the per-list context.
 @Composable
-private fun CategoriesCard(
+internal fun CategoriesCard(
     categories: List<ShoppingCategoryDto>,
     loading: Boolean,
     onSave: (key: String?, label: String, emoji: String) -> Unit,
     onDelete: (key: String) -> Unit,
     onMove: (index: Int, dir: Int) -> Unit,
+    title: String? = null,
+    hint: String? = null,
 ) {
     var draft by remember { mutableStateOf<CategoryDraft?>(null) }
     var confirmDelete by remember { mutableStateOf<ShoppingCategoryDto?>(null) }
+    // Resolve defaults unconditionally (Compose requires stable @Composable call counts).
+    val titleText = title ?: stringResource(R.string.settings_shopping_cats_title)
+    val hintText = hint ?: stringResource(R.string.settings_shopping_cats_hint)
 
     HbCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        stringResource(R.string.settings_shopping_cats_title),
+                        titleText,
                         style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                         color = Hb.ink,
                     )
                     Text(
-                        stringResource(R.string.settings_shopping_cats_hint),
+                        hintText,
                         style = HbType.small.copy(fontSize = 12.5.sp),
                         color = Hb.ink3,
                     )

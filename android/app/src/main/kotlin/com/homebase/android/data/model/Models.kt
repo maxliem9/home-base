@@ -287,13 +287,20 @@ data class ShoppingListDto(
     val name: String,
     val createdBy: String,
     val createdAt: String,
+    // Per-list category set (#412): true = this list uses its own categories (managed inline on the
+    // list) instead of the shared household catalog. Omitted by the backend when false → defaults false.
+    val ownCategories: Boolean = false,
 )
 
 @JsonClass(generateAdapter = true)
-data class CreateShoppingListRequest(val name: String)
+data class CreateShoppingListRequest(val name: String, val ownCategories: Boolean = false)
 
 @JsonClass(generateAdapter = true)
-data class UpdateShoppingListRequest(val name: String? = null)
+data class UpdateShoppingListRequest(
+    val name: String? = null,
+    // #412: null = unchanged; flip between the list's own set and the shared catalog (lossless).
+    val ownCategories: Boolean? = null,
+)
 
 @JsonClass(generateAdapter = true)
 data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
@@ -375,6 +382,8 @@ data class ShoppingCategoryDto(
     val emoji: String,
     val sortOrder: Int,
     val isBuiltin: Boolean,
+    // Scope (#412): null = shared household catalog; a list id = that list's own category.
+    val listId: String? = null,
 )
 
 /** Create a category: label + emoji (both required); sortOrder optional (appended when omitted). */

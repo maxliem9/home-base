@@ -2,12 +2,15 @@ package com.homebase.android.ui.shopping
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.homebase.android.data.model.ShoppingCategoryDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.model.UpdateShoppingCategoryRequest
 import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
+import com.homebase.android.data.model.UpdateShoppingListRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.shopping.FlushDecision
 import com.homebase.android.data.shopping.PendingCheck
@@ -47,6 +50,11 @@ data class ShoppingUiState(
      * catalog; reloaded on the shopping WS `CategoryChanged` event.
      */
     val categories: List<GroceryCategory> = BUILTIN_CATEGORIES,
+    /**
+     * The active list's OWN categories (#412), as full DTOs, for the "Kategorien verwalten" sheet —
+     * excludes the shared „Sonstiges" (OTHER). Loaded when the sheet opens; empty otherwise.
+     */
+    val manageCategories: List<ShoppingCategoryDto> = emptyList(),
     /** List vs. tile rendering (#446); persisted across launches, tiles by default (web parity). */
     val tileView: Boolean = true,
 ) {
@@ -148,10 +156,8 @@ class ShoppingViewModel(
     private var backstopJob: Job? = null
 
     init {
-        load()
+        load() // reload() scopes categories + suggestions to the active list once lists are in (#412)
         loadTemplates()
-        loadSuggestions()
-        loadCategories()
         observeWebSocket()
         observeConnectivity(networkAvailable)
         // Restore the persisted list/tile view choice off-main (#446). A toggle made before this IO
@@ -231,6 +237,9 @@ class ShoppingViewModel(
         // land. Compare against the freshly fetched ids, not stale local state.
         val goneIds = queue.entries.keys.filter { id -> serverItems.none { it.id == id } }
         if (goneIds.isNotEmpty()) dequeueAll(goneIds)
+        // Re-scope the grouping catalog too (#412): a partner may have edited categories or flipped a
+        // list's own-categories while our socket was dead (missed the CategoryChanged/ListUpdated frame).
+        loadCategories()
         migrateListlessItems()
     }
 
@@ -249,6 +258,9 @@ class ShoppingViewModel(
                 error = error,
             )
         }
+        // lists are now in state → scope the grouping catalog + suggestions to the active list (#412)
+        loadCategories()
+        loadSuggestions()
         migrateListlessItems()
     }
 
@@ -284,7 +296,91 @@ class ShoppingViewModel(
         }
     }
 
-    fun selectList(id: String?) = _uiState.update { it.copy(activeListId = id) }
+    fun selectList(id: String?) {
+        _uiState.update { it.copy(activeListId = id) }
+        // The active list changed → its category scope may differ (#412); refetch grouping + suggestions.
+        loadCategories()
+        loadSuggestions()
+    }
+
+    /**
+     * Toggle whether the active list uses its OWN category set instead of the shared catalog (#412).
+     * Optimistic; on success refetch the scoped categories so the grouping updates at once. Either way
+     * non-destructive — the backend keeps a list's custom categories when reverting.
+     */
+    fun toggleOwnCategories(next: Boolean) {
+        val list = _uiState.value.activeList ?: return
+        _uiState.update { s -> s.copy(lists = s.lists.map { if (it.id == list.id) it.copy(ownCategories = next) else it }) }
+        viewModelScope.launch {
+            repository.updateList(list.id, UpdateShoppingListRequest(ownCategories = next))
+                .onSuccess { updated ->
+                    upsertList(updated)
+                    loadCategories()
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = e.message) }
+                    syncFromServer()
+                }
+        }
+    }
+
+    // --- Per-list category management (#412), for the "Kategorien verwalten" sheet -----------------
+    // Scoped to the active list's OWN set (its custom rows; the shared „Sonstiges" is managed
+    // household-wide under Settings and stays out of this editor). Mutations refetch the sheet's list
+    // AND the grouping catalog so the shopping view updates at once.
+
+    /** Fetch the active list's own categories into [ShoppingUiState.manageCategories] (sheet open). */
+    fun loadManageCategories() {
+        val listId = _uiState.value.activeList?.id ?: return
+        viewModelScope.launch {
+            repository.getCategories(listId).onSuccess { cats ->
+                _uiState.update { it.copy(manageCategories = cats.filter { c -> c.listId == listId }) }
+            }
+        }
+    }
+
+    /** Create (key == null) or rename/re-emoji (key set) a category in the active list's own set. */
+    fun saveManageCategory(key: String?, label: String, emoji: String) {
+        if (label.isBlank()) return
+        val listId = _uiState.value.activeList?.id ?: return
+        val safeEmoji = emoji.trim().ifBlank { DEFAULT_ITEM_ICON }
+        viewModelScope.launch {
+            val result = if (key != null) {
+                repository.updateCategory(key, UpdateShoppingCategoryRequest(label = label.trim(), emoji = safeEmoji))
+            } else {
+                repository.createCategory(label = label.trim(), emoji = safeEmoji, listId = listId)
+            }
+            result.onSuccess { afterManageChange() }.onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun deleteManageCategory(key: String) {
+        viewModelScope.launch {
+            repository.deleteCategory(key)
+                .onSuccess { afterManageChange() }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    /** Reorder within the active list's own set by swapping sortOrder with the neighbour (PUT both). */
+    fun moveManageCategory(index: Int, dir: Int) {
+        val cats = _uiState.value.manageCategories
+        val a = cats.getOrNull(index) ?: return
+        val b = cats.getOrNull(index + dir) ?: return
+        viewModelScope.launch {
+            val ra = repository.updateCategory(a.key, UpdateShoppingCategoryRequest(sortOrder = b.sortOrder))
+            val rb = repository.updateCategory(b.key, UpdateShoppingCategoryRequest(sortOrder = a.sortOrder))
+            val error = ra.exceptionOrNull()?.message ?: rb.exceptionOrNull()?.message
+            if (error != null) _uiState.update { it.copy(error = error) }
+            afterManageChange()
+        }
+    }
+
+    /** Refetch the sheet's own-category list and the grouping catalog after a per-list category edit. */
+    private fun afterManageChange() {
+        loadManageCategories()
+        loadCategories()
+    }
 
     /** Set once the user toggles the view, so the async prefs restore can't clobber their choice. */
     private var viewChosenByUser = false
@@ -332,22 +428,25 @@ class ShoppingViewModel(
         }
     }
 
-    /** Preload the "most used" autocomplete suggestions (#389); non-fatal — empty just shows none. */
+    /** Preload the "most used" autocomplete suggestions (#389), scoped to the active list's category
+     *  set (#412). Non-fatal — empty just shows none. */
     private fun loadSuggestions() {
         viewModelScope.launch {
-            repository.getSuggestions().onSuccess { s -> _uiState.update { it.copy(suggestions = s) } }
+            repository.getSuggestions(_uiState.value.activeList?.id)
+                .onSuccess { s -> _uiState.update { it.copy(suggestions = s) } }
         }
     }
 
     /**
-     * Fetch the editable category catalog (#411) into [ShoppingUiState.categories]; called on init and
-     * on every shopping WS `CategoryChanged` event. Non-fatal: on failure the state keeps its current
-     * catalog (the [BUILTIN_CATEGORIES] fallback on first load), so grouping/the move-menu still work
-     * offline — it just won't show a partner's custom categories until the fetch succeeds.
+     * Fetch the category catalog into [ShoppingUiState.categories]; called after a (re)load, on list
+     * switch, and on every shopping WS `CategoryChanged` event. Scoped to the active list (#412): a
+     * list with its own categories groups by its set (custom + shared „Sonstiges"), every other list by
+     * the shared household catalog (#411). Non-fatal: on failure the state keeps its current catalog
+     * (the [BUILTIN_CATEGORIES] fallback on first load), so grouping/the move-menu still work offline.
      */
     private fun loadCategories() {
         viewModelScope.launch {
-            repository.getCategories().onSuccess { cats ->
+            repository.getCategories(_uiState.value.activeList?.id).onSuccess { cats ->
                 _uiState.update { it.copy(categories = cats.map { c -> c.toGrocery() }) }
             }
         }
@@ -574,6 +673,9 @@ class ShoppingViewModel(
                             val lists = if (s.lists.any { it.id == list.id }) s.lists else s.lists + list
                             s.copy(lists = lists, activeListId = list.id)
                         }
+                        // new list is now active → scope grouping + suggestions to it (#412)
+                        loadCategories()
+                        loadSuggestions()
                     }
                     .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
             } finally {
