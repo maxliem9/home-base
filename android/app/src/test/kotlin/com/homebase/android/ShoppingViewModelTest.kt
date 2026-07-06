@@ -9,6 +9,7 @@ import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.ShoppingTemplateItemDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
+import com.homebase.android.data.model.UpdateShoppingListRequest
 import com.homebase.android.data.repository.ShoppingRepository
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -84,10 +85,12 @@ class ShoppingViewModelTest {
         // init also loads templates (#215) — default to empty so existing tests are unaffected.
         coEvery { repository.getTemplates() } returns Result.success(emptyList())
         // init also preloads autocomplete suggestions (#400) — default to empty unless overridden.
-        coEvery { repository.getSuggestions() } returns Result.success(emptyList())
+        // any() covers the per-list scope arg (#412): the VM fetches getSuggestions(activeListId).
+        coEvery { repository.getSuggestions(any()) } returns Result.success(emptyList())
         // init also fetches the editable category catalog (#411) — default to empty unless overridden;
-        // an empty fetch leaves the state on its BUILTIN_CATEGORIES fallback (assert below).
-        coEvery { repository.getCategories() } returns Result.success(emptyList())
+        // an empty fetch leaves the state on its BUILTIN_CATEGORIES fallback (assert below). any()
+        // covers the per-list scope arg (#412): the VM fetches getCategories(activeListId).
+        coEvery { repository.getCategories(any()) } returns Result.success(emptyList())
     }
 
     // Owns each VM; clearing the store runs onCleared() → cancels viewModelScope (the backstop loop
@@ -1238,5 +1241,59 @@ class ShoppingViewModelTest {
 
         assertEquals(1, vm.uiState.value.items.size)
         assertFalse(vm.uiState.value.isLoading)
+    }
+
+    // ---- Per-list category sets (#412) ----
+
+    @Test
+    fun `toggleOwnCategories flips the active list and refetches scoped categories`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt")
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.updateList("L9", UpdateShoppingListRequest(ownCategories = true)) } returns
+            Result.success(baumarkt.copy(ownCategories = true))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.toggleOwnCategories(true)
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.activeList?.ownCategories == true)
+        coVerify { repository.updateList("L9", UpdateShoppingListRequest(ownCategories = true)) }
+        // categories were (re)fetched scoped to the list, not the shared catalog
+        coVerify { repository.getCategories("L9") }
+    }
+
+    @Test
+    fun `loadManageCategories exposes only the list's own categories (excludes shared OTHER)`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        val werkzeug = ShoppingCategoryDto("WERKZEUG", "Werkzeug", "🔧", 0, false, listId = "L9")
+        val other = ShoppingCategoryDto("OTHER", "Sonstiges", "❓", 9, true, listId = null)
+        coEvery { repository.getCategories("L9") } returns Result.success(listOf(werkzeug, other))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.loadManageCategories()
+        advanceUntilIdle()
+
+        assertEquals(listOf("WERKZEUG"), vm.uiState.value.manageCategories.map { it.key })
+    }
+
+    @Test
+    fun `saveManageCategory creates a category scoped to the active list`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.createCategory(label = "Werkzeug", emoji = "🔧", listId = "L9") } returns
+            Result.success(ShoppingCategoryDto("WERKZEUG", "Werkzeug", "🔧", 0, false, listId = "L9"))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.saveManageCategory(key = null, label = "Werkzeug", emoji = "🔧")
+        advanceUntilIdle()
+
+        coVerify { repository.createCategory(label = "Werkzeug", emoji = "🔧", listId = "L9") }
     }
 }

@@ -34,8 +34,10 @@ class ShoppingRepository(
 
     suspend fun getItems(): Result<List<ShoppingItemDto>> = apiCatching { api.getShoppingItems() }
 
-    /** "Most used" autocomplete source (#389): catalog baseline + the household's usage tally. */
-    suspend fun getSuggestions(): Result<List<ShoppingSuggestion>> = apiCatching { api.getShoppingSuggestions() }
+    /** "Most used" autocomplete source (#389): catalog baseline + the household's usage tally. Scoped
+     *  to [listId]'s category set when given (#412; the suggestion names stay household-global). */
+    suspend fun getSuggestions(listId: String? = null): Result<List<ShoppingSuggestion>> =
+        apiCatching { api.getShoppingSuggestions(listId) }
 
     suspend fun createItem(name: String, listId: String?, quantity: String? = null): Result<ShoppingItemDto> =
         apiCatching { api.createShoppingItem(CreateShoppingItemRequest(name, listId, quantity)) }
@@ -53,8 +55,8 @@ class ShoppingRepository(
 
     suspend fun getLists(): Result<List<ShoppingListDto>> = apiCatching { api.getShoppingLists() }
 
-    suspend fun createList(name: String): Result<ShoppingListDto> =
-        apiCatching { api.createShoppingList(CreateShoppingListRequest(name)) }
+    suspend fun createList(name: String, ownCategories: Boolean = false): Result<ShoppingListDto> =
+        apiCatching { api.createShoppingList(CreateShoppingListRequest(name, ownCategories)) }
 
     suspend fun updateList(id: String, request: UpdateShoppingListRequest): Result<ShoppingListDto> =
         apiCatching { api.updateShoppingList(id, request) }
@@ -92,11 +94,15 @@ class ShoppingRepository(
 
     // --- Categories (editable catalog, #411) ---
 
-    suspend fun getCategories(): Result<List<ShoppingCategoryDto>> = apiCatching { api.getShoppingCategories() }
+    /** [listId] (#412): the effective set for a list (own categories + shared OTHER) when given, else
+     *  the shared household catalog. */
+    suspend fun getCategories(listId: String? = null): Result<List<ShoppingCategoryDto>> =
+        apiCatching { api.getShoppingCategories(listId) }
 
-    suspend fun createCategory(label: String, emoji: String, sortOrder: Int? = null): Result<ShoppingCategoryDto> =
+    /** [listId] (#412): create the category in that list's own set instead of the shared catalog. */
+    suspend fun createCategory(label: String, emoji: String, sortOrder: Int? = null, listId: String? = null): Result<ShoppingCategoryDto> =
         apiCatching(mapHttpError = ::germanCategoryError) {
-            api.createShoppingCategory(CreateShoppingCategoryRequest(label.trim(), emoji.trim(), sortOrder))
+            api.createShoppingCategory(CreateShoppingCategoryRequest(label.trim(), emoji.trim(), sortOrder), listId)
         }
 
     suspend fun updateCategory(key: String, request: UpdateShoppingCategoryRequest): Result<ShoppingCategoryDto> =

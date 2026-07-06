@@ -236,6 +236,13 @@
     <string name="shopping_new_list_title">New list</string>
     <string name="shopping_list_name_placeholder">e.g. Drugstore</string>
     <string name="shopping_lists_shared_hint">All shopping lists are shared.</string>
+    <!-- Own categories per list (#412) -->
+    <string name="shopping_own_categories">Own categories for this list</string>
+    <string name="shopping_own_categories_hint">Give this list its own category set instead of the shared household one — handy for e.g. a hardware store.</string>
+    <string name="shopping_manage_categories">Manage categories</string>
+    <string name="shopping_manage_categories_title">Categories: %1$s</string>
+    <string name="shopping_own_categories_card_title">Own categories</string>
+    <string name="shopping_own_categories_card_hint">For this list only. Unassigned items land in "Other".</string>
     <string name="shopping_add_item_title">Item</string>
     <string name="shopping_item_name_placeholder">e.g. Tomatoes</string>
     <plurals name="shopping_sync_banner">
