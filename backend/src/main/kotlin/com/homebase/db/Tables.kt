@@ -153,6 +153,9 @@ object ShoppingListsTable : Table("shopping_lists") {
     val name = text("name")
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
+    // Per-list category set (#412): when true this list uses its OWN categories (the
+    // shopping_categories rows tagged with its id) instead of the shared household catalog (#411).
+    val ownCategories = bool("own_categories").default(false)
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -199,6 +202,11 @@ object ShoppingCategoriesTable : Table("shopping_categories") {
     val emoji = varchar("emoji", 32)
     val sortOrder = integer("sort_order")
     val isBuiltin = bool("is_builtin")
+    // Category scope (#412): NULL = the shared household catalog (#411, all pre-#412 rows); a list id =
+    // that list's own categories. `key` stays the globally unique PK; OTHER stays the single shared row.
+    // Plain nullable uuid like ShoppingItemsTable.listId — the FK + ON DELETE CASCADE live in the
+    // migration (Postgres); the list-DELETE route cascades explicitly for the H2 test DB.
+    val listId = uuid("list_id").nullable()
     override val primaryKey = PrimaryKey(key)
 }
 
