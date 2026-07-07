@@ -305,6 +305,13 @@ object ShoppingIcons {
     private val germanSlugsByIconKey: Map<String, List<String>> =
         ITEM_ICON_KEY.entries.groupBy({ it.value }, { it.key })
 
+    /**
+     * Is [key] a real svg-basename override (a removable pick), as opposed to a legacy emoji stored in
+     * `item.icon` or no override at all? Excludes the neutral `misc` (never offered by the picker).
+     * Mirror of the web `ITEM_ICON_KEYS` membership test (#508/#511).
+     */
+    fun isItemIconKey(key: String?): Boolean = key != null && key != "misc" && key in itemKeys
+
     /** Does an icon choice match a search query (English key substring or any German name)? */
     fun iconMatchesQuery(key: String, query: String): Boolean {
         val raw = query.trim().lowercase()

@@ -373,9 +373,10 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   ): Promise<boolean> => {
     const name = fields.name.trim()
     if (!name) return false
-    // icon (#442): a chosen svg-basename override; omitted when unchanged (backend: blank = unchanged).
+    // icon (#442/#508): a chosen svg-basename override, or "" to clear it (backend: null = unchanged,
+    // "" = clear → fall back to auto-resolution). Omitted (undefined) when the picker wasn't touched.
     const body: Record<string, string> = { name, quantity: fields.quantity.trim(), note: fields.note.trim() }
-    if (fields.icon) body.icon = fields.icon
+    if (fields.icon !== undefined) body.icon = fields.icon
     const result = await safeFetch(token, `${API_BASE}/shopping/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1121,6 +1122,10 @@ function CategoryMenu({ triggerId, current, categories, onPick, onClose }: { tri
   )
 }
 
+// The set of pickable svg-basenames, to tell a real icon override from a legacy emoji in `item.icon`
+// (only a basename is a removable override; #508/#511).
+const ITEM_ICON_KEYS = new Set(ITEM_ICON_CHOICES.map((c) => c.key))
+
 // Edit an item's name + free-text details (#445). A Sheet per the Modal-vs-Sheet guideline (#29):
 // a small multi-field form with mobile relevance. Empty quantity/note are sent as "" to clear.
 function EditItemSheet({
@@ -1139,7 +1144,8 @@ function EditItemSheet({
   const [name, setName] = useState(item.name)
   const [quantity, setQuantity] = useState(item.quantity ?? '')
   const [note, setNote] = useState(item.note ?? '')
-  const [iconKey, setIconKey] = useState<string | undefined>(undefined) // undefined = unchanged
+  // iconKey (#442/#508): undefined = untouched, '' = clear the override, else the chosen basename.
+  const [iconKey, setIconKey] = useState<string | undefined>(undefined)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -1151,8 +1157,11 @@ function EditItemSheet({
     if (ok) onClose()
   }
 
-  // Render the current (or freshly chosen) icon by overriding the preview item's icon field.
-  const previewItem = iconKey ? { ...item, icon: iconKey } : item
+  // The override that would take effect: the pending pick (or its cleared state), else the item's own.
+  const effectiveIcon = iconKey === undefined ? item.icon : iconKey || undefined
+  const hasOverride = !!effectiveIcon && ITEM_ICON_KEYS.has(effectiveIcon)
+  // Render the current (or freshly chosen) icon; '' (cleared) falls back to name-based resolution.
+  const previewItem = iconKey === undefined ? item : { ...item, icon: iconKey || undefined }
 
   return (
     <Sheet
@@ -1179,6 +1188,9 @@ function EditItemSheet({
         <div className="hb-iconfield">
           <span className="hb-iconfield__preview"><ItemIcon item={previewItem} variant="tile" /></span>
           <Button variant="ghost" icon="image" onClick={() => setPickerOpen(true)}>{t('shopping.chooseIcon')}</Button>
+          {hasOverride && (
+            <Button variant="ghost" icon="x" onClick={() => setIconKey('')}>{t('shopping.resetIcon')}</Button>
+          )}
         </div>
       </Field>
       {pickerOpen && (

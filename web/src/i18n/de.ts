@@ -361,6 +361,7 @@ export const de = {
     // Icon pro Item wählen (#442)
     fieldIcon: 'Icon',
     chooseIcon: 'Icon wählen',
+    resetIcon: 'Zurücksetzen',
     iconSearch: 'Icon suchen … (z. B. Möhre)',
     iconNoMatch: 'Kein passendes Icon gefunden.',
     // Kategorien, Emoji-Icons & „Meist genutzt"-Autocomplete (#389)
