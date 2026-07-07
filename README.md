@@ -272,22 +272,15 @@ Aktualisieren später: `docker compose pull && docker compose up -d`.
 
 ## Umgebungsvariablen
 
-| Variable             | Beschreibung                                           | Beispiel                              |
-|----------------------|--------------------------------------------------------|---------------------------------------|
-| `DB_URL`             | JDBC-URL der Datenbank                                 | `jdbc:postgresql://db:5432/homebase`  |
-| `DB_USER`            | Datenbanknutzer                                        | `homebase`                            |
-| `DB_PASSWORD`        | Datenbankpasswort                                      | *(sicheres Passwort)*                 |
-| `JWT_SECRET`         | HMAC-Secret für JWT-Signing                            | *(32+ zufällige Bytes, hex)*          |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token (optional — fehlt er, ruht der Digest) | `123456:ABC-...`                   |
-| `TELEGRAM_CHAT_ID`   | Empfänger-Chat-ID (optional)                           | `-1001234567890`                      |
-| `UPLOAD_DIR`         | Speicherort der Notizbilder (prod: per Volume gesetzt) | `/data/uploads`                       |
-| `MAX_UPLOAD_MB`      | Max. Größe pro Notizbild in MB (optional)              | `10`                                  |
-| `TRUSTED_PROXY_COUNT`| Vertrauenswürdige Reverse-Proxy-Hops (Login-Throttling) | `2`                                  |
+Die Konfiguration läuft vollständig über `.env` — kopiert dazu `.env.example` und passt die
+Werte an. **[`.env.example`](.env.example) ist die vollständige, kommentierte Referenz** aller
+Variablen (mit Defaults); hier steht bewusst keine zweite Liste, damit nichts auseinanderläuft.
 
-> **In-app statt env:** Was zur Laufzeit editierbar ist, lebt in der Datenbank, nicht in
-> der `.env`. **Haushaltsname** (Default `Mäxchen`) und **Digest-Uhrzeit** (Default `20:00`)
-> setzt ihr unter *Einstellungen → Haushalt / Benachrichtigungen*. Nur Secrets (JWT/DB/
-> Telegram) und reine Infrastruktur (TZ, Ports, Upload-Pfad, Proxy-Count) bleiben env.
+Nur **Secrets** (Datenbank, `JWT_SECRET`, Telegram-/VAPID-Token) und reine **Infrastruktur**
+(`TZ`, Ports, Upload-Pfad, Proxy-Count) sind env-Variablen. Alles zur Laufzeit Editierbare —
+etwa **Haushaltsname** (Default `Mäxchen`) und **Digest-Uhrzeit** (Default `20:00`) — lebt in der
+Datenbank und wird unter *Einstellungen → Haushalt / Benachrichtigungen* gesetzt (kein
+Server-Neustart, siehe Issue #100).
 
 ---
 
