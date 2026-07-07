@@ -236,6 +236,11 @@
     <string name="shopping_edit_item_title">Edit item</string>
     <string name="shopping_field_quantity">Quantity</string>
     <string name="shopping_field_note">Note</string>
+    <!-- Per-item icon override (#508, web parity #442) -->
+    <string name="shopping_field_icon">Icon</string>
+    <string name="shopping_choose_icon">Choose icon</string>
+    <string name="shopping_icon_search">Search icons … (e.g. carrot)</string>
+    <string name="shopping_icon_no_match">No matching icon found.</string>
     <string name="shopping_quantity_placeholder">e.g. 500 g</string>
     <string name="shopping_note_placeholder">e.g. in the red jar</string>
     <string name="shopping_new_list_tab">New list</string>

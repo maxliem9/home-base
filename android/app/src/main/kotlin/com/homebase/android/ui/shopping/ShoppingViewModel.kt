@@ -410,15 +410,17 @@ class ShoppingViewModel(
 
     /**
      * Save item-detail edits (#447): name, free-text quantity, note. Sends "" to clear quantity/note
-     * (backend: null = unchanged, "" = clear). Optimistic from the returned DTO; resync on failure.
+     * (backend: null = unchanged, "" = clear). [icon] is the manual svg-basename override (#508): a
+     * chosen basename, or null when unchanged (backend: blank = unchanged). Optimistic from the
+     * returned DTO; resync on failure.
      */
-    fun updateItemDetails(item: ShoppingItemDto, name: String, quantity: String, note: String) {
+    fun updateItemDetails(item: ShoppingItemDto, name: String, quantity: String, note: String, icon: String?) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
             repository.updateItem(
                 item.id,
-                UpdateShoppingItemRequest(name = trimmed, quantity = quantity.trim(), note = note.trim()),
+                UpdateShoppingItemRequest(name = trimmed, quantity = quantity.trim(), note = note.trim(), icon = icon),
             )
                 .onSuccess { upsertItem(it) }
                 .onFailure { e ->
