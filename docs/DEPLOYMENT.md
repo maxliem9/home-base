@@ -101,7 +101,9 @@ files — not the whole source tree.
 
 ## 3. Create your `.env`
 
-Copy `.env.example` to `.env` in the project root on the NAS and fill it in:
+Copy `.env.example` to `.env` in the project root on the NAS — **`.env.example` is the complete,
+commented reference for every variable** (with defaults). Below are just the fields you must set
+for a first start; leave everything else at its default unless you have a reason to change it:
 
 ```ini
 # Database
@@ -137,10 +139,11 @@ TELEGRAM_CHAT_ID=
 - **In-app settings (no env var):** the household name (sidebar) and the digest time
   are edited in *Einstellungen → Haushalt / Benachrichtigungen* and stored in the
   database (defaults `Mäxchen` / `20:00`). See issue #100.
-- **Other optional vars** (all carry working defaults in `.env.example`, so you can
-  leave them out): `IMAGE_TAG` (GHCR tag, default `latest`),
-  `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images, see below), and
-  `RECURRING_TIME` (daily time the recurring-todo safety-net runs, default `00:30`).
+- **All other variables** — `IMAGE_TAG`, `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images),
+  `DOMAIN` (health check + CORS), `TRUSTED_PROXY_COUNT` (login throttling), `RECURRING_TIME`,
+  and the `VAPID_*` web-push keys — carry working defaults and are **documented in full in
+  [`.env.example`](../.env.example)**, the single source of truth for env vars. Set them there
+  only to change a default.
 
 > **Timezone:** the digest's firing time and "today/tomorrow" boundaries — and the
 > time-tracking CSV timestamps — follow the container's `TZ`, which is **preset to
