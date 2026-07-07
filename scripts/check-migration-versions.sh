@@ -22,6 +22,10 @@
 #       PR is not rebuilt against the newer main).
 #   and reports any Vn owned by more than one distinct filename. It intentionally does NOT
 #   care about GAPS in the sequence (V9/V12/V13 are legitimately absent) — only collisions.
+#   (It therefore also flags RENAMING the description of a migration already on origin/main
+#   — `V40__old.sql` → `V40__new.sql` reads as two files for V40. That is correct: editing an
+#   already-published migration breaks Flyway on the next deploy anyway; don't rename them —
+#   see the memory note flyway-applied-migrations-immutable.)
 #
 # WHY A SEPARATE GUARD (vs. just relying on MigrationIntegrationTest):
 #   1. It runs with no toolchain (pure git + awk) in ~1s, before the JDK/Gradle/Postgres
