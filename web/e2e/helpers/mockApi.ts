@@ -1128,6 +1128,8 @@ export class MockApi {
         // Free-text details (#445): "" clears (mirrors the backend null), trimmed otherwise.
         if (body.quantity !== undefined) updated.quantity = body.quantity.trim() || undefined
         if (body.note !== undefined) updated.note = body.note.trim() || undefined
+        // Icon override (#508/#511): "" clears it back to auto-resolution (mirrors the backend null).
+        if (body.icon === '') updated.icon = undefined
         if (body.checked === true) updated.checkedAt = new Date().toISOString()
         if (body.checked === false) updated.checkedAt = undefined
         this.shoppingItems[idx] = updated

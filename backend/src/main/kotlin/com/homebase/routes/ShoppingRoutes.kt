@@ -494,6 +494,9 @@ fun Route.shoppingRoutes() {
             }
             // Manual category/icon override (#389/#390): blank = unchanged; a category must be a known key.
             val newCategory = req.category?.takeIf { it.isNotBlank() }
+            // Icon override (#389/#390/#508): null = unchanged, "" = clear the override (fall back to
+            // name/category auto-resolution), else the chosen svg-basename.
+            val clearIcon = req.icon != null && req.icon.isBlank()
             val newIcon = req.icon?.takeIf { it.isNotBlank() }
 
             val item = transaction {
@@ -517,7 +520,10 @@ fun Route.shoppingRoutes() {
                         it[checkedAt] = if (v) Instant.now() else null
                     }
                     newCategory?.let { v -> it[category] = v }
-                    newIcon?.let { v -> it[icon] = v }
+                    when {
+                        clearIcon -> it[icon] = null
+                        newIcon != null -> it[icon] = newIcon
+                    }
                     // Free-text details (#445): null = unchanged, blank = clear, else trimmed value.
                     req.quantity?.let { v -> it[quantity] = v.trim().ifBlank { null } }
                     req.note?.let { v -> it[note] = v.trim().ifBlank { null } }

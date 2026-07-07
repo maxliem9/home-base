@@ -90,6 +90,24 @@ test.describe('Shopping lists', () => {
     await expect(icon).toHaveAttribute('src', /carrots\.svg/) // override wins over the name
   })
 
+  test('resets an item icon override back to the name default (#511)', async ({ page }) => {
+    const mock = new MockApi([], [], [WOCHE], [
+      shoppingItem({ id: 'i1', name: 'Tomaten', listId: 'sl1', icon: 'meatloaf' }),
+    ])
+    await openShopping(page, mock)
+
+    const icon = page.locator('.hb-row', { hasText: 'Tomaten' }).locator('.hb-row__emoji img')
+    await expect(icon).toHaveAttribute('src', /meatloaf\.svg/) // starts overridden
+
+    await page.getByRole('button', { name: '„Tomaten" bearbeiten' }).click()
+    const sheet = page.locator('.hb-sheet')
+    await sheet.getByRole('button', { name: 'Zurücksetzen' }).click()
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+
+    await expect(sheet).toHaveCount(0)
+    await expect(icon).toHaveAttribute('src', /tomatoes\.svg/) // back to the name-resolved icon
+  })
+
   test('quick-add splits a leading quantity off the typed name', async ({ page }) => {
     await openShopping(page, new MockApi([], [], [WOCHE], []))
 
