@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -43,6 +45,9 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -1076,6 +1081,9 @@ private fun IconPickerSheet(
     val matches = remember(query) {
         ShoppingIcons.itemIconChoices.filter { ShoppingIcons.iconMatchesQuery(it.key, query) }
     }
+    // Focus the search on open (web parity: the IconPicker's field autofocuses).
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { searchFocus.requestFocus() }
     HbBottomSheet(
         onDismiss = onDismiss,
         title = stringResource(R.string.shopping_choose_icon),
@@ -1085,6 +1093,7 @@ private fun IconPickerSheet(
             value = query,
             onValueChange = { query = it },
             placeholder = stringResource(R.string.shopping_icon_search),
+            modifier = Modifier.focusRequester(searchFocus),
         )
         if (matches.isEmpty()) {
             Text(
@@ -1124,6 +1133,7 @@ private fun IconPickerCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isSelected = selected
     Box(
         modifier
             .clip(HbRadiusSm)
@@ -1134,6 +1144,7 @@ private fun IconPickerCell(
                 HbRadiusSm,
             )
             .clickable(onClick = onClick)
+            .semantics { contentDescription = choice.key; this.selected = isSelected }
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {

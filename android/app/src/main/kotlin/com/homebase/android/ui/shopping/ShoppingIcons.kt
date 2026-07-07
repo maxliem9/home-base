@@ -289,9 +289,6 @@ object ShoppingIcons {
 
     // ---- Icon picker support (#508, web parity #442) ----------------------------------------------
 
-    /** The asset URI for a specific item-icon basename (the picker grid + the override preview). */
-    fun assetForIconKey(key: String): String = "$BASE/items/$key.svg"
-
     /**
      * All pickable item icons (svg basename + asset URI), alphabetically. Mirror of the web
      * `ITEM_ICON_CHOICES` — every designed item icon (the [ITEM_ICON_KEY] values, deduped; synonyms
