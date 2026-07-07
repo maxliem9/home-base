@@ -97,6 +97,10 @@ Proxy-Count). Vollständige, kommentierte Variablen-Liste → [`.env.example`](.
 - PostgreSQL 16, Flyway. Migrationsdateien: `/backend/src/main/resources/db/migration/`.
 - **Nächste `Vn` gegen `origin/main` wählen** (nicht gegen den Branch-Base) — sonst
   Duplicate-Version-FlywayException beim PR-Merge-Build.
+- **Kollisions-Guard (#505):** `scripts/check-migration-versions.sh` (eigener CI-Job „Flyway
+  migration-version guard" + lokal vor jeder neuen Migration laufen lassen) meldet doppelt
+  vergebene `Vn` aus der Vereinigung von Arbeitsbaum + `origin/main`. Zwei parallel abgezweigte
+  Branches sind einzeln grün — die Kollision entsteht erst beim Merge auf main.
 - **Angewandte Migrationen sind unveränderlich** (`validateOnMigrate`): nie den Inhalt einer
   bereits gemergten/angewandten Migration ändern (auch keinen Kommentar) — Checksum-Mismatch beim
   nächsten Deploy. Immer eine neue `Vn` anlegen.
