@@ -39,6 +39,7 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       compose: ${{ steps.filter.outputs.compose }}
       icons: ${{ steps.filter.outputs.icons }}
+      migrations: ${{ steps.filter.outputs.migrations }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -66,6 +67,11 @@ jobs:
               - 'android/app/src/main/kotlin/com/homebase/android/ui/shopping/ShoppingIcons.kt'
               - 'scripts/check-icon-map-parity.mjs'
               - '.github/workflows/ci.yml'
+            migrations:
+              # Flyway-Migrationsverzeichnis + sein Kollisions-Guard.
+              - 'backend/src/main/resources/db/migration/**'
+              - 'scripts/check-migration-versions.sh'
+              - '.github/workflows/ci.yml'
 
   icon-map-parity:
     name: Icon-Map Drift-Guard (Web ↔ Android)
@@ -87,6 +93,28 @@ jobs:
 
       - name: Check icon-map parity
         run: node scripts/check-icon-map-parity.mjs
+
+  migration-version-guard:
+    name: Flyway migration-version guard
+    needs: changes
+    # Two branches cut from the same main can each add a migration with the SAME Vn: each PR is
+    # green alone (its branch carries one Vn), the collision only appears in the union on main,
+    # where Flyway aborts ("Found more than one migration with version N") and both the migration
+    # test and the app boot fail on main (issue #505; PR #497-vs-#502). This guard takes the union
+    # of the working tree (on a PR build already the merge-into-main tree) and origin/main and
+    # fails if any Vn is owned by two files — pure git+awk, no toolchain, so it lands the clear
+    # "renumber to the next free Vn" message in ~1s instead of a FlywayException in the Postgres
+    # job. On push always; on PRs only when a migration or the guard itself changed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.migrations == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      # Default (shallow) checkout is enough: on a pull_request the working tree is already
+      # refs/pull/N/merge (PR merged into main), so a cross-branch clash is present in it; the
+      # script additionally does a best-effort `git fetch origin main` for the base comparison.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Check for duplicate Flyway migration versions
+        run: bash scripts/check-migration-versions.sh
 
   backend:
     name: Backend tests

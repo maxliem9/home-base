@@ -322,6 +322,17 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
 - PostgreSQL 16 als Docker Container
 - Migrationen mit Flyway
 - Migrationsdateien: /backend/src/main/resources/db/migration/
+- **Kollisions-Guard für Migrationsversionen (CI + lokal, #505):** Zwei parallel abgezweigte
+  Branches können dieselbe `Vn` vergeben — jeder PR ist einzeln grün, die Kollision entsteht erst
+  in der Vereinigung auf main (Flyway: „Found more than one migration with version N", bricht
+  Migrationstest **und** App-Start). `scripts/check-migration-versions.sh` (eigener CI-Job
+  „Flyway migration-version guard", pures git+awk) bildet die Vereinigung aus Arbeitsbaum
+  (im PR-Build bereits der in main gemergte Stand) **und** `origin/main` und meldet jede von zwei
+  Dateien beanspruchte `Vn`. **Vor jeder neuen Migration lokal laufen lassen** — führt die
+  Memory-Note *flyway-migration-version-collision* als ausführbaren Pre-Push-Check aus; die nächste
+  freie `Vn` immer gegen `origin/main` wählen, nicht gegen die Branch-Basis. (Rest-Lücke: ein noch
+  offener Schwester-PR, der später mergt, ist erst sichtbar, wenn CI gegen das neue main baut —
+  dagegen hilft nur die Branch-Protection „Require branches to be up to date before merging".)
 
 ## Telegram Digest
 - Kotlin-Coroutine-basierter Scheduler im Backend; ein `DigestScheduler` pro Digest, beide
