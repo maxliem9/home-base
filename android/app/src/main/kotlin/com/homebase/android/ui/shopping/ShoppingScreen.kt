@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -43,6 +45,9 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -281,8 +286,8 @@ fun ShoppingScreen(
             EditItemSheet(
                 item = item,
                 onDismiss = { editingItem = null },
-                onSave = { name, quantity, note ->
-                    viewModel.updateItemDetails(item, name, quantity, note)
+                onSave = { name, quantity, note, icon ->
+                    viewModel.updateItemDetails(item, name, quantity, note, icon)
                     editingItem = null
                 },
             )
@@ -987,16 +992,19 @@ private fun AddItemSheet(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     }
 }
 
-/** Edit an item's name + free-text quantity + note (#447). Empty quantity/note are sent as "" to clear. */
+/** Edit an item's name + free-text quantity + note (#447) + per-item icon override (#508). Empty
+ *  quantity/note are sent as "" to clear; the icon is sent only when a new one is picked. */
 @Composable
 private fun EditItemSheet(
     item: ShoppingItemDto,
     onDismiss: () -> Unit,
-    onSave: (name: String, quantity: String, note: String) -> Unit,
+    onSave: (name: String, quantity: String, note: String, icon: String?) -> Unit,
 ) {
     var name by remember { mutableStateOf(item.name) }
     var quantity by remember { mutableStateOf(item.quantity ?: "") }
     var note by remember { mutableStateOf(item.note ?: "") }
+    var iconKey by remember { mutableStateOf<String?>(null) } // null = unchanged
+    var showPicker by remember { mutableStateOf(false) }
     HbBottomSheet(
         onDismiss = onDismiss,
         title = stringResource(R.string.shopping_edit_item_title),
@@ -1009,7 +1017,7 @@ private fun EditItemSheet(
             )
             HbButton(
                 stringResource(R.string.action_save),
-                onClick = { onSave(name, quantity, note) },
+                onClick = { onSave(name, quantity, note, iconKey) },
                 variant = HbButtonVariant.Primary,
                 enabled = name.isNotBlank(),
                 modifier = Modifier.weight(1f),
@@ -1018,6 +1026,23 @@ private fun EditItemSheet(
     ) {
         HbField(stringResource(R.string.common_field_name)) {
             HbTextField(value = name, onValueChange = { name = it })
+        }
+        // Icon override (#508 — web parity #442): preview the current/chosen icon + open the picker.
+        HbField(stringResource(R.string.shopping_field_icon)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val previewItem = if (iconKey != null) item.copy(icon = iconKey) else item
+                ShoppingItemIcon(previewItem, size = 34.dp)
+                HbButton(
+                    stringResource(R.string.shopping_choose_icon),
+                    onClick = { showPicker = true },
+                    variant = HbButtonVariant.Secondary,
+                    size = HbButtonSize.Sm,
+                    icon = HbIcons.grid,
+                )
+            }
         }
         HbField(stringResource(R.string.shopping_field_quantity)) {
             HbTextField(
@@ -1033,6 +1058,97 @@ private fun EditItemSheet(
                 placeholder = stringResource(R.string.shopping_note_placeholder),
             )
         }
+    }
+    if (showPicker) {
+        IconPickerSheet(
+            current = iconKey ?: item.icon,
+            onPick = { iconKey = it; showPicker = false },
+            onDismiss = { showPicker = false },
+        )
+    }
+}
+
+/** Searchable grid of the designed item icons (#508, web parity #442). Picking one writes its svg
+ *  basename as the item's icon override; the search matches the English key and the German names. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IconPickerSheet(
+    current: String?,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val matches = remember(query) {
+        ShoppingIcons.itemIconChoices.filter { ShoppingIcons.iconMatchesQuery(it.key, query) }
+    }
+    // Focus the search on open (web parity: the IconPicker's field autofocuses).
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { searchFocus.requestFocus() }
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.shopping_choose_icon),
+        full = true,
+    ) {
+        HbTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = stringResource(R.string.shopping_icon_search),
+            modifier = Modifier.focusRequester(searchFocus),
+        )
+        if (matches.isEmpty()) {
+            Text(
+                stringResource(R.string.shopping_icon_no_match),
+                style = HbType.small,
+                color = Hb.ink3,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        } else {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                maxItemsInEachRow = 5,
+            ) {
+                matches.forEach { choice ->
+                    IconPickerCell(
+                        choice = choice,
+                        selected = choice.key == current,
+                        onClick = { onPick(choice.key) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Pad the last row so 1–4 trailing cells keep the column width (don't stretch).
+                val remainder = matches.size % 5
+                if (remainder != 0) repeat(5 - remainder) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** A single icon tile in the picker grid: the designed SVG, highlighted when it's the current pick. */
+@Composable
+private fun IconPickerCell(
+    choice: IconChoice,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isSelected = selected
+    Box(
+        modifier
+            .clip(HbRadiusSm)
+            .background(if (selected) Hb.accentSoft else Hb.surface, HbRadiusSm)
+            .border(
+                if (selected) 1.5.dp else 1.dp,
+                if (selected) Hb.accent else Hb.line,
+                HbRadiusSm,
+            )
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = choice.key; this.selected = isSelected }
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        SvgIcon(choice.assetUri, fallbackEmoji = null, size = 30.dp)
     }
 }
 

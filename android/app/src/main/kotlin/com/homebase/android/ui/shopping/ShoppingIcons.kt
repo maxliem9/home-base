@@ -2,6 +2,9 @@ package com.homebase.android.ui.shopping
 
 import com.homebase.android.data.model.ShoppingItemDto
 
+/** One pickable item icon: the svg basename [key] (stored as the override) and its bundled asset URI. */
+data class IconChoice(val key: String, val assetUri: String)
+
 /**
  * Designed SVG icon set (#443) — the Android mirror of the web `shoppingCategories.tsx` resolution.
  * The 173 SVGs are bundled under `assets/shopping-icons/{items,categories}/`; this maps an item to its
@@ -283,6 +286,33 @@ object ShoppingIcons {
 
     /** Resolve by a written name + category (for autocomplete suggestions, which carry no override). */
     fun assetForName(name: String, category: String?): String = resolve(name, category, null)
+
+    // ---- Icon picker support (#508, web parity #442) ----------------------------------------------
+
+    /**
+     * All pickable item icons (svg basename + asset URI), alphabetically. Mirror of the web
+     * `ITEM_ICON_CHOICES` — every designed item icon (the [ITEM_ICON_KEY] values, deduped; synonyms
+     * share one icon) except the neutral `misc` fallback. The override stores [IconChoice.key].
+     */
+    val itemIconChoices: List<IconChoice> =
+        ITEM_ICON_KEY.values.toSortedSet().map { IconChoice(it, "$BASE/items/$it.svg") }
+
+    /**
+     * English icon key → the German normalized names that resolve to it, so the picker is searchable
+     * in German ("möhren" finds the carrots icon) even though the files are named in English. Mirror
+     * of the web `germanSlugsByIconKey`.
+     */
+    private val germanSlugsByIconKey: Map<String, List<String>> =
+        ITEM_ICON_KEY.entries.groupBy({ it.value }, { it.key })
+
+    /** Does an icon choice match a search query (English key substring or any German name)? */
+    fun iconMatchesQuery(key: String, query: String): Boolean {
+        val raw = query.trim().lowercase()
+        if (raw.isEmpty()) return true
+        if (key.contains(raw)) return true
+        val slug = slugifyIconKey(query)
+        return slug.isNotEmpty() && germanSlugsByIconKey[key]?.any { it.contains(slug) } == true
+    }
 
     /** The asset URI for a category header/menu icon, or null (caller shows the emoji). */
     fun assetForCategory(key: String?): String? =
