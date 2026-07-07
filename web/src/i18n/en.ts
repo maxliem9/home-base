@@ -364,6 +364,7 @@ export const en: Messages = {
     // Choose a per-item icon (#442)
     fieldIcon: 'Icon',
     chooseIcon: 'Choose icon',
+    resetIcon: 'Reset',
     iconSearch: 'Search icons … (e.g. carrot)',
     iconNoMatch: 'No matching icon found.',
     // Categories, emoji icons & "most used" autocomplete (#389)

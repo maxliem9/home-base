@@ -124,6 +124,50 @@ class ShoppingRouteTest {
     }
 
     @Test
+    fun `PUT shopping sets an icon override, then clears it with an empty string`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = client.post("/api/v1/shopping") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Feta"}""")
+        }.let { Json.parseToJsonElement(it.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content }
+
+        // Set a manual svg-basename override (#508).
+        val set = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"icon":"meatloaf"}""")
+        }
+        assertEquals(HttpStatusCode.OK, set.status)
+        assertEquals("meatloaf", Json.parseToJsonElement(set.bodyAsText()).jsonObject["icon"]?.jsonPrimitive?.content)
+
+        // Empty string clears the override (#511): icon becomes null → omitted by encodeDefaults=false.
+        val cleared = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"icon":""}""")
+        }
+        assertEquals(HttpStatusCode.OK, cleared.status)
+        assertNull(Json.parseToJsonElement(cleared.bodyAsText()).jsonObject["icon"])
+    }
+
+    @Test
+    fun `PUT shopping omitting icon leaves the existing override unchanged`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val id = client.post("/api/v1/shopping") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Gouda"}""")
+        }.let { Json.parseToJsonElement(it.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content }
+
+        client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"icon":"cheese"}""")
+        }
+        // A PUT that touches only the name must not wipe the override (null = unchanged).
+        val updated = client.put("/api/v1/shopping/$id") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"name":"Junger Gouda"}""")
+        }
+        assertEquals(HttpStatusCode.OK, updated.status)
+        assertEquals("cheese", Json.parseToJsonElement(updated.bodyAsText()).jsonObject["icon"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `PUT shopping omitting quantity leaves the existing value unchanged`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

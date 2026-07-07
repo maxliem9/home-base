@@ -239,6 +239,7 @@
     <!-- Per-item icon override (#508, web parity #442) -->
     <string name="shopping_field_icon">Icon</string>
     <string name="shopping_choose_icon">Choose icon</string>
+    <string name="shopping_reset_icon">Reset</string>
     <string name="shopping_icon_search">Search icons … (e.g. carrot)</string>
     <string name="shopping_icon_no_match">No matching icon found.</string>
     <string name="shopping_quantity_placeholder">e.g. 500 g</string>

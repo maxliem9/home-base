@@ -251,6 +251,7 @@
     <!-- Icon pro Item wählbar (#508, Web-Parität #442) -->
     <string name="shopping_field_icon">Icon</string>
     <string name="shopping_choose_icon">Icon wählen</string>
+    <string name="shopping_reset_icon">Zurücksetzen</string>
     <string name="shopping_icon_search">Icon suchen … (z. B. Möhre)</string>
     <string name="shopping_icon_no_match">Kein passendes Icon gefunden.</string>
     <string name="shopping_quantity_placeholder">z. B. 500 g</string>

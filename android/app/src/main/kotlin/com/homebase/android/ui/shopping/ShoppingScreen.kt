@@ -1003,7 +1003,8 @@ private fun EditItemSheet(
     var name by remember { mutableStateOf(item.name) }
     var quantity by remember { mutableStateOf(item.quantity ?: "") }
     var note by remember { mutableStateOf(item.note ?: "") }
-    var iconKey by remember { mutableStateOf<String?>(null) } // null = unchanged
+    // iconKey: null = untouched, "" = clear the override, else the chosen svg-basename (#508/#511).
+    var iconKey by remember { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     HbBottomSheet(
         onDismiss = onDismiss,
@@ -1027,13 +1028,14 @@ private fun EditItemSheet(
         HbField(stringResource(R.string.common_field_name)) {
             HbTextField(value = name, onValueChange = { name = it })
         }
-        // Icon override (#508 — web parity #442): preview the current/chosen icon + open the picker.
+        // Icon override (#508 — web parity #442): preview the current/chosen icon, open the picker, and
+        // reset to auto-resolution (#511). '' clears; the preview then falls back to the name-based icon.
         HbField(stringResource(R.string.shopping_field_icon)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val previewItem = if (iconKey != null) item.copy(icon = iconKey) else item
+                val previewItem = if (iconKey != null) item.copy(icon = iconKey?.ifEmpty { null }) else item
                 ShoppingItemIcon(previewItem, size = 34.dp)
                 HbButton(
                     stringResource(R.string.shopping_choose_icon),
@@ -1042,6 +1044,16 @@ private fun EditItemSheet(
                     size = HbButtonSize.Sm,
                     icon = HbIcons.grid,
                 )
+                val effectiveIcon = if (iconKey != null) iconKey?.ifEmpty { null } else item.icon
+                if (ShoppingIcons.isItemIconKey(effectiveIcon)) {
+                    HbButton(
+                        stringResource(R.string.shopping_reset_icon),
+                        onClick = { iconKey = "" },
+                        variant = HbButtonVariant.Ghost,
+                        size = HbButtonSize.Sm,
+                        icon = HbIcons.x,
+                    )
+                }
             }
         }
         HbField(stringResource(R.string.shopping_field_quantity)) {
