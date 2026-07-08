@@ -9,6 +9,8 @@ import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.TodoListDto
 import com.homebase.android.data.model.UpdateSubtaskRequest
 import com.homebase.android.data.model.UpdateTodoRequest
+import com.homebase.android.data.aufgaben.TodoSnapshot
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
@@ -18,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -281,10 +285,25 @@ class TodoViewModel(
     private val repository: TodoRepository,
     private val configRepository: ConfigRepository,
     private val token: String,
+    /**
+     * Durable "last-known lists + todos" cache (#520, read-side twin of the shopping cache #517).
+     * Seeded into state on a cold start so a launch with no connection shows the previous screen
+     * instead of nothing, and re-mirrored on every change (server fetches AND optimistic edits).
+     * null in tests that don't exercise it → no read-cache (behaves exactly as before).
+     */
+    private val snapshotStore: SnapshotStore<TodoSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodoUiState(isLoading = true))
     val uiState: StateFlow<TodoUiState> = _uiState.asStateFlow()
+
+    /**
+     * True once a fetch (reload / background sync) has successfully applied server data (#520). The
+     * durable-cache restore checks this so it never stale-clobbers live server data that already
+     * landed, and [reload] uses it to decide whether a failed refresh should surface a blocking error
+     * (only when there is nothing to show anyway). Single-threaded (viewModelScope = Main).
+     */
+    private var hasServerData = false
 
     // --- Edit-sheet auto-save ---
     private val _todoEditor = MutableStateFlow<TodoEditorState?>(null)
@@ -314,6 +333,42 @@ class TodoViewModel(
         load()
         loadDoneWindow()
         observeWebSocket()
+        restoreAndMirrorSnapshot()
+    }
+
+    /**
+     * Offline read-cache (#520). First seed the last-known lists + todos from disk so a cold start
+     * with no connection shows the previous screen instead of nothing; then mirror every subsequent
+     * change back so the cache always reflects what the user last saw (optimistic edits included).
+     *
+     * Ordering matters: the seed runs the disk read *before* the mirror collector starts, so the
+     * collector can never persist the pre-restore empty frame over a good cache. The seed only fills
+     * fields that are still empty and bails if a fetch already won ([hasServerData]) — a slow disk
+     * read must not clobber fresh server data. Restoring content clears any refresh error: offline we
+     * deliberately "show the old state" silently; the reconnect/backstop resync restores correctness.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && (cached.lists.isNotEmpty() || cached.todos.isNotEmpty())) {
+                _uiState.update { s ->
+                    if (hasServerData) s
+                    else s.copy(
+                        lists = s.lists.ifEmpty { cached.lists },
+                        todos = s.todos.ifEmpty { cached.todos },
+                        isLoading = false,
+                        error = null,
+                    )
+                }
+            }
+            // Persist on every distinct lists/todos change from here on. Starting the collector only
+            // after the seed read guarantees we never overwrite the cache with the initial empty state.
+            uiState
+                .map { it.lists to it.todos }
+                .distinctUntilChanged()
+                .collect { (lists, todos) -> store.save(TodoSnapshot(lists = lists, todos = todos)) }
+        }
     }
 
     /**
@@ -351,12 +406,18 @@ class TodoViewModel(
         val lists = repository.getLists()
         val todos = repository.getTodos()
         val error = lists.exceptionOrNull()?.message ?: todos.exceptionOrNull()?.message
+        if (error == null) hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
         _uiState.update { state ->
+            val nextLists = lists.getOrDefault(state.lists)
+            val nextTodos = todos.getOrDefault(state.todos)
             state.copy(
-                lists = lists.getOrDefault(state.lists),
-                todos = todos.getOrDefault(state.todos),
+                lists = nextLists,
+                todos = nextTodos,
                 isLoading = false,
-                error = error,
+                // Keep `error` set only when there is nothing to show anyway (#520). With cached or prior
+                // data already on screen, a failed background refresh leaves the old state in place with
+                // no blocking error — the reconnect/backstop resync restores correctness.
+                error = error?.takeIf { nextLists.isEmpty() && nextTodos.isEmpty() },
             )
         }
     }
@@ -373,6 +434,9 @@ class TodoViewModel(
         viewModelScope.launch {
             val lists = repository.getLists()
             val todos = repository.getTodos()
+            // A successful re-sync also counts as server data landing → the cache seed must not
+            // clobber it (#520). Guard on both fetches succeeding (a partial failure keeps prior state).
+            if (lists.isSuccess && todos.isSuccess) hasServerData = true
             _uiState.update { state ->
                 state.copy(
                     lists = lists.getOrDefault(state.lists),

@@ -3,6 +3,27 @@
 > Lies dies, bevor du an Aufgaben/Todos, Inbox, Zuständigen oder Wiederholung arbeitest.
 > Cross-cutting Regeln (Serialisierung, Modal-vs-Seite, Auto-Save-Prinzip) stehen in der `CLAUDE.md`.
 
+## Offline-Read-Cache — „alter Stand statt leerem Bildschirm" (#520)
+Analog zum Einkauf (#517, siehe [docs/domain/shopping.md](shopping.md)) cachet die Aufgaben-View die
+zuletzt erfolgreich geladenen **Listen + Todos** durabel und seedet sie beim (Kalt-)Start in den State,
+**bevor** der Fetch antwortet — offline sieht man den alten Stand, online ersetzt der erste erfolgreiche
+Fetch ihn (stale-while-revalidate). Gecacht werden beide Datensätze, die die View lädt (volle Fidelity):
+`lists` (die Tabs) und `todos` (die Zeilen inkl. Zuständige/Subtasks/Wiederholung). Die
+konfigurierbare „Erledigt"-Fensterlänge (`done_window_days`, #356) wird **nicht** gecacht — sie hat einen
+sicheren Code-Default, auf den die View ohnehin bis zum GET zurückfällt (degradiert offline sauber).
+- **Android:** generischer `SnapshotStore<T>` (`data/cache/`, SharedPreferences+Moshi, eigene Prefs-Datei
+  `homebase_todos_cache`) → `TodoSnapshot(lists, todos)` (`data/aufgaben/`). Der VM seedet in
+  `restoreAndMirrorSnapshot()` (Disk-Read **vor** dem Mirror-Collector, sonst überschreibt der leere
+  Startframe den guten Cache) und spiegelt via `uiState.map{lists,todos}.distinctUntilChanged()`.
+  `hasServerData` verhindert, dass ein langsamer Disk-Read frische Serverdaten überschreibt; `reload`
+  hält `error` nur noch dann, wenn ohnehin nichts anzuzeigen ist (mit gecachten/vorhandenen Daten
+  schluckt ein fehlgeschlagener Offline-Refresh den Fehler — die reconnect/backstop-Resync korrigiert).
+  Der `snapshotStore`-Param ist nullable-default → bestehende Tests laufen ohne Cache unverändert.
+- **Web:** `localStorage['homebase_todos_cache']`, geseedet in den `useState`-Initialisierern
+  (`useMemo(loadCache)`), gespiegelt per `useEffect([lists, todos])`. Wie beim Einkauf greift der
+  Cache nur bei flakiger Verbindung (Shell aus dem Browser-Cache, `/api` schlägt fehl) und für den
+  sofortigen ersten Paint — echter Offline-Shell-Betrieb braucht Asset-Caching im SW → #519.
+
 Status-Flow: INBOX → PLANNED → DONE
 - INBOX:   nur title gesetzt, alle anderen Felder optional
 - PLANNED: mindestens ein:e Zuständige:r oder due_date gesetzt

@@ -10,6 +10,8 @@ import com.homebase.android.ui.aufgaben.TodoDraft
 import com.homebase.android.ui.aufgaben.TodoSaveStatus
 import com.homebase.android.ui.aufgaben.toCreateRequest
 import com.homebase.android.ui.aufgaben.toUpdateRequest
+import com.homebase.android.data.aufgaben.TodoSnapshot
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
@@ -85,7 +87,14 @@ class TodoViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm(): TodoViewModel = TodoViewModel(repository, configRepository, "test-token")
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(var data: TodoSnapshot? = null) : SnapshotStore<TodoSnapshot> {
+        override suspend fun load(): TodoSnapshot? = data
+        override suspend fun save(snapshot: TodoSnapshot) { data = snapshot }
+    }
+
+    private fun createVm(snapshotStore: SnapshotStore<TodoSnapshot>? = null): TodoViewModel =
+        TodoViewModel(repository, configRepository, "test-token", snapshotStore = snapshotStore)
 
     @Test
     fun `initial load populates todos`() = runTest {
@@ -945,5 +954,82 @@ class TodoViewModelTest {
 
         coVerify(exactly = 1) { repository.deleteTodo("x1") }
         assertNull(vm.todoEditor.value)
+    }
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached lists and todos`() = runTest {
+        // The fetch fails (no signal) but a previous session cached the screen.
+        coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getTodos() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(
+            TodoSnapshot(lists = listOf(list("a")), todos = listOf(todo(id = "1", title = "Milch kaufen"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        // Shows the old state instead of an empty screen, and does not nag with a blocking error.
+        assertEquals(listOf("a"), vm.uiState.value.lists.map { it.id })
+        assertEquals(listOf("Milch kaufen"), vm.uiState.value.todos.map { it.title })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = runTest {
+        // Cache holds a stale todo; the server returns fresh data — the fresh data must win.
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "2", title = "Frisch", listId = "a")))
+        val cache = FakeSnapshotStore(TodoSnapshot(todos = listOf(todo(id = "1", title = "STALE", listId = "a"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Frisch"), vm.uiState.value.todos.map { it.title })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = runTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
+        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1", title = "Milch", listId = "a")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Milch"), cache.data?.todos?.map { it.title })
+        assertEquals(listOf("a"), cache.data?.lists?.map { it.id })
+    }
+
+    @Test
+    fun `an optimistic add is mirrored into the cache`() = runTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
+        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "9", title = "Brot", listId = "a"))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        vm.addTodo("Brot")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Brot"), cache.data?.todos?.map { it.title })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = runTest {
+        coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getTodos() } returns Result.failure(java.io.IOException("offline"))
+        val cached = TodoSnapshot(lists = listOf(list("a")), todos = listOf(todo(id = "1")))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals("cache survives an offline launch", cached.todos.map { it.id }, cache.data?.todos?.map { it.id })
+        assertEquals(cached.lists.map { it.id }, cache.data?.lists?.map { it.id })
     }
 }

@@ -440,7 +440,12 @@ class MainActivity : AppCompatActivity() {
     private fun todoFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return TodoViewModel(container.todoRepository, container.configRepository, token) as T
+            return TodoViewModel(
+                container.todoRepository,
+                container.configRepository,
+                token,
+                snapshotStore = container.todoSnapshotStore,
+            ) as T
         }
     }
 

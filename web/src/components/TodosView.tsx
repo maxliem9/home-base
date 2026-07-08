@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId, useRef } from 'react'
+import { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
@@ -74,6 +74,35 @@ const DONE_WINDOW_DAYS_DEFAULT = 14
 // Browser-local like the other UI prefs (homebase_lang, homebase_notes_*); the
 // COUNTS stay on "today" regardless. Default (absent/anything-but-"1") = windowed.
 const DONE_SHOW_ALL_KEY = 'homebase_todos_done_show_all'
+
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the tasks view): mirror the
+// last-loaded lists + todos so a launch/reload while the API is unreachable shows the previous state
+// instead of an empty screen. Best-effort; keyed by browser, not user (single account per browser).
+// NB: fully offline the SPA shell itself may not load (the service worker is push-only, not an asset
+// cache) — this covers the flaky-connection case where the shell is served from browser cache but the
+// /api fetch fails, and gives an instant first paint online. True offline-shell → #519.
+const CACHE_KEY = 'homebase_todos_cache'
+
+interface TodosCache { lists: TodoList[]; todos: Todo[] }
+
+function loadCache(): TodosCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<TodosCache>
+    return { lists: parsed.lists ?? [], todos: parsed.todos ?? [] }
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveCache(lists: TodoList[], todos: Todo[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ lists, todos }))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
 
 // Secondary sort key within a due-date bucket: higher priority first, no
 // priority last. Kept in sync with the Android client (Format.prioRank).
@@ -206,9 +235,14 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const { t } = useTranslation()
   const me = usernameFromToken(token)
   const householdUsers = useHouseholdUsers(token)
-  const [todos, setTodos] = useState<Todo[]>([])
-  const [lists, setLists] = useState<TodoList[]>([])
-  const [loading, setLoading] = useState(true)
+  // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
+  // known lists + todos instead of an empty screen; a successful fetch replaces them below. Read once
+  // (useMemo, not a per-render localStorage hit) — it only feeds the initial state below.
+  const initialCache = useMemo(() => loadCache(), [])
+  const [todos, setTodos] = useState<Todo[]>(initialCache?.todos ?? [])
+  const [lists, setLists] = useState<TodoList[]>(initialCache?.lists ?? [])
+  // Skip the full-screen spinner when we already have cached content to show — refresh happens underneath.
+  const [loading, setLoading] = useState(!(initialCache && (initialCache.todos.length > 0 || initialCache.lists.length > 0)))
   // Tab precedence on mount: an explicit dashboard deep-link wins; otherwise
   // restore the last-active tab from localStorage (#339); otherwise the
   // post-lists-load effect picks the default. A restored real-list UUID is
@@ -296,6 +330,14 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchTodos() }, [fetchTodos])
+
+  // Mirror the current lists + todos into the durable read-cache (#520) on every change — server
+  // fetches and optimistic edits alike — so the next launch can show the last state offline. The
+  // initial run re-writes the seeded cache (harmless); it never wipes it, since the state was seeded
+  // from that same cache rather than starting empty.
+  useEffect(() => {
+    saveCache(lists, todos)
+  }, [lists, todos])
 
   // Load the household-configured "Erledigt"-window length (#356) once on mount. Best-effort:
   // any failure (transport, 401-handled-elsewhere, absent field) leaves the fallback in place,
