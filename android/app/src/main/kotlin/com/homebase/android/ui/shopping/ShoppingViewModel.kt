@@ -11,12 +11,14 @@ import com.homebase.android.data.model.ShoppingSuggestion
 import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateShoppingListRequest
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.shopping.FlushDecision
 import com.homebase.android.data.shopping.PendingCheck
 import com.homebase.android.data.shopping.PendingQueue
 import com.homebase.android.data.shopping.ShoppingClock
 import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingSnapshot
 import com.homebase.android.data.shopping.ShoppingViewPrefs
 import com.homebase.android.data.shopping.classifyFlush
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
@@ -27,6 +29,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -105,6 +109,12 @@ class ShoppingViewModel(
     private val flushIntervalMs: Long = FLUSH_INTERVAL_MS,
     /** Persisted list/tile view choice (#446); null in tests → in-memory only, tiles by default. */
     private val viewPrefs: ShoppingViewPrefs? = null,
+    /**
+     * Durable "last-known lists + items" cache (#517). Seeded into state on a cold start so a launch
+     * with no connection shows the previous screen instead of nothing, and re-mirrored on every
+     * change. null in tests that don't exercise it → no read-cache (behaves exactly as before).
+     */
+    private val snapshotStore: SnapshotStore<ShoppingSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))
@@ -155,11 +165,20 @@ class ShoppingViewModel(
     /** Periodic backstop loop; runs only while the queue is non-empty, restarted on enqueue. */
     private var backstopJob: Job? = null
 
+    /**
+     * True once a fetch (reload / background sync) has successfully applied server data (#517). The
+     * durable-cache restore checks this so it never stale-clobbers live server data that already
+     * landed, and [reload] uses it to decide whether a failed refresh should surface a blocking
+     * error (only when there is nothing to show anyway). Single-threaded (viewModelScope = Main).
+     */
+    private var hasServerData = false
+
     init {
         load() // reload() scopes categories + suggestions to the active list once lists are in (#412)
         loadTemplates()
         observeWebSocket()
         observeConnectivity(networkAvailable)
+        restoreAndMirrorSnapshot()
         // Restore the persisted list/tile view choice off-main (#446). A toggle made before this IO
         // read completes wins — don't clobber the user's live choice with the stale persisted value.
         viewPrefs?.let { prefs ->
@@ -187,6 +206,41 @@ class ShoppingViewModel(
 
     fun load() {
         viewModelScope.launch { reload() }
+    }
+
+    /**
+     * Offline read-cache (#517). First seed the last-known lists + items from disk so a cold start
+     * with no connection shows the previous screen instead of nothing; then mirror every subsequent
+     * change back so the cache always reflects what the user last saw (optimistic edits included).
+     *
+     * Ordering matters: the seed runs the disk read *before* the mirror collector starts, so the
+     * collector can never persist the pre-restore empty frame over a good cache. The seed only fills
+     * fields that are still empty and bails if a fetch already won ([hasServerData]) — a slow disk
+     * read must not clobber fresh server data. Restoring content clears any refresh error: offline we
+     * deliberately "show the old state" silently; the reconnect/backstop resync restores correctness.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && (cached.lists.isNotEmpty() || cached.items.isNotEmpty())) {
+                _uiState.update { s ->
+                    if (hasServerData) s
+                    else s.copy(
+                        lists = s.lists.ifEmpty { cached.lists },
+                        items = s.items.ifEmpty { cached.items },
+                        isLoading = false,
+                        error = null,
+                    )
+                }
+            }
+            // Persist on every distinct lists/items change from here on. Starting the collector only
+            // after the seed read guarantees we never overwrite the cache with the initial empty state.
+            uiState
+                .map { it.lists to it.items }
+                .distinctUntilChanged()
+                .collect { (lists, items) -> store.save(ShoppingSnapshot(lists = lists, items = items)) }
+        }
     }
 
     /**
@@ -219,6 +273,7 @@ class ShoppingViewModel(
             if (surfaceError) _uiState.update { it.copy(error = error) }
             return
         }
+        hasServerData = true // a successful fetch landed → the durable-cache seed must not clobber it (#517)
         val serverItems = itemsResult.getOrDefault(emptyList())
         _uiState.update { state ->
             val merged = serverItems.map { server ->
@@ -250,12 +305,20 @@ class ShoppingViewModel(
         val lists = repository.getLists()
         val items = repository.getItems()
         val error = lists.exceptionOrNull()?.message ?: items.exceptionOrNull()?.message
+        if (error == null) hasServerData = true
         _uiState.update { state ->
+            val nextLists = lists.getOrDefault(state.lists)
+            val nextItems = items.getOrDefault(state.items)
             state.copy(
-                lists = lists.getOrDefault(state.lists),
-                items = items.getOrDefault(state.items),
+                lists = nextLists,
+                items = nextItems,
                 isLoading = false,
-                error = error,
+                // Keep `error` set only when there is nothing to show anyway. With cached (#517) or
+                // prior data already on screen, a failed background refresh leaves the old state in
+                // place with no error — the reconnect/backstop resync restores correctness. (The
+                // shopping screen doesn't render `error` today; this keeps the state coherent for the
+                // tests and for whenever an error surface is added, mirroring syncFromServer.)
+                error = error?.takeIf { nextLists.isEmpty() && nextItems.isEmpty() },
             )
         }
         // lists are now in state → scope the grouping catalog + suggestions to the active list (#412)

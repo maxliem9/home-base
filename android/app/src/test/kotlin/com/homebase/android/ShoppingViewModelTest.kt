@@ -14,9 +14,11 @@ import com.homebase.android.data.repository.ShoppingRepository
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.shopping.PendingCheck
 import com.homebase.android.data.shopping.ShoppingClock
 import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingSnapshot
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.ui.shopping.BUILTIN_CATEGORIES
 import com.homebase.android.ui.shopping.ShoppingViewModel
@@ -51,6 +53,12 @@ class ShoppingViewModelTest {
     private class FakeStore(var data: MutableMap<String, PendingCheck> = mutableMapOf()) : ShoppingPendingStore {
         override suspend fun load(): Map<String, PendingCheck> = data.toMap()
         override suspend fun save(pending: Map<String, PendingCheck>) { data = pending.toMutableMap() }
+    }
+
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#517). */
+    private class FakeSnapshotStore(var data: ShoppingSnapshot? = null) : SnapshotStore<ShoppingSnapshot> {
+        override suspend fun load(): ShoppingSnapshot? = data
+        override suspend fun save(snapshot: ShoppingSnapshot) { data = snapshot }
     }
 
     private lateinit var store: FakeStore
@@ -115,6 +123,7 @@ class ShoppingViewModelTest {
 
     private fun createVm(
         networkAvailable: kotlinx.coroutines.flow.Flow<Unit> = emptyFlow(),
+        snapshotStore: SnapshotStore<ShoppingSnapshot>? = null,
     ): ShoppingViewModel {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -126,6 +135,7 @@ class ShoppingViewModelTest {
                 clock = clock,
                 // Large interval so the backstop loop never fires inside advanceUntilIdle().
                 flushIntervalMs = 10_000_000L,
+                snapshotStore = snapshotStore,
             ) as T
         }
         return ViewModelProvider(vmStore, factory)[ShoppingViewModel::class.java]
@@ -1295,5 +1305,84 @@ class ShoppingViewModelTest {
         advanceUntilIdle()
 
         coVerify { repository.createCategory(label = "Werkzeug", emoji = "🔧", listId = "L9") }
+    }
+
+    // --- Offline read-cache (#517) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached lists and items`() = vmTest {
+        // The fetch fails (no signal) but a previous session cached the screen.
+        coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getItems() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(
+            ShoppingSnapshot(lists = listOf(list(id = "L1")), items = listOf(item(id = "1", name = "Milch"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        // Shows the old state instead of an empty screen, and does not nag with a blocking error.
+        assertEquals(listOf("L1"), vm.uiState.value.lists.map { it.id })
+        assertEquals(listOf("Milch"), vm.uiState.value.items.map { it.name })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = vmTest {
+        // Cache holds a stale item; the server returns fresh data — the fresh data must win.
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "2", name = "Brot").copy(listId = "L1")))
+        val cache = FakeSnapshotStore(
+            ShoppingSnapshot(items = listOf(item(id = "1", name = "STALE").copy(listId = "L1"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Brot"), vm.uiState.value.items.map { it.name })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.getItems() } returns Result.success(listOf(item(id = "1", name = "Milch").copy(listId = "L1")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Milch"), cache.data?.items?.map { it.name })
+        assertEquals(listOf("L1"), cache.data?.lists?.map { it.id })
+    }
+
+    @Test
+    fun `an optimistic add is mirrored into the cache`() = vmTest {
+        coEvery { repository.getLists() } returns Result.success(listOf(list(id = "L1")))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.createItem("Brot", "L1", null) } returns Result.success(item(id = "9", name = "Brot"))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        vm.addItem("Brot")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Brot"), cache.data?.items?.map { it.name })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = vmTest {
+        coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getItems() } returns Result.failure(java.io.IOException("offline"))
+        val cached = ShoppingSnapshot(lists = listOf(list(id = "L1")), items = listOf(item(id = "1")))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals("cache survives an offline launch", cached.items.map { it.id }, cache.data?.items?.map { it.id })
+        assertEquals(cached.lists.map { it.id }, cache.data?.lists?.map { it.id })
     }
 }
