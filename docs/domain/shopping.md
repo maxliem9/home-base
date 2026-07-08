@@ -35,7 +35,11 @@ abgehakten Items samt „nicht synchronisiert"-Marker.
   `restoreAndMirrorSnapshot()` (Disk-Read **vor** dem Mirror-Collector, sonst überschreibt der leere
   Startframe den guten Cache) und spiegelt via `uiState.map{lists,items}.distinctUntilChanged()`.
   `hasServerData` verhindert, dass ein langsamer Disk-Read frische Serverdaten überschreibt; ein
-  fehlgeschlagener Refresh setzt **nur** dann einen Blocking-Error, wenn ohnehin nichts anzuzeigen ist.
+  fehlgeschlagener Refresh hält `error` **nur** dann, wenn ohnehin nichts anzuzeigen ist (der
+  Einkauf-Screen rendert `error` aktuell gar nicht — das hält den State bloß kohärent).
+  *Kein 1:1-Parität mit Web:* der Seed liest off-main (SharedPreferences), also blitzt bei
+  Kalt-Start ohne Netz **kurz** der Empty-State auf, bis der Disk-Read zurück ist — Web seedet
+  synchron im `useState`-Initializer und hat diesen Frame nicht.
 - **Web:** `localStorage['homebase_shopping_cache']`, geseedet in den `useState`-Initialisierern,
   gespiegelt per `useEffect([lists, items])`. **Wichtig:** Der Service Worker cached **keine** Assets
   (nur Web Push), d. h. *vollständig* offline lädt die SPA-Shell gar nicht erst — der Web-Cache greift

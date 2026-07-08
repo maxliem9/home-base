@@ -313,9 +313,11 @@ class ShoppingViewModel(
                 lists = nextLists,
                 items = nextItems,
                 isLoading = false,
-                // Only surface a load error when there is nothing to show anyway. If cached (#517) or
-                // prior data is already on screen, a failed refresh stays silent — offline we "show the
-                // old state" rather than nag; the reconnect/backstop resync restores correctness.
+                // Keep `error` set only when there is nothing to show anyway. With cached (#517) or
+                // prior data already on screen, a failed background refresh leaves the old state in
+                // place with no error — the reconnect/backstop resync restores correctness. (The
+                // shopping screen doesn't render `error` today; this keeps the state coherent for the
+                // tests and for whenever an error surface is added, mirroring syncFromServer.)
                 error = error?.takeIf { nextLists.isEmpty() && nextItems.isEmpty() },
             )
         }
