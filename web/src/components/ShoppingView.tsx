@@ -48,7 +48,7 @@ function loadViewMode(): ViewMode {
 // check-off queue above. Best-effort; keyed by browser, not user (single account per browser).
 // NB: fully offline the SPA shell itself may not load (the service worker is push-only, not an
 // asset cache) — this covers the flaky-connection case where the shell is served from browser cache
-// but the /api fetch fails, and gives an instant first paint online. True offline-shell → #<sw-ticket>.
+// but the /api fetch fails, and gives an instant first paint online. True offline-shell → #519.
 const CACHE_KEY = 'homebase_shopping_cache'
 
 interface ShoppingCache { lists: ShoppingList[]; items: ShoppingItem[] }

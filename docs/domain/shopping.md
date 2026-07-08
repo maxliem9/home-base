@@ -40,8 +40,8 @@ abgehakten Items samt „nicht synchronisiert"-Marker.
   gespiegelt per `useEffect([lists, items])`. **Wichtig:** Der Service Worker cached **keine** Assets
   (nur Web Push), d. h. *vollständig* offline lädt die SPA-Shell gar nicht erst — der Web-Cache greift
   nur bei flakiger Verbindung (Shell aus dem Browser-Cache, `/api` schlägt fehl) und für den sofortigen
-  ersten Paint. Echter Offline-Shell-Betrieb braucht Asset-Caching im SW → eigenes Issue.
+  ersten Paint. Echter Offline-Shell-Betrieb braucht Asset-Caching im SW → #519.
 - **Nur Einkauf umgesetzt** (der gemeldete Fall). Kategorien fallen offline auf `BUILTIN_CATEGORIES`
   zurück (Gruppierung funktioniert), Vorlagen/Suggestions sind offline leer — bewusst nicht gecacht.
-  Andere Views (Todos, Notizen, Wochenplan …) haben denselben Kalt-Start-Offline-Gap → eigenes Issue,
+  Andere Views (Todos, Notizen, Wochenplan …) haben denselben Kalt-Start-Offline-Gap → #520,
   der `SnapshotStore<T>` macht die Erweiterung mechanisch.
