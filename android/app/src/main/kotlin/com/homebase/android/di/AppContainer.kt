@@ -15,11 +15,14 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.cache.SharedPrefsSnapshotStore
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NotesPendingStore
 import com.homebase.android.data.notes.SharedPrefsNotesPendingStore
 import com.homebase.android.data.shopping.ConnectivityObserver
 import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
 import com.homebase.android.data.shopping.ShoppingPendingStore
+import com.homebase.android.data.shopping.ShoppingSnapshot
 import com.homebase.android.data.shopping.ShoppingViewPrefs
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import com.homebase.android.data.websocket.EventWebSocketClient
@@ -106,6 +109,17 @@ class AppContainer(context: Context) {
 
     /** Durable backing store for the shopping offline check-off queue (issue #170). */
     val shoppingPendingStore: ShoppingPendingStore = SharedPrefsShoppingPendingStore(context, moshi)
+
+    /**
+     * Durable "last-known lists + items" cache for the shopping screen (#517), so a cold start with
+     * no connection shows the previous state instead of an empty screen. Read-side twin of the
+     * offline check-off queue; own prefs file, best-effort writes.
+     */
+    val shoppingSnapshotStore: SnapshotStore<ShoppingSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(ShoppingSnapshot::class.java),
+        prefsName = "homebase_shopping_cache",
+    )
 
     /** Persisted list/tile view choice for the shopping screen (#446). */
     val shoppingViewPrefs: ShoppingViewPrefs = ShoppingViewPrefs(context)

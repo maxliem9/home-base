@@ -43,6 +43,35 @@ function loadViewMode(): ViewMode {
   }
 }
 
+// Offline read-cache (#517): mirror the last-loaded lists + items so a launch/reload while the API is
+// unreachable shows the previous state instead of an empty screen — the read-side twin of the
+// check-off queue above. Best-effort; keyed by browser, not user (single account per browser).
+// NB: fully offline the SPA shell itself may not load (the service worker is push-only, not an
+// asset cache) — this covers the flaky-connection case where the shell is served from browser cache
+// but the /api fetch fails, and gives an instant first paint online. True offline-shell → #<sw-ticket>.
+const CACHE_KEY = 'homebase_shopping_cache'
+
+interface ShoppingCache { lists: ShoppingList[]; items: ShoppingItem[] }
+
+function loadCache(): ShoppingCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<ShoppingCache>
+    return { lists: parsed.lists ?? [], items: parsed.items ?? [] }
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveCache(lists: ShoppingList[], items: ShoppingItem[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ lists, items }))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
+
 interface PendingCheck { checked: boolean; at: number }
 
 function loadPending(): Record<string, PendingCheck> {
@@ -70,11 +99,16 @@ interface ShoppingViewProps {
 
 export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const { t } = useTranslation()
-  const [items, setItems] = useState<ShoppingItem[]>([])
-  const [lists, setLists] = useState<ShoppingList[]>([])
+  // Seed from the durable read-cache (#517) so a launch with a flaky/absent connection shows the last
+  // known lists + items instead of an empty screen; a successful fetch replaces them below. Read once
+  // (useMemo, not a per-render localStorage hit) — it only feeds the initial state below.
+  const initialCache = useMemo(() => loadCache(), [])
+  const [items, setItems] = useState<ShoppingItem[]>(initialCache?.items ?? [])
+  const [lists, setLists] = useState<ShoppingList[]>(initialCache?.lists ?? [])
   // Live editable category catalog (#411), seeded with the builtins so headers render before the fetch.
   const [categories, setCategories] = useState<ShoppingCategory[]>(BUILTIN_CATEGORIES)
-  const [loading, setLoading] = useState(true)
+  // Skip the full-screen spinner when we already have cached lists to show — refresh happens underneath.
+  const [loading, setLoading] = useState(!(initialCache && initialCache.lists.length > 0))
   const [activeId, setActiveId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -244,6 +278,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
       setActiveId(lists[0].id)
     }
   }, [lists, activeId])
+
+  // Mirror the current lists + items into the durable read-cache (#517) on every change — server
+  // fetches and optimistic edits alike — so the next launch can show the last state offline. The
+  // initial run re-writes the seeded cache (harmless); it never wipes it, since the state was seeded
+  // from that same cache rather than starting empty.
+  useEffect(() => {
+    saveCache(lists, items)
+  }, [lists, items])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {

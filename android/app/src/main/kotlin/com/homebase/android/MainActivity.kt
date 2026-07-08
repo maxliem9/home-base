@@ -453,6 +453,7 @@ class MainActivity : AppCompatActivity() {
                 pendingStore = container.shoppingPendingStore,
                 networkAvailable = container.connectivityObserver.onAvailable,
                 viewPrefs = container.shoppingViewPrefs,
+                snapshotStore = container.shoppingSnapshotStore,
             ) as T
         }
     }
