@@ -466,6 +466,7 @@ class MainActivity : AppCompatActivity() {
                 token = token,
                 pendingStore = container.notesPendingStore,
                 networkAvailable = container.connectivityObserver.onAvailable,
+                snapshotStore = container.notesSnapshotStore,
             ) as T
         }
     }

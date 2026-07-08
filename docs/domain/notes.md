@@ -40,3 +40,16 @@ Liste ist **ordner-gruppiert** (Header + eingerückte Notizen, benannte Ordner a
 „Ohne Ordner" zuletzt; Filter-Chips bleiben). Auf Mobile (≤860px) wird bei offenem Editor die
 Liste eingeklappt (Voll-Breite-Editor + „← Notizen"-Back-Control), Notizwechsel ohne Zurück
 über ein linkes `<Sheet>`-Slide-over.
+
+## Offline-Read-Cache (#520)
+Wie beim Einkauf (#517/#518) und den Aufgaben: die zuletzt geladenen Notizen werden durabel
+gecacht und beim (Kalt-)Start in den State geseedet, damit ein Launch ohne Verbindung den letzten
+Stand zeigt statt eines leeren Screens (In-Memory-State ist nach Prozess-Tod leer). Gespiegelt wird
+bei **jeder** Änderung — aber **nur solange die Suche leer ist**, sonst würde ein gefiltertes
+Ergebnis den Cache mit einer Teilmenge überschreiben. Android: `NotesSnapshot(notes)` über den
+generischen `SnapshotStore<T>`, eigene Prefs-Datei `homebase_notes_cache`; VM seedet in
+`restoreAndMirrorSnapshot()` (Disk-Read vor dem Mirror-Collector), `hasServerData`-Guard gegen
+Clobbering, `error` nur wenn nichts anzuzeigen ist. Web: `localStorage['homebase_notes_cache']`,
+Seed in den `useState`-Initialisierern, Mirror per `useEffect([notes, query])` (nur bei leerer
+Suche). Der Editor-Draft wird **nicht** gecacht (transienter UI-State). Wie #518 greift der
+Web-Cache nur bei flakiger Verbindung / erstem Paint; echter Offline-Shell-Betrieb = #519.
