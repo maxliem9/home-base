@@ -15,6 +15,7 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.cache.SharedPrefsSnapshotStore
 import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NotesPendingStore
@@ -80,6 +81,17 @@ class AppContainer(context: Context) {
     val todoRepository = TodoRepository(
         api = api,
         wsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    /**
+     * Durable "last-known lists + todos" cache for the tasks screen (#520), so a cold start with no
+     * connection shows the previous state instead of an empty screen. Read-side twin of the shopping
+     * cache (#517); own prefs file, best-effort writes.
+     */
+    val todoSnapshotStore: SnapshotStore<TodoSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(TodoSnapshot::class.java),
+        prefsName = "homebase_todos_cache",
     )
 
     /**
