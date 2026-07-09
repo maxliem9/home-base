@@ -524,7 +524,7 @@ private fun WorkTargetCard(
             ) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        Format.durationLong(weekDone),
+                        Format.durationLong(roundToMinute(weekDone)),
                         style = HbType.rowTitle.copy(fontWeight = FontWeight.SemiBold),
                         color = Hb.ink,
                     )
@@ -551,7 +551,7 @@ private fun WorkTargetCard(
             // today's redistributed target line
             Text(
                 if (todayLeft <= 0) stringResource(R.string.dashboard_worktarget_today_reached)
-                else stringResource(R.string.dashboard_worktarget_today_left, Format.durationLong(todayLeft)),
+                else stringResource(R.string.dashboard_worktarget_today_left, Format.durationLong(roundToMinute(todayLeft))),
                 style = HbType.meta,
                 color = Hb.ink3,
                 modifier = Modifier.padding(top = 9.dp),
@@ -563,6 +563,13 @@ private fun WorkTargetCard(
 /** "40" / "38.5" — weekly hours without a trailing ".0". */
 private fun trimHours(hours: Double): String =
     if (hours % 1.0 == 0.0) hours.toInt().toString() else hours.toString()
+
+/**
+ * Round seconds to the nearest whole minute before formatting, matching the web
+ * card's `fmtDurationShort` (`Math.round(seconds/60)`) — `Format.durationLong`
+ * itself floors, which would roll the live-ticking minute a second late (#498).
+ */
+private fun roundToMinute(seconds: Long): Long = (seconds.coerceAtLeast(0) + 30) / 60 * 60
 
 // ---------------------------------------------------------------------------
 // Shopping mini row
