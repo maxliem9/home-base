@@ -19,3 +19,13 @@ immer zusammen mit dem Rezept gespeichert — kein separater Endpunkt).
   deutscher Inhalt analog CSV-Export, Content-Disposition-Dateiname rezept_<slug>.<ext>.
   Web: Download-Button in der Detailansicht; Android: System-Share-Sheet (FileProvider).
 - WebSocket /api/v1/ws/recipes (RECIPE_CREATED|UPDATED|DELETED)
+
+## Offline-Read-Cache (#520)
+Wie beim Einkauf (#517/#518): die zuletzt geladenen Rezepte werden durabel gecacht und beim
+(Kalt-)Start in den State geseedet, damit ein Launch ohne Verbindung den letzten Stand zeigt statt
+eines leeren Screens. Android: `RecipesSnapshot(recipes)` über den generischen `SnapshotStore<T>`,
+eigene Prefs-Datei `homebase_recipes_cache`; VM seedet in `restoreAndMirrorSnapshot()` (Disk-Read vor
+dem Mirror-Collector), Mirror **nur wenn kein Kategoriefilter aktiv ist** (server-seitig gefiltert →
+sonst würde eine Teilmenge den Cache überschreiben). Web: `localStorage['homebase_recipes_cache']`;
+die Web-Liste wird **unfiltered** geladen (Filter ist client-seitig) → immer die volle Menge, daher
+ohne Guard gecacht. Wie #518 greift der Web-Cache nur bei flakiger Verbindung / erstem Paint (#519).

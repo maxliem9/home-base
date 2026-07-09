@@ -1,5 +1,7 @@
 package com.homebase.android
 
+import com.homebase.android.data.abwesenheit.AbsenceSnapshot
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.repository.AbsenceRepository
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
@@ -50,7 +52,63 @@ class AbsenceViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm() = AbsenceViewModel(repository, "test-token")
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(var data: AbsenceSnapshot? = null) : SnapshotStore<AbsenceSnapshot> {
+        override suspend fun load(): AbsenceSnapshot? = data
+        override suspend fun save(snapshot: AbsenceSnapshot) { data = snapshot }
+    }
+
+    private fun createVm(snapshotStore: SnapshotStore<AbsenceSnapshot>? = null) =
+        AbsenceViewModel(repository, "test-token", snapshotStore = snapshotStore)
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached snapshot`() = runTest {
+        coEvery { repository.getState() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(AbsenceSnapshot(data = state(users = listOf("alice", "bob"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("alice", "bob"), vm.uiState.value.data.users)
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = runTest {
+        coEvery { repository.getState() } returns Result.success(state(users = listOf("fresh")))
+        val cache = FakeSnapshotStore(AbsenceSnapshot(data = state(users = listOf("stale"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("fresh"), vm.uiState.value.data.users)
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = runTest {
+        coEvery { repository.getState() } returns Result.success(state(users = listOf("alice", "bob")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("alice", "bob"), cache.data?.data?.users)
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = runTest {
+        coEvery { repository.getState() } returns Result.failure(java.io.IOException("offline"))
+        val cached = AbsenceSnapshot(data = state(users = listOf("alice")))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("alice"), cache.data?.data?.users)
+    }
 
     @Test
     fun `initial load populates the snapshot`() = runTest {

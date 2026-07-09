@@ -3,7 +3,7 @@
 // refetches on success). Used by BOTH AbwesenheitView (the calendar) and the
 // Einstellungen → Abwesenheit subpage, so the two share one source of truth instead
 // of each re-implementing the load + WS + write plumbing.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../../api'
 import type { FetchResult } from '../../api'
@@ -17,6 +17,31 @@ const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = `${WS_SCHEME}://${window.location.host}/api/v1/ws/absence`
 
 const EMPTY: AbsenceState = { users: [], absences: [], partTime: [], kitaClosures: [], customHolidays: [], settings: [] }
+
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the absence planner): mirror the
+// last-loaded snapshot so a launch/reload while the API is unreachable shows the previous planner instead
+// of an empty grid. Best-effort; keyed by browser, not user. NB: fully offline the SPA shell itself needs
+// the service worker (#519); this covers the flaky-connection case + instant first paint.
+const CACHE_KEY = 'homebase_absence_cache'
+
+function loadAbsenceCache(): AbsenceState | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { data?: unknown }
+    return parsed.data ? normalizeAbsenceState(parsed.data) : null
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveAbsenceCache(data: AbsenceState) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ data }))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
 
 /** Mutators against the backend; each refetches the snapshot after the change. */
 export interface Api {
@@ -39,9 +64,19 @@ export interface Api {
 
 export function useAbsenceData(token: string, onLogout: () => void) {
   const { t } = useTranslation()
-  const [data, setData] = useState<AbsenceState>(EMPTY)
-  const [loading, setLoading] = useState(true)
+  // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
+  // known planner instead of an empty grid; a successful fetch replaces it below. Read once.
+  const initialCache = useMemo(() => loadAbsenceCache(), [])
+  const [data, setData] = useState<AbsenceState>(initialCache ?? EMPTY)
+  // Skip the spinner when we already have a cached snapshot with users to show — refresh underneath.
+  const [loading, setLoading] = useState(!(initialCache && initialCache.users.length > 0))
   const { flashError, errorToast } = useErrorToast()
+
+  // Mirror the current snapshot into the durable read-cache (#520) on every change so the next launch
+  // can show the last state offline. Never wipes the cache: the state was seeded from that same cache.
+  useEffect(() => {
+    saveAbsenceCache(data)
+  }, [data])
 
   const fetchState = useCallback(async () => {
     const result = await safeFetch(token, `${API_BASE}/absence`)

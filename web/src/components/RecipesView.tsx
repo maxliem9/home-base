@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { API_BASE, authFetch, downloadImage, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
@@ -45,6 +45,33 @@ const normalizeRecipe = (r: Recipe): Recipe => ({
   ingredients: r.ingredients ?? [],
   steps: r.steps ?? [],
 })
+
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the recipes view): mirror the
+// last-loaded recipes so a launch/reload while the API is unreachable shows the previous state instead
+// of an empty screen. The list is fetched unfiltered (the category filter is client-side), so it is
+// always the full set — safe to cache as-is. Best-effort; keyed by browser, not user. NB: fully offline
+// the SPA shell itself needs the service worker (#519); this covers the flaky-connection case + instant
+// first paint.
+const CACHE_KEY = 'homebase_recipes_cache'
+
+function loadRecipesCache(): Recipe[] | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { recipes?: Recipe[] }
+    return (parsed.recipes ?? []).map(normalizeRecipe)
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveRecipesCache(recipes: Recipe[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ recipes }))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
 
 interface Draft {
   id?: string
@@ -142,9 +169,13 @@ interface RecipesViewProps {
 
 export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const { t } = useTranslation()
-  const [recipes, setRecipes] = useState<Recipe[]>([])
+  // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
+  // known recipes instead of an empty screen; a successful fetch replaces them below. Read once.
+  const initialRecipesCache = useMemo(() => loadRecipesCache(), [])
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipesCache ?? [])
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([])
-  const [loading, setLoading] = useState(true)
+  // Skip the full-screen spinner when we already have cached recipes to show — refresh happens underneath.
+  const [loading, setLoading] = useState(!(initialRecipesCache && initialRecipesCache.length > 0))
   const [filter, setFilter] = useState<RecipeCategory | 'ALL'>('ALL')
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -189,6 +220,12 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   }, [token])
 
   useEffect(() => { fetchRecipes() }, [fetchRecipes])
+
+  // Mirror the current recipes into the durable read-cache (#520) on every change so the next launch
+  // can show the last state offline. Never wipes the cache: the state was seeded from that same cache.
+  useEffect(() => {
+    saveRecipesCache(recipes)
+  }, [recipes])
   useEffect(() => { fetchShoppingLists() }, [fetchShoppingLists])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
