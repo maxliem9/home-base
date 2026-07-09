@@ -18,8 +18,10 @@ import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.recipes.RecipesSnapshot
+import com.homebase.android.data.time.TimeSnapshot
 import com.homebase.android.data.cache.SharedPrefsSnapshotStore
 import com.homebase.android.data.cache.SnapshotStore
+import com.homebase.android.data.familienkalender.CalendarSnapshot
 import com.homebase.android.data.notes.NotesPendingStore
 import com.homebase.android.data.notes.NotesSnapshot
 import com.homebase.android.data.notes.SharedPrefsNotesPendingStore
@@ -166,6 +168,13 @@ class AppContainer(context: Context) {
         wsClient = TimeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 
+    /** Durable "last-known time data" cache for the Zeiterfassung (#520); own prefs file. */
+    val timeSnapshotStore: SnapshotStore<TimeSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(TimeSnapshot::class.java),
+        prefsName = "homebase_time_cache",
+    )
+
     val recipesRepository = RecipesRepository(
         api = api,
         wsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
@@ -208,5 +217,12 @@ class AppContainer(context: Context) {
         mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
         recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
         eventWsClient = EventWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    /** Durable "last-known overlay" cache for the Familienkalender (#520); own prefs file. */
+    val calendarSnapshotStore: SnapshotStore<CalendarSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(CalendarSnapshot::class.java),
+        prefsName = "homebase_calendar_cache",
     )
 }

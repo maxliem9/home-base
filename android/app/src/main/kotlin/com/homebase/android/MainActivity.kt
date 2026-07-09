@@ -479,7 +479,7 @@ class MainActivity : AppCompatActivity() {
     private fun timeFactory(token: String, username: String?) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return TimeViewModel(container.timeRepository, token, username) as T
+            return TimeViewModel(container.timeRepository, token, username, snapshotStore = container.timeSnapshotStore) as T
         }
     }
 
@@ -507,7 +507,7 @@ class MainActivity : AppCompatActivity() {
     private fun calendarFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return FamilienkalenderViewModel(container.calendarRepository, token) as T
+            return FamilienkalenderViewModel(container.calendarRepository, token, snapshotStore = container.calendarSnapshotStore) as T
         }
     }
 

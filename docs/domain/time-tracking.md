@@ -66,3 +66,15 @@ description?, created_at, updated_at
   Tages- + Wochensaldo statt Gesamtsumme — vom aktuellen Tag/Woche, sonst Fallback
   auf den letzten aktiven Tag bzw. die letzte aktive Woche (#59). Android analog:
   Live-Tick + Kachel-Saldi in `ui/time` (TimeMath.kt, #64).
+
+## Offline-Read-Cache (#520)
+Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim
+(Kalt-)Start geseedet, damit ein Launch ohne Verbindung die letzten Einträge zeigt statt eines leeren
+Screens. Android: `TimeSnapshot(projects, entries, users, forecast, targets)` über `SnapshotStore<T>`,
+Prefs-Datei `homebase_time_cache`; der laufende Timer (`running`/`othersRunning`) wird beim Seed aus den
+gecachten `entries` neu abgeleitet, `forecastAt` wird **nicht** gecacht (kein Live-Tick offline). Web:
+`localStorage['homebase_time_cache']` mit projects+entries+users (Forecast/Wochenbilanz bewusst nicht
+gecacht — sie blendet sich ohne Daten sauber aus und ihr Live-Tick braucht einen Fetch-Zeitstempel).
+Seed vor dem Mirror-Collector (Android) bzw. in den `useState`-Initialisierern (Web), `hasServerData`-Guard,
+`error` nur wenn nichts anzuzeigen ist. Wie #518 greift der Web-Cache nur bei flakiger Verbindung /
+erstem Paint (#519).

@@ -36,3 +36,12 @@ Prefs-Datei `homebase_absence_cache`; VM seedet in `restoreAndMirrorSnapshot()` 
 Default-Gleichheit + `hasServerData`), Mirror auf jede Änderung. Web: `useAbsenceData` seedet `data`
 aus `localStorage['homebase_absence_cache']` und spiegelt per `useEffect([data])`. Wie #518 greift der
 Web-Cache nur bei flakiger Verbindung / erstem Paint (#519).
+
+## Familienkalender-Overlay: Offline-Read-Cache (#520)
+Das read-only Monats-Overlay (#435) cacht denselben Weg wie die anderen Views. Meals + Events sind
+**monatsabhängig** (Range-Fetch), daher wird die gecachte Grid-Start-Woche (`monthAnchor` bzw. `from`)
+mitgespeichert und diese beiden nur geseedet, wenn sie == aktuell sichtbarem Monat ist; Todos + der
+Abwesenheits-Snapshot sind ganz (frei geseedet). Android: `CalendarSnapshot(monthAnchor, todos,
+absences, kitaClosures, meals, events)` über `SnapshotStore<T>`, Prefs `homebase_calendar_cache`. Web:
+`localStorage['homebase_calendar_cache']` in `useCalendarData` (Seed in den `useState`-Initialisierern,
+Mirror per `useEffect`). Wie #518 greift der Web-Cache nur bei flakiger Verbindung / erstem Paint (#519).
