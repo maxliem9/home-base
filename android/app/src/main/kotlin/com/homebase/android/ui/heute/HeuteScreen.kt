@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,11 +39,13 @@ import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TodoDto
+import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.aufgaben.TodosFocus
 import com.homebase.android.ui.aufgaben.isDueToday
 import com.homebase.android.ui.aufgaben.isDueTomorrow
 import com.homebase.android.ui.aufgaben.isOverdue
+import com.homebase.android.ui.aufgaben.recurrenceLabel
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAvatarRow
 import com.homebase.android.ui.components.HbAppBar
@@ -57,6 +61,7 @@ import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbIcon
 import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
+import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbPriority
 import com.homebase.android.ui.components.HbQuickAdd
 import com.homebase.android.ui.components.HbRadius
@@ -70,8 +75,12 @@ import com.homebase.android.ui.shopping.ShoppingViewModel
 import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.time.TimeViewModel
+import com.homebase.android.ui.time.liveExtraSeconds
+import com.homebase.android.ui.time.withLiveExtra
 import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
+import java.time.Instant
+import kotlin.math.roundToInt
 
 @Composable
 fun HeuteScreen(
@@ -116,7 +125,8 @@ fun HeuteScreen(
         ).take(3)
 
     val openShopping = shoppingState.items.filter { !it.checked }
-    val shoppingShown = openShopping.take(4)
+    // Peek count matches the web dashboard's 5-item shopping peek (#498).
+    val shoppingShown = openShopping.take(5)
 
     Box(Modifier.fillMaxSize()) {
         HbScreenScaffold(
@@ -217,8 +227,9 @@ fun HeuteScreen(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         // Overdue items stay recognizable here (#307) — same "Überfällig"
-                                        // marker the web dashboard uses.
-                                        if (isOverdue || todo.priority != null) {
+                                        // marker the web dashboard uses. Recurring todos get a repeat
+                                        // badge too, mirroring the web dashboard's recurring indicator (#498).
+                                        if (isOverdue || todo.priority != null || todo.recurrence != null) {
                                             Row(
                                                 Modifier.padding(top = 4.dp),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -228,6 +239,8 @@ fun HeuteScreen(
                                                     HbBadge(stringResource(R.string.due_group_overdue), HbTone.Over)
                                                 }
                                                 todo.priority?.let { HbPriority(it) }
+                                                // Same "↻ <freq>" badge the AufgabenScreen rows use.
+                                                todo.recurrence?.let { HbBadge("↻ ${recurrenceLabel(it)}", HbTone.Neutral) }
                                             }
                                         }
                                     }
@@ -297,6 +310,18 @@ fun HeuteScreen(
                         }
                     }
                 }
+            }
+
+            // "Wochensoll" — weekly work-target peek (HB-10/#31); only when a target is
+            // configured for the current user. Mirrors the web DashboardView card (#498).
+            timeState.forecastFor(currentUser)?.let { myForecast ->
+                Spacer(Modifier.size(16.dp))
+                WorkTargetCard(
+                    forecast = myForecast,
+                    ownRunning = timeState.running,
+                    forecastAt = timeState.forecastAt,
+                    onOpen = { onNavigate(HbRoute.ZEIT) },
+                )
             }
 
             Spacer(Modifier.size(16.dp))
@@ -452,6 +477,92 @@ private fun RunWidget(
         Text(Format.clock(elapsed), style = HbType.mono(20.0), color = Hb.ink)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Weekly work-target peek (HB-10/#31) — mirrors web .hb-worktarget (#498)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun WorkTargetCard(
+    forecast: UserForecastDto,
+    ownRunning: TimeEntryDto?,
+    forecastAt: Instant?,
+    onOpen: () -> Unit,
+) {
+    // While the own timer runs, tick the snapshot figures up live (#64/#59 parity):
+    // re-read "now" each second and add the seconds since the forecast fetch.
+    val hasOwnRunning = ownRunning != null
+    val now by produceState(Instant.now(), hasOwnRunning, forecastAt) {
+        while (hasOwnRunning) {
+            value = Instant.now()
+            delay(1000)
+        }
+    }
+    val extra = if (hasOwnRunning) liveExtraSeconds(forecastAt, now) else 0L
+    val u = forecast.withLiveExtra(extra, ownRunning?.projectId)
+
+    val weekDone = u.weekRecordedSeconds + u.weekCreditedSeconds
+    val pct = if (u.weekTargetSeconds > 0)
+        ((weekDone.toDouble() / u.weekTargetSeconds) * 100).roundToInt().coerceIn(0, 100)
+    else 0
+    val frac = pct / 100f
+    // Recompute today's remainder like the web card does (target − recorded, live-ticked).
+    val todayLeft = u.todayTargetSeconds - u.todayRecordedSeconds
+
+    HbCard(Modifier.padding(horizontal = 18.dp)) {
+        Column {
+            HbCardHead(
+                stringResource(R.string.dashboard_worktarget_title),
+                linkText = stringResource(R.string.dashboard_open),
+                onLink = onOpen,
+            )
+            // Soll/Ist row: "2 Std 5 Min / 40 Std" + percentage
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 9.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        Format.durationLong(weekDone),
+                        style = HbType.rowTitle.copy(fontWeight = FontWeight.SemiBold),
+                        color = Hb.ink,
+                    )
+                    Text(
+                        " / ${trimHours(u.weeklyTargetHours)} ${stringResource(R.string.dashboard_worktarget_hours)}",
+                        style = HbType.meta.copy(fontWeight = FontWeight.Medium),
+                        color = Hb.ink3,
+                    )
+                }
+                Text(
+                    "$pct%",
+                    style = HbType.mono.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                    color = Hb.accentInk,
+                )
+            }
+            // progress bar (.hb-worktarget__bar)
+            Box(
+                Modifier.fillMaxWidth().height(8.dp).clip(HbPill).background(Hb.surface2, HbPill),
+            ) {
+                if (frac > 0f) {
+                    Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(HbPill).background(Hb.accent))
+                }
+            }
+            // today's redistributed target line
+            Text(
+                if (todayLeft <= 0) stringResource(R.string.dashboard_worktarget_today_reached)
+                else stringResource(R.string.dashboard_worktarget_today_left, Format.durationLong(todayLeft)),
+                style = HbType.meta,
+                color = Hb.ink3,
+                modifier = Modifier.padding(top = 9.dp),
+            )
+        }
+    }
+}
+
+/** "40" / "38.5" — weekly hours without a trailing ".0". */
+private fun trimHours(hours: Double): String =
+    if (hours % 1.0 == 0.0) hours.toInt().toString() else hours.toString()
 
 // ---------------------------------------------------------------------------
 // Shopping mini row

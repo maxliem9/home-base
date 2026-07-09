@@ -1566,8 +1566,9 @@ private fun DoneShowAllToggle(showAll: Boolean, windowDays: Int, onToggle: () ->
 // ---------------------------------------------------------------------------
 
 /** Compact localized label for a recurrence rule, e.g. "wöchentl."/"weekly" or "alle 2 Wochen". */
+// internal so the dashboard's "Heute dran" recurring badge reuses the same wording (#498).
 @Composable
-private fun recurrenceLabel(rec: RecurrenceDto): String {
+internal fun recurrenceLabel(rec: RecurrenceDto): String {
     val n = rec.interval.coerceAtLeast(1)
     return if (n <= 1) {
         when (rec.freq) {
