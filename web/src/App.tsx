@@ -53,8 +53,38 @@ interface NavBadges {
   timerRunning: boolean
 }
 
+// Offline-seed the nav badges (#520) from the views' own durable read-caches, so a cold start with no
+// connection shows the last-known counts instead of 0 until the (failing) background poll returns. The
+// keys mirror TodosView/ShoppingView's caches (homebase_todos_cache / homebase_shopping_cache); the
+// count logic matches refreshTodos/refreshShopping below. The timer dot has no cache yet (the Zeit view
+// isn't cached), so it stays off offline. Best-effort — any parse issue just yields 0.
+function readCachedBadges(): { inbox: number; shopping: number } {
+  const today = new Date().toISOString().slice(0, 10)
+  let inbox = 0
+  let shopping = 0
+  try {
+    const raw = localStorage.getItem('homebase_todos_cache')
+    if (raw) {
+      const { todos = [] } = JSON.parse(raw) as { todos?: { status: string; dueDate?: string }[] }
+      inbox = todos.filter((x) => x.status !== 'DONE' && x.dueDate && x.dueDate <= today).length
+    }
+  } catch {
+    /* corrupt / private mode → leave 0 */
+  }
+  try {
+    const raw = localStorage.getItem('homebase_shopping_cache')
+    if (raw) {
+      const { items = [] } = JSON.parse(raw) as { items?: { checked: boolean }[] }
+      shopping = items.filter((x) => !x.checked).length
+    }
+  } catch {
+    /* corrupt / private mode → leave 0 */
+  }
+  return { inbox, shopping }
+}
+
 function useNavBadges(token: string): NavBadges {
-  const [badges, setBadges] = useState<NavBadges>({ inbox: 0, shopping: 0, timerRunning: false })
+  const [badges, setBadges] = useState<NavBadges>(() => ({ ...readCachedBadges(), timerRunning: false }))
 
   const refreshTodos = useCallback(async () => {
     // Badges are a non-critical background poll (initial effect + WS callback); on a
