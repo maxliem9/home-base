@@ -19,6 +19,7 @@ import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.cache.SharedPrefsSnapshotStore
 import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NotesPendingStore
+import com.homebase.android.data.notes.NotesSnapshot
 import com.homebase.android.data.notes.SharedPrefsNotesPendingStore
 import com.homebase.android.data.shopping.ConnectivityObserver
 import com.homebase.android.data.shopping.SharedPrefsShoppingPendingStore
@@ -146,6 +147,17 @@ class AppContainer(context: Context) {
 
     /** Durable backing store for the notes offline auto-save queue (issue #323). */
     val notesPendingStore: NotesPendingStore = SharedPrefsNotesPendingStore(context, moshi)
+
+    /**
+     * Durable "last-known notes" cache for the notes screen (#520), so a cold start with no connection
+     * shows the previous notes instead of an empty screen. Read-side twin of the offline auto-save
+     * queue; own prefs file, best-effort writes.
+     */
+    val notesSnapshotStore: SnapshotStore<NotesSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(NotesSnapshot::class.java),
+        prefsName = "homebase_notes_cache",
+    )
 
     val timeRepository = TimeRepository(
         api = api,

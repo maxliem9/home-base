@@ -84,6 +84,34 @@ function savePendingNotes(pending: Record<string, PendingSave>) {
   }
 }
 
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the notes view): mirror the
+// last-loaded (unfiltered) notes so a launch/reload while the API is unreachable shows the previous
+// state instead of an empty screen. Best-effort; keyed by browser, not user (single account per
+// browser). Only written while the search box is empty, so a filtered view never poisons the cache.
+// NB: fully offline the SPA shell itself may not load (the service worker is push-only, not an asset
+// cache) — this covers the flaky-connection case where the shell is served from browser cache but the
+// /api fetch fails, and gives an instant first paint online. True offline-shell → #519.
+const CACHE_KEY = 'homebase_notes_cache'
+
+function loadNotesCache(): Note[] | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { notes?: Note[] }
+    return parsed.notes ?? []
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveNotesCache(notes: Note[]) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ notes }))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
+
 interface Draft {
   id?: string
   title: string
@@ -127,8 +155,13 @@ interface NotesViewProps {
 
 export function NotesView({ token, onLogout }: NotesViewProps) {
   const { t } = useTranslation()
-  const [notes, setNotes] = useState<Note[]>([])
-  const [loading, setLoading] = useState(true)
+  // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
+  // known notes instead of an empty screen; a successful fetch replaces them below. Read once (useMemo,
+  // not a per-render localStorage hit) — it only feeds the initial state.
+  const initialNotesCache = useMemo(() => loadNotesCache(), [])
+  const [notes, setNotes] = useState<Note[]>(initialNotesCache ?? [])
+  // Skip the full-screen spinner when we already have cached notes to show — refresh happens underneath.
+  const [loading, setLoading] = useState(!(initialNotesCache && initialNotesCache.length > 0))
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -270,6 +303,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     debounce.current = setTimeout(() => fetchNotes(query), 200)
     return () => clearTimeout(debounce.current)
   }, [query, fetchNotes])
+
+  // Mirror the current notes into the durable read-cache (#520) on every change — server fetches and
+  // optimistic edits alike — but only while the search box is empty, so a filtered result never
+  // overwrites the cached full list. Never wipes the cache: the state was seeded from that same cache.
+  useEffect(() => {
+    if (!query.trim()) saveNotesCache(notes)
+  }, [notes, query])
 
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {

@@ -8,10 +8,12 @@ import com.homebase.android.data.model.NoteAttachmentDto
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NEW_KEY
 import com.homebase.android.data.notes.NoteFlushDecision
 import com.homebase.android.data.notes.NotesClock
 import com.homebase.android.data.notes.NotesPendingStore
+import com.homebase.android.data.notes.NotesSnapshot
 import com.homebase.android.data.notes.PendingNote
 import com.homebase.android.data.notes.PendingNoteQueue
 import com.homebase.android.data.notes.classifyNoteFlush
@@ -24,6 +26,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -90,10 +94,25 @@ class NotesViewModel(
     networkAvailable: Flow<Unit>,
     private val clock: NotesClock = NotesClock.System,
     private val flushIntervalMs: Long = FLUSH_INTERVAL_MS,
+    /**
+     * Durable "last-known notes" cache (#520, read-side twin of the shopping cache #517). Seeded into
+     * state on a cold start so a launch with no connection shows the previous notes instead of nothing,
+     * and re-mirrored on every change while the search is empty. null in tests that don't exercise it →
+     * no read-cache (behaves exactly as before).
+     */
+    private val snapshotStore: SnapshotStore<NotesSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotesUiState(isLoading = true))
     val uiState: StateFlow<NotesUiState> = _uiState.asStateFlow()
+
+    /**
+     * True once a fetch has successfully applied server data (#520). The durable-cache restore checks
+     * this so it never stale-clobbers live server data that already landed, and [load] uses it to
+     * decide whether a failed refresh should surface a blocking error (only when nothing is shown).
+     * Single-threaded (viewModelScope = Main).
+     */
+    private var hasServerData = false
 
     // --- Editor / auto-save state (#309/#310) ---
     private val _editorState = MutableStateFlow<NoteEditorState?>(null)
@@ -145,6 +164,7 @@ class NotesViewModel(
         load()
         observeWebSocket()
         observeConnectivity(networkAvailable)
+        restoreAndMirrorSnapshot()
         // Restore the previous session's queue off-main, then drain it. A save that failed before this
         // finishes already lives in `queue`; we merge the restored entries *under* it so a live (later)
         // failure is never clobbered, then flush + arm the backstop.
@@ -164,8 +184,47 @@ class NotesViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             repository.getNotes(_uiState.value.query)
-                .onSuccess { notes -> _uiState.update { it.copy(notes = notes, isLoading = false) } }
-                .onFailure { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
+                .onSuccess { notes ->
+                    hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
+                    _uiState.update { it.copy(notes = notes, isLoading = false) }
+                }
+                .onFailure { e ->
+                    // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
+                    // notes on screen a failed refresh stays silent — offline we show the old state; the
+                    // reconnect/backstop resync restores correctness.
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.notes.isEmpty()) e.message else null) }
+                }
+        }
+    }
+
+    /**
+     * Offline read-cache (#520). First seed the last-known notes from disk so a cold start with no
+     * connection shows the previous screen instead of nothing; then mirror every subsequent change
+     * back (server fetches AND optimistic edits) so the cache reflects what the user last saw.
+     *
+     * Ordering matters: the seed runs the disk read *before* the mirror collector starts, so the
+     * collector can never persist the pre-restore empty frame over a good cache. The seed only fills
+     * `notes` when still empty and bails if a fetch already won ([hasServerData]). The mirror persists
+     * only while the search [NotesUiState.query] is blank, so a filtered view never poisons the cache
+     * with a subset. Restoring content clears any refresh error (offline we "show the old state").
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && cached.notes.isNotEmpty()) {
+                _uiState.update { s ->
+                    if (hasServerData || s.query.isNotBlank()) s
+                    else s.copy(notes = s.notes.ifEmpty { cached.notes }, isLoading = false, error = null)
+                }
+            }
+            // Persist on every distinct notes change from here on, but only for the full (unfiltered)
+            // list — a filtered result must not overwrite the cache. Starting the collector after the
+            // seed read guarantees we never overwrite the cache with the initial empty state.
+            uiState
+                .map { it.notes to it.query }
+                .distinctUntilChanged()
+                .collect { (notes, query) -> if (query.isBlank()) store.save(NotesSnapshot(notes = notes)) }
         }
     }
 
@@ -176,7 +235,10 @@ class NotesViewModel(
      */
     suspend fun refresh() {
         repository.getNotes(_uiState.value.query)
-            .onSuccess { notes -> _uiState.update { it.copy(notes = notes, error = null) } }
+            .onSuccess { notes ->
+                hasServerData = true
+                _uiState.update { it.copy(notes = notes, error = null) }
+            }
             .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
     }
 
@@ -191,7 +253,10 @@ class NotesViewModel(
     private fun syncFromServer() {
         viewModelScope.launch {
             repository.getNotes(_uiState.value.query)
-                .onSuccess { notes -> _uiState.update { it.copy(notes = notes) } }
+                .onSuccess { notes ->
+                    hasServerData = true
+                    _uiState.update { it.copy(notes = notes) }
+                }
         }
     }
 

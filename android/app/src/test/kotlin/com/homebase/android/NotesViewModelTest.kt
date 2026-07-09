@@ -96,6 +96,14 @@ class NotesViewModelTest {
 
     private val pendingStore = FakeNotesStore()
 
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(
+        var data: com.homebase.android.data.notes.NotesSnapshot? = null,
+    ) : com.homebase.android.data.cache.SnapshotStore<com.homebase.android.data.notes.NotesSnapshot> {
+        override suspend fun load(): com.homebase.android.data.notes.NotesSnapshot? = data
+        override suspend fun save(snapshot: com.homebase.android.data.notes.NotesSnapshot) { data = snapshot }
+    }
+
     // Owns each VM so clearing the store runs onCleared() → cancels viewModelScope (the offline
     // backstop loop and any parked flush). Cleared inside the test body (see [vmTest]) before
     // runTest's implicit final advanceUntilIdle, which would otherwise spin on those coroutines.
@@ -110,7 +118,10 @@ class NotesViewModelTest {
         }
     }
 
-    private fun createVm(networkAvailable: Flow<Unit> = emptyFlow()): NotesViewModel {
+    private fun createVm(
+        networkAvailable: Flow<Unit> = emptyFlow(),
+        snapshotStore: com.homebase.android.data.cache.SnapshotStore<com.homebase.android.data.notes.NotesSnapshot>? = null,
+    ): NotesViewModel {
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T = NotesViewModel(
@@ -121,6 +132,7 @@ class NotesViewModelTest {
                 clock = clock,
                 // Large interval so the backstop loop never fires inside a bounded advanceTimeBy/runCurrent.
                 flushIntervalMs = 10_000_000L,
+                snapshotStore = snapshotStore,
             ) as T
         }
         return ViewModelProvider(vmStore, factory)[NotesViewModel::class.java]
@@ -908,5 +920,77 @@ class NotesViewModelTest {
         }
         assertFalse("restored entry no longer pending once re-sent", vm.uiState.value.isPending("1"))
         assertTrue("durable store cleared after the restored entry lands", pendingStore.data.isEmpty())
+    }
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached notes`() = vmTest {
+        coEvery { repository.getNotes("") } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(
+            com.homebase.android.data.notes.NotesSnapshot(notes = listOf(note(id = "1", title = "Einkaufsidee"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Einkaufsidee"), vm.uiState.value.notes.map { it.title })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = vmTest {
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "2", title = "Frisch")))
+        val cache = FakeSnapshotStore(
+            com.homebase.android.data.notes.NotesSnapshot(notes = listOf(note(id = "1", title = "STALE"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Frisch"), vm.uiState.value.notes.map { it.title })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = vmTest {
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1", title = "Milch")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Milch"), cache.data?.notes?.map { it.title })
+    }
+
+    @Test
+    fun `a filtered (search) result does not overwrite the cache`() = vmTest {
+        // Full list loads first (cached), then a search narrows it — the cache must keep the full list.
+        coEvery { repository.getNotes("") } returns Result.success(listOf(note(id = "1", title = "Alpha"), note(id = "2", title = "Beta")))
+        coEvery { repository.getNotes("alp") } returns Result.success(listOf(note(id = "1", title = "Alpha")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+        assertEquals(listOf("Alpha", "Beta"), cache.data?.notes?.map { it.title })
+
+        vm.onQueryChange("alp")
+        advanceUntilIdle()
+
+        // The on-screen list narrowed, but the durable cache still holds the full unfiltered list.
+        assertEquals(listOf("Alpha"), vm.uiState.value.notes.map { it.title })
+        assertEquals("filtered result must not poison the cache", listOf("Alpha", "Beta"), cache.data?.notes?.map { it.title })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = vmTest {
+        coEvery { repository.getNotes("") } returns Result.failure(java.io.IOException("offline"))
+        val cached = com.homebase.android.data.notes.NotesSnapshot(notes = listOf(note(id = "1")))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals("cache survives an offline launch", cached.notes.map { it.id }, cache.data?.notes?.map { it.id })
     }
 }
