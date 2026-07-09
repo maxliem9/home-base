@@ -147,6 +147,11 @@
     <string name="dashboard_shopping_card">Einkaufsliste</string>
     <string name="dashboard_list_empty">Liste ist leer</string>
     <string name="dashboard_more_items">+ %1$d weitere</string>
+    <!-- Wochensoll-/Ende-Prognose-Karte (HB-10/#31, #498) -->
+    <string name="dashboard_worktarget_title">Wochensoll</string>
+    <string name="dashboard_worktarget_hours">Std</string>
+    <string name="dashboard_worktarget_today_reached">Heute-Ziel erreicht</string>
+    <string name="dashboard_worktarget_today_left">Heute noch %1$s</string>
     <string name="confirm_stop_partner_timer">Timer von %1$s stoppen?</string>
     <string name="time_project_fallback">Projekt</string>
 
@@ -205,7 +210,7 @@
     <string name="todo_autosave_saving">Speichert …</string>
     <string name="todo_autosave_saved">Gespeichert</string>
     <string name="todo_field_list">Liste</string>
-    <string name="todo_stays_in_inbox">Bleibt in der Inbox</string>
+    <string name="todo_list_inbox">Ohne Liste (Inbox)</string>
     <string name="todo_field_assignee">Zuständig</string>
     <string name="todo_assignee_nobody">Niemand</string>
     <string name="todo_field_due">Fällig</string>

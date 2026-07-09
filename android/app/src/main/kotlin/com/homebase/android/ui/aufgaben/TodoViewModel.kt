@@ -222,8 +222,9 @@ enum class TodoSaveStatus { IDLE, SAVING, SAVED, ERROR }
 /**
  * The full editable state of a todo, normalized to the shapes the backend expects. Value semantics
  * (data class) drive the dirty check: the sheet only saves when the draft differs from what was last
- * persisted. [targetListId] is the list a *list-less* todo is filed into while planning (#77); it is
- * only honored on an update whose todo is still list-less (mirrors [TodoViewModel.saveTodo]).
+ * persisted. [targetListId] is the list currently selected in the sheet (null = Inbox / no list),
+ * seeded to the todo's own list on open; the editor moves the todo to it on save but sends `listId`
+ * only when it differs from the list at open time (#509, mirrors web's `listIdOriginal`, conflict-safe).
  */
 data class TodoDraft(
     val title: String,
@@ -268,8 +269,10 @@ internal fun TodoDraft.toCreateRequest(listId: String?): CreateTodoRequest = Cre
  * Build the update request from a draft (#265/#429 convention: "" clears a field, a time without a
  * date is dropped, status is derived from assignee/date, and a null recurrence clears the rule with
  * freq "NONE"). Pure + top-level so it's unit-testable and matches the create mapping field-for-field.
+ * [listId] follows the same #265 sentinel: null = list unchanged, "" = move to Inbox, a UUID = move to
+ * that list — the editor resolves it against the open-time baseline (#509), so it's null by default.
  */
-internal fun TodoDraft.toUpdateRequest(): UpdateTodoRequest = UpdateTodoRequest(
+internal fun TodoDraft.toUpdateRequest(listId: String? = null): UpdateTodoRequest = UpdateTodoRequest(
     title = title.trim(),
     description = description.ifBlank { "" },
     // list analog of the #265 convention: [] clears all assignees, a non-empty list replaces the set.
@@ -278,6 +281,7 @@ internal fun TodoDraft.toUpdateRequest(): UpdateTodoRequest = UpdateTodoRequest(
     dueTime = if (dueDate != null) (dueTime ?: "") else "",
     priority = priority ?: "",
     status = if (assignees.isNotEmpty() || dueDate != null) "PLANNED" else "INBOX",
+    listId = listId,
     recurrence = recurrence ?: RecurrenceDto("NONE"),
 )
 
@@ -325,6 +329,14 @@ class TodoViewModel(
 
     /** What is currently persisted on the server (dirty check). Null for a not-yet-created todo. */
     private var savedSnapshot: TodoDraft? = null
+
+    /**
+     * The edited todo's list at open time — the conflict baseline for list moves (#509, web's
+     * `listIdOriginal`). `listId` is PUT only when the picked list differs from this; rebased to the
+     * new list after each own move persists, so a partner's concurrent move isn't clobbered by a later
+     * unrelated auto-save (mirrors the assignee/dueDate rebasing on web).
+     */
+    private var editorListIdOriginal: String? = null
 
     /** Monotonic editor-session counter; bumped on each open. */
     private var editorSession = 0
@@ -532,19 +544,14 @@ class TodoViewModel(
     }
 
     /**
-     * Update a todo. [targetListId] files a list-less inbox todo into the picked list while
-     * planning (#77). It is only sent when the todo is still list-less at save time — if the
-     * partner moved it into a list while the sheet was open, the stale pick must not overwrite
-     * that move (mirrors the web plan modal, #69). Null = „Bleibt in der Inbox" (unchanged).
-     *
-     * Fire-and-forget wrapper used by row actions (toggle done): it owns the global error so a failed
+     * Fire-and-forget update used by row actions (toggle done): it owns the global error so a failed
      * toggle surfaces via the screen toast (#288). The edit sheet calls the suspending [saveTodo]
      * directly and renders the returned message in-sheet — so [saveTodo] must NOT also set the global
      * error (no double-notify, #277/#288).
      */
-    fun updateTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null) {
+    fun updateTodo(id: String, request: UpdateTodoRequest) {
         viewModelScope.launch {
-            saveTodo(id, request, targetListId).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            saveTodo(id, request).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
         }
     }
 
@@ -554,14 +561,10 @@ class TodoViewModel(
      * upserted. Deliberately does **not** set the global `_uiState.error` — the edit sheet surfaces
      * the returned message itself; the fire-and-forget [updateTodo]/[toggleDone] wrapper sets the
      * global error for the row actions so the screen toast covers them without the sheet path
-     * double-notifying (#288).
+     * double-notifying (#288). List moves ride on [request]`.listId`, resolved by the editor (#509).
      */
-    suspend fun saveTodo(id: String, request: UpdateTodoRequest, targetListId: String? = null): Result<TodoDto> {
-        val fileInto = targetListId?.takeIf { _uiState.value.todos.firstOrNull { t -> t.id == id }?.listId == null }
-        val effective = if (fileInto != null) request.copy(listId = fileInto) else request
-        return repository.updateTodo(id, effective)
-            .onSuccess { upsertTodo(it) }
-    }
+    suspend fun saveTodo(id: String, request: UpdateTodoRequest): Result<TodoDto> =
+        repository.updateTodo(id, request).onSuccess { upsertTodo(it) }
 
     // --- Edit-sheet auto-save (existing todos): open → live draft pushes → flush/close ---
 
@@ -585,6 +588,7 @@ class TodoViewModel(
         pendingValid = false
         editorSession += 1
         savedSnapshot = draftOf(todo)
+        editorListIdOriginal = todo.listId
         _todoEditor.value = TodoEditorState(id = todo.id, session = editorSession)
     }
 
@@ -669,10 +673,19 @@ class TodoViewModel(
     private suspend fun saveTodoOnce(draft: TodoDraft): Boolean {
         val editor = _todoEditor.value ?: return false
         setEditorStatus(TodoSaveStatus.SAVING)
-        // reuse saveTodo for the list-less filing guard (#77) + upsert
-        return saveTodo(editor.id, draft.toUpdateRequest(), draft.targetListId).fold(
+        // #509 sentinel: send listId only on a real move vs the open-time baseline (null = unchanged,
+        // "" = move to Inbox, UUID = move to that list) — an untouched picker never clobbers a
+        // concurrent partner move.
+        val listIdArg = when (val picked = draft.targetListId) {
+            editorListIdOriginal -> null
+            null -> ""
+            else -> picked
+        }
+        return saveTodo(editor.id, draft.toUpdateRequest(listIdArg)).fold(
             onSuccess = {
                 savedSnapshot = draft
+                // rebase the baseline so a later unrelated auto-save doesn't re-send this move
+                editorListIdOriginal = draft.targetListId
                 setEditorStatus(TodoSaveStatus.SAVED)
                 true
             },
@@ -694,7 +707,8 @@ class TodoViewModel(
         dueTime = if (todo.dueDate != null) Format.parseLocalTime(todo.dueTime)?.let { Format.hhmm(it) } else null,
         priority = todo.priority,
         recurrence = todo.recurrence,
-        targetListId = null,
+        // seed to the todo's own list so opening never counts as a move (#509)
+        targetListId = todo.listId,
     )
 
     /** Toggle a todo between DONE and open (PLANNED when it has a plan, else INBOX). */

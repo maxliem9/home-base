@@ -140,6 +140,11 @@
     <string name="dashboard_shopping_card">Shopping list</string>
     <string name="dashboard_list_empty">List is empty</string>
     <string name="dashboard_more_items">+ %1$d more</string>
+    <!-- Weekly work-target peek (HB-10/#31, #498) -->
+    <string name="dashboard_worktarget_title">Weekly target</string>
+    <string name="dashboard_worktarget_hours">h</string>
+    <string name="dashboard_worktarget_today_reached">Today\'s goal reached</string>
+    <string name="dashboard_worktarget_today_left">%1$s left today</string>
     <string name="confirm_stop_partner_timer">Stop %1$s\'s timer?</string>
     <string name="time_project_fallback">Project</string>
 
@@ -193,7 +198,7 @@
     <string name="todo_autosave_saving">Saving …</string>
     <string name="todo_autosave_saved">Saved</string>
     <string name="todo_field_list">List</string>
-    <string name="todo_stays_in_inbox">Stays in the inbox</string>
+    <string name="todo_list_inbox">No list (Inbox)</string>
     <string name="todo_field_assignee">Assignee</string>
     <string name="todo_assignee_nobody">Nobody</string>
     <string name="todo_field_due">Due</string>

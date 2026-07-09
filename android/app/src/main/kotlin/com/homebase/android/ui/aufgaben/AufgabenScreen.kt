@@ -885,10 +885,11 @@ private fun EditSheet(
     var recurrenceFreq by remember { mutableStateOf(todo?.recurrence?.freq) }
     var intervalText by remember { mutableStateOf((todo?.recurrence?.interval ?: 1).toString()) }
     val recurrenceNeedsDue = recurrenceFreq != null && dueDate == null
-    // Listen-Auswahl beim Planen: nur für listen-lose Todos — Listen-Todos behalten ihre
-    // Liste (#77, wie der Web-Plan-Dialog). Null = „Bleibt in der Inbox".
-    val showListPicker = isEdit && todo?.listId == null && lists.isNotEmpty()
-    var targetListId by remember { mutableStateOf<String?>(null) }
+    // Listen-Auswahl im Edit-Sheet: für JEDE bestehende Aufgabe (#509, Web-Parität #409) — die
+    // aktuelle Liste ist vorausgewählt, ein Wechsel wird per PUT `listId` persistiert (nur bei echter
+    // Änderung, VM-seitig). Null = Inbox / ohne Liste.
+    val showListPicker = isEdit && lists.isNotEmpty()
+    var targetListId by remember { mutableStateOf(todo?.listId) }
     val valid = title.isNotBlank() && !recurrenceNeedsDue
 
     // The normalized draft — pushed live to the VM while editing, or committed by the create button.
@@ -999,7 +1000,7 @@ private fun EditSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     HbPickText(
-                        stringResource(R.string.todo_stays_in_inbox),
+                        stringResource(R.string.todo_list_inbox),
                         active = targetListId == null,
                         onClick = { targetListId = null },
                     )
@@ -1566,8 +1567,9 @@ private fun DoneShowAllToggle(showAll: Boolean, windowDays: Int, onToggle: () ->
 // ---------------------------------------------------------------------------
 
 /** Compact localized label for a recurrence rule, e.g. "wöchentl."/"weekly" or "alle 2 Wochen". */
+// internal so the dashboard's "Heute dran" recurring badge reuses the same wording (#498).
 @Composable
-private fun recurrenceLabel(rec: RecurrenceDto): String {
+internal fun recurrenceLabel(rec: RecurrenceDto): String {
     val n = rec.interval.coerceAtLeast(1)
     return if (n <= 1) {
         when (rec.freq) {
