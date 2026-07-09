@@ -4,10 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.model.UpdateAbsSettingsRequest
+import com.homebase.android.data.abwesenheit.AbsenceSnapshot
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.AbsenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -25,22 +29,63 @@ data class AbsenceUiState(
 class AbsenceViewModel(
     private val repository: AbsenceRepository,
     private val token: String,
+    /**
+     * Durable "last-known planner snapshot" cache (#520, read-side twin of the shopping cache #517).
+     * Seeded on a cold start so a launch with no connection shows the previous planner instead of an
+     * empty screen, and mirrored on every change. null in tests → no read-cache.
+     */
+    private val snapshotStore: SnapshotStore<AbsenceSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AbsenceUiState())
     val uiState: StateFlow<AbsenceUiState> = _uiState.asStateFlow()
 
+    /** True once a fetch has successfully applied server data (#520); guards the cache seed against
+     *  clobbering live data and gates the load error. Single-threaded (viewModelScope = Main). */
+    private var hasServerData = false
+
     init {
         load()
         observeWebSocket()
+        restoreAndMirrorSnapshot()
     }
 
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             repository.getState()
-                .onSuccess { snapshot -> _uiState.update { it.copy(data = snapshot, isLoading = false) } }
-                .onFailure { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
+                .onSuccess { snapshot ->
+                    hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
+                    _uiState.update { it.copy(data = snapshot, isLoading = false) }
+                }
+                .onFailure { e ->
+                    // Keep `error` only when there is nothing to show anyway (#520): with a cached/prior
+                    // snapshot on screen a failed refresh stays silent — offline we show the old state.
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.data == AbsenceStateDto()) e.message else null) }
+                }
+        }
+    }
+
+    /**
+     * Offline read-cache (#520): seed the last-known planner snapshot from disk before starting the
+     * mirror collector (so the empty startup frame can't wipe a good cache), then persist every
+     * distinct change. [hasServerData] + the default-equality guard keep a slow disk read from
+     * clobbering fresh server data.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && cached.data != AbsenceStateDto()) {
+                _uiState.update { s ->
+                    if (hasServerData || s.data != AbsenceStateDto()) s
+                    else s.copy(data = cached.data, isLoading = false, error = null)
+                }
+            }
+            uiState
+                .map { it.data }
+                .distinctUntilChanged()
+                .collect { data -> store.save(AbsenceSnapshot(data = data)) }
         }
     }
 

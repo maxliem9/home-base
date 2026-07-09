@@ -1,12 +1,16 @@
 package com.homebase.android
 
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.model.RecipeDto
+import com.homebase.android.data.recipes.RecipesSnapshot
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.websocket.RecipeWebSocketClient
 import com.homebase.android.ui.recipes.RecipesViewModel
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -52,7 +56,80 @@ class RecipesViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm() = RecipesViewModel(repository, "test-token")
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(var data: RecipesSnapshot? = null) : SnapshotStore<RecipesSnapshot> {
+        override suspend fun load(): RecipesSnapshot? = data
+        override suspend fun save(snapshot: RecipesSnapshot) { data = snapshot }
+    }
+
+    private fun createVm(snapshotStore: SnapshotStore<RecipesSnapshot>? = null) =
+        RecipesViewModel(repository, "test-token", snapshotStore = snapshotStore)
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached recipes`() = runTest {
+        coEvery { repository.getRecipes(null) } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(RecipesSnapshot(recipes = listOf(recipe(id = "r1", title = "Lasagne"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Lasagne"), vm.uiState.value.recipes.map { it.title })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = runTest {
+        coEvery { repository.getRecipes(null) } returns Result.success(listOf(recipe(id = "r2", title = "Frisch")))
+        val cache = FakeSnapshotStore(RecipesSnapshot(recipes = listOf(recipe(id = "r1", title = "STALE"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Frisch"), vm.uiState.value.recipes.map { it.title })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = runTest {
+        coEvery { repository.getRecipes(null) } returns Result.success(listOf(recipe(id = "r1", title = "Lasagne")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Lasagne"), cache.data?.recipes?.map { it.title })
+    }
+
+    @Test
+    fun `a filtered (category) result does not overwrite the cache`() = runTest {
+        coEvery { repository.getRecipes(null) } returns Result.success(listOf(recipe(id = "r1", title = "Lasagne", category = "DINNER"), recipe(id = "r2", title = "Pfannkuchen", category = "BREAKFAST")))
+        coEvery { repository.getRecipes("DINNER") } returns Result.success(listOf(recipe(id = "r1", title = "Lasagne", category = "DINNER")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+        assertEquals(listOf("Lasagne", "Pfannkuchen"), cache.data?.recipes?.map { it.title })
+
+        vm.setCategoryFilter("DINNER")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Lasagne"), vm.uiState.value.recipes.map { it.title })
+        assertEquals("filtered result must not poison the cache", listOf("Lasagne", "Pfannkuchen"), cache.data?.recipes?.map { it.title })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = runTest {
+        coEvery { repository.getRecipes(null) } returns Result.failure(java.io.IOException("offline"))
+        val cached = RecipesSnapshot(recipes = listOf(recipe(id = "r1")))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(cached.recipes.map { it.id }, cache.data?.recipes?.map { it.id })
+    }
 
     @Test
     fun `WS RecipeCreated ignores recipes outside active category filter`() = runTest {

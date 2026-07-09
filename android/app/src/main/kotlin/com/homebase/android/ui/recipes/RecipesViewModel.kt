@@ -8,11 +8,15 @@ import com.homebase.android.data.model.RecipeDraftDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.RecipeImageDto
 import com.homebase.android.data.model.UpdateRecipeRequest
+import com.homebase.android.data.cache.SnapshotStore
+import com.homebase.android.data.recipes.RecipesSnapshot
 import com.homebase.android.data.repository.RecipesRepository
 import com.homebase.android.data.websocket.RecipeWebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -26,22 +30,63 @@ data class RecipesUiState(
 class RecipesViewModel(
     private val repository: RecipesRepository,
     private val token: String,
+    /**
+     * Durable "last-known recipes" cache (#520, read-side twin of the shopping cache #517). Seeded on
+     * a cold start so a launch with no connection shows the previous recipes instead of nothing, and
+     * mirrored on every change while no category filter is active. null in tests → no read-cache.
+     */
+    private val snapshotStore: SnapshotStore<RecipesSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RecipesUiState(isLoading = true))
     val uiState: StateFlow<RecipesUiState> = _uiState.asStateFlow()
 
+    /** True once a fetch has successfully applied server data (#520); guards the cache seed against
+     *  clobbering live data and gates the load error. Single-threaded (viewModelScope = Main). */
+    private var hasServerData = false
+
     init {
         load()
         observeWebSocket()
+        restoreAndMirrorSnapshot()
     }
 
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             repository.getRecipes(_uiState.value.categoryFilter)
-                .onSuccess { recipes -> _uiState.update { it.copy(recipes = recipes, isLoading = false) } }
-                .onFailure { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
+                .onSuccess { recipes ->
+                    hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
+                    _uiState.update { it.copy(recipes = recipes, isLoading = false) }
+                }
+                .onFailure { e ->
+                    // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
+                    // recipes on screen a failed refresh stays silent — offline we show the old state.
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.recipes.isEmpty()) e.message else null) }
+                }
+        }
+    }
+
+    /**
+     * Offline read-cache (#520): seed the last-known recipes from disk before starting the mirror
+     * collector (so the empty startup frame can't wipe a good cache), then persist every distinct
+     * change — but only while no category filter is active, so a filtered view never poisons the
+     * cache with a subset. [hasServerData]/`ifEmpty` guard against clobbering fresh server data.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && cached.recipes.isNotEmpty()) {
+                _uiState.update { s ->
+                    if (hasServerData || s.categoryFilter != null) s
+                    else s.copy(recipes = s.recipes.ifEmpty { cached.recipes }, isLoading = false, error = null)
+                }
+            }
+            uiState
+                .map { it.recipes to it.categoryFilter }
+                .distinctUntilChanged()
+                .collect { (recipes, filter) -> if (filter == null) store.save(RecipesSnapshot(recipes = recipes)) }
         }
     }
 

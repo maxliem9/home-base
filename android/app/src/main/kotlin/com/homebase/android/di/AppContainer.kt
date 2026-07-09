@@ -15,7 +15,9 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.abwesenheit.AbsenceSnapshot
 import com.homebase.android.data.aufgaben.TodoSnapshot
+import com.homebase.android.data.recipes.RecipesSnapshot
 import com.homebase.android.data.cache.SharedPrefsSnapshotStore
 import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NotesPendingStore
@@ -169,9 +171,23 @@ class AppContainer(context: Context) {
         wsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
     )
 
+    /** Durable "last-known recipes" cache (#520); own prefs file, best-effort writes. */
+    val recipesSnapshotStore: SnapshotStore<RecipesSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(RecipesSnapshot::class.java),
+        prefsName = "homebase_recipes_cache",
+    )
+
     val absenceRepository = AbsenceRepository(
         api = api,
         wsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    /** Durable "last-known planner snapshot" cache for the Familienkalender (#520). */
+    val absenceSnapshotStore: SnapshotStore<AbsenceSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(AbsenceSnapshot::class.java),
+        prefsName = "homebase_absence_cache",
     )
 
     // Wochenplan (#250): its own meal-plan socket + a dedicated recipe socket (a recipe delete

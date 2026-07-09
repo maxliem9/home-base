@@ -486,14 +486,14 @@ class MainActivity : AppCompatActivity() {
     private fun recipesFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return RecipesViewModel(container.recipesRepository, token) as T
+            return RecipesViewModel(container.recipesRepository, token, snapshotStore = container.recipesSnapshotStore) as T
         }
     }
 
     private fun absenceFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return AbsenceViewModel(container.absenceRepository, token) as T
+            return AbsenceViewModel(container.absenceRepository, token, snapshotStore = container.absenceSnapshotStore) as T
         }
     }
 

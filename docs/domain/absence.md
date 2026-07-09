@@ -27,3 +27,12 @@ berechnet.
   Kontingent/Übertrag/Bundesland/Kind-krank-Cap) ist gemeinsam editierbar; die
   frühere Eigentümer-Beschränkung wurde für den 2-Personen-Haushalt bewusst
   aufgehoben.
+
+## Offline-Read-Cache (#520)
+Wie beim Einkauf (#517/#518): der zuletzt geladene Planner-Snapshot wird durabel gecacht und beim
+(Kalt-)Start geseedet, damit ein Launch ohne Verbindung den letzten Stand zeigt statt eines leeren
+Rasters. Android: `AbsenceSnapshot(data)` (die ganze `AbsenceStateDto`) über `SnapshotStore<T>`,
+Prefs-Datei `homebase_absence_cache`; VM seedet in `restoreAndMirrorSnapshot()` (Guard via
+Default-Gleichheit + `hasServerData`), Mirror auf jede Änderung. Web: `useAbsenceData` seedet `data`
+aus `localStorage['homebase_absence_cache']` und spiegelt per `useEffect([data])`. Wie #518 greift der
+Web-Cache nur bei flakiger Verbindung / erstem Paint (#519).
