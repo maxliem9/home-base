@@ -45,3 +45,15 @@ Tag-und-Mahlzeit genau ein Rezept; haushaltsweit geteilt (wie Abwesenheit, kein 
   Einkaufsliste"). `MealPlanRepository` hält einen eigenen meal-plan- **und** einen dedizierten
   recipe-WebSocket (eigene Instanz, damit der Lifecycle nicht mit der Rezepte-Ansicht kollidiert)
   — selbe Cascade-Logik wie Web.
+
+## Offline-Read-Cache (#520)
+Wie beim Einkauf (#517/#518): der zuletzt geladene Plan wird durabel gecacht und beim (Kalt-)Start
+geseedet, damit ein Launch ohne Verbindung den letzten Stand zeigt statt eines leeren Rasters. **Die
+Einträge sind wochenabhängig**, daher wird die gecachte Woche (`weekStart`, ISO-Montag) mitgespeichert
+und die Einträge nur geseedet, wenn sie == aktuell sichtbarer Woche ist; Rezepte + Einkaufslisten sind
+wochenunabhängig und werden frei geseedet. Android: `MealPlanSnapshot(weekStart, entries, recipes,
+shoppingLists)` über `SnapshotStore<T>`, Prefs-Datei `homebase_mealplan_cache`; Seed vor dem
+Mirror-Collector, `hasServerData`-Guard. Web: `localStorage['homebase_mealplan_cache']`, Seed in den
+`useState`-Initialisierern (Einträge nur bei Wochen-Match), Mirror per
+`useEffect([weekStartIso, entries, recipes, shoppingLists])`. Wie #518 greift der Web-Cache nur bei
+flakiger Verbindung / erstem Paint (#519).

@@ -6,9 +6,11 @@ import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.RecipeDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.MealPlanRepository
 import com.homebase.android.data.websocket.MealPlanWebSocketClient
 import com.homebase.android.data.websocket.RecipeWebSocketClient
+import com.homebase.android.data.wochenplan.MealPlanSnapshot
 import com.homebase.android.ui.wochenplan.MealPlanViewModel
 import io.mockk.CapturingSlot
 import io.mockk.coEvery
@@ -26,9 +28,14 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MealPlanViewModelTest {
@@ -66,7 +73,104 @@ class MealPlanViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun createVm() = MealPlanViewModel(repository, "test-token")
+    private fun createVm(snapshotStore: SnapshotStore<MealPlanSnapshot>? = null) =
+        MealPlanViewModel(repository, "test-token", snapshotStore = snapshotStore)
+
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(var data: MealPlanSnapshot? = null) : SnapshotStore<MealPlanSnapshot> {
+        override suspend fun load(): MealPlanSnapshot? = data
+        override suspend fun save(snapshot: MealPlanSnapshot) { data = snapshot }
+    }
+
+    /** The Monday the VM anchors to on a fresh launch (matches MealPlanUiState.weekStart's default). */
+    private val currentMonday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString()
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached plan for the current week`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getRecipes() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getShoppingLists() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(
+            MealPlanSnapshot(
+                weekStart = currentMonday,
+                entries = listOf(entry(currentMonday, "DINNER", "r1", "Lasagne")),
+                recipes = listOf(recipe("r1", "Lasagne", emptyList())),
+            ),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Lasagne"), vm.uiState.value.entries.map { it.recipeTitle })
+        assertEquals(listOf("Lasagne"), vm.uiState.value.recipes.map { it.title })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `cached entries for a different week are not seeded`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getRecipes() } returns Result.failure(java.io.IOException("offline"))
+        val lastWeekMonday = LocalDate.parse(currentMonday).minusWeeks(1).toString()
+        val cache = FakeSnapshotStore(
+            MealPlanSnapshot(
+                weekStart = lastWeekMonday, // stale week
+                entries = listOf(entry(lastWeekMonday, "DINNER", "r1", "AltesGericht")),
+                recipes = listOf(recipe("r1", "Lasagne", emptyList())),
+            ),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        // Week-scoped: the other week's entries must NOT appear for the current week...
+        assertTrue("stale-week entries must not seed", vm.uiState.value.entries.isEmpty())
+        // ...but the week-independent recipes still seed.
+        assertEquals(listOf("Lasagne"), vm.uiState.value.recipes.map { it.title })
+    }
+
+    @Test
+    fun `a successful entries fetch wins over the cached plan`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.success(listOf(entry(currentMonday, "DINNER", "r2", "Frisch")))
+        val cache = FakeSnapshotStore(
+            MealPlanSnapshot(weekStart = currentMonday, entries = listOf(entry(currentMonday, "DINNER", "r1", "STALE"))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Frisch"), vm.uiState.value.entries.map { it.recipeTitle })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.success(listOf(entry(currentMonday, "DINNER", "r1", "Lasagne")))
+        coEvery { repository.getRecipes() } returns Result.success(listOf(recipe("r1", "Lasagne", emptyList())))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(currentMonday, cache.data?.weekStart)
+        assertEquals(listOf("Lasagne"), cache.data?.entries?.map { it.recipeTitle })
+        assertEquals(listOf("Lasagne"), cache.data?.recipes?.map { it.title })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with a new-week empty snapshot`() = runTest {
+        coEvery { repository.getMealPlan(any(), any()) } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getRecipes() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(
+            MealPlanSnapshot(weekStart = currentMonday, entries = listOf(entry(currentMonday, "DINNER", "r1", "Lasagne")), recipes = listOf(recipe("r1", "Lasagne", emptyList()))),
+        )
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals("cached current-week entries survive an offline launch", listOf("Lasagne"), cache.data?.entries?.map { it.recipeTitle })
+    }
 
     @Test
     fun `initial load populates entries, recipes and lists`() = runTest {
