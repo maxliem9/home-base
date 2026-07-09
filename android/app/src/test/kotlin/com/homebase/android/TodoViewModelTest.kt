@@ -449,71 +449,73 @@ class TodoViewModelTest {
         assertEquals("Quick-add kaputt", vm.uiState.value.error)
     }
 
-    // --- Planen aus der Inbox (issue #77) ---
+    // --- Liste einer Aufgabe im Edit-Sheet wechseln (issue #509, Web-Parität #409) ---
 
     @Test
-    fun `updateTodo files a list-less todo into the picked list`() = runTest {
-        val original = todo(id = "1")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
-        coEvery { repository.updateTodo("1", any()) } returns
-            Result.success(original.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
-
+    fun `moving a todo to another list sends the picked listId`() = runTest {
+        val existing = todo(id = "1", listId = "a")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val slot = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(listId = "b")) }
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice")), targetListId = "a")
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = existing.title, targetListId = "b"), valid = true)
         advanceUntilIdle()
 
-        coVerify {
-            repository.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
-        }
+        coVerify(exactly = 1) { repository.updateTodo("1", any()) }
+        assertEquals("b", slot.captured.listId) // UUID = move to that list
     }
 
     @Test
-    fun `updateTodo ignores a stale list pick when the todo is already in a list`() = runTest {
-        // the partner filed the todo into list b while the plan sheet was open (#69 guard)
-        val original = todo(id = "1", listId = "b")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
-        coEvery { repository.updateTodo("1", any()) } returns Result.success(original.copy(status = "PLANNED"))
-
+    fun `moving a listed todo to the inbox clears listId with an empty string`() = runTest {
+        val existing = todo(id = "1", listId = "a")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val slot = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(listId = null)) }
         val vm = createVm()
         advanceUntilIdle()
 
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED"), targetListId = "a")
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = existing.title, targetListId = null), valid = true)
         advanceUntilIdle()
 
-        coVerify { repository.updateTodo("1", UpdateTodoRequest(status = "PLANNED")) }
+        assertEquals("", slot.captured.listId) // "" = remove from list (#265 sentinel)
     }
 
     @Test
-    fun `updateTodo without a list pick leaves listId untouched`() = runTest {
-        val original = todo(id = "1")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
-        coEvery { repository.updateTodo("1", any()) } returns Result.success(original.copy(status = "PLANNED"))
-
+    fun `editing another field leaves an untouched list unchanged`() = runTest {
+        // The picker stays on the open-time list ⇒ listId is omitted, so a concurrent partner move
+        // isn't clobbered by a later unrelated auto-save (#509, web's listIdOriginal guard).
+        val existing = todo(id = "1", title = "Old", listId = "a")
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        val slot = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(title = "New")) }
         val vm = createVm()
         advanceUntilIdle()
 
-        // „Bleibt in der Inbox" — no listId on the request
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED"), targetListId = null)
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = "New", targetListId = "a"), valid = true)
         advanceUntilIdle()
 
-        coVerify { repository.updateTodo("1", UpdateTodoRequest(status = "PLANNED")) }
+        coVerify(exactly = 1) { repository.updateTodo("1", any()) }
+        assertNull(slot.captured.listId) // null = unchanged
     }
 
     @Test
-    fun `planning into a list removes the todo from the inbox`() = runTest {
+    fun `moving a list-less todo into a list removes it from the inbox`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        val original = todo(id = "1")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        val existing = todo(id = "1", status = "INBOX") // list-less ⇒ shown in the inbox
+        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
         coEvery { repository.updateTodo("1", any()) } returns
-            Result.success(original.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
-
+            Result.success(existing.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
         val vm = createVm()
         advanceUntilIdle()
         vm.selectList(INBOX_TAB_ID)
 
-        vm.updateTodo("1", UpdateTodoRequest(status = "PLANNED", assignees = listOf("alice")), targetListId = "a")
+        vm.openTodoEditor(existing)
+        vm.updateTodoDraft(draft(title = existing.title, assignees = listOf("alice"), targetListId = "a"), valid = true)
         advanceUntilIdle()
 
         val state = vm.uiState.value
@@ -841,6 +843,14 @@ class TodoViewModelTest {
         assertEquals("INBOX", inbox.status)
         assertEquals("", inbox.dueDate)
         assertEquals("", inbox.dueTime)
+    }
+
+    @Test
+    fun `toUpdateRequest carries the listId sentinel verbatim`() {
+        // #509: null = unchanged, "" = Inbox, UUID = move — the editor resolves it, the mapper just passes it.
+        assertNull(draft(title = "T").toUpdateRequest().listId)
+        assertEquals("", draft(title = "T").toUpdateRequest(listId = "").listId)
+        assertEquals("l1", draft(title = "T").toUpdateRequest(listId = "l1").listId)
     }
 
     @Test

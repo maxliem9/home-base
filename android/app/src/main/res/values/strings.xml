@@ -205,7 +205,7 @@
     <string name="todo_autosave_saving">Speichert …</string>
     <string name="todo_autosave_saved">Gespeichert</string>
     <string name="todo_field_list">Liste</string>
-    <string name="todo_stays_in_inbox">Bleibt in der Inbox</string>
+    <string name="todo_list_inbox">Ohne Liste (Inbox)</string>
     <string name="todo_field_assignee">Zuständig</string>
     <string name="todo_assignee_nobody">Niemand</string>
     <string name="todo_field_due">Fällig</string>
