@@ -50,13 +50,46 @@ export interface ProjectDraft {
   color: string
 }
 
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the time tracker): mirror the
+// last-loaded projects + entries + users so a launch/reload while the API is unreachable shows the
+// previous entries instead of an empty screen. The forecast (Wochenbilanz) is deliberately not cached —
+// it hides gracefully without one and its live tick keys off a fetch timestamp we can't restore. The
+// running timer is derived from the entries. Best-effort; keyed by browser. NB: fully offline the shell
+// needs the service worker (#519); this covers the flaky-connection case + instant first paint.
+const CACHE_KEY = 'homebase_time_cache'
+
+interface TimeCache { projects: Project[]; entries: TimeEntry[]; users: string[] }
+
+function loadTimeCache(): TimeCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as Partial<TimeCache>
+    return { projects: p.projects ?? [], entries: p.entries ?? [], users: p.users ?? [] }
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveTimeCache(cache: TimeCache) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
+
 export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   const { t } = useTranslation()
   const me = useMemo(() => usernameFromToken(token), [token])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [entries, setEntries] = useState<TimeEntry[]>([])
-  const [users, setUsers] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+  // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
+  // known projects + entries instead of an empty screen; a successful fetch replaces them below.
+  const initialTimeCache = useMemo(() => loadTimeCache(), [])
+  const [projects, setProjects] = useState<Project[]>(initialTimeCache?.projects ?? [])
+  const [entries, setEntries] = useState<TimeEntry[]>(initialTimeCache?.entries ?? [])
+  const [users, setUsers] = useState<string[]>(initialTimeCache?.users ?? [])
+  // Skip the full-screen spinner when we already have cached content to show — refresh happens underneath.
+  const [loading, setLoading] = useState(!(initialTimeCache && (initialTimeCache.entries.length > 0 || initialTimeCache.projects.length > 0)))
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null)
   const [showManual, setShowManual] = useState(false)
@@ -143,6 +176,12 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Mirror the current projects + entries + users into the durable read-cache (#520) on every change
+  // so the next launch can show the last state offline. Never wipes: seeded from that same cache.
+  useEffect(() => {
+    saveTimeCache({ projects, entries, users })
+  }, [projects, entries, users])
 
   // keep the hero description input in sync with the running entry
   useEffect(() => { setDesc(running?.description ?? '') }, [running?.id])

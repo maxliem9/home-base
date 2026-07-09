@@ -8,7 +8,9 @@ import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.data.model.WorkTargetDto
+import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.TimeRepository
+import com.homebase.android.data.time.TimeSnapshot
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.ui.time.TargetChange
 import com.homebase.android.ui.time.TimeViewModel
@@ -95,7 +97,86 @@ class TimeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createVm(username: String? = "alice") = TimeViewModel(repository, "test-token", username)
+    private fun createVm(username: String? = "alice", snapshotStore: SnapshotStore<TimeSnapshot>? = null) =
+        TimeViewModel(repository, "test-token", username, snapshotStore = snapshotStore)
+
+    /** In-memory [SnapshotStore] standing in for the SharedPreferences-backed read-cache (#520). */
+    private class FakeSnapshotStore(var data: TimeSnapshot? = null) : SnapshotStore<TimeSnapshot> {
+        override suspend fun load(): TimeSnapshot? = data
+        override suspend fun save(snapshot: TimeSnapshot) { data = snapshot }
+    }
+
+    // --- Offline read-cache (#520) -------------------------------------------------------------
+
+    @Test
+    fun `cold start with no connection seeds the cached projects and entries`() = runTest {
+        coEvery { repository.getProjects() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getEntries() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getForecast() } returns Result.failure(java.io.IOException("offline"))
+        val cache = FakeSnapshotStore(TimeSnapshot(projects = listOf(project()), entries = listOf(entry())))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("p1"), vm.uiState.value.projects.map { it.id })
+        assertEquals(listOf("e1"), vm.uiState.value.entries.map { it.id })
+        assertFalse(vm.uiState.value.isLoading)
+        assertNull("offline refresh over cached data is not surfaced as an error", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `seeded entries derive the running timer offline`() = runTest {
+        coEvery { repository.getProjects() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getEntries() } returns Result.failure(java.io.IOException("offline"))
+        // an OPEN entry (no stoppedAt) for the current user
+        val open = entry(id = "run", userId = "alice", stoppedAt = null, durationSeconds = null)
+        val cache = FakeSnapshotStore(TimeSnapshot(projects = listOf(project()), entries = listOf(open)))
+
+        val vm = createVm(username = "alice", snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals("running timer recomputed from the cached open entry", "run", vm.uiState.value.running?.id)
+    }
+
+    @Test
+    fun `a successful fetch wins over the cached snapshot`() = runTest {
+        coEvery { repository.getProjects() } returns Result.success(listOf(project(id = "fresh")))
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "efresh")))
+        val cache = FakeSnapshotStore(TimeSnapshot(projects = listOf(project(id = "stale")), entries = listOf(entry(id = "estale"))))
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("fresh"), vm.uiState.value.projects.map { it.id })
+        assertEquals(listOf("efresh"), vm.uiState.value.entries.map { it.id })
+    }
+
+    @Test
+    fun `a successful load is mirrored into the cache`() = runTest {
+        coEvery { repository.getProjects() } returns Result.success(listOf(project(id = "p1")))
+        coEvery { repository.getEntries() } returns Result.success(listOf(entry(id = "e1")))
+        val cache = FakeSnapshotStore()
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(listOf("p1"), cache.data?.projects?.map { it.id })
+        assertEquals(listOf("e1"), cache.data?.entries?.map { it.id })
+    }
+
+    @Test
+    fun `an offline cold start does not overwrite the cache with an empty snapshot`() = runTest {
+        coEvery { repository.getProjects() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getEntries() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getForecast() } returns Result.failure(java.io.IOException("offline"))
+        val cached = TimeSnapshot(projects = listOf(project()), entries = listOf(entry()))
+        val cache = FakeSnapshotStore(cached)
+
+        val vm = createVm(snapshotStore = cache)
+        advanceUntilIdle()
+
+        assertEquals(cached.entries.map { it.id }, cache.data?.entries?.map { it.id })
+    }
 
     @Test
     fun `initial load populates projects and entries`() = runTest {

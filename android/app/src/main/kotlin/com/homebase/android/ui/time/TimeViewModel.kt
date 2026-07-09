@@ -8,11 +8,15 @@ import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.data.model.WorkTargetDto
+import com.homebase.android.data.cache.SnapshotStore
+import com.homebase.android.data.time.TimeSnapshot
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -57,14 +61,25 @@ class TimeViewModel(
     private val repository: TimeRepository,
     private val token: String,
     private val username: String?,
+    /**
+     * Durable "last-known time data" cache (#520, read-side twin of the shopping cache #517). Seeded
+     * on a cold start so a launch with no connection shows the previous entries instead of nothing,
+     * and mirrored on every change. null in tests → no read-cache.
+     */
+    private val snapshotStore: SnapshotStore<TimeSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TimeUiState(isLoading = true))
     val uiState: StateFlow<TimeUiState> = _uiState.asStateFlow()
 
+    /** True once the critical fetch (projects + entries) has landed (#520); guards the cache seed
+     *  against clobbering live data and gates the load error. Single-threaded (viewModelScope = Main). */
+    private var hasServerData = false
+
     init {
         load()
         observeWebSocket()
+        restoreAndMirrorSnapshot()
     }
 
     fun load() {
@@ -78,10 +93,12 @@ class TimeViewModel(
             val forecast = repository.getForecast()
             val targets = repository.getTargets()
             val error = projects.exceptionOrNull()?.message ?: entries.exceptionOrNull()?.message
+            if (error == null) hasServerData = true // critical reads landed → the cache seed must not clobber (#520)
             _uiState.update { state ->
+                val nextProjects = projects.getOrDefault(state.projects)
                 val nextEntries = entries.getOrDefault(state.entries)
                 state.copy(
-                    projects = projects.getOrDefault(state.projects),
+                    projects = nextProjects,
                     entries = nextEntries,
                     running = findRunning(nextEntries),
                     othersRunning = findOthersRunning(nextEntries),
@@ -90,9 +107,47 @@ class TimeViewModel(
                     forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
                     targets = targets.getOrDefault(state.targets),
                     isLoading = false,
-                    error = error,
+                    // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
+                    // data on screen a failed refresh stays silent — offline we show the old state.
+                    error = error?.takeIf { nextProjects.isEmpty() && nextEntries.isEmpty() },
                 )
             }
+        }
+    }
+
+    /**
+     * Offline read-cache (#520): seed the last-known time datasets from disk before starting the
+     * mirror collector (so the empty startup frame can't wipe a good cache), then persist every
+     * distinct change. The derived running/others timers are recomputed from the seeded [entries].
+     * [hasServerData]/`ifEmpty` guard against clobbering fresh server data.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData && (cached.entries.isNotEmpty() || cached.projects.isNotEmpty())) {
+                _uiState.update { s ->
+                    if (hasServerData) s
+                    else {
+                        val entries = s.entries.ifEmpty { cached.entries }
+                        s.copy(
+                            projects = s.projects.ifEmpty { cached.projects },
+                            entries = entries,
+                            running = s.running ?: findRunning(entries),
+                            othersRunning = s.othersRunning.ifEmpty { findOthersRunning(entries) },
+                            users = s.users.ifEmpty { cached.users },
+                            forecast = s.forecast ?: cached.forecast,
+                            targets = s.targets.ifEmpty { cached.targets },
+                            isLoading = false,
+                            error = null,
+                        )
+                    }
+                }
+            }
+            uiState
+                .map { TimeSnapshot(it.projects, it.entries, it.users, it.forecast, it.targets) }
+                .distinctUntilChanged()
+                .collect { snapshot -> store.save(snapshot) }
         }
     }
 

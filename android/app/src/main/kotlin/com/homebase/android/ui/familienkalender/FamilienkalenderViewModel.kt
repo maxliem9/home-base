@@ -9,11 +9,15 @@ import com.homebase.android.data.model.CalendarFeedConfigResponse
 import com.homebase.android.data.model.KitaClosureDto
 import com.homebase.android.data.model.MealPlanEntryDto
 import com.homebase.android.data.model.TodoDto
+import com.homebase.android.data.cache.SnapshotStore
+import com.homebase.android.data.familienkalender.CalendarSnapshot
 import com.homebase.android.data.repository.CalendarRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -101,10 +105,21 @@ private class MutableDayBucket {
 class FamilienkalenderViewModel(
     private val repository: CalendarRepository,
     private val token: String,
+    /**
+     * Durable "last-known overlay" cache (#520, read-side twin of the shopping cache #517). Seeded on a
+     * cold start so a launch with no connection shows the previous month instead of an empty grid, and
+     * mirrored on every change. Meals + events are month-scoped (see [restoreAndMirrorSnapshot]). null
+     * in tests → no read-cache.
+     */
+    private val snapshotStore: SnapshotStore<CalendarSnapshot>? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FamilienkalenderUiState(isLoading = true))
     val uiState: StateFlow<FamilienkalenderUiState> = _uiState.asStateFlow()
+
+    /** True once a fetch has successfully applied server data (#520); guards the cache seed against
+     *  clobbering live data and gates the load error. Single-threaded (viewModelScope = Main). */
+    private var hasServerData = false
 
     /**
      * The caller's personal iCal subscription URL (#488), mirroring the web SubscribeModal. The JWT
@@ -128,6 +143,40 @@ class FamilienkalenderViewModel(
     init {
         load()
         observeWebSockets()
+        restoreAndMirrorSnapshot()
+    }
+
+    /**
+     * Offline read-cache (#520): seed the last-known overlay from disk before starting the mirror
+     * collector (so the empty startup frame can't wipe a good cache), then persist every distinct
+     * change. Meals + events are **month-scoped**, so they are only seeded when the cached month equals
+     * the currently-visible one; todos + absence-derived lists (date-bucketed, not month-scoped) seed
+     * whenever still empty. [hasServerData]/`ifEmpty` guard against clobbering fresh server data.
+     */
+    private fun restoreAndMirrorSnapshot() {
+        val store = snapshotStore ?: return
+        viewModelScope.launch {
+            val cached = store.load()
+            if (cached != null && !hasServerData) {
+                _uiState.update { s ->
+                    if (hasServerData) s
+                    else s.copy(
+                        todos = s.todos.ifEmpty { cached.todos },
+                        absences = s.absences.ifEmpty { cached.absences },
+                        kitaClosures = s.kitaClosures.ifEmpty { cached.kitaClosures },
+                        // Meals + events are month-specific: only restore them for the visible month.
+                        meals = if (s.meals.isEmpty() && cached.monthAnchor == s.monthAnchor.toString()) cached.meals else s.meals,
+                        events = if (s.events.isEmpty() && cached.monthAnchor == s.monthAnchor.toString()) cached.events else s.events,
+                        isLoading = false,
+                        error = null,
+                    )
+                }
+            }
+            uiState
+                .map { CalendarSnapshot(it.monthAnchor.toString(), it.todos, it.absences, it.kitaClosures, it.meals, it.events) }
+                .distinctUntilChanged()
+                .collect { snapshot -> store.save(snapshot) }
+        }
     }
 
     /** Reload everything the visible month grid needs. Meals + events are range-scoped to the grid. */
@@ -147,15 +196,26 @@ class FamilienkalenderViewModel(
             // Belt-and-braces against out-of-order completion: if the user navigated to a different
             // month while this was in flight, drop the result (the newer load owns the state now).
             if (!_uiState.value.monthAnchor.isEqual(anchor)) return@launch
+            val error = listOf(todos, absence, meals, events).firstNotNullOfOrNull { it.exceptionOrNull()?.message }
+            if (error == null) hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
             _uiState.update { s ->
+                val nextTodos = todos.getOrNull() ?: s.todos
+                val nextAbsences = absence.getOrNull()?.absences ?: s.absences
+                val nextKita = absence.getOrNull()?.kitaClosures ?: s.kitaClosures
+                val nextMeals = meals.getOrNull() ?: s.meals
+                val nextEvents = events.getOrNull() ?: s.events
                 s.copy(
-                    todos = todos.getOrNull() ?: s.todos,
-                    absences = absence.getOrNull()?.absences ?: s.absences,
-                    kitaClosures = absence.getOrNull()?.kitaClosures ?: s.kitaClosures,
-                    meals = meals.getOrNull() ?: s.meals,
-                    events = events.getOrNull() ?: s.events,
+                    todos = nextTodos,
+                    absences = nextAbsences,
+                    kitaClosures = nextKita,
+                    meals = nextMeals,
+                    events = nextEvents,
                     isLoading = false,
-                    error = listOf(todos, absence, meals, events).firstNotNullOfOrNull { it.exceptionOrNull()?.message },
+                    // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
+                    // data on the grid a failed refresh stays silent — offline we show the old month.
+                    error = error?.takeIf {
+                        nextTodos.isEmpty() && nextAbsences.isEmpty() && nextKita.isEmpty() && nextMeals.isEmpty() && nextEvents.isEmpty()
+                    },
                 )
             }
         }
