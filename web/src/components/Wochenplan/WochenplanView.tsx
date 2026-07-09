@@ -29,6 +29,40 @@ const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), 
 /** Monday-based start of the week containing `d`. */
 const mondayOf = (d: Date): Date => addDays(d, -((d.getDay() + 6) % 7))
 
+// Offline read-cache (#520, rolling out the shopping read-cache #517 to the Wochenplan): mirror the
+// last-loaded plan so a launch/reload while the API is unreachable shows the previous plan instead of
+// an empty grid. Entries are week-scoped, so the cached week is stored with them and they are only
+// seeded when it matches the currently-visible week; recipes + shopping lists are week-independent.
+// Best-effort; keyed by browser. NB: fully offline the shell needs the service worker (#519); this
+// covers the flaky-connection case + instant first paint.
+const CACHE_KEY = 'homebase_mealplan_cache'
+
+interface MealPlanCache { weekStart: string; entries: MealPlanEntry[]; recipes: Recipe[]; shoppingLists: ShoppingList[] }
+
+function loadMealPlanCache(): MealPlanCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as Partial<MealPlanCache>
+    return {
+      weekStart: p.weekStart ?? '',
+      entries: p.entries ?? [],
+      recipes: (p.recipes ?? []).map((r) => ({ ...r, ingredients: r.ingredients ?? [], steps: r.steps ?? [] })),
+      shoppingLists: p.shoppingLists ?? [],
+    }
+  } catch {
+    return null // private-mode / corrupt value → no seed
+  }
+}
+
+function saveMealPlanCache(cache: MealPlanCache) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    /* quota / private mode — the in-memory state still works for this session */
+  }
+}
+
 interface WochenplanViewProps {
   token: string
   onLogout: () => void
@@ -36,11 +70,17 @@ interface WochenplanViewProps {
 
 export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   const { t } = useTranslation()
-  const [entries, setEntries] = useState<MealPlanEntry[]>([])
-  const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([])
+  // Seed from the durable read-cache (#520). Entries are week-scoped: only restore them when the cached
+  // week equals the week we open on (the current one); recipes + lists are week-independent, seed freely.
+  const initialWeek = useMemo(() => ymd(mondayOf(new Date())), [])
+  const initialCache = useMemo(() => loadMealPlanCache(), [])
+  const [entries, setEntries] = useState<MealPlanEntry[]>(
+    initialCache && initialCache.weekStart === initialWeek ? initialCache.entries : [],
+  )
+  const [recipes, setRecipes] = useState<Recipe[]>(initialCache?.recipes ?? [])
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>(initialCache?.shoppingLists ?? [])
   // The visible week, keyed by its Monday (ISO). Keeping it as a string keeps the fetch deps stable.
-  const [weekStartIso, setWeekStartIso] = useState(() => ymd(mondayOf(new Date())))
+  const [weekStartIso, setWeekStartIso] = useState(() => initialWeek)
   const [picking, setPicking] = useState<{ date: string; slot: MealSlot } | null>(null)
   const [addingToShopping, setAddingToShopping] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -102,6 +142,13 @@ export function WochenplanView({ token, onLogout }: WochenplanViewProps) {
   useEffect(() => { fetchEntries() }, [fetchEntries])
   useEffect(() => { fetchRecipes() }, [fetchRecipes])
   useEffect(() => { fetchShoppingLists() }, [fetchShoppingLists])
+
+  // Mirror the current plan into the durable read-cache (#520) on every change, tagging the entries
+  // with their week so a later launch only restores them for the matching week. Never wipes: the state
+  // was seeded from this same cache (and a week switch just re-tags with fresh entries once they load).
+  useEffect(() => {
+    saveMealPlanCache({ weekStart: weekStartIso, entries, recipes, shoppingLists })
+  }, [weekStartIso, entries, recipes, shoppingLists])
 
   useWebSocket({ url: wsUrl('meal-plan'), token }, () => fetchEntries())
   // A recipe rename/delete changes what the grid shows: deleting a recipe cascades its plan

@@ -18,6 +18,7 @@ import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.recipes.RecipesSnapshot
+import com.homebase.android.data.wochenplan.MealPlanSnapshot
 import com.homebase.android.data.cache.SharedPrefsSnapshotStore
 import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.notes.NotesPendingStore
@@ -196,6 +197,13 @@ class AppContainer(context: Context) {
         api = api,
         mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
         recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+    )
+
+    /** Durable "last-known plan" cache for the Wochenplan (#520); own prefs file, best-effort writes. */
+    val mealPlanSnapshotStore: SnapshotStore<MealPlanSnapshot> = SharedPrefsSnapshotStore(
+        context = context,
+        adapter = moshi.adapter(MealPlanSnapshot::class.java),
+        prefsName = "homebase_mealplan_cache",
     )
 
     // Familienkalender (#435): read-only overlay of todos/absence/meals/events. Each WS client is a

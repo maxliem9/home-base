@@ -500,7 +500,7 @@ class MainActivity : AppCompatActivity() {
     private fun mealPlanFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return MealPlanViewModel(container.mealPlanRepository, token) as T
+            return MealPlanViewModel(container.mealPlanRepository, token, snapshotStore = container.mealPlanSnapshotStore) as T
         }
     }
 
