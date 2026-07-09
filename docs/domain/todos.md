@@ -82,9 +82,18 @@ Android (`ui/aufgaben/`): eigener Inbox-Tab als erster Tab vor den
 Listen-Tabs mit derselben Semantik wie das Web (#71/#77): Status-INBOX-Todos plus
 alle listen-losen Todos, Herkunfts-Liste als Meta, Badge = Anzahl Status-INBOX-Todos
 (`TodoUiState.inboxCount`, auch von der HeuteScreen-Kachel genutzt). Quick-Add
-im Inbox-Tab postet ohne `listId`; das Edit-Sheet bietet beim Planen
-listen-loser Todos eine Listen-Auswahl. Das frühere Catch-all-Verhalten des
-ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
+im Inbox-Tab postet ohne `listId`; das Edit-Sheet bietet die Listen-Auswahl für
+**jede** bestehende Aufgabe (Web-Parität #409/#509): aktuelle Liste vorausgewählt,
+„Ohne Liste (Inbox)" als erste Option, Wechsel per PUT `listId`. Das frühere
+Catch-all-Verhalten des ersten Listen-Tabs entfällt; ohne Listen ist die Inbox der Default-Tab.
+
+**Liste im Edit-Sheet wechseln (#509):** Der Picker sitzt im Auto-Save-Draft-Fluss —
+`TodoDraft.targetListId` ist die gewählte Liste (`null` = Inbox), beim Öffnen auf die
+eigene Liste der Aufgabe geseedet. Der VM hält die Liste bei Öffnen als Baseline
+(`editorListIdOriginal`) und schickt `listId` nur bei echter Änderung (`null` = unverändert,
+`""` = raus aus der Liste/Inbox, UUID = in diese Liste — #265-Sentinel); nach jedem eigenen
+Move wird die Baseline rebaset, damit ein späterer, unabhängiger Auto-Save den Wechsel nicht
+erneut sendet und einen parallelen Partner-Move nicht überschreibt (analog `listIdOriginal` auf Web).
 
 ## Edit-Sheet: Auto-Save beim Bearbeiten (Android), Neuanlage explizit
 **Auto-Save beim Bearbeiten (live, wie der Notizen-Editor); Neuanlage explizit.**

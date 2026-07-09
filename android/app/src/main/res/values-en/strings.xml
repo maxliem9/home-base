@@ -193,7 +193,7 @@
     <string name="todo_autosave_saving">Saving …</string>
     <string name="todo_autosave_saved">Saved</string>
     <string name="todo_field_list">List</string>
-    <string name="todo_stays_in_inbox">Stays in the inbox</string>
+    <string name="todo_list_inbox">No list (Inbox)</string>
     <string name="todo_field_assignee">Assignee</string>
     <string name="todo_assignee_nobody">Nobody</string>
     <string name="todo_field_due">Due</string>
