@@ -55,6 +55,9 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const [running, setRunning] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [forecast, setForecast] = useState<TimeForecast | null>(null)
+  // when the forecast snapshot was taken — lets a running timer tick the peek's
+  // figures live off the snapshot instead of double-counting from startedAt (#531)
+  const [forecastAtMs, setForecastAtMs] = useState(0)
   const [loading, setLoading] = useState(true)
   const [quick, setQuick] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -99,7 +102,10 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
     const result = await safeFetch(token, `${API_BASE}/time/forecast`)
     if (!result.ok) return
     if (result.res.status === 401) return onLogout()
-    if (result.res.ok) setForecast(await result.res.json())
+    if (result.res.ok) {
+      setForecast(await result.res.json())
+      setForecastAtMs(Date.now())
+    }
   }, [onLogout, token])
 
   // Hold the data-dependent body behind `loading` until the first reads resolve,
@@ -259,11 +265,14 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
 
   // HB-10 — my weekly work-target peek; only shown when a Wochensoll is configured (#31).
   const myForecast = (forecast?.users ?? []).find((u) => u.userId === me && u.weekTargetSeconds > 0)
-  // While my own timer(s) run, tick the recorded totals up live (#59) so the peek tracks the
-  // running clock instead of freezing at the last forecast snapshot.
-  const myLiveSeconds = running
-    .filter((e) => e.userId === me)
-    .reduce((sum, e) => sum + Math.max(0, Math.floor((nowMs - new Date(e.startedAt).getTime()) / 1000)), 0)
+  // While my own timer runs, tick the recorded totals up live (#59) so the peek tracks the
+  // running clock instead of freezing at the last forecast snapshot. Count only the seconds
+  // since that snapshot (nowMs − forecastAtMs) — the backend forecast already includes the
+  // running entry up to the snapshot, so measuring from startedAt double-counts the
+  // [startedAt, snapshot] interval and runs the peek too high (#531). Mirrors WeekBalance's
+  // liveExtraSeconds in TimeView. At most one timer runs per user, so a single delta is right.
+  const iAmRunning = running.some((e) => e.userId === me)
+  const myLiveSeconds = iAmRunning && forecastAtMs ? Math.max(0, Math.floor((nowMs - forecastAtMs) / 1000)) : 0
 
   return (
     <div className="hb-page">
