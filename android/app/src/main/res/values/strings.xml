@@ -752,7 +752,7 @@
     <string name="cd_decrease">Verringern</string>
     <string name="cd_split_entry">Eintrag aufteilen</string>
     <string name="cd_record_time">Zeit erfassen</string>
-    <string name="cd_change_list">Liste wechseln</string>
+    <string name="cd_switch_note">Notiz wechseln</string>
     <string name="cd_recipe_import">Rezept importieren</string>
     <string name="cd_edit_category">Kategorie bearbeiten</string>
     <string name="cd_add_to_shopping">Auf die Einkaufsliste</string>

@@ -740,7 +740,7 @@
     <string name="cd_decrease">Decrease</string>
     <string name="cd_split_entry">Split entry</string>
     <string name="cd_record_time">Record time</string>
-    <string name="cd_change_list">Switch list</string>
+    <string name="cd_switch_note">Switch note</string>
     <string name="cd_recipe_import">Import recipe</string>
     <string name="cd_edit_category">Edit category</string>
     <string name="cd_add_to_shopping">Add to shopping list</string>

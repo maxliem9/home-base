@@ -672,7 +672,7 @@ private fun NoteEditor(
                             HbIconButton(HbIcons.edit, { focusContent = true; editing = true }, contentDescription = stringResource(R.string.cd_edit))
                         }
                         // Note-switcher (#313): a left slide-over listing all notes to jump to.
-                        HbIconButton(HbIcons.list, { switcherOpen = true }, contentDescription = stringResource(R.string.cd_change_list))
+                        HbIconButton(HbIcons.list, { switcherOpen = true }, contentDescription = stringResource(R.string.cd_switch_note))
                         HbIconButton(HbIcons.trash, { confirmDelete = true }, tint = Hb.danger, contentDescription = stringResource(R.string.cd_delete))
                     },
                 )

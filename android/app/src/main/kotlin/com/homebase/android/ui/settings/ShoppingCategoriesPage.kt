@@ -222,7 +222,7 @@ private fun CategoryRow(
         }
         if (!isFirst) HbIconButton(HbIcons.chevronUp, onMoveUp, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_move_up))
         if (!isLast) HbIconButton(HbIcons.chevronDown, onMoveDown, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_move_down))
-        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_edit))
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_edit_category))
         // OTHER is the protected fallback — its delete is hidden (backstopped server-side).
         if (category.key != OTHER_CATEGORY_KEY) {
             HbIconButton(HbIcons.trash, onDelete, tint = Hb.danger, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_delete))
