@@ -10,6 +10,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Badge, Button, Card, Checkbox, ConfirmDialog, EmptyState, IconButton, PageHead, PriorityDot } from '../ui/primitives'
 import { clockTime, dueLabel, fmtClock, fmtDurationShort, localDateIso, todayLabel, userMeta, usernameFromToken } from '../ui/format'
 import type { TodosFocus } from './TodosView'
+import { liveSecondsSinceSnapshot, worktargetFigures } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const wsUrl = (channel: string) => `${WS_SCHEME}://${window.location.host}/api/v1/ws/${channel}`
@@ -55,6 +56,9 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
   const [running, setRunning] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [forecast, setForecast] = useState<TimeForecast | null>(null)
+  // when the forecast snapshot was taken — lets a running timer tick the peek's
+  // figures live off the snapshot instead of double-counting from startedAt (#531)
+  const [forecastAtMs, setForecastAtMs] = useState(0)
   const [loading, setLoading] = useState(true)
   const [quick, setQuick] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -99,7 +103,10 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
     const result = await safeFetch(token, `${API_BASE}/time/forecast`)
     if (!result.ok) return
     if (result.res.status === 401) return onLogout()
-    if (result.res.ok) setForecast(await result.res.json())
+    if (result.res.ok) {
+      setForecast(await result.res.json())
+      setForecastAtMs(Date.now())
+    }
   }, [onLogout, token])
 
   // Hold the data-dependent body behind `loading` until the first reads resolve,
@@ -259,11 +266,12 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
 
   // HB-10 — my weekly work-target peek; only shown when a Wochensoll is configured (#31).
   const myForecast = (forecast?.users ?? []).find((u) => u.userId === me && u.weekTargetSeconds > 0)
-  // While my own timer(s) run, tick the recorded totals up live (#59) so the peek tracks the
-  // running clock instead of freezing at the last forecast snapshot.
-  const myLiveSeconds = running
-    .filter((e) => e.userId === me)
-    .reduce((sum, e) => sum + Math.max(0, Math.floor((nowMs - new Date(e.startedAt).getTime()) / 1000)), 0)
+  // While my own timer runs, tick the recorded totals up live (#59) so the peek tracks the
+  // running clock instead of freezing at the last forecast snapshot — measured from the
+  // snapshot, not startedAt, to avoid the #531 double-count (see liveSecondsSinceSnapshot).
+  // At most one timer runs per user, so a single delta is right.
+  const iAmRunning = running.some((e) => e.userId === me)
+  const myLiveSeconds = liveSecondsSinceSnapshot(iAmRunning, nowMs, forecastAtMs)
 
   return (
     <div className="hb-page">
@@ -384,9 +392,7 @@ export function DashboardView({ token, onLogout, onNavigate, onOpenTodos }: Dash
 
             {/* HB-10 — weekly work-target peek; only when a Wochensoll is configured (#31) */}
             {myForecast && (() => {
-              const weekDone = myForecast.weekRecordedSeconds + myForecast.weekCreditedSeconds + myLiveSeconds
-              const pct = Math.min(100, Math.round((weekDone / myForecast.weekTargetSeconds) * 100))
-              const todayLeft = myForecast.todayTargetSeconds - (myForecast.todayRecordedSeconds + myLiveSeconds)
+              const { weekDone, pct, todayLeft } = worktargetFigures(myForecast, myLiveSeconds)
               return (
                 <Card className="hb-card--pad hb-worktarget">
                   <div className="hb-cardhead">
