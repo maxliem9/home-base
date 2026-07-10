@@ -169,7 +169,6 @@ fun AufgabenScreen(
                     eyebrow = stringResource(R.string.todo_eyebrow),
                     title = title,
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.more, {}, contentDescription = stringResource(R.string.cd_more_actions)) },
                 )
             },
             fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = stringResource(R.string.todo_fab)) },
