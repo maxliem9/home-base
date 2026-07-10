@@ -7,6 +7,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
+import { liveSecondsSinceSnapshot } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -635,9 +636,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
           <div className="hb-stack" style={{ gap: 16 }}>
             {weekUsers.map((u) => {
               // a running timer ticks the snapshot numbers live: add the seconds
-              // elapsed since the forecast was fetched (#59)
+              // elapsed since the forecast was fetched (#59), never from startedAt (#531)
               const live = entries.find((e) => !e.stoppedAt && e.userId === u.userId)
-              const extra = live && forecastAtMs ? Math.max(0, Math.floor((nowMs - forecastAtMs) / 1000)) : 0
+              const extra = liveSecondsSinceSnapshot(!!live, nowMs, forecastAtMs)
               return (
                 <WeekBalance
                   key={u.userId}
