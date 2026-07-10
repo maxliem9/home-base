@@ -59,7 +59,6 @@ import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbConfirm
 import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbIcon
-import com.homebase.android.ui.components.HbIconButton
 import com.homebase.android.ui.components.HbIcons
 import com.homebase.android.ui.components.HbPill
 import com.homebase.android.ui.components.HbPriority
@@ -135,10 +134,6 @@ fun HeuteScreen(
                     title = "",
                     onLeft = onOpenDrawer,
                     leftIcon = HbIcons.menu,
-                    actions = {
-                        HbIconButton(HbIcons.search, {})
-                        HbIconButton(HbIcons.bell, {})
-                    },
                 )
             },
         ) {

@@ -169,7 +169,6 @@ fun AufgabenScreen(
                     eyebrow = stringResource(R.string.todo_eyebrow),
                     title = title,
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.more, {}) },
                 )
             },
             fab = { HbFab(onClick = { sheet = AufgabenSheet.Edit(null) }, label = stringResource(R.string.todo_fab)) },
@@ -726,6 +725,7 @@ private fun SubtasksPanel(
                     },
                     iconSize = 18.dp,
                     tint = Hb.accent,
+                    contentDescription = stringResource(R.string.cd_add),
                 )
             }
         }
@@ -1328,6 +1328,7 @@ private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
                 onClick = { onChange(null) },
                 iconSize = 18.dp,
                 tint = Hb.ink3,
+                contentDescription = stringResource(R.string.cd_clear),
             )
         }
     }
@@ -1380,7 +1381,7 @@ private fun DueTimeField(value: LocalTime?, onChange: (LocalTime?) -> Unit) {
             )
         }
         if (value != null) {
-            HbIconButton(HbIcons.x, onClick = { onChange(null) }, iconSize = 18.dp, tint = Hb.ink3)
+            HbIconButton(HbIcons.x, onClick = { onChange(null) }, iconSize = 18.dp, tint = Hb.ink3, contentDescription = stringResource(R.string.cd_clear))
         }
     }
     if (open) {

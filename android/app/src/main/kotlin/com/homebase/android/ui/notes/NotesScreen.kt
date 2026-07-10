@@ -267,7 +267,7 @@ private fun NoteList(
                     eyebrow = stringResource(R.string.notes_eyebrow),
                     title = stringResource(R.string.notes_title),
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.search, {}) },
+                    actions = { HbIconButton(HbIcons.search, {}, contentDescription = stringResource(R.string.cd_search)) },
                 )
             },
             fab = { HbFab(onClick = onCreate, label = stringResource(R.string.notes_fab)) },
@@ -669,11 +669,11 @@ private fun NoteEditor(
                         if (editing) {
                             SaveStatusIndicator(editor.status)
                         } else {
-                            HbIconButton(HbIcons.edit, { focusContent = true; editing = true })
+                            HbIconButton(HbIcons.edit, { focusContent = true; editing = true }, contentDescription = stringResource(R.string.cd_edit))
                         }
                         // Note-switcher (#313): a left slide-over listing all notes to jump to.
-                        HbIconButton(HbIcons.list, { switcherOpen = true })
-                        HbIconButton(HbIcons.trash, { confirmDelete = true }, tint = Hb.danger)
+                        HbIconButton(HbIcons.list, { switcherOpen = true }, contentDescription = stringResource(R.string.cd_switch_note))
+                        HbIconButton(HbIcons.trash, { confirmDelete = true }, tint = Hb.danger, contentDescription = stringResource(R.string.cd_delete))
                     },
                 )
             },
@@ -1282,7 +1282,7 @@ private fun BoxScope.NoteSwitcherSheet(
                     color = Hb.ink,
                     modifier = Modifier.weight(1f),
                 )
-                HbIconButton(HbIcons.x, onDismiss, iconSize = 22.dp)
+                HbIconButton(HbIcons.x, onDismiss, iconSize = 22.dp, contentDescription = stringResource(R.string.cd_close))
             }
             // Grouped, scrollable note list
             Column(

@@ -723,4 +723,39 @@
     <string name="reminder_channel_description">Erinnert an Aufgaben mit fester Uhrzeit.</string>
     <!-- z. B. "🔔 Erinnerung: Zahnarzt — fällig 14:30" -->
     <string name="reminder_notification_text">🔔 Erinnerung: %1$s — fällig %2$s</string>
+
+    <!-- a11y (#499): contentDescription für icon-only Buttons, damit TalkBack sie ansagt.
+         Generische Aktionen; kontextspezifische Labels stehen bei ihrer Domäne. -->
+    <string name="cd_add">Hinzufügen</string>
+    <string name="cd_edit">Bearbeiten</string>
+    <string name="cd_archive">Archivieren</string>
+    <string name="cd_toggle_view">Ansicht wechseln</string>
+    <string name="cd_delete">Löschen</string>
+    <string name="cd_remove">Entfernen</string>
+    <string name="cd_close">Schließen</string>
+    <string name="cd_back">Zurück</string>
+    <string name="cd_open_menu">Menü öffnen</string>
+    <string name="cd_clear">Zurücksetzen</string>
+    <string name="cd_search">Suchen</string>
+    <string name="cd_more_actions">Weitere Aktionen</string>
+    <string name="cd_settings">Einstellungen</string>
+    <string name="cd_prev_week">Vorige Woche</string>
+    <string name="cd_next_week">Nächste Woche</string>
+    <string name="cd_prev_month">Voriger Monat</string>
+    <string name="cd_next_month">Nächster Monat</string>
+    <string name="cd_prev_year">Voriges Jahr</string>
+    <string name="cd_next_year">Nächstes Jahr</string>
+    <string name="cd_move_up">Nach oben</string>
+    <string name="cd_move_down">Nach unten</string>
+    <string name="cd_increase">Erhöhen</string>
+    <string name="cd_decrease">Verringern</string>
+    <string name="cd_split_entry">Eintrag aufteilen</string>
+    <string name="cd_record_time">Zeit erfassen</string>
+    <string name="cd_switch_note">Notiz wechseln</string>
+    <string name="cd_recipe_import">Rezept importieren</string>
+    <string name="cd_edit_category">Kategorie bearbeiten</string>
+    <string name="cd_add_to_shopping">Auf die Einkaufsliste</string>
+    <string name="cd_move_to_category">In Kategorie verschieben</string>
+    <!-- Familienkalender: iCal-Feed abonnieren (#488/#499, spiegelt web familienkalender.subscribe) -->
+    <string name="family_calendar_subscribe">Abonnieren</string>
 </resources>

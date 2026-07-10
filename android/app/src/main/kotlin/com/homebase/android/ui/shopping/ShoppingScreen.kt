@@ -132,9 +132,10 @@ fun ShoppingScreen(
                         HbIconButton(
                             if (state.tileView) HbIcons.list else HbIcons.grid,
                             { viewModel.setTileView(!state.tileView) },
+                            contentDescription = stringResource(R.string.cd_toggle_view),
                         )
                         // The "more" button opens the saved-templates manager (#215).
-                        HbIconButton(HbIcons.more, { showTemplatesSheet = true })
+                        HbIconButton(HbIcons.more, { showTemplatesSheet = true }, contentDescription = stringResource(R.string.cd_more_actions))
                     },
                 )
             },
@@ -529,7 +530,7 @@ private fun OpenItemRow(
             horizontalArrangement = Arrangement.spacedBy((-4).dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HbIconButton(HbIcons.edit, onEdit)
+            HbIconButton(HbIcons.edit, onEdit, contentDescription = stringResource(R.string.cd_edit))
             CategoryMoveMenu(current = item.category, categories = categories, onPick = onMove)
         }
     }
@@ -701,7 +702,7 @@ private fun CategorySectionHeader(category: GroceryCategory, count: Int) {
 private fun CategoryMoveMenu(current: String?, categories: List<GroceryCategory>, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        HbIconButton(HbIcons.tag, { open = true })
+        HbIconButton(HbIcons.tag, { open = true }, contentDescription = stringResource(R.string.cd_move_to_category))
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             categories.forEach { c ->
                 DropdownMenuItem(
@@ -1241,9 +1242,9 @@ private fun TemplateRow(
                 color = Hb.ink3,
             )
         }
-        HbIconButton(HbIcons.cart, onApply, iconSize = 20.dp, tint = Hb.accentInk)
-        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp)
-        HbIconButton(HbIcons.trash, onDelete, iconSize = 20.dp)
+        HbIconButton(HbIcons.cart, onApply, iconSize = 20.dp, tint = Hb.accentInk, contentDescription = stringResource(R.string.cd_add_to_shopping))
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_edit))
+        HbIconButton(HbIcons.trash, onDelete, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_delete))
     }
 }
 
@@ -1313,7 +1314,7 @@ private fun TemplateFormSheet(
                     )
                     // Keep at least one (trailing) row; removing the last typed row is allowed.
                     if (items.size > 1) {
-                        HbIconButton(HbIcons.x, { items.removeAt(i) }, iconSize = 18.dp)
+                        HbIconButton(HbIcons.x, { items.removeAt(i) }, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_remove))
                     }
                 }
             }

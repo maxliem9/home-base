@@ -57,8 +57,14 @@ val HbRadiusLg = RoundedCornerShape(16.dp)
 // ---------------------------------------------------------------------------
 
 @Composable
-fun HbIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 22.dp, tint: Color = Hb.ink2) {
-    Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = modifier.size(size))
+fun HbIcon(
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    size: Dp = 22.dp,
+    tint: Color = Hb.ink2,
+    contentDescription: String? = null,
+) {
+    Icon(imageVector = icon, contentDescription = contentDescription, tint = tint, modifier = modifier.size(size))
 }
 
 // ---------------------------------------------------------------------------

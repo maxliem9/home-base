@@ -124,6 +124,7 @@ fun HbIconButton(
     tint: Color = Hb.ink2,
     iconSize: androidx.compose.ui.unit.Dp = 24.dp,
     badge: String? = null,
+    contentDescription: String? = null,
 ) {
     Box(
         modifier
@@ -132,7 +133,7 @@ fun HbIconButton(
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        HbIcon(icon, size = iconSize, tint = tint)
+        HbIcon(icon, size = iconSize, tint = tint, contentDescription = contentDescription)
         if (badge != null) {
             Box(
                 Modifier
@@ -161,10 +162,16 @@ fun HbAppBar(
     modifier: Modifier = Modifier,
     eyebrow: String? = null,
     leftIcon: ImageVector = HbIcons.menu,
+    leftContentDescription: String? = null,
     bordered: Boolean = false,
     titleSm: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
+    // a11y (#499): the left button is either the nav-drawer toggle (menu) or a back chevron;
+    // derive a sensible TalkBack label from the icon unless the caller overrides it.
+    val leftCd = leftContentDescription
+        ?: if (leftIcon == HbIcons.menu) stringResource(R.string.cd_open_menu)
+        else stringResource(R.string.cd_back)
     Row(
         modifier
             .fillMaxWidth()
@@ -174,7 +181,7 @@ fun HbAppBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        HbIconButton(leftIcon, onLeft)
+        HbIconButton(leftIcon, onLeft, contentDescription = leftCd)
         Column(Modifier.weight(1f)) {
             if (eyebrow != null) {
                 Text(eyebrow.uppercase(), style = HbType.eyebrow, color = Hb.ink3)
@@ -346,7 +353,7 @@ fun HbBottomSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(title, style = HbType.sheetTitle, color = Hb.ink, modifier = Modifier.weight(1f))
-                    if (showClose) HbIconButton(HbIcons.x, onDismiss, iconSize = 22.dp)
+                    if (showClose) HbIconButton(HbIcons.x, onDismiss, iconSize = 22.dp, contentDescription = stringResource(R.string.cd_close))
                 }
             }
             Column(
@@ -535,7 +542,7 @@ fun HbDrawerContent(
             }
             // Account-corner gear → central settings (#101). Web has it in the topbar; on a phone
             // the drawer foot next to the user chip is the natural spot.
-            HbIconButton(HbIcons.settings, onOpenSettings, tint = Hb.ink3, iconSize = 20.dp)
+            HbIconButton(HbIcons.settings, onOpenSettings, tint = Hb.ink3, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_settings))
             Box(Modifier.size(8.dp).clip(HbPill).background(Hb.accent))
         }
     }

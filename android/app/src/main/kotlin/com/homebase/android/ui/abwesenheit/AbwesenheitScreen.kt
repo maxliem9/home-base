@@ -123,7 +123,7 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                     eyebrow = stringResource(R.string.absence_eyebrow),
                     title = stringResource(R.string.absence_title),
                     onLeft = onOpenDrawer,
-                    actions = { HbIconButton(HbIcons.edit, { showSettings = true }) },
+                    actions = { HbIconButton(HbIcons.edit, { showSettings = true }, contentDescription = stringResource(R.string.cd_settings)) },
                 )
             },
             fab = {
@@ -331,12 +331,12 @@ private fun MonthGrid(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
-            HbIconButton(HbIcons.chevronLeft, { onMonth(month - 1) }, iconSize = 20.dp)
+            HbIconButton(HbIcons.chevronLeft, { onMonth(month - 1) }, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_prev_month))
             Row {
                 Text("${AbwCal.monFull()[month]} ", style = HbType.sheetTitle.copy(fontSize = 19.sp), color = Hb.ink)
                 Text("$year", style = HbType.sheetTitle.copy(fontSize = 19.sp, fontWeight = FontWeight.SemiBold), color = Hb.ink3)
             }
-            HbIconButton(HbIcons.chevronRight, { onMonth(month + 1) }, iconSize = 20.dp)
+            HbIconButton(HbIcons.chevronRight, { onMonth(month + 1) }, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_next_month))
         }
         // weekday header
         Row(Modifier.fillMaxWidth().padding(bottom = 5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -465,9 +465,9 @@ private fun YearGrid(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
-            HbIconButton(HbIcons.chevronLeft, { onYear(year - 1) }, iconSize = 20.dp)
+            HbIconButton(HbIcons.chevronLeft, { onYear(year - 1) }, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_prev_year))
             Text("$year", style = HbType.sheetTitle.copy(fontSize = 19.sp), color = Hb.ink)
-            HbIconButton(HbIcons.chevronRight, { onYear(year + 1) }, iconSize = 20.dp)
+            HbIconButton(HbIcons.chevronRight, { onYear(year + 1) }, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_next_year))
         }
         // grid: 1px gaps over a line-soft backing
         Column(
@@ -890,7 +890,7 @@ private fun PartTimeRow(r: com.homebase.android.data.model.PartTimeRuleDto, vm: 
                     onSelect = { vm.updatePartTime(r.id, weekday = it.toInt()) },
                 )
             }
-            HbIconButton(HbIcons.trash, { vm.removePartTime(r.id) }, tint = Hb.ink3, iconSize = 18.dp)
+            HbIconButton(HbIcons.trash, { vm.removePartTime(r.id) }, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_delete))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) { AbwDateField(r.start) { vm.updatePartTime(r.id, start = it) } }
@@ -918,7 +918,7 @@ private fun KitaSettings(data: AbsenceStateDto, year: Int, vm: AbsenceViewModel)
                 Box(Modifier.weight(1.2f)) {
                     LocalCommitField("kita-${k.id}", k.label, placeholder = stringResource(R.string.absence_kita_reason_short)) { vm.updateKita(k.id, label = it) }
                 }
-                HbIconButton(HbIcons.trash, { vm.removeKita(k.id) }, tint = Hb.ink3, iconSize = 18.dp)
+                HbIconButton(HbIcons.trash, { vm.removeKita(k.id) }, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_delete))
             }
         }
         // add single
@@ -976,7 +976,7 @@ private fun CustomHolidaySettings(data: AbsenceStateDto, year: Int, vm: AbsenceV
                             monthDayOf(ds)?.let { (m, d) -> vm.updateCustomHoliday(h.id, month = m, day = d) }
                         }
                     }
-                    HbIconButton(HbIcons.trash, { vm.removeCustomHoliday(h.id) }, tint = Hb.ink3, iconSize = 18.dp)
+                    HbIconButton(HbIcons.trash, { vm.removeCustomHoliday(h.id) }, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_delete))
                 }
                 HolidayHalfToggle(h.half) { vm.updateCustomHoliday(h.id, half = it) }
                 LocalCommitField("hol-${h.id}", h.label, placeholder = stringResource(R.string.absence_kita_reason_short)) {

@@ -171,7 +171,7 @@ fun TimeScreen(
                     onLeft = onOpenDrawer,
                     actions = {
                         // "Eintrag erfassen" — manual entry, also for the partner (web parity #140).
-                        HbIconButton(HbIcons.calendar, { showRecordEntry = true }, tint = Hb.ink2)
+                        HbIconButton(HbIcons.calendar, { showRecordEntry = true }, tint = Hb.ink2, contentDescription = stringResource(R.string.cd_record_time))
                     },
                 )
             },
@@ -446,7 +446,7 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String
                 color = Hb.accentInk,
             )
             Spacer(Modifier.weight(1f))
-            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
+            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_edit))
         }
         // Project dot + name
         Row(
@@ -1177,12 +1177,12 @@ private fun EntryRow(
             // Edit/split/delete are offered on EVERY entry — also the partner's (the
             // household manages them together); cross-person clicks are confirmed
             // upstream via the dialog in TimeScreen (#129/#140, web parity).
-            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp)
+            HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_edit))
             // splitting needs a fixed end — only completed entries (#66)
             if (entry.stoppedAt != null) {
-                HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp)
+                HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_split_entry))
             }
-            HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp)
+            HbIconButton(HbIcons.trash, onDelete, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_delete))
         }
         Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
     }

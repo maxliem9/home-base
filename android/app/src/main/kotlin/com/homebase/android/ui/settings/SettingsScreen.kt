@@ -1382,12 +1382,13 @@ private fun ProjectRow(project: ProjectDto, onEdit: () -> Unit, onToggleArchive:
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        HbIconButton(HbIcons.edit, onEdit, iconSize = 18.dp, tint = Hb.ink2)
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 18.dp, tint = Hb.ink2, contentDescription = stringResource(R.string.cd_edit))
         HbIconButton(
             HbIcons.archive,
             onToggleArchive,
             iconSize = 18.dp,
             tint = if (project.archived) Hb.accentInk else Hb.ink2,
+            contentDescription = stringResource(R.string.cd_archive),
         )
     }
 }
@@ -1534,7 +1535,7 @@ private fun DateFilterField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
             color = if (value != null) Hb.ink else Hb.ink3,
             modifier = Modifier.weight(1f),
         )
-        if (value != null) HbIconButton(HbIcons.x, { onChange(null) }, iconSize = 16.dp, tint = Hb.ink3)
+        if (value != null) HbIconButton(HbIcons.x, { onChange(null) }, iconSize = 16.dp, tint = Hb.ink3, contentDescription = stringResource(R.string.cd_clear))
     }
     if (open) {
         val initialMillis = (value ?: LocalDate.now()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
@@ -1637,12 +1638,14 @@ private fun AbwesenheitPage(absenceViewModel: AbsenceViewModel, onBack: () -> Un
                                 HbIcons.chevronLeft,
                                 { year = (year - 1).coerceIn(ABS_YEAR_MIN, ABS_YEAR_MAX) },
                                 iconSize = 18.dp,
+                                contentDescription = stringResource(R.string.cd_prev_year),
                             )
                             Text("$year", style = HbType.mono(16.0, FontWeight.SemiBold), color = Hb.ink)
                             HbIconButton(
                                 HbIcons.chevronRight,
                                 { year = (year + 1).coerceIn(ABS_YEAR_MIN, ABS_YEAR_MAX) },
                                 iconSize = 18.dp,
+                                contentDescription = stringResource(R.string.cd_next_year),
                             )
                         }
                     }
