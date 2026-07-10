@@ -180,15 +180,19 @@ object ShoppingItemsTable : Table("shopping_items") {
 
 // Per-name usage tally for the shopping autocomplete ("most used", #389/#390) plus remembered
 // category/icon corrections. Keyed by the normalized item name (GroceryCatalog.normalize) so it
-// outlives item deletion / clear-checked. Household-shared like the lists themselves.
+// outlives item deletion / clear-checked. Scoped per list (#501, V42): an own-categories list (#412)
+// gets its own scope (its id); every shared list + the unfiled bucket share the all-zeros sentinel
+// (ShoppingCatalog.SHARED_STATS_SCOPE). The composite PK (name, scope) keeps corrections + "most used"
+// separate per scope while a real list id can never collide with the sentinel.
 object ShoppingItemStatsTable : Table("shopping_item_stats") {
     val normalizedName = varchar("normalized_name", 200)
+    val listScope = uuid("list_scope")
     val displayName = text("display_name")
     val category = varchar("category", 40).nullable()
     val icon = varchar("icon", 32).nullable()
     val useCount = integer("use_count")
     val lastUsedAt = timestamp("last_used_at")
-    override val primaryKey = PrimaryKey(normalizedName)
+    override val primaryKey = PrimaryKey(normalizedName, listScope)
 }
 
 // Editable grocery category catalog (#411): the category list moved from code (GroceryCatalog) into

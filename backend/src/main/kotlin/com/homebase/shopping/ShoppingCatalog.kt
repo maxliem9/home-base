@@ -59,19 +59,38 @@ object ShoppingCatalog {
         ShoppingCategoriesTable.selectAll().mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
 
     /**
+     * The all-zeros sentinel stats scope (#501) shared by every non-own-categories list and the
+     * unfiled bucket. A real list id (random UUID v4) is never all-zeros, so it never collides; using
+     * a sentinel instead of NULL keeps the `shopping_item_stats` composite PK columns NOT NULL.
+     */
+    val SHARED_STATS_SCOPE: UUID = UUID(0L, 0L)
+
+    /** True if the list opted into its own category set (#412). Call inside a transaction. */
+    fun listOwnsCategories(listId: UUID): Boolean =
+        ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }
+            .firstOrNull()?.get(ShoppingListsTable.ownCategories) == true
+
+    /**
+     * The usage-stats scope (#501) an item/list resolves against: an own-categories list gets its own
+     * scope (its id); every shared list and the null/unfiled bucket share [SHARED_STATS_SCOPE]. Mirrors
+     * [liveKeysForList]'s own/shared split, so the remembered corrections + "most used" tally stay
+     * private to each own list while shared lists pool one household-wide scope. Call inside a tx.
+     */
+    fun statsScopeFor(listId: UUID?): UUID =
+        if (listId != null && listOwnsCategories(listId)) listId else SHARED_STATS_SCOPE
+
+    /**
      * The category keys a given list resolves against (#412). A list that opted into its own set
      * (`own_categories = true`) sees its private categories (rows tagged with its id) plus the shared
      * OTHER fallback; every other list — and the null/unfiled bucket — sees the shared household
      * catalog (rows with a null list_id). Call inside a transaction; load once per operation.
      *
-     * This is the ONLY per-list seam: because [resolve]/resolveForItem remap any key not in this set
-     * to [GroceryCatalog.OTHER], the shared auto-resolve rules and the remembered corrections (stats)
-     * self-filter to each list's scope without themselves being scoped.
+     * Together with [statsScopeFor] this is the per-list seam: [resolve]/resolveForItem remap any key
+     * not in this set to [GroceryCatalog.OTHER], so even a scoped correction pointing at a foreign
+     * category can never leak across lists.
      */
     fun liveKeysForList(listId: UUID?): Set<String> {
-        val own = listId != null &&
-            ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }
-                .firstOrNull()?.get(ShoppingListsTable.ownCategories) == true
+        val own = listId != null && listOwnsCategories(listId)
         val rows = if (own) {
             // the list's own categories + the single shared OTHER row (globally unique key)
             ShoppingCategoriesTable.selectAll()
