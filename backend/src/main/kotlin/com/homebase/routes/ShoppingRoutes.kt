@@ -107,6 +107,7 @@ fun Route.shoppingRoutes() {
                     // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                     ShoppingItemsTable.deleteWhere { ShoppingItemsTable.listId eq id }
                     ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.listId eq id } // #412: own categories
+                    ShoppingItemStatsTable.deleteWhere { ShoppingItemStatsTable.listScope eq id } // #501: own-scope usage stats (shared-scope rows stay)
                     ShoppingListsTable.deleteWhere { ShoppingListsTable.id eq id }
                     existing.toListDto()
                 }
@@ -289,24 +290,32 @@ fun Route.shoppingRoutes() {
             }
         }
 
-        // Autocomplete source (#389/#390): the known catalog (count 0 baseline, useful on day one)
-        // merged with the household's real usage tally, ranked most-used first. Clients preload this
-        // once and filter locally as the user types.
+        // Autocomplete source (#389/#390): the shared scope merges the known catalog (count 0 baseline,
+        // useful on day one) with the usage tally, ranked most-used first; an own-categories list (#501)
+        // gets no grocery baseline and surfaces only its own used names. Clients preload this once
+        // (per active list) and filter locally as the user types.
         get("/suggestions") {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 300
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
-            // #412: scope the resolved categories/icons to the target list's set (unknown → OTHER). The
-            // suggestion NAMES stay household-global for now — a per-list usage tally is a later extension.
+            // #412: scope the resolved categories/icons to the target list's set (unknown → OTHER).
+            // #501: scope the usage tally per list too — an own-categories list shows only the names
+            // actually used in it (its scoped stats), no grocery baseline; shared lists pool the global
+            // dictionary + the shared-scope stats as before.
             val scope = call.categoryScopeListId() ?: return@get
             val suggestions = transaction {
+                val statsScope = ShoppingCatalog.statsScopeFor(scope.value)
                 val liveKeys = ShoppingCatalog.liveKeysForList(scope.value)
                 val rules = ShoppingCatalog.loadRules()
                 fun liveCat(cat: String) = if (cat in liveKeys) cat else GroceryCatalog.OTHER
                 val merged = LinkedHashMap<String, ShoppingSuggestionDto>()
-                rules.allEntries().forEach { e ->
-                    merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
+                // The global grocery dictionary is the baseline only for the shared scope; an own list
+                // starts empty and fills purely from its own usage (fixes the "Baumarkt suggests food").
+                if (statsScope == ShoppingCatalog.SHARED_STATS_SCOPE) {
+                    rules.allEntries().forEach { e ->
+                        merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
+                    }
                 }
-                ShoppingItemStatsTable.selectAll().forEach { row ->
+                ShoppingItemStatsTable.selectAll().where { ShoppingItemStatsTable.listScope eq statsScope }.forEach { row ->
                     val key = row[ShoppingItemStatsTable.normalizedName]
                     val display = row[ShoppingItemStatsTable.displayName]
                     val resolved = ShoppingCatalog.resolve(display, rules, liveKeys)
@@ -357,6 +366,7 @@ fun Route.shoppingRoutes() {
                     return@transaction false
                 }
                 val liveKeys = ShoppingCatalog.liveKeysForList(listId) // categorize against the target list's set (#411/#412)
+                val statsScope = ShoppingCatalog.statsScopeFor(listId) // remembered corrections per list (#501)
                 val rules = ShoppingCatalog.loadRules()
                 // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
                 val working = ShoppingItemsTable.selectAll()
@@ -394,7 +404,7 @@ fun Route.shoppingRoutes() {
 
                     // 3. Otherwise add a new item.
                     val id = UUID.randomUUID()
-                    val (resolvedCategory, resolvedIcon) = resolveForItem(name, rules, liveKeys)
+                    val (resolvedCategory, resolvedIcon) = resolveForItem(name, rules, liveKeys, statsScope)
                     ShoppingItemsTable.insert {
                         it[ShoppingItemsTable.id] = id
                         it[ShoppingItemsTable.name] = display
@@ -417,7 +427,7 @@ fun Route.shoppingRoutes() {
                 return@post
             }
 
-            recordUsages(usedNames) // best-effort tally in a separate tx (never rolls back the batch)
+            recordUsages(usedNames, listId) // best-effort tally in a separate tx (never rolls back the batch)
             created.forEach { broadcastItem("SHOPPING_CREATED", it) }
             updated.forEach { broadcastItem("SHOPPING_UPDATED", it) }
             call.respond(
@@ -455,7 +465,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeysForList(listId)) // #412: the item's list scope
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeysForList(listId), ShoppingCatalog.statsScopeFor(listId)) // #412/#501: the item's list scope
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -474,7 +484,7 @@ fun Route.shoppingRoutes() {
                 call.respond(HttpStatusCode.BadRequest, item)
                 return@post
             }
-            recordUsages(listOf(req.name)) // best-effort tally in a separate tx (never rolls back the item)
+            recordUsages(listOf(req.name), listId) // best-effort tally in a separate tx (never rolls back the item)
             broadcastItem("SHOPPING_CREATED", item as ShoppingItemDto)
             call.respond(HttpStatusCode.Created, item)
         }
@@ -541,8 +551,10 @@ fun Route.shoppingRoutes() {
             }
 
             // Remember the correction (best-effort, separate tx) so future adds of this name pick it up.
+            // Scoped to the item's (destination) list so two own lists can remember it differently (#501).
             if (newCategory != null || newIcon != null) {
-                rememberStatsPreference((item as ShoppingItemDto).name, newCategory, newIcon)
+                val dto = item as ShoppingItemDto
+                rememberStatsPreference(dto.name, newCategory, newIcon, dto.listId?.let { runCatching { UUID.fromString(it) }.getOrNull() })
             }
             broadcastItem("SHOPPING_UPDATED", item as ShoppingItemDto)
             call.respond(item)
@@ -689,15 +701,16 @@ private fun uniqueCategoryKey(label: String): String {
 // roll back the user's actual item create/update. Mirrors the update-then-insert idiom of upsertPref().
 
 /**
- * The category + icon to show on a freshly added item: a remembered household override (stats row)
- * wins over the catalog, which falls back to OTHER + cart. Read-only — safe inside any transaction.
+ * The category + icon to show on a freshly added item: a remembered override (stats row in this list's
+ * [scope], #501) wins over the catalog, which falls back to OTHER + cart. Read-only — safe inside any
+ * transaction.
  */
-private fun resolveForItem(rawName: String, rules: ShoppingCatalog.RuleSet, liveKeys: Set<String>): Pair<String, String> {
+private fun resolveForItem(rawName: String, rules: ShoppingCatalog.RuleSet, liveKeys: Set<String>, scope: UUID): Pair<String, String> {
     val resolved = ShoppingCatalog.resolve(rawName, rules, liveKeys)
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return resolved.category to resolved.icon
     val existing = ShoppingItemStatsTable.selectAll()
-        .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
+        .where { (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }.singleOrNull()
     // a remembered override pointing at a since-deleted category falls back to the resolved one (#411)
     val statsCategory = existing?.get(ShoppingItemStatsTable.category)?.takeIf { it in liveKeys }
     return (statsCategory ?: resolved.category) to
@@ -705,11 +718,12 @@ private fun resolveForItem(rawName: String, rules: ShoppingCatalog.RuleSet, live
 }
 
 /**
- * Bump the autocomplete usage tally for each added name. Own transaction, failures swallowed (the
- * tally is non-critical and must never roll back the caller's item write). New row seeded from the
- * catalog; existing row incremented. Call AFTER the item transaction has committed.
+ * Bump the autocomplete usage tally for each added name, in [listId]'s stats scope (#501). Own
+ * transaction, failures swallowed (the tally is non-critical and must never roll back the caller's
+ * item write). New row seeded from the catalog; existing row incremented. Call AFTER the item
+ * transaction has committed.
  */
-private fun recordUsages(rawNames: List<String>) {
+private fun recordUsages(rawNames: List<String>, listId: UUID?) {
     val entries = rawNames.mapNotNull { raw ->
         val key = GroceryCatalog.normalize(raw)
         if (key.isBlank()) null else key to raw.trim()
@@ -717,15 +731,17 @@ private fun recordUsages(rawNames: List<String>) {
     if (entries.isEmpty()) return
     runCatching {
         transaction {
-            val liveKeys = ShoppingCatalog.liveKeys()
+            val scope = ShoppingCatalog.statsScopeFor(listId)
+            val liveKeys = ShoppingCatalog.liveKeysForList(listId)
             val rules = ShoppingCatalog.loadRules()
             for ((key, display) in entries) {
                 val existing = ShoppingItemStatsTable.selectAll()
-                    .where { ShoppingItemStatsTable.normalizedName eq key }.singleOrNull()
+                    .where { (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }.singleOrNull()
                 if (existing == null) {
                     val resolved = ShoppingCatalog.resolve(display, rules, liveKeys)
                     ShoppingItemStatsTable.insert {
                         it[normalizedName] = key
+                        it[listScope] = scope
                         it[displayName] = display
                         it[category] = resolved.category
                         it[icon] = resolved.icon
@@ -733,7 +749,7 @@ private fun recordUsages(rawNames: List<String>) {
                         it[lastUsedAt] = Instant.now()
                     }
                 } else {
-                    ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
+                    ShoppingItemStatsTable.update({ (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }) {
                         it[useCount] = existing[ShoppingItemStatsTable.useCount] + 1
                         it[lastUsedAt] = Instant.now()
                         it[displayName] = display
@@ -745,22 +761,25 @@ private fun recordUsages(rawNames: List<String>) {
 }
 
 /**
- * Remember a manual category/icon override for [rawName] so future adds of that name pick it up.
- * Own transaction, failures swallowed (same rationale as [recordUsages]); does not count a use.
+ * Remember a manual category/icon override for [rawName] in [listId]'s stats scope (#501) so future
+ * adds of that name in the same scope pick it up. Own transaction, failures swallowed (same rationale
+ * as [recordUsages]); does not count a use.
  */
-private fun rememberStatsPreference(rawName: String, categoryOverride: String?, iconOverride: String?) {
+private fun rememberStatsPreference(rawName: String, categoryOverride: String?, iconOverride: String?, listId: UUID?) {
     if (categoryOverride == null && iconOverride == null) return
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return
     runCatching {
         transaction {
-            val updated = ShoppingItemStatsTable.update({ ShoppingItemStatsTable.normalizedName eq key }) {
+            val scope = ShoppingCatalog.statsScopeFor(listId)
+            val updated = ShoppingItemStatsTable.update({ (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }) {
                 categoryOverride?.let { v -> it[category] = v }
                 iconOverride?.let { v -> it[icon] = v }
             }
             if (updated == 0) {
                 ShoppingItemStatsTable.insert {
                     it[normalizedName] = key
+                    it[listScope] = scope
                     it[displayName] = rawName.trim()
                     it[category] = categoryOverride
                     it[icon] = iconOverride

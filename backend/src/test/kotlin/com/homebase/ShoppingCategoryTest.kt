@@ -535,19 +535,47 @@ class ShoppingCategoryRouteTest {
         }.status)
     }
 
+    private suspend fun ApplicationTestBuilder.suggestionsFor(token: String, listId: String, q: String? = null): List<JsonObject> {
+        val url = "/api/v1/shopping/suggestions?listId=$listId" + (q?.let { "&q=$it" } ?: "")
+        return Json.parseToJsonElement(client.get(url) { bearerAuth(token) }.bodyAsText()).jsonArray.map { it.jsonObject }
+    }
+
     @Test
-    fun `suggestions remap categories to the requested list scope`() = testApplication {
+    fun `an own-categories list suggests only its own used names, not the grocery baseline`() = testApplication {
         configureTestApplication()
         val token = token()
-        addItem(token, "Milch") // seed a household usage for a DAIRY staple
+        addItem(token, "Milch") // seed a household (shared-scope) usage for a DAIRY staple
         val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
 
+        // shared scope: the grocery baseline (+ its usage) resolves as before
         assertEquals("DAIRY", suggestions(token, q = "milch").map { it.jsonObject }.first()["category"]?.jsonPrimitive?.content)
-        // in the Baumarkt scope the same suggestion's category collapses to OTHER (DAIRY is out of scope)
-        val scoped = Json.parseToJsonElement(
-            client.get("/api/v1/shopping/suggestions?q=milch&listId=$baumarkt") { bearerAuth(token) }.bodyAsText()
-        ).jsonArray.map { it.jsonObject }.first()
-        assertEquals("OTHER", scoped["category"]?.jsonPrimitive?.content)
+        // #501: the Baumarkt scope drops the grocery dictionary entirely — no food autocomplete noise
+        assertTrue(suggestionsFor(token, baumarkt, q = "milch").isEmpty())
+
+        // …but a name actually used in the Baumarkt list IS suggested there, and NOT in the shared scope
+        addItemTo(token, "Dachlatte", baumarkt)
+        assertTrue(suggestionsFor(token, baumarkt).any { it["name"]?.jsonPrimitive?.content == "Dachlatte" })
+        assertTrue(suggestions(token).map { it.jsonObject }.none { it["name"]?.jsonPrimitive?.content == "Dachlatte" })
+    }
+
+    @Test
+    fun `remembered corrections are independent between two own-categories lists`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val hobby = createList(token, "Hobby", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val garage = createList(token, "Garage", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val farbeHobby = createCategoryFor(token, "Farben", "🎨", hobby)["key"]!!.jsonPrimitive.content
+        val lackGarage = createCategoryFor(token, "Lacke", "🛢️", garage)["key"]!!.jsonPrimitive.content
+
+        // teach each list a different category for the SAME article name
+        val h = addItemTo(token, "Pinsel", hobby)["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/shopping/$h") { bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$farbeHobby"}""") }
+        val g = addItemTo(token, "Pinsel", garage)["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/shopping/$g") { bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$lackGarage"}""") }
+
+        // #501: teaching Garage did NOT overwrite Hobby's memory — each list keeps its own correction
+        assertEquals(farbeHobby, addItemTo(token, "Pinsel", hobby)["category"]?.jsonPrimitive?.content)
+        assertEquals(lackGarage, addItemTo(token, "Pinsel", garage)["category"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -576,5 +604,41 @@ class ShoppingCategoryRouteTest {
         val key = createCategoryFor(token, "Werkzeug", "🔧", listId)["key"]!!.jsonPrimitive.content
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$listId") { bearerAuth(token) }.status)
         assertTrue(categories(token).none { it.jsonObject["key"]?.jsonPrimitive?.content == key })
+    }
+
+    @Test
+    fun `deleting an own-categories list keeps the shared usage stats`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        addItem(token, "Milch") // a shared-scope usage that must survive an unrelated list deletion (#501)
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        addItemTo(token, "Dachlatte", baumarkt) // an own-scope usage under the list's id
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$baumarkt") { bearerAuth(token) }.status)
+        // the shared "most used" tally is untouched (delete only sweeps the list's own scope) …
+        assertTrue(suggestions(token).map { it.jsonObject }.any { it["name"]?.jsonPrimitive?.content == "Milch" })
+        // … and the deleted list's own-scope name is gone from the shared scope too (was never there)
+        assertTrue(suggestions(token).map { it.jsonObject }.none { it["name"]?.jsonPrimitive?.content == "Dachlatte" })
+    }
+
+    @Test
+    fun `flipping own-categories off makes the scoped correction dormant and back on restores it`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // teach the list a correction (remembered in its own stats scope)
+        val hammer = addItemTo(token, "Hammer", baumarkt)["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/shopping/$hammer") { bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$werkzeug"}""") }
+        assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+
+        // flip to the shared catalog → reads move to the shared scope, so the own correction is dormant
+        assertEquals(HttpStatusCode.OK, putList(token, baumarkt, """{"ownCategories":false}""").status)
+        assertEquals("OTHER", addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+
+        // flip back on → the own-scope correction returns (kept in the DB — lossless, like the categories)
+        assertEquals(HttpStatusCode.OK, putList(token, baumarkt, """{"ownCategories":true}""").status)
+        assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
     }
 }
