@@ -123,6 +123,8 @@ export interface ShoppingCategoryRule {
   displayName: string
   category: string
   icon: string
+  // Scope (#501): omitted = shared household dictionary; a list id = that list's own private rule.
+  listId?: string
 }
 
 export interface Project {

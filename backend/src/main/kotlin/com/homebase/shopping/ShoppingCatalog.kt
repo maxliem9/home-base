@@ -45,6 +45,7 @@ object ShoppingCatalog {
                 GroceryCatalog.seed.associateBy { it.normalized }.values.forEach { e ->
                     ShoppingCategoryRulesTable.insert {
                         it[normalizedName] = e.normalized
+                        it[listScope] = SHARED_STATS_SCOPE // the seed is the shared household dictionary (#501)
                         it[displayName] = e.name
                         it[category] = e.category
                         it[icon] = e.icon
@@ -55,9 +56,10 @@ object ShoppingCatalog {
     }
 
     /**
-     * The all-zeros sentinel stats scope (#501) shared by every non-own-categories list and the
-     * unfiled bucket. A real list id (random UUID v4) is never all-zeros, so it never collides; using
-     * a sentinel instead of NULL keeps the `shopping_item_stats` composite PK columns NOT NULL.
+     * The all-zeros sentinel per-list data scope (#501) shared by every non-own-categories list and the
+     * unfiled bucket. Used by both the usage stats (`shopping_item_stats`) and the auto-resolve rules
+     * (`shopping_category_rules`, #501 rules follow-up). A real list id (random UUID v4) is never
+     * all-zeros, so it never collides; a sentinel instead of NULL keeps the composite PK columns NOT NULL.
      */
     val SHARED_STATS_SCOPE: UUID = UUID(0L, 0L)
 
@@ -67,10 +69,11 @@ object ShoppingCatalog {
             .firstOrNull()?.get(ShoppingListsTable.ownCategories) == true
 
     /**
-     * The usage-stats scope (#501) an item/list resolves against: an own-categories list gets its own
+     * The per-list data scope (#501) an item/list resolves against: an own-categories list gets its own
      * scope (its id); every shared list and the null/unfiled bucket share [SHARED_STATS_SCOPE]. Mirrors
-     * [liveKeysForList]'s own/shared split, so the remembered corrections + "most used" tally stay
-     * private to each own list while shared lists pool one household-wide scope. Call inside a tx.
+     * [liveKeysForList]'s own/shared split, so the remembered corrections + "most used" tally (stats) and
+     * the auto-resolve rules stay private to each own list while shared lists pool one household-wide
+     * scope. Call inside a tx.
      */
     fun statsScopeFor(listId: UUID?): UUID =
         if (listId != null && listOwnsCategories(listId)) listId else SHARED_STATS_SCOPE
@@ -98,20 +101,27 @@ object ShoppingCatalog {
     }
 
     /**
-     * Load the auto-resolve dictionary into an in-memory matcher. Call inside a transaction, once per
+     * Load the auto-resolve dictionary for [listId]'s scope (#501) into an in-memory matcher: an
+     * own-categories list matches against ONLY its own rules (its private dictionary), every shared
+     * list + the unfiled bucket against the shared household rules. Call inside a transaction, once per
      * operation. Ordered by normalized name so the longest-substring tiebreak is deterministic
      * regardless of DB row order (the length sort is stable).
      */
-    fun loadRules(): RuleSet = RuleSet(
-        ShoppingCategoryRulesTable.selectAll().orderBy(ShoppingCategoryRulesTable.normalizedName to SortOrder.ASC).map {
-            RuleSet.Rule(
-                it[ShoppingCategoryRulesTable.normalizedName],
-                it[ShoppingCategoryRulesTable.displayName],
-                it[ShoppingCategoryRulesTable.category],
-                it[ShoppingCategoryRulesTable.icon],
-            )
-        },
-    )
+    fun loadRulesForList(listId: UUID?): RuleSet {
+        val scope = statsScopeFor(listId)
+        return RuleSet(
+            ShoppingCategoryRulesTable.selectAll()
+                .where { ShoppingCategoryRulesTable.listScope eq scope }
+                .orderBy(ShoppingCategoryRulesTable.normalizedName to SortOrder.ASC).map {
+                    RuleSet.Rule(
+                        it[ShoppingCategoryRulesTable.normalizedName],
+                        it[ShoppingCategoryRulesTable.displayName],
+                        it[ShoppingCategoryRulesTable.category],
+                        it[ShoppingCategoryRulesTable.icon],
+                    )
+                },
+        )
+    }
 
     /**
      * Resolve a written name to its category + icon against the loaded [rules], but never return a

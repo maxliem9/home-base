@@ -59,6 +59,7 @@ import coil.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.ShoppingCategoryDto
+import com.homebase.android.data.model.ShoppingCategoryRuleDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingListDto
 import com.homebase.android.data.model.ShoppingSuggestion
@@ -69,6 +70,7 @@ import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
 import com.homebase.android.ui.settings.CategoriesCard
+import com.homebase.android.ui.settings.RulesCard
 import com.homebase.android.ui.components.HbCheck
 import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbEmpty
@@ -255,6 +257,7 @@ fun ShoppingScreen(
                         onToggle = { viewModel.toggleOwnCategories(it) },
                         onManage = {
                             viewModel.loadManageCategories()
+                            viewModel.loadManageRules() // #501: also load the list's own rules for the sheet
                             showManageCats = true
                         },
                     )
@@ -300,9 +303,12 @@ fun ShoppingScreen(
             ManageCategoriesSheet(
                 listName = activeForManage.name,
                 categories = state.manageCategories,
+                rules = state.manageRules,
                 onSave = { key, label, emoji -> viewModel.saveManageCategory(key, label, emoji) },
                 onDelete = { viewModel.deleteManageCategory(it) },
                 onMove = { index, dir -> viewModel.moveManageCategory(index, dir) },
+                onSaveRule = { displayName, category, icon, editingName -> viewModel.saveManageRule(editingName, displayName, category, icon) },
+                onDeleteRule = { viewModel.deleteManageRule(it) },
                 onDismiss = { showManageCats = false },
             )
         }
@@ -895,9 +901,12 @@ private fun OwnCategoriesToggle(on: Boolean, onClick: () -> Unit) {
 private fun ManageCategoriesSheet(
     listName: String,
     categories: List<ShoppingCategoryDto>,
+    rules: List<ShoppingCategoryRuleDto>,
     onSave: (String?, String, String) -> Unit,
     onDelete: (String) -> Unit,
     onMove: (Int, Int) -> Unit,
+    onSaveRule: (displayName: String, category: String, icon: String, editingName: String?) -> Unit,
+    onDeleteRule: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     HbBottomSheet(
@@ -912,6 +921,17 @@ private fun ManageCategoriesSheet(
             onMove = onMove,
             title = stringResource(R.string.shopping_own_categories_card_title),
             hint = stringResource(R.string.shopping_own_categories_card_hint),
+        )
+        Spacer(Modifier.size(16.dp))
+        // #501: the list's own auto-resolve rules, reusing the Settings RulesCard scoped to this list.
+        RulesCard(
+            categories = categories,
+            rules = rules,
+            loading = false,
+            onSave = onSaveRule,
+            onDelete = onDeleteRule,
+            title = stringResource(R.string.shopping_own_rules_card_title),
+            hint = stringResource(R.string.shopping_own_rules_card_hint),
         )
     }
 }

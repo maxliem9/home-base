@@ -1032,28 +1032,43 @@ export class MockApi {
     // ---- Shopping category-rules (#411) — matched BEFORE /shopping/categories AND the generic
     // /shopping/{id} matcher. PUT upserts by normalized display name (category must be a live key);
     // DELETE removes by display-or-normalized name. Both broadcast SHOPPING_CATEGORY_RULE_CHANGED.
-    if (path.endsWith('/shopping/category-rules') && method === 'GET') {
-      return this.json(route, [...this.shoppingCategoryRules].sort((a, b) => a.displayName.localeCompare(b.displayName)))
-    }
-    if (path.endsWith('/shopping/category-rules') && method === 'PUT') {
-      const b = JSON.parse(req.postData() ?? '{}') as { displayName?: string; category?: string; icon?: string }
-      const displayName = (b.displayName ?? '').trim()
-      if (!displayName) return this.json(route, { code: 'INVALID_RULE', message: 'blank name' }, 400)
-      if (!this.shoppingCategories.some((c) => c.key === b.category)) {
-        return this.json(route, { code: 'INVALID_CATEGORY', message: 'unknown category' }, 400)
+    // #501: scoped per list via ?listId — an own-categories list has its own private dictionary; a
+    // shared list (or no listId) the shared household one. A rule's `listId` marks its scope.
+    if (path.endsWith('/shopping/category-rules')) {
+      const rulesListId = url.searchParams.get('listId') || undefined
+      const rulesOwn = !!rulesListId && this.shoppingLists.find((l) => l.id === rulesListId)?.ownCategories
+      const rulesScope = rulesOwn ? rulesListId : undefined // undefined = shared dictionary
+      const inScope = (r: ShoppingCategoryRule) => (r.listId ?? undefined) === rulesScope
+      if (method === 'GET') {
+        return this.json(route, this.shoppingCategoryRules.filter(inScope).sort((a, b) => a.displayName.localeCompare(b.displayName)))
       }
-      const normalizedName = displayName.toLowerCase()
-      const existing = this.shoppingCategoryRules.find((r) => r.normalizedName === normalizedName)
-      const icon = b.icon != null && b.icon.trim() ? b.icon.trim() : existing?.icon ?? '🛒'
-      const rule: ShoppingCategoryRule = { normalizedName, displayName, category: b.category as string, icon }
-      if (existing) Object.assign(existing, rule)
-      else this.shoppingCategoryRules.push(rule)
-      return this.jsonWithFrames(route, rule, 200, 'shopping', [{ type: 'SHOPPING_CATEGORY_RULE_CHANGED', payload: rule }])
+      if (method === 'PUT') {
+        const b = JSON.parse(req.postData() ?? '{}') as { displayName?: string; category?: string; icon?: string }
+        const displayName = (b.displayName ?? '').trim()
+        if (!displayName) return this.json(route, { code: 'INVALID_RULE', message: 'blank name' }, 400)
+        // the category must be live in this scope: the list's own rows + OTHER, or the shared catalog
+        const scopedKeys = rulesOwn
+          ? this.shoppingCategories.filter((c) => c.listId === rulesListId || c.key === 'OTHER').map((c) => c.key)
+          : this.shoppingCategories.filter((c) => !c.listId).map((c) => c.key)
+        if (!scopedKeys.includes(b.category as string)) {
+          return this.json(route, { code: 'INVALID_CATEGORY', message: 'unknown category' }, 400)
+        }
+        const normalizedName = displayName.toLowerCase()
+        const existing = this.shoppingCategoryRules.find((r) => r.normalizedName === normalizedName && inScope(r))
+        const icon = b.icon != null && b.icon.trim() ? b.icon.trim() : existing?.icon ?? '🛒'
+        const rule: ShoppingCategoryRule = { normalizedName, displayName, category: b.category as string, icon, ...(rulesScope ? { listId: rulesScope } : {}) }
+        if (existing) Object.assign(existing, rule)
+        else this.shoppingCategoryRules.push(rule)
+        return this.jsonWithFrames(route, rule, 200, 'shopping', [{ type: 'SHOPPING_CATEGORY_RULE_CHANGED', payload: rule }])
+      }
     }
     const ruleMatch = path.match(/\/shopping\/category-rules\/([^/]+)$/)
     if (ruleMatch && method === 'DELETE') {
+      const rulesListId = url.searchParams.get('listId') || undefined
+      const rulesOwn = !!rulesListId && this.shoppingLists.find((l) => l.id === rulesListId)?.ownCategories
+      const rulesScope = rulesOwn ? rulesListId : undefined
       const name = decodeURIComponent(ruleMatch[1]).trim().toLowerCase()
-      const idx = this.shoppingCategoryRules.findIndex((r) => r.normalizedName === name)
+      const idx = this.shoppingCategoryRules.findIndex((r) => r.normalizedName === name && (r.listId ?? undefined) === rulesScope)
       if (idx !== -1) this.shoppingCategoryRules.splice(idx, 1)
       return this.jsonWithFrames(route, '', 204, 'shopping', [{ type: 'SHOPPING_CATEGORY_RULE_CHANGED' }])
     }

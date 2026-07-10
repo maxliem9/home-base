@@ -247,7 +247,10 @@ export function CategoriesCard({ token, onLogout, categories, loading, onChanged
 
 // --- Rules card ------------------------------------------------------------
 
-function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onError }: {
+// Exported so the per-list category manager (#501, shopping list "eigene Kategorien") can reuse it.
+// `listId` scopes all three calls (upsert/rename-cleanup/delete) to that list's own dictionary; without
+// it they hit the shared household dictionary. `title`/`hint` override the settings-page copy.
+export function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onError, listId, title, hint }: {
   token: string
   onLogout: () => void
   categories: ShoppingCategory[]
@@ -255,8 +258,12 @@ function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onE
   loading: boolean
   onChanged: () => Promise<void>
   onError: (msg: string | null) => void
+  listId?: string
+  title?: string
+  hint?: string
 }) {
   const { t } = useTranslation()
+  const scopeQuery = listId ? `?listId=${listId}` : ''
   // null = no editor open. `editingName` (when set) keeps the original display name so an edit that
   // also renames can drop the stale rule (the upsert is keyed by the normalized name).
   const [draft, setDraft] = useState<{ displayName: string; category: string; icon: string; editingName?: string } | null>(null)
@@ -279,16 +286,16 @@ function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onE
     }
     // Omitted icon keeps the existing one on update / defaults to 🛒 on create (backend contract).
     if (draft.icon.trim()) body.icon = draft.icon.trim()
-    const result = await safeFetch(token, `${API_BASE}/shopping/category-rules`, {
+    const result = await safeFetch(token, `${API_BASE}/shopping/category-rules${scopeQuery}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     })
     if (!result.ok) { setBusy(false); return onError(errorText(null, t('settings.shoppingRuleSaveFailed'))) }
     if (result.res.status === 401) return onLogout()
     if (!result.res.ok) { setBusy(false); return onError(errorText(await errorCode(result.res), t('settings.shoppingRuleSaveFailed'))) }
-    // If an edit renamed the rule, the upsert created a new keyed entry — remove the old one.
+    // If an edit renamed the rule, the upsert created a new keyed entry — remove the old one (same scope).
     const renamedFrom = draft.editingName
     if (renamedFrom && renamedFrom.trim().toLowerCase() !== draft.displayName.trim().toLowerCase()) {
-      await safeFetch(token, `${API_BASE}/shopping/category-rules/${encodeURIComponent(renamedFrom)}`, { method: 'DELETE' })
+      await safeFetch(token, `${API_BASE}/shopping/category-rules/${encodeURIComponent(renamedFrom)}${scopeQuery}`, { method: 'DELETE' })
     }
     setBusy(false)
     setDraft(null)
@@ -298,7 +305,7 @@ function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onE
   const remove = async (rule: ShoppingCategoryRule) => {
     setConfirmDelete(null)
     onError(null)
-    const result = await safeFetch(token, `${API_BASE}/shopping/category-rules/${encodeURIComponent(rule.displayName)}`, { method: 'DELETE' })
+    const result = await safeFetch(token, `${API_BASE}/shopping/category-rules/${encodeURIComponent(rule.displayName)}${scopeQuery}`, { method: 'DELETE' })
     if (!result.ok) return onError(errorText(null, t('settings.shoppingRuleDeleteFailed')))
     if (result.res.status === 401) return onLogout()
     if (!result.res.ok) return onError(errorText(await errorCode(result.res), t('settings.shoppingRuleDeleteFailed')))
@@ -309,8 +316,8 @@ function RulesCard({ token, onLogout, categories, rules, loading, onChanged, onE
     <Card className="hb-card--pad">
       <div className="hb-cardhead">
         <div>
-          <h3>{t('settings.shoppingRulesTitle')}</h3>
-          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{t('settings.shoppingRulesHint')}</p>
+          <h3>{title ?? t('settings.shoppingRulesTitle')}</h3>
+          <p className="hb-muted" style={{ margin: '2px 0 0' }}>{hint ?? t('settings.shoppingRulesHint')}</p>
         </div>
         {!draft && (
           <Button size="sm" icon="plus" onClick={openAdd} disabled={categories.length === 0}>{t('settings.shoppingRuleAdd')}</Button>

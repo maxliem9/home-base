@@ -219,10 +219,14 @@ object ShoppingCategoriesTable : Table("shopping_categories") {
 // normalized name (GroceryCatalog.normalize). `category` is a denormalized shopping_categories key.
 object ShoppingCategoryRulesTable : Table("shopping_category_rules") {
     val normalizedName = varchar("normalized_name", 200)
+    // Per-list scope (#501, V43), same convention as ShoppingItemStatsTable: the all-zeros sentinel
+    // (ShoppingCatalog.SHARED_STATS_SCOPE) = the shared household dictionary; a list id = that
+    // own-categories list's (#412) private rules. Composite PK so a name resolves once per scope.
+    val listScope = uuid("list_scope")
     val displayName = text("display_name")
     val category = varchar("category", 40)
     val icon = varchar("icon", 32)
-    override val primaryKey = PrimaryKey(normalizedName)
+    override val primaryKey = PrimaryKey(normalizedName, listScope)
 }
 
 // Named "standard/template shopping lists" (#215): a saved, reusable list of item names the

@@ -187,16 +187,18 @@ interface HomeBaseApi {
     suspend fun deleteShoppingCategory(@Path("key") key: String)
 
     // --- Shopping category rules (auto-resolve dictionary, #411) ---
+    // listId (#501): scope the dictionary to a list — an own-categories list has its own private rules,
+    // a shared list (or no listId) the shared household ones.
 
     @GET("shopping/category-rules")
-    suspend fun getShoppingCategoryRules(): List<ShoppingCategoryRuleDto>
+    suspend fun getShoppingCategoryRules(@Query("listId") listId: String? = null): List<ShoppingCategoryRuleDto>
 
     // Upsert by normalized displayName (no {id} path — the body carries the key).
     @PUT("shopping/category-rules")
-    suspend fun upsertShoppingCategoryRule(@Body request: UpsertCategoryRuleRequest): ShoppingCategoryRuleDto
+    suspend fun upsertShoppingCategoryRule(@Body request: UpsertCategoryRuleRequest, @Query("listId") listId: String? = null): ShoppingCategoryRuleDto
 
     @DELETE("shopping/category-rules/{name}")
-    suspend fun deleteShoppingCategoryRule(@Path("name") name: String)
+    suspend fun deleteShoppingCategoryRule(@Path("name") name: String, @Query("listId") listId: String? = null)
 
     // --- Notes ---
 

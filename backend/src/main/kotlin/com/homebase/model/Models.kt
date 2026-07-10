@@ -385,6 +385,9 @@ data class ShoppingCategoryRuleDto(
     val displayName: String,
     val category: String,
     val icon: String,
+    // #501: null = shared household dictionary; a list id = that own-categories list's private rule.
+    // Omitted when null (encodeDefaults = false), like ShoppingCategoryDto.listId.
+    val listId: String? = null,
 )
 
 @Serializable

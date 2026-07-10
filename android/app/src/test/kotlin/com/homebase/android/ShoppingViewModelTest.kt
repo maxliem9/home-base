@@ -2,6 +2,7 @@ package com.homebase.android
 
 import com.homebase.android.data.model.BatchAddShoppingResponse
 import com.homebase.android.data.model.ShoppingCategoryDto
+import com.homebase.android.data.model.ShoppingCategoryRuleDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
@@ -1305,6 +1306,42 @@ class ShoppingViewModelTest {
         advanceUntilIdle()
 
         coVerify { repository.createCategory(label = "Werkzeug", emoji = "🔧", listId = "L9") }
+    }
+
+    // --- Per-list auto-resolve rules (#501) ----------------------------------------------------
+
+    @Test
+    fun `loadManageRules fetches the active list's own rules`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        val rule = ShoppingCategoryRuleDto("bohrer", "Bohrer", "WERKZEUG", "🛠️", listId = "L9")
+        coEvery { repository.getCategoryRules("L9") } returns Result.success(listOf(rule))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.loadManageRules()
+        advanceUntilIdle()
+
+        assertEquals(listOf("Bohrer"), vm.uiState.value.manageRules.map { it.displayName })
+        coVerify { repository.getCategoryRules("L9") }
+    }
+
+    @Test
+    fun `saveManageRule upserts a rule scoped to the active list`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.upsertCategoryRule(displayName = "Bohrer", category = "WERKZEUG", icon = "🛠️", listId = "L9") } returns
+            Result.success(ShoppingCategoryRuleDto("bohrer", "Bohrer", "WERKZEUG", "🛠️", listId = "L9"))
+        coEvery { repository.getCategoryRules("L9") } returns Result.success(emptyList())
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.saveManageRule(originalName = null, displayName = "Bohrer", category = "WERKZEUG", icon = "🛠️")
+        advanceUntilIdle()
+
+        coVerify { repository.upsertCategoryRule(displayName = "Bohrer", category = "WERKZEUG", icon = "🛠️", listId = "L9") }
     }
 
     // --- Offline read-cache (#517) -------------------------------------------------------------

@@ -272,6 +272,8 @@
     <string name="shopping_manage_categories_title">Kategorien: %1$s</string>
     <string name="shopping_own_categories_card_title">Eigene Kategorien</string>
     <string name="shopping_own_categories_card_hint">Nur für diese Liste. Nicht zugeordnete Artikel landen in „Sonstiges".</string>
+    <string name="shopping_own_rules_card_title">Eigene Auto-Zuordnungsregeln</string>
+    <string name="shopping_own_rules_card_hint">Nur für diese Liste: ordnet einem Namen beim Hinzufügen automatisch eine Kategorie (und ein Emoji) zu.</string>
     <string name="shopping_add_item_title">Artikel</string>
     <string name="shopping_item_name_placeholder">z. B. Tomaten</string>
     <plurals name="shopping_sync_banner">

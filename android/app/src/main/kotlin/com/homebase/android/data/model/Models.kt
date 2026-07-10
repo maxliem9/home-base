@@ -413,6 +413,8 @@ data class ShoppingCategoryRuleDto(
     val displayName: String,
     val category: String,
     val icon: String,
+    // Scope (#501): null = shared household dictionary; a list id = that list's own private rule.
+    val listId: String? = null,
 )
 
 /** Upsert a rule (keyed by the normalized displayName). Omitting [icon] keeps the existing one on

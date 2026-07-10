@@ -376,6 +376,8 @@ export const de = {
     manageCategoriesTitle: 'Kategorien: {name}',
     ownCategoriesCardTitle: 'Eigene Kategorien',
     ownCategoriesCardHint: 'Nur für diese Liste. Nicht zugeordnete Artikel landen in „Sonstiges".',
+    ownRulesCardTitle: 'Eigene Auto-Zuordnungsregeln',
+    ownRulesCardHint: 'Nur für diese Liste: ordnet einem Namen beim Hinzufügen automatisch eine Kategorie (und ein Emoji) zu.',
     listUpdateFailed: 'Liste konnte nicht geändert werden.',
     // Offline-Sync: ein Abhaken ohne Verbindung wird lokal gemerkt und automatisch
     // nachgeholt; bis dahin trägt das Produkt den notSynced-Marker (Einkaufen ohne WLAN).
