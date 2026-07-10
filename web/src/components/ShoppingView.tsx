@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { ShoppingCategory, ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
+import { ShoppingCategory, ShoppingCategoryRule, ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Button, Card, Checkbox, EmptyState, Field, IconButton, Modal, PageHead, Sheet, TextInput } from '../ui/primitives'
 import { TemplatesSheet, ApplyTemplateSheet } from './ShoppingTemplates'
-import { CategoriesCard } from './settings/ShoppingCategoriesSettings'
+import { CategoriesCard, RulesCard } from './settings/ShoppingCategoriesSettings'
 import { itemDisplayParts, splitQuantity } from './shoppingQuantity'
 import {
   BUILTIN_CATEGORIES,
@@ -1314,6 +1314,7 @@ function ListCategoriesSheet({ token, listId, listName, onLogout, onClose }: {
 }) {
   const { t } = useTranslation()
   const [cats, setCats] = useState<ShoppingCategory[]>([])
+  const [rules, setRules] = useState<ShoppingCategoryRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -1324,12 +1325,21 @@ function ListCategoriesSheet({ token, listId, listName, onLogout, onClose }: {
     if (result.res.ok) setCats((await result.res.json()) as ShoppingCategory[])
   }, [token, listId, onLogout])
 
-  useEffect(() => { void fetchCats().finally(() => setLoading(false)) }, [fetchCats])
+  const fetchRules = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/shopping/category-rules?listId=${listId}`)
+    if (!result.ok) return notifyTransportError()
+    if (result.res.status === 401) return onLogout()
+    if (result.res.ok) setRules((await result.res.json()) as ShoppingCategoryRule[])
+  }, [token, listId, onLogout])
+
+  useEffect(() => { void Promise.all([fetchCats(), fetchRules()]).finally(() => setLoading(false)) }, [fetchCats, fetchRules])
 
   // Live updates ride the shared "shopping" channel (a partner's edit) — refetch on the broadcast.
   useWebSocket({ url: WS_URL, token }, (raw) => {
     try {
-      if (JSON.parse(raw).type === 'SHOPPING_CATEGORY_CHANGED') void fetchCats()
+      const type = JSON.parse(raw).type
+      if (type === 'SHOPPING_CATEGORY_CHANGED') void fetchCats()
+      else if (type === 'SHOPPING_CATEGORY_RULE_CHANGED') void fetchRules()
     } catch {
       // ignore malformed frames
     }
@@ -1349,6 +1359,19 @@ function ListCategoriesSheet({ token, listId, listName, onLogout, onClose }: {
         listId={listId}
         title={t('shopping.ownCategoriesCardTitle')}
         hint={t('shopping.ownCategoriesCardHint')}
+      />
+      <div style={{ height: 16 }} />
+      <RulesCard
+        token={token}
+        onLogout={onLogout}
+        categories={cats}
+        rules={rules}
+        loading={loading}
+        onChanged={fetchRules}
+        onError={setError}
+        listId={listId}
+        title={t('shopping.ownRulesCardTitle')}
+        hint={t('shopping.ownRulesCardHint')}
       />
       {error && (
         <div className="hb-toast hb-toast--error" role="alert" style={{ marginTop: 12 }}>

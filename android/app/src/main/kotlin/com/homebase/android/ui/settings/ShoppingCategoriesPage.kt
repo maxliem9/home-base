@@ -272,28 +272,35 @@ private fun CategoryEditor(
  *  name so an edit that also renames can drop the stale, normalized-keyed rule. */
 private data class RuleDraft(val displayName: String, val category: String, val icon: String, val editingName: String?)
 
+// `internal` + title/hint overrides so the per-list manage sheet (#501) can reuse it, mirroring
+// [CategoriesCard].
 @Composable
-private fun RulesCard(
+internal fun RulesCard(
     categories: List<ShoppingCategoryDto>,
     rules: List<ShoppingCategoryRuleDto>,
     loading: Boolean,
     onSave: (displayName: String, category: String, icon: String, editingName: String?) -> Unit,
     onDelete: (displayName: String) -> Unit,
+    title: String? = null,
+    hint: String? = null,
 ) {
     var draft by remember { mutableStateOf<RuleDraft?>(null) }
     var confirmDelete by remember { mutableStateOf<ShoppingCategoryRuleDto?>(null) }
+    // Resolve defaults unconditionally (Compose requires stable @Composable call counts).
+    val titleText = title ?: stringResource(R.string.settings_shopping_rules_title)
+    val hintText = hint ?: stringResource(R.string.settings_shopping_rules_hint)
 
     HbCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        stringResource(R.string.settings_shopping_rules_title),
+                        titleText,
                         style = HbType.rowTitle.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                         color = Hb.ink,
                     )
                     Text(
-                        stringResource(R.string.settings_shopping_rules_hint),
+                        hintText,
                         style = HbType.small.copy(fontSize = 12.5.sp),
                         color = Hb.ink3,
                     )

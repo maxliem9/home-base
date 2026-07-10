@@ -122,16 +122,19 @@ class ShoppingRepository(
 
     // --- Category rules (auto-resolve dictionary, #411) ---
 
-    suspend fun getCategoryRules(): Result<List<ShoppingCategoryRuleDto>> = apiCatching { api.getShoppingCategoryRules() }
+    /** [listId] (#501): the list's own private dictionary when given, else the shared household one. */
+    suspend fun getCategoryRules(listId: String? = null): Result<List<ShoppingCategoryRuleDto>> =
+        apiCatching { api.getShoppingCategoryRules(listId) }
 
-    /** Upsert a rule (keyed by the normalized displayName). [icon] omitted = keep/default per backend. */
-    suspend fun upsertCategoryRule(displayName: String, category: String, icon: String? = null): Result<ShoppingCategoryRuleDto> =
+    /** Upsert a rule (keyed by the normalized displayName). [icon] omitted = keep/default per backend.
+     *  [listId] (#501) scopes the rule to a list's own dictionary. */
+    suspend fun upsertCategoryRule(displayName: String, category: String, icon: String? = null, listId: String? = null): Result<ShoppingCategoryRuleDto> =
         apiCatching(mapHttpError = ::germanRuleError) {
-            api.upsertShoppingCategoryRule(UpsertCategoryRuleRequest(displayName.trim(), category, icon?.trim()?.ifBlank { null }))
+            api.upsertShoppingCategoryRule(UpsertCategoryRuleRequest(displayName.trim(), category, icon?.trim()?.ifBlank { null }), listId)
         }
 
-    suspend fun deleteCategoryRule(displayName: String): Result<Unit> =
-        apiCatching(mapHttpError = ::germanRuleError) { api.deleteShoppingCategoryRule(displayName) }
+    suspend fun deleteCategoryRule(displayName: String, listId: String? = null): Result<Unit> =
+        apiCatching(mapHttpError = ::germanRuleError) { api.deleteShoppingCategoryRule(displayName, listId) }
 
     /** Map a failed rule upsert/delete to German text via its ErrorResponse.code. */
     private fun germanRuleError(e: HttpException): String = when (errorCodeOf(e)) {

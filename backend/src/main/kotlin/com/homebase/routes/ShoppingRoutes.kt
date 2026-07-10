@@ -108,6 +108,7 @@ fun Route.shoppingRoutes() {
                     ShoppingItemsTable.deleteWhere { ShoppingItemsTable.listId eq id }
                     ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.listId eq id } // #412: own categories
                     ShoppingItemStatsTable.deleteWhere { ShoppingItemStatsTable.listScope eq id } // #501: own-scope usage stats (shared-scope rows stay)
+                    ShoppingCategoryRulesTable.deleteWhere { ShoppingCategoryRulesTable.listScope eq id } // #501: own-scope rules (shared dictionary stays)
                     ShoppingListsTable.deleteWhere { ShoppingListsTable.id eq id }
                     existing.toListDto()
                 }
@@ -224,11 +225,15 @@ fun Route.shoppingRoutes() {
         }
 
         // ---- Category rules (editable auto-resolve dictionary, #411 PR B): name → category/icon that
-        // new items auto-fill. PUT upserts by normalized name; DELETE removes. Shared like the lists. ----
+        // new items auto-fill. PUT upserts by normalized name; DELETE removes. #501: scoped per list via
+        // ?listId=L — an own-categories list has its own private dictionary, shared lists the household one. ----
         route("/category-rules") {
             get {
+                val scope = call.categoryScopeListId() ?: return@get
                 val rules = transaction {
+                    val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     ShoppingCategoryRulesTable.selectAll()
+                        .where { ShoppingCategoryRulesTable.listScope eq scopeId }
                         .orderBy(ShoppingCategoryRulesTable.displayName to SortOrder.ASC)
                         .map { it.toCategoryRuleDto() }
                 }
@@ -236,6 +241,7 @@ fun Route.shoppingRoutes() {
             }
 
             put {
+                val scope = call.categoryScopeListId() ?: return@put
                 val req = call.receive<UpsertCategoryRuleRequest>()
                 val display = req.displayName.trim()
                 val normalized = GroceryCatalog.normalize(display)
@@ -244,10 +250,11 @@ fun Route.shoppingRoutes() {
                 }
                 val iconProvided = req.icon?.trim()?.takeIf { it.isNotBlank() }
                 val saved = transaction {
-                    // the auto-resolve dictionary is shared/global (#412), so a rule may only target a
-                    // shared category key — not a per-list custom one
-                    if (req.category !in ShoppingCatalog.liveKeysForList(null)) return@transaction null
-                    val updated = ShoppingCategoryRulesTable.update({ ShoppingCategoryRulesTable.normalizedName eq normalized }) {
+                    val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
+                    // a rule may only target a category key that is live in its own scope (#412/#501):
+                    // the shared dictionary → a shared key, an own list's dictionary → its own key.
+                    if (req.category !in ShoppingCatalog.liveKeysForList(scope.value)) return@transaction null
+                    val updated = ShoppingCategoryRulesTable.update({ (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }) {
                         it[displayName] = display
                         it[category] = req.category
                         // category-only edit keeps the existing icon; only overwrite when one is given
@@ -256,12 +263,13 @@ fun Route.shoppingRoutes() {
                     if (updated == 0) {
                         ShoppingCategoryRulesTable.insert {
                             it[normalizedName] = normalized
+                            it[listScope] = scopeId
                             it[displayName] = display
                             it[category] = req.category
                             it[ShoppingCategoryRulesTable.icon] = iconProvided ?: GroceryCatalog.DEFAULT_ICON
                         }
                     }
-                    ShoppingCategoryRulesTable.selectAll().where { ShoppingCategoryRulesTable.normalizedName eq normalized }.single().toCategoryRuleDto()
+                    ShoppingCategoryRulesTable.selectAll().where { (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }.single().toCategoryRuleDto()
                 }
                 if (saved == null) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "category must be a known key")); return@put
@@ -271,15 +279,17 @@ fun Route.shoppingRoutes() {
             }
 
             delete("/{name}") {
+                val scope = call.categoryScopeListId() ?: return@delete
                 val raw = call.parameters["name"]?.takeIf { it.isNotBlank() } ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "name required")); return@delete
                 }
                 val normalized = GroceryCatalog.normalize(raw)
                 val deleted = transaction {
+                    val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     val existing = ShoppingCategoryRulesTable.selectAll()
-                        .where { ShoppingCategoryRulesTable.normalizedName eq normalized }.singleOrNull()
+                        .where { (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }.singleOrNull()
                         ?: return@transaction null
-                    ShoppingCategoryRulesTable.deleteWhere { ShoppingCategoryRulesTable.normalizedName eq normalized }
+                    ShoppingCategoryRulesTable.deleteWhere { (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }
                     existing.toCategoryRuleDto()
                 }
                 if (deleted == null) {
@@ -290,10 +300,10 @@ fun Route.shoppingRoutes() {
             }
         }
 
-        // Autocomplete source (#389/#390): the shared scope merges the known catalog (count 0 baseline,
-        // useful on day one) with the usage tally, ranked most-used first; an own-categories list (#501)
-        // gets no grocery baseline and surfaces only its own used names. Clients preload this once
-        // (per active list) and filter locally as the user types.
+        // Autocomplete source (#389/#390): merges the scoped rules dictionary (count 0 baseline, useful
+        // on day one) with the usage tally, ranked most-used first. #501: the dictionary + tally are per
+        // list — a shared list sees the grocery names, an own-categories list only its own rule/used
+        // names. Clients preload this once (per active list) and filter locally as the user types.
         get("/suggestions") {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 300
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
@@ -305,15 +315,13 @@ fun Route.shoppingRoutes() {
             val suggestions = transaction {
                 val statsScope = ShoppingCatalog.statsScopeFor(scope.value)
                 val liveKeys = ShoppingCatalog.liveKeysForList(scope.value)
-                val rules = ShoppingCatalog.loadRules()
+                val rules = ShoppingCatalog.loadRulesForList(scope.value) // scoped dictionary (#501)
                 fun liveCat(cat: String) = if (cat in liveKeys) cat else GroceryCatalog.OTHER
                 val merged = LinkedHashMap<String, ShoppingSuggestionDto>()
-                // The global grocery dictionary is the baseline only for the shared scope; an own list
-                // starts empty and fills purely from its own usage (fixes the "Baumarkt suggests food").
-                if (statsScope == ShoppingCatalog.SHARED_STATS_SCOPE) {
-                    rules.allEntries().forEach { e ->
-                        merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
-                    }
+                // The scoped rules dictionary is the day-one baseline: the shared grocery names for a
+                // shared list, the list's own rule names for an own list (empty until it defines any).
+                rules.allEntries().forEach { e ->
+                    merged[e.normalized] = ShoppingSuggestionDto(e.name, liveCat(e.category), e.icon, 0)
                 }
                 ShoppingItemStatsTable.selectAll().where { ShoppingItemStatsTable.listScope eq statsScope }.forEach { row ->
                     val key = row[ShoppingItemStatsTable.normalizedName]
@@ -367,7 +375,7 @@ fun Route.shoppingRoutes() {
                 }
                 val liveKeys = ShoppingCatalog.liveKeysForList(listId) // categorize against the target list's set (#411/#412)
                 val statsScope = ShoppingCatalog.statsScopeFor(listId) // remembered corrections per list (#501)
-                val rules = ShoppingCatalog.loadRules()
+                val rules = ShoppingCatalog.loadRulesForList(listId) // auto-resolve rules per list (#501)
                 // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
                 val working = ShoppingItemsTable.selectAll()
                     .where { if (listId != null) ShoppingItemsTable.listId eq listId else ShoppingItemsTable.listId.isNull() }
@@ -465,7 +473,7 @@ fun Route.shoppingRoutes() {
                     return@transaction ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
-                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRules(), ShoppingCatalog.liveKeysForList(listId), ShoppingCatalog.statsScopeFor(listId)) // #412/#501: the item's list scope
+                val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRulesForList(listId), ShoppingCatalog.liveKeysForList(listId), ShoppingCatalog.statsScopeFor(listId)) // #412/#501: the item's list scope
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
                     it[name] = req.name
@@ -627,6 +635,8 @@ private fun ResultRow.toCategoryRuleDto() = ShoppingCategoryRuleDto(
     displayName = this[ShoppingCategoryRulesTable.displayName],
     category = this[ShoppingCategoryRulesTable.category],
     icon = this[ShoppingCategoryRulesTable.icon],
+    // #501: surface the owning list (null for the shared household dictionary sentinel).
+    listId = this[ShoppingCategoryRulesTable.listScope].takeIf { it != ShoppingCatalog.SHARED_STATS_SCOPE }?.toString(),
 )
 
 // ---- Per-list category scope (#412) -------------------------------------------------------------
@@ -733,7 +743,7 @@ private fun recordUsages(rawNames: List<String>, listId: UUID?) {
         transaction {
             val scope = ShoppingCatalog.statsScopeFor(listId)
             val liveKeys = ShoppingCatalog.liveKeysForList(listId)
-            val rules = ShoppingCatalog.loadRules()
+            val rules = ShoppingCatalog.loadRulesForList(listId)
             for ((key, display) in entries) {
                 val existing = ShoppingItemStatsTable.selectAll()
                     .where { (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }.singleOrNull()

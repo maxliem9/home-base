@@ -3,6 +3,7 @@ package com.homebase.android.ui.shopping
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ShoppingCategoryDto
+import com.homebase.android.data.model.ShoppingCategoryRuleDto
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.ShoppingLineInput
 import com.homebase.android.data.model.ShoppingListDto
@@ -59,6 +60,11 @@ data class ShoppingUiState(
      * excludes the shared „Sonstiges" (OTHER). Loaded when the sheet opens; empty otherwise.
      */
     val manageCategories: List<ShoppingCategoryDto> = emptyList(),
+    /**
+     * The active list's OWN auto-resolve rules (#501), as full DTOs, for the "Kategorien verwalten"
+     * sheet's rule editor. Loaded alongside [manageCategories] when the sheet opens; empty otherwise.
+     */
+    val manageRules: List<ShoppingCategoryRuleDto> = emptyList(),
     /** List vs. tile rendering (#446); persisted across launches, tiles by default (web parity). */
     val tileView: Boolean = true,
 ) {
@@ -443,6 +449,47 @@ class ShoppingViewModel(
     private fun afterManageChange() {
         loadManageCategories()
         loadCategories()
+    }
+
+    // ---- Per-list auto-resolve rules (#501): the manage sheet's own-rules editor ------------------
+
+    /** Fetch the active list's own auto-resolve rules into [ShoppingUiState.manageRules] (sheet open). */
+    fun loadManageRules() {
+        val listId = _uiState.value.activeList?.id ?: return
+        viewModelScope.launch {
+            repository.getCategoryRules(listId).onSuccess { rules ->
+                _uiState.update { it.copy(manageRules = rules) }
+            }
+        }
+    }
+
+    /**
+     * Create or update a rule in the active list's own dictionary. [originalName] (when it differs from
+     * [displayName]) is the pre-rename key to drop, mirroring the web upsert-then-cleanup (the upsert is
+     * keyed by the normalized name, so a rename leaves a stale row otherwise).
+     */
+    fun saveManageRule(originalName: String?, displayName: String, category: String, icon: String?) {
+        if (displayName.isBlank() || category.isBlank()) return
+        val listId = _uiState.value.activeList?.id ?: return
+        viewModelScope.launch {
+            repository.upsertCategoryRule(displayName = displayName.trim(), category = category, icon = icon?.trim()?.ifBlank { null }, listId = listId)
+                .onSuccess {
+                    if (originalName != null && !originalName.trim().equals(displayName.trim(), ignoreCase = true)) {
+                        repository.deleteCategoryRule(originalName, listId)
+                    }
+                    loadManageRules()
+                }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
+    }
+
+    fun deleteManageRule(displayName: String) {
+        val listId = _uiState.value.activeList?.id ?: return
+        viewModelScope.launch {
+            repository.deleteCategoryRule(displayName, listId)
+                .onSuccess { loadManageRules() }
+                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+        }
     }
 
     /** Set once the user toggles the view, so the async prefs restore can't clobber their choice. */
@@ -892,10 +939,11 @@ class ShoppingViewModel(
                     // Any template create/update/delete → refetch the whole set (web parity, #215).
                     is ShoppingWebSocketClient.WsEvent.TemplateChanged -> loadTemplates()
                     // A category was added/renamed/reordered/deleted (#411) → refetch the catalog so
-                    // the grouping headers + move-menu stay current. Rule changes don't affect this
-                    // view (rules only resolve at add-time, server-side), so they're a no-op here.
+                    // the grouping headers + move-menu stay current.
                     is ShoppingWebSocketClient.WsEvent.CategoryChanged -> loadCategories()
-                    is ShoppingWebSocketClient.WsEvent.CategoryRuleChanged -> Unit
+                    // Rule changes don't affect the list view (rules only resolve at add-time,
+                    // server-side), but keep the manage sheet's per-list rules fresh if it's open (#501).
+                    is ShoppingWebSocketClient.WsEvent.CategoryRuleChanged -> if (_uiState.value.manageRules.isNotEmpty()) loadManageRules()
                 }
             }
         }

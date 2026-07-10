@@ -641,4 +641,82 @@ class ShoppingCategoryRouteTest {
         assertEquals(HttpStatusCode.OK, putList(token, baumarkt, """{"ownCategories":true}""").status)
         assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
     }
+
+    // ---- Per-list auto-resolve rules (#501 rules follow-up) ----
+
+    private suspend fun ApplicationTestBuilder.rulesFor(token: String, listId: String): List<JsonObject> =
+        Json.parseToJsonElement(client.get("/api/v1/shopping/category-rules?listId=$listId") { bearerAuth(token) }.bodyAsText()).jsonArray.map { it.jsonObject }
+
+    private suspend fun ApplicationTestBuilder.putRuleFor(token: String, listId: String?, body: String) =
+        client.put("/api/v1/shopping/category-rules" + (listId?.let { "?listId=$it" } ?: "")) {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(body)
+        }
+
+    @Test
+    fun `a per-list rule drives auto-resolution only inside its own list`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val shared = createList(token, "Wocheneinkauf")["id"]!!.jsonPrimitive.content
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // teach the Baumarkt list its own rule BEFORE any add (so no stats override is involved)
+        assertEquals(HttpStatusCode.OK, putRuleFor(token, baumarkt, """{"displayName":"Bohrer","category":"$werkzeug","icon":"🛠️"}""").status)
+
+        // a fresh add in the Baumarkt list auto-resolves via its own rule …
+        val inBaumarkt = addItemTo(token, "Bohrer", baumarkt)
+        assertEquals(werkzeug, inBaumarkt["category"]?.jsonPrimitive?.content)
+        assertEquals("🛠️", inBaumarkt["icon"]?.jsonPrimitive?.content)
+        // … but the same name in a shared list is unknown to the grocery dictionary → OTHER (no leak)
+        assertEquals("OTHER", addItemTo(token, "Bohrer", shared)["category"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a rule may only target a category live in its own scope`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // a grocery key is out of the Baumarkt scope → rejected
+        assertEquals(HttpStatusCode.BadRequest, putRuleFor(token, baumarkt, """{"displayName":"Bohrer","category":"DAIRY"}""").status)
+        // the custom key is out of the shared scope → rejected there
+        assertEquals(HttpStatusCode.BadRequest, putRuleFor(token, null, """{"displayName":"Bohrer","category":"$werkzeug"}""").status)
+        // the custom key inside its own list → accepted
+        assertEquals(HttpStatusCode.OK, putRuleFor(token, baumarkt, """{"displayName":"Bohrer","category":"$werkzeug"}""").status)
+    }
+
+    @Test
+    fun `category-rules GET is scoped — own dictionary separate from the shared one`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // the own list starts with an empty dictionary (no grocery seed) …
+        assertTrue(rulesFor(token, baumarkt).isEmpty())
+        putRuleFor(token, baumarkt, """{"displayName":"Bohrer","category":"$werkzeug"}""")
+
+        // … its rule shows up scoped and carries the owning listId …
+        val own = rulesFor(token, baumarkt)
+        assertEquals(1, own.size)
+        assertEquals("bohrer", own.single()["normalizedName"]?.jsonPrimitive?.content)
+        assertEquals(baumarkt, own.single()["listId"]?.jsonPrimitive?.content)
+        // … and it is absent from the shared dictionary (which still has its grocery seed, no listId)
+        assertTrue(rules(token).none { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "bohrer" })
+        assertTrue(rules(token).all { it.jsonObject["listId"] == null })
+    }
+
+    @Test
+    fun `deleting an own list removes its scoped rules but keeps the shared dictionary`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+        putRuleFor(token, baumarkt, """{"displayName":"Bohrer","category":"$werkzeug"}""")
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$baumarkt") { bearerAuth(token) }.status)
+        // the shared grocery dictionary is untouched
+        assertTrue(rules(token).any { it.jsonObject["normalizedName"]?.jsonPrimitive?.content == "milch" })
+    }
 }

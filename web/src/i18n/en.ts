@@ -379,6 +379,8 @@ export const en: Messages = {
     manageCategoriesTitle: 'Categories: {name}',
     ownCategoriesCardTitle: 'Own categories',
     ownCategoriesCardHint: 'For this list only. Unassigned items land in "Other".',
+    ownRulesCardTitle: 'Own auto-assignment rules',
+    ownRulesCardHint: 'For this list only: automatically assign a category (and emoji) to a name when it is added here.',
     listUpdateFailed: 'The list could not be updated.',
     // Offline sync: checking an item off without a connection is remembered locally
     // and replayed automatically; until then the item carries the notSynced marker

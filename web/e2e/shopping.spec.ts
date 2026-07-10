@@ -630,4 +630,30 @@ test.describe('Shopping — own categories per list (#412)', () => {
 
     await expect(sheet.getByText('Werkzeug')).toBeVisible()
   })
+
+  // Per-list auto-resolve rules (#501): the manage sheet also carries an own-rules editor.
+  test('manage sheet adds an auto-rule scoped to the list (PUT carries listId)', async ({ page }) => {
+    const BAUMARKT = shoppingList({ id: 'sl9', name: 'Baumarkt', ownCategories: true })
+    const mock = new MockApi([], [], [BAUMARKT], []).seedShoppingCategories([
+      { key: 'OTHER', label: 'Sonstiges', emoji: '❓', sortOrder: 9, isBuiltin: true },
+      { key: 'WERKZEUG', label: 'Werkzeug', emoji: '🔧', sortOrder: 0, isBuiltin: false, listId: 'sl9' },
+    ]).seedShoppingCategoryRules([]) // the own list starts with an empty dictionary
+    await openShopping(page, mock)
+
+    await page.getByRole('button', { name: 'Kategorien verwalten' }).click()
+    const sheet = page.locator('.hb-sheet')
+    // the own-rules card renders alongside the categories card
+    await expect(sheet.getByRole('heading', { name: 'Eigene Auto-Zuordnungsregeln' })).toBeVisible()
+
+    await sheet.getByRole('button', { name: 'Regel hinzufügen' }).click()
+    await sheet.getByLabel('Artikelname', { exact: true }).fill('Bohrer')
+    await sheet.getByRole('combobox').selectOption({ label: '🔧 Werkzeug' })
+
+    // the upsert is scoped to this list via ?listId=
+    const reqP = page.waitForRequest((r) => /\/shopping\/category-rules\?listId=sl9$/.test(r.url()) && r.method() === 'PUT')
+    await sheet.getByRole('button', { name: 'Speichern' }).click()
+    expect((await reqP).postDataJSON()).toMatchObject({ displayName: 'Bohrer', category: 'WERKZEUG' })
+
+    await expect(sheet.getByText('Bohrer')).toBeVisible()
+  })
 })
