@@ -98,7 +98,7 @@ fun FamilienkalenderScreen(
                 onLeft = onOpenDrawer,
                 actions = {
                     // Subscribe to the caller's personal iCal feed (#488): opens the share sheet.
-                    HbIconButton(HbIcons.link, onClick = { showSubscribe = true })
+                    HbIconButton(HbIcons.link, onClick = { showSubscribe = true }, contentDescription = stringResource(R.string.family_calendar_subscribe))
                 },
             )
         },
@@ -147,7 +147,7 @@ private fun MonthNavRow(monthAnchor: LocalDate, onPrev: () -> Unit, onNext: () -
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        HbIconButton(HbIcons.chevronLeft, onPrev)
+        HbIconButton(HbIcons.chevronLeft, onPrev, contentDescription = stringResource(R.string.cd_prev_month))
         Text(
             title,
             style = HbType.body.copy(fontWeight = FontWeight.SemiBold),
@@ -155,7 +155,7 @@ private fun MonthNavRow(monthAnchor: LocalDate, onPrev: () -> Unit, onNext: () -
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.Center,
         )
-        HbIconButton(HbIcons.chevronRight, onNext)
+        HbIconButton(HbIcons.chevronRight, onNext, contentDescription = stringResource(R.string.cd_next_month))
         HbButton(
             stringResource(R.string.family_calendar_today),
             onToday,

@@ -160,12 +160,12 @@ private fun WeekNavRow(weekStart: LocalDate, onPrev: () -> Unit, onNext: () -> U
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        HbIconButton(HbIcons.chevronLeft, onPrev)
+        HbIconButton(HbIcons.chevronLeft, onPrev, contentDescription = stringResource(R.string.cd_prev_week))
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             if (rel != null) Text(rel, style = HbType.eyebrow, color = Hb.accentInk)
             Text(range, style = HbType.body.copy(fontWeight = FontWeight.SemiBold), color = Hb.ink)
         }
-        HbIconButton(HbIcons.chevronRight, onNext)
+        HbIconButton(HbIcons.chevronRight, onNext, contentDescription = stringResource(R.string.cd_next_week))
         HbButton(stringResource(R.string.meal_plan_today), onToday, variant = HbButtonVariant.Ghost, size = HbButtonSize.Sm)
     }
 }
@@ -224,7 +224,7 @@ private fun DayCard(
                                 )
                             }
                         }
-                        HbIconButton(HbIcons.x, { onRemove(slot) }, iconSize = 18.dp)
+                        HbIconButton(HbIcons.x, { onRemove(slot) }, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_remove))
                     } else {
                         Row(
                             Modifier
@@ -337,9 +337,9 @@ private fun RecipePickerSheet(
         if (selectedId != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.meal_plan_servings), style = HbType.meta, color = Hb.ink2, modifier = Modifier.weight(1f))
-                HbIconButton(HbIcons.minus, { servings = (servings - 1).coerceAtLeast(1) }, iconSize = 18.dp)
+                HbIconButton(HbIcons.minus, { servings = (servings - 1).coerceAtLeast(1) }, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_decrease))
                 Text("$servings", style = HbType.body.copy(fontWeight = FontWeight.Bold), color = Hb.ink, modifier = Modifier.width(28.dp), maxLines = 1)
-                HbIconButton(HbIcons.plus, { servings += 1 }, iconSize = 18.dp)
+                HbIconButton(HbIcons.plus, { servings += 1 }, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_increase))
             }
         }
 

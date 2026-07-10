@@ -136,8 +136,8 @@ fun HeuteScreen(
                     onLeft = onOpenDrawer,
                     leftIcon = HbIcons.menu,
                     actions = {
-                        HbIconButton(HbIcons.search, {})
-                        HbIconButton(HbIcons.bell, {})
+                        HbIconButton(HbIcons.search, {}, contentDescription = stringResource(R.string.cd_search))
+                        HbIconButton(HbIcons.bell, {}, contentDescription = stringResource(R.string.cd_notifications))
                     },
                 )
             },

@@ -220,12 +220,12 @@ private fun CategoryRow(
                 Text("· " + stringResource(R.string.settings_shopping_cat_builtin), style = HbType.meta, color = Hb.ink3)
             }
         }
-        if (!isFirst) HbIconButton(HbIcons.chevronUp, onMoveUp, iconSize = 18.dp)
-        if (!isLast) HbIconButton(HbIcons.chevronDown, onMoveDown, iconSize = 18.dp)
-        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp)
+        if (!isFirst) HbIconButton(HbIcons.chevronUp, onMoveUp, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_move_up))
+        if (!isLast) HbIconButton(HbIcons.chevronDown, onMoveDown, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_move_down))
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_edit))
         // OTHER is the protected fallback — its delete is hidden (backstopped server-side).
         if (category.key != OTHER_CATEGORY_KEY) {
-            HbIconButton(HbIcons.trash, onDelete, tint = Hb.danger, iconSize = 20.dp)
+            HbIconButton(HbIcons.trash, onDelete, tint = Hb.danger, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_delete))
         }
     }
 }
@@ -372,8 +372,8 @@ private fun RuleRow(
             Text(rule.displayName, style = HbType.rowTitle, color = Hb.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${meta.emoji} ${meta.label}", style = HbType.meta, color = Hb.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp)
-        HbIconButton(HbIcons.trash, onDelete, tint = Hb.danger, iconSize = 20.dp)
+        HbIconButton(HbIcons.edit, onEdit, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_edit))
+        HbIconButton(HbIcons.trash, onDelete, tint = Hb.danger, iconSize = 20.dp, contentDescription = stringResource(R.string.cd_delete))
     }
 }
 

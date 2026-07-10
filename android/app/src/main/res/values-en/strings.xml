@@ -711,4 +711,40 @@
     <string name="reminder_channel_description">Reminds you about tasks that have a set time.</string>
     <!-- e.g. "🔔 Reminder: Dentist — due 14:30" -->
     <string name="reminder_notification_text">🔔 Reminder: %1$s — due %2$s</string>
+
+    <!-- a11y (#499): contentDescription for icon-only buttons so TalkBack announces them.
+         Generic actions; context-specific labels live next to their domain. -->
+    <string name="cd_add">Add</string>
+    <string name="cd_edit">Edit</string>
+    <string name="cd_archive">Archive</string>
+    <string name="cd_toggle_view">Switch view</string>
+    <string name="cd_delete">Delete</string>
+    <string name="cd_remove">Remove</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_open_menu">Open menu</string>
+    <string name="cd_clear">Clear</string>
+    <string name="cd_search">Search</string>
+    <string name="cd_more_actions">More actions</string>
+    <string name="cd_settings">Settings</string>
+    <string name="cd_notifications">Notifications</string>
+    <string name="cd_prev_week">Previous week</string>
+    <string name="cd_next_week">Next week</string>
+    <string name="cd_prev_month">Previous month</string>
+    <string name="cd_next_month">Next month</string>
+    <string name="cd_prev_year">Previous year</string>
+    <string name="cd_next_year">Next year</string>
+    <string name="cd_move_up">Move up</string>
+    <string name="cd_move_down">Move down</string>
+    <string name="cd_increase">Increase</string>
+    <string name="cd_decrease">Decrease</string>
+    <string name="cd_split_entry">Split entry</string>
+    <string name="cd_record_time">Record time</string>
+    <string name="cd_change_list">Switch list</string>
+    <string name="cd_recipe_import">Import recipe</string>
+    <string name="cd_edit_category">Edit category</string>
+    <string name="cd_add_to_shopping">Add to shopping list</string>
+    <string name="cd_move_to_category">Move to category</string>
+    <!-- Family calendar: subscribe to iCal feed (#488/#499, mirrors web familienkalender.subscribe) -->
+    <string name="family_calendar_subscribe">Subscribe</string>
 </resources>

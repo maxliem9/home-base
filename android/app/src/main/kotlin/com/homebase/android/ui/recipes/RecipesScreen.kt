@@ -356,8 +356,8 @@ private fun RecipeListPage(
                     actions = {
                         // "Aus URL importieren" (#460) — paste a recipe URL, the backend extracts a
                         // draft and the editor opens pre-filled.
-                        HbIconButton(HbIcons.link, { showImport = true })
-                        HbIconButton(HbIcons.search, {})
+                        HbIconButton(HbIcons.link, { showImport = true }, contentDescription = stringResource(R.string.cd_recipe_import))
+                        HbIconButton(HbIcons.search, {}, contentDescription = stringResource(R.string.cd_search))
                     },
                 )
             },
@@ -702,7 +702,7 @@ private fun RecipeDetailPage(
                 onLeft = onBack,
                 actions = {
                     Box {
-                        HbIconButton(HbIcons.more, { menuOpen = true })
+                        HbIconButton(HbIcons.more, { menuOpen = true }, contentDescription = stringResource(R.string.cd_more_actions))
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.recipe_edit), style = HbType.body, color = Hb.ink) },
@@ -1370,6 +1370,7 @@ private fun RecipeFormSheet(
                                                 HbIcons.x,
                                                 { sections = sections.filterIndexed { i, _ -> i != si } },
                                                 iconSize = 18.dp,
+                                                contentDescription = stringResource(R.string.cd_remove),
                                             )
                                         }
                                     }
@@ -1409,6 +1410,7 @@ private fun RecipeFormSheet(
                                                 }
                                             },
                                             iconSize = 18.dp,
+                                            contentDescription = stringResource(R.string.cd_remove),
                                         )
                                     }
                                 }
