@@ -54,10 +54,6 @@ object ShoppingCatalog {
         }
     }
 
-    /** The live set of category keys. Call inside a transaction; load once per operation. */
-    fun liveKeys(): Set<String> =
-        ShoppingCategoriesTable.selectAll().mapTo(HashSet()) { it[ShoppingCategoriesTable.key] }
-
     /**
      * The all-zeros sentinel stats scope (#501) shared by every non-own-categories list and the
      * unfiled bucket. A real list id (random UUID v4) is never all-zeros, so it never collides; using

@@ -605,4 +605,40 @@ class ShoppingCategoryRouteTest {
         assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$listId") { bearerAuth(token) }.status)
         assertTrue(categories(token).none { it.jsonObject["key"]?.jsonPrimitive?.content == key })
     }
+
+    @Test
+    fun `deleting an own-categories list keeps the shared usage stats`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        addItem(token, "Milch") // a shared-scope usage that must survive an unrelated list deletion (#501)
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        addItemTo(token, "Dachlatte", baumarkt) // an own-scope usage under the list's id
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/v1/shopping/lists/$baumarkt") { bearerAuth(token) }.status)
+        // the shared "most used" tally is untouched (delete only sweeps the list's own scope) …
+        assertTrue(suggestions(token).map { it.jsonObject }.any { it["name"]?.jsonPrimitive?.content == "Milch" })
+        // … and the deleted list's own-scope name is gone from the shared scope too (was never there)
+        assertTrue(suggestions(token).map { it.jsonObject }.none { it["name"]?.jsonPrimitive?.content == "Dachlatte" })
+    }
+
+    @Test
+    fun `flipping own-categories off makes the scoped correction dormant and back on restores it`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        val baumarkt = createList(token, "Baumarkt", ownCategories = true)["id"]!!.jsonPrimitive.content
+        val werkzeug = createCategoryFor(token, "Werkzeug", "🔧", baumarkt)["key"]!!.jsonPrimitive.content
+
+        // teach the list a correction (remembered in its own stats scope)
+        val hammer = addItemTo(token, "Hammer", baumarkt)["id"]!!.jsonPrimitive.content
+        client.put("/api/v1/shopping/$hammer") { bearerAuth(token); contentType(ContentType.Application.Json); setBody("""{"category":"$werkzeug"}""") }
+        assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+
+        // flip to the shared catalog → reads move to the shared scope, so the own correction is dormant
+        assertEquals(HttpStatusCode.OK, putList(token, baumarkt, """{"ownCategories":false}""").status)
+        assertEquals("OTHER", addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+
+        // flip back on → the own-scope correction returns (kept in the DB — lossless, like the categories)
+        assertEquals(HttpStatusCode.OK, putList(token, baumarkt, """{"ownCategories":true}""").status)
+        assertEquals(werkzeug, addItemTo(token, "Hammer", baumarkt)["category"]?.jsonPrimitive?.content)
+    }
 }

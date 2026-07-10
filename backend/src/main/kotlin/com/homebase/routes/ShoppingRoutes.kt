@@ -290,9 +290,10 @@ fun Route.shoppingRoutes() {
             }
         }
 
-        // Autocomplete source (#389/#390): the known catalog (count 0 baseline, useful on day one)
-        // merged with the household's real usage tally, ranked most-used first. Clients preload this
-        // once and filter locally as the user types.
+        // Autocomplete source (#389/#390): the shared scope merges the known catalog (count 0 baseline,
+        // useful on day one) with the usage tally, ranked most-used first; an own-categories list (#501)
+        // gets no grocery baseline and surfaces only its own used names. Clients preload this once
+        // (per active list) and filter locally as the user types.
         get("/suggestions") {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 300
             val q = call.request.queryParameters["q"]?.let { GroceryCatalog.normalize(it) }?.takeIf { it.isNotBlank() }
