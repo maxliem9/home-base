@@ -419,6 +419,28 @@ class ShoppingCategoryRouteTest {
     }
 
     @Test
+    fun `category-rules routes 404 on an unknown listId instead of the silent SHARED fallback`() = testApplication {
+        configureTestApplication()
+        val token = token()
+        // Well-formed UUID that names no list (#538): GET/PUT/DELETE must 404, not fall back to the
+        // shared dictionary and write a rule scoped to a phantom list.
+        val ghost = "00000000-0000-0000-0000-000000000000"
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.get("/api/v1/shopping/category-rules?listId=$ghost") { bearerAuth(token) }.status,
+        )
+        val put = client.put("/api/v1/shopping/category-rules?listId=$ghost") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"displayName":"Bohrer","category":"OTHER"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, put.status)
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.delete("/api/v1/shopping/category-rules/bohrer?listId=$ghost") { bearerAuth(token) }.status,
+        )
+    }
+
+    @Test
     fun `deleting a category re-points its rules to OTHER`() = testApplication {
         configureTestApplication()
         val token = token()

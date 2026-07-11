@@ -256,8 +256,7 @@ fun ShoppingScreen(
                         on = active.ownCategories,
                         onToggle = { viewModel.toggleOwnCategories(it) },
                         onManage = {
-                            viewModel.loadManageCategories()
-                            viewModel.loadManageRules() // #501: also load the list's own rules for the sheet
+                            viewModel.openManageSheet() // #538: flag open + load own categories/rules
                             showManageCats = true
                         },
                     )
@@ -299,7 +298,15 @@ fun ShoppingScreen(
 
         // Per-list category manager (#412): reuses the Settings CategoriesCard, scoped to this list.
         val activeForManage = state.activeList
-        if (showManageCats && activeForManage != null && activeForManage.ownCategories) {
+        val manageSheetVisible = showManageCats && activeForManage != null && activeForManage.ownCategories
+        // #538: clear the VM's sheet state whenever the sheet stops being visible — not only on an
+        // explicit dismiss, but also when the guard hides it (active list deleted / ownCategories
+        // toggled off via WS). Otherwise `manageSheetOpen` + the loaded rules/categories would leak
+        // and a later CategoryRuleChanged would reload dead state / flash it on reopen.
+        LaunchedEffect(manageSheetVisible) {
+            if (!manageSheetVisible) viewModel.closeManageSheet()
+        }
+        if (manageSheetVisible && activeForManage != null) {
             ManageCategoriesSheet(
                 listName = activeForManage.name,
                 categories = state.manageCategories,
@@ -309,7 +316,7 @@ fun ShoppingScreen(
                 onMove = { index, dir -> viewModel.moveManageCategory(index, dir) },
                 onSaveRule = { displayName, category, icon, editingName -> viewModel.saveManageRule(editingName, displayName, category, icon) },
                 onDeleteRule = { viewModel.deleteManageRule(it) },
-                onDismiss = { showManageCats = false },
+                onDismiss = { showManageCats = false }, // the LaunchedEffect above clears the VM state
             )
         }
 

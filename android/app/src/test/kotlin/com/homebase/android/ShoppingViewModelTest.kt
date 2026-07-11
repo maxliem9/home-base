@@ -1344,6 +1344,73 @@ class ShoppingViewModelTest {
         coVerify { repository.upsertCategoryRule(displayName = "Bohrer", category = "WERKZEUG", icon = "🛠️", listId = "L9") }
     }
 
+    // --- Manage-sheet live refresh + state cleanup (#538) --------------------------------------
+
+    @Test
+    fun `a rule WS event refreshes the manage sheet even when it started empty`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        // Sheet opens on an empty dictionary; the partner then adds the FIRST rule.
+        val rule = ShoppingCategoryRuleDto("bohrer", "Bohrer", "WERKZEUG", "🛠️", listId = "L9")
+        coEvery { repository.getCategoryRules("L9") } returnsMany listOf(
+            Result.success(emptyList()),
+            Result.success(listOf(rule)),
+        )
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openManageSheet()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.manageRules.isEmpty())
+        assertTrue(vm.uiState.value.manageSheetOpen)
+
+        wsEvents.emit(ShoppingWebSocketClient.WsEvent.CategoryRuleChanged)
+        advanceUntilIdle()
+
+        // Gated on "sheet open", not "rules non-empty", so the first rule lands live.
+        assertEquals(listOf("Bohrer"), vm.uiState.value.manageRules.map { it.displayName })
+    }
+
+    @Test
+    fun `a rule WS event is ignored while the manage sheet is closed`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        val vm = createVm()
+        advanceUntilIdle()
+
+        wsEvents.emit(ShoppingWebSocketClient.WsEvent.CategoryRuleChanged)
+        advanceUntilIdle()
+
+        // Sheet never opened → no wasted fetch of the per-list rules.
+        coVerify(exactly = 0) { repository.getCategoryRules(any()) }
+    }
+
+    @Test
+    fun `closeManageSheet clears the flag and drops the loaded categories and rules`() = vmTest {
+        val baumarkt = list(id = "L9", name = "Baumarkt").copy(ownCategories = true)
+        coEvery { repository.getLists() } returns Result.success(listOf(baumarkt))
+        coEvery { repository.getItems() } returns Result.success(emptyList())
+        coEvery { repository.getCategories("L9") } returns
+            Result.success(listOf(ShoppingCategoryDto("WERKZEUG", "Werkzeug", "🔧", 0, false, listId = "L9")))
+        coEvery { repository.getCategoryRules("L9") } returns
+            Result.success(listOf(ShoppingCategoryRuleDto("bohrer", "Bohrer", "WERKZEUG", "🛠️", listId = "L9")))
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.openManageSheet()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.manageCategories.isNotEmpty())
+        assertTrue(vm.uiState.value.manageRules.isNotEmpty())
+
+        vm.closeManageSheet()
+
+        assertFalse(vm.uiState.value.manageSheetOpen)
+        assertTrue(vm.uiState.value.manageCategories.isEmpty())
+        assertTrue(vm.uiState.value.manageRules.isEmpty())
+    }
+
     // --- Offline read-cache (#517) -------------------------------------------------------------
 
     @Test

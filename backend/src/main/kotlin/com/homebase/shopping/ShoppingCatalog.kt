@@ -16,7 +16,7 @@ import java.util.UUID
  * [GroceryCatalog] on first startup and resolves item names against the live DB rules.
  *
  * Deliberately cache-free: the tables are tiny and read within the caller's existing transaction (a
- * per-operation [liveKeys] / [loadRules] load), so there is no process-wide mutable cache to leak
+ * per-operation [liveKeysForList] / [loadRulesForList] load), so there is no process-wide mutable cache to leak
  * between tests (each runs against its own H2 DB) or to invalidate on every CRUD write. [GroceryCatalog]
  * stays the seed source + the `normalize` algorithm.
  */
