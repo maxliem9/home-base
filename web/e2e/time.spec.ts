@@ -577,4 +577,29 @@ test.describe('Time tracking', () => {
     expect((await startPromise).postDataJSON().userId).toBe('lea')
     await expect(dialog).toBeHidden()
   })
+
+  // Regression #541: a shift spanning a week boundary must bucket by its START
+  // week (matching Android/backend/CSV), not its stop week. Noon→noon so start
+  // stays Sunday and stop stays Monday in every realistic TZ (±11h of UTC) — no
+  // browser-TZ pin needed. durationSeconds is decoupled from the timestamps and
+  // is what the week sum uses.
+  test('per-week list buckets an over-week-boundary entry by its START week', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      // starts Sun 2026-06-07 (week of Mon 1.–7. Juni), stops Mon 2026-06-08
+      // (week of Mon 8.–14. Juni) → the earlier week; the old stoppedAt bug put
+      // it in the later one.
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-07T12:00:00Z', stoppedAt: '2026-06-08T12:00:00Z', durationSeconds: 7200 }),
+      ])
+    await openTime(page, mock)
+
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
+
+    const week = page.locator('.hb-weekrow')
+    await expect(week).toHaveCount(1)
+    await expect(week).toContainText('1.–7. Juni')
+    await expect(week).not.toContainText('8.–14. Juni')
+    await expect(week.locator('.hb-weekrow__ms')).toContainText('2 Std 0 Min')
+  })
 })
