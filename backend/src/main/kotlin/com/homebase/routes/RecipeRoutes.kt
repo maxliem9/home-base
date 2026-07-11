@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.IngredientsTable
 import com.homebase.db.RecipeImagesTable
 import com.homebase.db.RecipeStepsTable
@@ -18,7 +19,6 @@ import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
@@ -48,7 +48,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "unknown category"))
                 return@get
             }
-            val recipes = transaction {
+            val recipes = dbQuery {
                 RecipesTable.selectAll()
                     .apply { if (categoryFilter != null) andWhere { RecipesTable.category eq categoryFilter } }
                     .orderBy(RecipesTable.updatedAt, SortOrder.DESC)
@@ -66,7 +66,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
                 return@get
             }
-            val recipe = transaction {
+            val recipe = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
             }
             if (recipe == null) {
@@ -91,7 +91,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
                 return@get
             }
-            val recipe = transaction {
+            val recipe = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
             }
             if (recipe == null) {
@@ -157,7 +157,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 return@post
             }
 
-            val recipe = transaction {
+            val recipe = dbQuery {
                 val id = UUID.randomUUID()
                 val now = Instant.now()
                 RecipesTable.insert {
@@ -198,9 +198,9 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 return@put
             }
 
-            val recipe = transaction {
+            val recipe = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
 
                 RecipesTable.update({ RecipesTable.id eq id }) {
                     req.title?.let { v -> it[title] = v.trim() }
@@ -234,9 +234,9 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val outcome = transaction {
+            val outcome = dbQuery {
                 val existing = RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 val dto = existing.toRecipeDto()
                 // Capture the image filenames before the cascade removes their rows so we can
                 // clean up the files on disk afterwards.
@@ -268,7 +268,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val username = call.username()
             val recipeId = call.uuidParam() ?: return@post
 
-            val exists = transaction {
+            val exists = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull() != null
             }
             if (!exists) {
@@ -293,9 +293,9 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             // The bytes are already streamed to a temp file; promote it to its final name.
             finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 // single cover image: drop the previous one (its file is removed after commit)
                 val oldFiles = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq recipeId }
                     .map { it[RecipeImagesTable.filename] }
@@ -331,7 +331,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val recipeId = call.uuidParam() ?: return@get
             val imageId = call.uuidParam("imageId") ?: return@get
 
-            val row = transaction {
+            val row = dbQuery {
                 RecipeImagesTable.selectAll()
                     .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
                     .singleOrNull()
@@ -370,12 +370,12 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val recipeId = call.uuidParam() ?: return@delete
             val imageId = call.uuidParam("imageId") ?: return@delete
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 val image = RecipeImagesTable.selectAll()
                     .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 val filename = image[RecipeImagesTable.filename]
                 RecipeImagesTable.deleteWhere {
                     (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId)

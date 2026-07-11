@@ -1,5 +1,6 @@
 package com.homebase.reminder
 
+import com.homebase.db.dbQuery
 import com.homebase.db.PushSubscriptionsTable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -8,7 +9,6 @@ import nl.martijndwars.webpush.PushService
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.LoggerFactory
 import java.security.Security
 
@@ -96,7 +96,7 @@ class WebPushNotifier(private val sender: WebPushSender) : ReminderNotifier {
     private val logger = LoggerFactory.getLogger(WebPushNotifier::class.java)
 
     override suspend fun notify(message: String) = withContext(Dispatchers.IO) {
-        val subs = transaction {
+        val subs = dbQuery {
             PushSubscriptionsTable.selectAll().map {
                 PushSubscriptionRow(
                     endpoint = it[PushSubscriptionsTable.endpoint],
@@ -113,7 +113,7 @@ class WebPushNotifier(private val sender: WebPushSender) : ReminderNotifier {
             if (sender.send(sub, payload) == PushSendResult.GONE) gone += sub.endpoint
         }
         if (gone.isNotEmpty()) {
-            transaction { PushSubscriptionsTable.deleteWhere { endpoint inList gone } }
+            dbQuery { PushSubscriptionsTable.deleteWhere { endpoint inList gone } }
             logger.info("Pruned {} gone web-push subscription(s)", gone.size)
         }
     }

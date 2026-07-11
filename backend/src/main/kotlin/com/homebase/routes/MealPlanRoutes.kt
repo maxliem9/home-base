@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.RecipesTable
 import com.homebase.model.*
@@ -15,7 +16,6 @@ import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -50,7 +50,7 @@ fun Route.mealPlanRoutes() {
             if (ChronoUnit.DAYS.between(from, to) + 1 > MAX_RANGE_DAYS) {
                 return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("RANGE_TOO_LARGE", "range must not exceed $MAX_RANGE_DAYS days"))
             }
-            val entries = transaction {
+            val entries = dbQuery {
                 (MealPlanEntriesTable leftJoin RecipesTable).selectAll()
                     .where { (MealPlanEntriesTable.date greaterEq from) and (MealPlanEntriesTable.date lessEq to) }
                     .orderBy(MealPlanEntriesTable.date to SortOrder.ASC, MealPlanEntriesTable.slot to SortOrder.ASC)
@@ -85,8 +85,8 @@ fun Route.mealPlanRoutes() {
                 return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SERVINGS", "servings must be >= 1"))
             }
 
-            val dto = transaction {
-                if (recipeId != null && RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.empty()) return@transaction null
+            val dto = dbQuery {
+                if (recipeId != null && RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.empty()) return@dbQuery null
                 MealPlanEntriesTable.deleteWhere { (MealPlanEntriesTable.date eq day) and (MealPlanEntriesTable.slot eq slot) }
                 val id = UUID.randomUUID()
                 MealPlanEntriesTable.insert {
@@ -114,7 +114,7 @@ fun Route.mealPlanRoutes() {
             val slot = call.parameters["slot"]?.uppercase()
             if (slot == null || slot !in MEAL_SLOTS) return@delete call.invalidSlot()
 
-            transaction {
+            dbQuery {
                 MealPlanEntriesTable.deleteWhere { (MealPlanEntriesTable.date eq day) and (MealPlanEntriesTable.slot eq slot) }
             }
             notify()

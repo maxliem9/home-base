@@ -1,5 +1,6 @@
 package com.homebase.time
 
+import com.homebase.db.dbQuery
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
 import com.homebase.db.CustomHolidaysTable
@@ -11,7 +12,6 @@ import com.homebase.model.ProjectForecastDto
 import com.homebase.model.TimeForecastDto
 import com.homebase.model.UserForecastDto
 import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Clock
 import java.time.DayOfWeek
 import java.time.Duration
@@ -42,7 +42,7 @@ import kotlin.math.roundToLong
  */
 class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
 
-    fun forecast(dateParam: LocalDate? = null): TimeForecastDto {
+    suspend fun forecast(dateParam: LocalDate? = null): TimeForecastDto {
         val zone = clock.zone
         val now = Instant.now(clock)
         val today = LocalDate.now(clock)
@@ -52,7 +52,7 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
         val weekStartInstant = weekStart.atStartOfDay(zone).toInstant()
         val weekEndInstant = weekStart.plusDays(7).atStartOfDay(zone).toInstant()
 
-        return transaction {
+        return dbQuery {
             val users = UsersTable.selectAll()
                 .orderBy(UsersTable.createdAt, SortOrder.ASC)
                 .map { it[UsersTable.username] }

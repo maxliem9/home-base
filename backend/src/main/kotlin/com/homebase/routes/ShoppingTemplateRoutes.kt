@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.ShoppingTemplateItemsTable
 import com.homebase.db.ShoppingTemplatesTable
 import com.homebase.model.*
@@ -12,7 +13,6 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.util.UUID
 
@@ -35,7 +35,7 @@ fun Route.shoppingTemplateRoutes() {
         // All templates with their embedded items. Newest first (like the recipe/list reads use a
         // stable order); items inside each template are ordered by sort_order.
         get {
-            val templates = transaction {
+            val templates = dbQuery {
                 ShoppingTemplatesTable.selectAll()
                     .orderBy(ShoppingTemplatesTable.createdAt to SortOrder.ASC)
                     .map { it.toTemplateDto() }
@@ -50,7 +50,7 @@ fun Route.shoppingTemplateRoutes() {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_TEMPLATE", "name must not be blank"))
                 return@post
             }
-            val template = transaction {
+            val template = dbQuery {
                 val id = UUID.randomUUID()
                 ShoppingTemplatesTable.insert {
                     it[ShoppingTemplatesTable.id] = id
@@ -74,9 +74,9 @@ fun Route.shoppingTemplateRoutes() {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_TEMPLATE", "name must not be blank"))
                 return@put
             }
-            val template = transaction {
+            val template = dbQuery {
                 ShoppingTemplatesTable.selectAll().where { ShoppingTemplatesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 ShoppingTemplatesTable.update({ ShoppingTemplatesTable.id eq id }) {
                     req.name?.let { v -> it[name] = v.trim() }
                 }
@@ -96,9 +96,9 @@ fun Route.shoppingTemplateRoutes() {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val deleted = transaction {
+            val deleted = dbQuery {
                 val existing = ShoppingTemplatesTable.selectAll().where { ShoppingTemplatesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 val dto = existing.toTemplateDto()
                 // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                 ShoppingTemplateItemsTable.deleteWhere { ShoppingTemplateItemsTable.templateId eq id }

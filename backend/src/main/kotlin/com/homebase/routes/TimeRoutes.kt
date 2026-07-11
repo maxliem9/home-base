@@ -1,5 +1,7 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
+import org.jetbrains.exposed.sql.transactions.transaction
 import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.model.*
@@ -19,7 +21,6 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.vendors.ForUpdateOption
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -47,7 +48,7 @@ fun Route.timeRoutes() {
         // dashboard and the time view show the partner's live timer without pulling the
         // whole entries list just to find it.
         get("/running/all") {
-            val entries = transaction {
+            val entries = dbQuery {
                 TimeEntriesTable.selectAll()
                     .where { TimeEntriesTable.stoppedAt.isNull() }
                     .orderBy(TimeEntriesTable.userId, SortOrder.ASC)
@@ -72,7 +73,7 @@ fun Route.timeRoutes() {
 private fun Route.projectRoutes() {
     route("/projects") {
         get {
-            val projects = transaction {
+            val projects = dbQuery {
                 ProjectsTable.selectAll()
                     .orderBy(ProjectsTable.archived, SortOrder.ASC)
                     .orderBy(ProjectsTable.name, SortOrder.ASC)
@@ -93,7 +94,7 @@ private fun Route.projectRoutes() {
                 return@post
             }
 
-            val project = transaction {
+            val project = dbQuery {
                 val id = UUID.randomUUID()
                 ProjectsTable.insert {
                     it[ProjectsTable.id] = id
@@ -122,9 +123,9 @@ private fun Route.projectRoutes() {
                 return@put
             }
 
-            val project = transaction {
+            val project = dbQuery {
                 ProjectsTable.selectAll().where { ProjectsTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 ProjectsTable.update({ ProjectsTable.id eq id }) {
                     req.name?.let { v -> it[name] = v.trim() }
                     req.color?.let { v -> it[color] = v }
@@ -146,9 +147,9 @@ private fun Route.projectRoutes() {
             val req = runCatching { call.receive<ArchiveProjectRequest>() }.getOrNull()
             val target = req?.archived ?: true
 
-            val project = transaction {
+            val project = dbQuery {
                 ProjectsTable.selectAll().where { ProjectsTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 ProjectsTable.update({ ProjectsTable.id eq id }) {
                     it[archived] = target
                 }
@@ -180,7 +181,7 @@ private fun Route.entryRoutes() {
                 HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "to must be an ISO-8601 timestamp")
             ) }
 
-            val entries = transaction {
+            val entries = dbQuery {
                 val query = TimeEntriesTable.selectAll()
                 (projectId as? UUID)?.let { pid -> query.andWhere { TimeEntriesTable.projectId eq pid } }
                 userId?.let { uid -> query.andWhere { TimeEntriesTable.userId eq uid } }
@@ -198,7 +199,7 @@ private fun Route.entryRoutes() {
                 ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "projectId must be a valid UUID"))
             // Shared household: start on behalf of the partner when a userId is given.
             val targetUser = req.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
-            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+            if (targetUser != caller && !dbQuery { userExists(targetUser) }) {
                 return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
             }
 
@@ -206,6 +207,8 @@ private fun Route.entryRoutes() {
             // (the one-running-timer-per-user invariant is per target, not per caller).
             val startLock = TIMER_START_LOCKS.computeIfAbsent(targetUser) { Any() }
             val result: Any? = synchronized(startLock) {
+                // Blocking transaction (not dbQuery) on purpose: a suspend call cannot cross a
+                // synchronized{} monitor. The lock serializes concurrent starts for one user (#549).
                 transaction {
                     val project = ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
                         ?: return@transaction null
@@ -263,14 +266,14 @@ private fun Route.entryRoutes() {
             // Optional body {userId}: stop the partner's timer. No/empty body → self.
             val body = runCatching { call.receive<StopTimerRequest>() }.getOrNull()
             val targetUser = body?.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
-            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+            if (targetUser != caller && !dbQuery { userExists(targetUser) }) {
                 return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
             }
-            val entry = transaction {
+            val entry = dbQuery {
                 val running = TimeEntriesTable.selectAll()
                     .where { (TimeEntriesTable.userId eq targetUser) and TimeEntriesTable.stoppedAt.isNull() }
                     .forUpdate(ForUpdateOption.ForUpdate)
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 val id = running[TimeEntriesTable.id]
                 val now = Instant.now()
                 TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
@@ -303,15 +306,15 @@ private fun Route.entryRoutes() {
             // Shared household: record the entry for the partner when a userId is given
             // (mirrors /start and /stop). The clients confirm cross-person writes (#129).
             val targetUser = req.userId?.trim()?.takeIf { it.isNotEmpty() } ?: caller
-            if (targetUser != caller && !transaction { userExists(targetUser) }) {
+            if (targetUser != caller && !dbQuery { userExists(targetUser) }) {
                 return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
             }
 
-            val entry: Any? = transaction {
+            val entry: Any? = dbQuery {
                 val project = ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 if (project[ProjectsTable.archived]) {
-                    return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
+                    return@dbQuery ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
                 }
                 val id = UUID.randomUUID()
                 val now = Instant.now()
@@ -351,22 +354,22 @@ private fun Route.entryRoutes() {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RANGE", "breakMinutes must not be negative"))
             }
 
-            val outcome: Any? = transaction {
+            val outcome: Any? = dbQuery {
                 val existing = TimeEntriesTable.selectAll()
                     .where { TimeEntriesTable.id eq id }
                     .forUpdate(ForUpdateOption.ForUpdate)
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 val stopped = existing[TimeEntriesTable.stoppedAt]
-                    ?: return@transaction ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first")
+                    ?: return@dbQuery ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first")
                 val started = existing[TimeEntriesTable.startedAt]
                 if (!splitAt.isAfter(started) || !stopped.isAfter(splitAt)) {
-                    return@transaction ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt")
+                    return@dbQuery ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt")
                 }
                 // computed only after the range check — the cut is inside a real entry
                 // here, so adding the break cannot overflow Instant (DateTimeException)
                 val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
                 if (!stopped.isAfter(secondStart)) {
-                    return@transaction ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt")
+                    return@dbQuery ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt")
                 }
                 val now = Instant.now()
                 TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
@@ -418,22 +421,22 @@ private fun Route.entryRoutes() {
                 parseInstant(it) ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "stoppedAt must be an ISO-8601 timestamp"))
             }
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 val existing = TimeEntriesTable.selectAll()
                     .where { TimeEntriesTable.id eq id }
                     .forUpdate(ForUpdateOption.ForUpdate)
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 if (newProjectId != null) {
                     val project = ProjectsTable.selectAll().where { ProjectsTable.id eq newProjectId }.singleOrNull()
-                        ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
+                        ?: return@dbQuery ErrorResponse("NOT_FOUND", "Project not found")
                     if (project[ProjectsTable.archived]) {
-                        return@transaction ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
+                        return@dbQuery ErrorResponse("PROJECT_ARCHIVED", "Project is archived")
                     }
                 }
                 val effectiveStart = newStarted ?: existing[TimeEntriesTable.startedAt]
                 val effectiveStop = newStopped ?: existing[TimeEntriesTable.stoppedAt]
                 if (effectiveStop != null && !effectiveStop.isAfter(effectiveStart)) {
-                    return@transaction ErrorResponse("INVALID_RANGE", "stoppedAt must be after startedAt")
+                    return@dbQuery ErrorResponse("INVALID_RANGE", "stoppedAt must be after startedAt")
                 }
                 TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
                     newProjectId?.let { v -> it[projectId] = v }
@@ -464,11 +467,11 @@ private fun Route.entryRoutes() {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val deleted = transaction {
+            val deleted = dbQuery {
                 val existing = TimeEntriesTable.selectAll()
                     .where { TimeEntriesTable.id eq id }
                     .forUpdate(ForUpdateOption.ForUpdate)
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 TimeEntriesTable.deleteWhere { TimeEntriesTable.id eq id }
                 existing.toEntryDto()
             }
@@ -507,7 +510,7 @@ private fun Route.exportRoutes() {
             parseInstant(it) ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "to must be an ISO-8601 timestamp"))
         }
 
-        val loaded = transaction {
+        val loaded = dbQuery {
             val projectNames = ProjectsTable.selectAll()
                 .associate { it[ProjectsTable.id] to it[ProjectsTable.name] }
             val query = TimeEntriesTable.selectAll()

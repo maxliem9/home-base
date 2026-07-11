@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.ShoppingCategoriesTable
 import com.homebase.db.ShoppingCategoryRulesTable
 import com.homebase.db.ShoppingItemStatsTable
@@ -20,7 +21,6 @@ import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.util.UUID
 
@@ -43,7 +43,7 @@ fun Route.shoppingRoutes() {
         // ---- Lists (registered before /{id} so the static segment wins) ----
         route("/lists") {
             get {
-                val lists = transaction {
+                val lists = dbQuery {
                     ShoppingListsTable.selectAll()
                         .orderBy(ShoppingListsTable.createdAt to SortOrder.ASC)
                         .map { it.toListDto() }
@@ -58,7 +58,7 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
                     return@post
                 }
-                val list = transaction {
+                val list = dbQuery {
                     val id = UUID.randomUUID()
                     ShoppingListsTable.insert {
                         it[ShoppingListsTable.id] = id
@@ -80,9 +80,9 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
                     return@put
                 }
-                val list = transaction {
+                val list = dbQuery {
                     ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     ShoppingListsTable.update({ ShoppingListsTable.id eq id }) {
                         req.name?.let { v -> it[name] = v.trim() }
                         // #412: flip the list between its own category set and the shared catalog. Custom
@@ -101,9 +101,9 @@ fun Route.shoppingRoutes() {
 
             delete("/{id}") {
                 val id = call.uuidParam() ?: return@delete
-                val deleted = transaction {
+                val deleted = dbQuery {
                     val existing = ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                     ShoppingItemsTable.deleteWhere { ShoppingItemsTable.listId eq id }
                     ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.listId eq id } // #412: own categories
@@ -129,7 +129,7 @@ fun Route.shoppingRoutes() {
             // (#411). No listId, or a shared/non-own list, → the shared catalog (Settings uses this).
             get {
                 val listId = call.categoryScopeListId() ?: return@get
-                val cats = transaction { categoriesForList(listId.value) }
+                val cats = dbQuery { categoriesForList(listId.value) }
                 call.respond(cats)
             }
 
@@ -144,9 +144,9 @@ fun Route.shoppingRoutes() {
                     return@post
                 }
                 val scopeId = (call.categoryScopeListId() ?: return@post).value
-                val created = transaction {
+                val created = dbQuery {
                     if (scopeId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq scopeId }.empty()) {
-                        return@transaction null
+                        return@dbQuery null
                     }
                     val key = uniqueCategoryKey(label)
                     // default sort order is relative to the target scope (the list's own set — excluding
@@ -181,9 +181,9 @@ fun Route.shoppingRoutes() {
                 if (req.label != null && req.label.isBlank() || req.emoji != null && req.emoji.isBlank()) {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "label/emoji must not be blank")); return@put
                 }
-                val updated = transaction {
+                val updated = dbQuery {
                     ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     ShoppingCategoriesTable.update({ ShoppingCategoriesTable.key eq key }) {
                         req.label?.let { v -> it[label] = v.trim() }
                         req.emoji?.let { v -> it[emoji] = v.trim() }
@@ -206,9 +206,9 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("CATEGORY_PROTECTED", "the fallback category cannot be deleted"))
                     return@delete
                 }
-                val deleted = transaction {
+                val deleted = dbQuery {
                     val existing = ShoppingCategoriesTable.selectAll().where { ShoppingCategoriesTable.key eq key }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     // Reassign this category's items + remembered stats to OTHER so nothing dangles.
                     ShoppingItemsTable.update({ ShoppingItemsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
                     ShoppingItemStatsTable.update({ ShoppingItemStatsTable.category eq key }) { it[category] = GroceryCatalog.OTHER }
@@ -230,7 +230,7 @@ fun Route.shoppingRoutes() {
         route("/category-rules") {
             get {
                 val scope = call.categoryScopeListIdExisting() ?: return@get
-                val rules = transaction {
+                val rules = dbQuery {
                     val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     ShoppingCategoryRulesTable.selectAll()
                         .where { ShoppingCategoryRulesTable.listScope eq scopeId }
@@ -249,11 +249,11 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RULE", "displayName must not be blank")); return@put
                 }
                 val iconProvided = req.icon?.trim()?.takeIf { it.isNotBlank() }
-                val saved = transaction {
+                val saved = dbQuery {
                     val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     // a rule may only target a category key that is live in its own scope (#412/#501):
                     // the shared dictionary → a shared key, an own list's dictionary → its own key.
-                    if (req.category !in ShoppingCatalog.liveKeysForList(scope.value)) return@transaction null
+                    if (req.category !in ShoppingCatalog.liveKeysForList(scope.value)) return@dbQuery null
                     val updated = ShoppingCategoryRulesTable.update({ (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }) {
                         it[displayName] = display
                         it[category] = req.category
@@ -284,11 +284,11 @@ fun Route.shoppingRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "name required")); return@delete
                 }
                 val normalized = GroceryCatalog.normalize(raw)
-                val deleted = transaction {
+                val deleted = dbQuery {
                     val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     val existing = ShoppingCategoryRulesTable.selectAll()
                         .where { (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     ShoppingCategoryRulesTable.deleteWhere { (ShoppingCategoryRulesTable.normalizedName eq normalized) and (ShoppingCategoryRulesTable.listScope eq scopeId) }
                     existing.toCategoryRuleDto()
                 }
@@ -312,7 +312,7 @@ fun Route.shoppingRoutes() {
             // actually used in it (its scoped stats), no grocery baseline; shared lists pool the global
             // dictionary + the shared-scope stats as before.
             val scope = call.categoryScopeListId() ?: return@get
-            val suggestions = transaction {
+            val suggestions = dbQuery {
                 val statsScope = ShoppingCatalog.statsScopeFor(scope.value)
                 val liveKeys = ShoppingCatalog.liveKeysForList(scope.value)
                 val rules = ShoppingCatalog.loadRulesForList(scope.value) // scoped dictionary (#501)
@@ -369,9 +369,9 @@ fun Route.shoppingRoutes() {
             val usedNames = mutableListOf<String>() // bare names to tally after the tx (best-effort)
             var skipped = 0
 
-            val listExists = transaction {
+            val listExists = dbQuery {
                 if (listId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }.empty()) {
-                    return@transaction false
+                    return@dbQuery false
                 }
                 val liveKeys = ShoppingCatalog.liveKeysForList(listId) // categorize against the target list's set (#411/#412)
                 val statsScope = ShoppingCatalog.statsScopeFor(listId) // remembered corrections per list (#501)
@@ -449,7 +449,7 @@ fun Route.shoppingRoutes() {
         }
 
         get {
-            val items = transaction {
+            val items = dbQuery {
                 ShoppingItemsTable.selectAll().map { it.toDto() }
             }
             call.respond(items)
@@ -468,9 +468,9 @@ fun Route.shoppingRoutes() {
                 return@post
             }
 
-            val item = transaction {
+            val item = dbQuery {
                 if (listId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq listId }.empty()) {
-                    return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                    return@dbQuery ErrorResponse("NOT_FOUND", "List not found")
                 }
                 val id = UUID.randomUUID()
                 val (resolvedCategory, resolvedIcon) = resolveForItem(req.name, ShoppingCatalog.loadRulesForList(listId), ShoppingCatalog.liveKeysForList(listId), ShoppingCatalog.statsScopeFor(listId)) // #412/#501: the item's list scope
@@ -517,17 +517,17 @@ fun Route.shoppingRoutes() {
             val clearIcon = req.icon != null && req.icon.isBlank()
             val newIcon = req.icon?.takeIf { it.isNotBlank() }
 
-            val item = transaction {
+            val item = dbQuery {
                 val existing = ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 if (targetListId != null && ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq targetListId }.empty()) {
-                    return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                    return@dbQuery ErrorResponse("NOT_FOUND", "List not found")
                 }
                 // category override must be a live catalog key (#411), validated against the item's
                 // DESTINATION list's set (#412): the list it's being moved to, else its current list.
                 val finalListId = if (req.listId != null) targetListId else existing[ShoppingItemsTable.listId]
                 if (newCategory != null && newCategory !in ShoppingCatalog.liveKeysForList(finalListId)) {
-                    return@transaction ErrorResponse("INVALID_CATEGORY", "category must be a known key")
+                    return@dbQuery ErrorResponse("INVALID_CATEGORY", "category must be a known key")
                 }
 
                 ShoppingItemsTable.update({ ShoppingItemsTable.id eq id }) {
@@ -570,11 +570,11 @@ fun Route.shoppingRoutes() {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val deletedItem = transaction {
+            val deletedItem = dbQuery {
                 val existing = ShoppingItemsTable.selectAll()
                     .where { ShoppingItemsTable.id eq id }
                     .singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 ShoppingItemsTable.deleteWhere { ShoppingItemsTable.id eq id }
                 existing.toDto()
             }
@@ -667,7 +667,7 @@ private suspend fun ApplicationCall.categoryScopeListId(): ListScope? {
 private suspend fun ApplicationCall.categoryScopeListIdExisting(): ListScope? {
     val scope = categoryScopeListId() ?: return null
     val id = scope.value ?: return scope // no listId → shared dictionary, nothing to verify
-    val exists = transaction { !ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.empty() }
+    val exists = dbQuery { !ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.empty() }
     if (!exists) {
         respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
         return null
@@ -749,14 +749,14 @@ private fun resolveForItem(rawName: String, rules: ShoppingCatalog.RuleSet, live
  * item write). New row seeded from the catalog; existing row incremented. Call AFTER the item
  * transaction has committed.
  */
-private fun recordUsages(rawNames: List<String>, listId: UUID?) {
+private suspend fun recordUsages(rawNames: List<String>, listId: UUID?) {
     val entries = rawNames.mapNotNull { raw ->
         val key = GroceryCatalog.normalize(raw)
         if (key.isBlank()) null else key to raw.trim()
     }
     if (entries.isEmpty()) return
     runCatching {
-        transaction {
+        dbQuery {
             val scope = ShoppingCatalog.statsScopeFor(listId)
             val liveKeys = ShoppingCatalog.liveKeysForList(listId)
             val rules = ShoppingCatalog.loadRulesForList(listId)
@@ -791,12 +791,12 @@ private fun recordUsages(rawNames: List<String>, listId: UUID?) {
  * adds of that name in the same scope pick it up. Own transaction, failures swallowed (same rationale
  * as [recordUsages]); does not count a use.
  */
-private fun rememberStatsPreference(rawName: String, categoryOverride: String?, iconOverride: String?, listId: UUID?) {
+private suspend fun rememberStatsPreference(rawName: String, categoryOverride: String?, iconOverride: String?, listId: UUID?) {
     if (categoryOverride == null && iconOverride == null) return
     val key = GroceryCatalog.normalize(rawName)
     if (key.isBlank()) return
     runCatching {
-        transaction {
+        dbQuery {
             val scope = ShoppingCatalog.statsScopeFor(listId)
             val updated = ShoppingItemStatsTable.update({ (ShoppingItemStatsTable.normalizedName eq key) and (ShoppingItemStatsTable.listScope eq scope) }) {
                 categoryOverride?.let { v -> it[category] = v }

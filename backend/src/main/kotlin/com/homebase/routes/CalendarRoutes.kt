@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.AbsencesTable
 import com.homebase.db.CalendarEventsTable
 import com.homebase.db.KitaClosuresTable
@@ -19,7 +20,6 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
-import org.jetbrains.exposed.sql.transactions.transaction
 // Note: greaterEq/lessEq/neq are imported from SqlExpressionBuilder explicitly (not just via the
 // wildcard) so the date-range + status comparisons below resolve as infix operators on the columns.
 import java.time.Instant
@@ -96,7 +96,7 @@ fun Route.calendarRoutes() {
 
         val ical = ICalBuilder()
 
-        transaction {
+        dbQuery {
             // Which categories this subscriber wants in their feed (#427). Per-user; unset = all.
             val sections = CalendarFeedSection.parseSelection(
                 UserPrefsTable.selectAll()

@@ -1,5 +1,6 @@
 package com.homebase.recurrence
 
+import com.homebase.db.dbQuery
 import com.homebase.db.TodosTable
 import com.homebase.model.TodoDto
 import com.homebase.routes.listIsShared
@@ -8,7 +9,6 @@ import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import java.time.Instant
 import java.time.LocalDate
@@ -29,7 +29,7 @@ class RecurringTodoService {
      * (see [Recurrence.rollOpenDueForward]). Returns the todos whose due date actually moved so the
      * caller can broadcast them. Runs in a single transaction.
      */
-    fun rollForwardOverdue(today: LocalDate = LocalDate.now()): List<RolledTodo> = transaction {
+    suspend fun rollForwardOverdue(today: LocalDate = LocalDate.now()): List<RolledTodo> = dbQuery {
         val candidates = TodosTable.selectAll().where {
             TodosTable.recurrence.isNotNull() and
                 (TodosTable.status neq "DONE") and

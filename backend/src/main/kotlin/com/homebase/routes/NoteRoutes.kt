@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.NoteAttachmentsTable
 import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
@@ -17,7 +18,6 @@ import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
@@ -37,7 +37,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             // optional exact-match folder filter; blank/missing ⇒ no folder restriction
             val folder = call.request.queryParameters["folder"]?.trim()?.takeIf { it.isNotEmpty() }
 
-            val notes = transaction {
+            val notes = dbQuery {
                 val rows = NotesTable.selectAll()
                     .where {
                         var cond = visibleTo(username)
@@ -78,7 +78,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                 return@post
             }
 
-            val note = transaction {
+            val note = dbQuery {
                 val id = UUID.randomUUID()
                 val now = Instant.now()
                 NotesTable.insert {
@@ -115,11 +115,11 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                 return@put
             }
 
-            val result = transaction {
+            val result = dbQuery {
                 val existing = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
-                    ?: return@transaction NoteUpdateResult.NotFound
+                    ?: return@dbQuery NoteUpdateResult.NotFound
                 // hide notes the caller cannot see (private notes of the other user)
-                if (!existing.isVisibleTo(username)) return@transaction NoteUpdateResult.NotFound
+                if (!existing.isVisibleTo(username)) return@dbQuery NoteUpdateResult.NotFound
 
                 // Shared notes are editable by both users, but only the owner may change a note's
                 // visibility. Otherwise a user could flip the other user's shared note to private —
@@ -128,7 +128,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
                     newVisibility != existing[NotesTable.visibility] &&
                     existing[NotesTable.createdBy] != username
                 ) {
-                    return@transaction NoteUpdateResult.Forbidden
+                    return@dbQuery NoteUpdateResult.Forbidden
                 }
 
                 val wasShared = existing[NotesTable.visibility] == VISIBILITY_SHARED
@@ -166,10 +166,10 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val username = call.username()
             val id = call.uuidParam() ?: return@delete
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 val existing = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
-                if (!existing.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!existing.isVisibleTo(username)) return@dbQuery null
                 // Capture the image + attachment filenames before the cascade removes their rows so
                 // we can clean up the files on disk afterwards.
                 val files = NoteImagesTable.selectAll().where { NoteImagesTable.noteId eq id }
@@ -200,7 +200,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val username = call.username()
             val noteId = call.uuidParam() ?: return@post
 
-            val visible = transaction {
+            val visible = dbQuery {
                 NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()?.isVisibleTo(username) ?: false
             }
             if (!visible) {
@@ -225,10 +225,10 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             // The bytes are already streamed to a temp file; promote it to its final name.
             finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
-            val result = transaction {
+            val result = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 // append after the existing images (0-based index == current count)
                 val nextOrder = NoteImagesTable.selectAll().where { NoteImagesTable.noteId eq noteId }.count().toInt()
                 NoteImagesTable.insert {
@@ -262,10 +262,10 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val noteId = call.uuidParam() ?: return@get
             val imageId = call.uuidParam("imageId") ?: return@get
 
-            val row = transaction {
+            val row = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 NoteImagesTable.selectAll()
                     .where { (NoteImagesTable.id eq imageId) and (NoteImagesTable.noteId eq noteId) }
                     .singleOrNull()
@@ -308,13 +308,13 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val noteId = call.uuidParam() ?: return@delete
             val imageId = call.uuidParam("imageId") ?: return@delete
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 val image = NoteImagesTable.selectAll()
                     .where { (NoteImagesTable.id eq imageId) and (NoteImagesTable.noteId eq noteId) }
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 val filename = image[NoteImagesTable.filename]
                 NoteImagesTable.deleteWhere { (NoteImagesTable.id eq imageId) and (NoteImagesTable.noteId eq noteId) }
                 NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }
@@ -340,7 +340,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val username = call.username()
             val noteId = call.uuidParam() ?: return@post
 
-            val visible = transaction {
+            val visible = dbQuery {
                 NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()?.isVisibleTo(username) ?: false
             }
             if (!visible) {
@@ -365,10 +365,10 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             // The bytes are already streamed to a temp file; promote it to its final name.
             finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
-            val result = transaction {
+            val result = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 // append after the existing attachments (0-based index == current count)
                 val nextOrder = NoteAttachmentsTable.selectAll().where { NoteAttachmentsTable.noteId eq noteId }.count().toInt()
                 NoteAttachmentsTable.insert {
@@ -402,10 +402,10 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val noteId = call.uuidParam() ?: return@get
             val attachmentId = call.uuidParam("attachmentId") ?: return@get
 
-            val row = transaction {
+            val row = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 NoteAttachmentsTable.selectAll()
                     .where { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
                     .singleOrNull()
@@ -448,13 +448,13 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             val noteId = call.uuidParam() ?: return@delete
             val attachmentId = call.uuidParam("attachmentId") ?: return@delete
 
-            val outcome = transaction {
+            val outcome = dbQuery {
                 val note = NotesTable.selectAll().where { NotesTable.id eq noteId }.singleOrNull()
-                    ?: return@transaction null
-                if (!note.isVisibleTo(username)) return@transaction null
+                    ?: return@dbQuery null
+                if (!note.isVisibleTo(username)) return@dbQuery null
                 val attachment = NoteAttachmentsTable.selectAll()
                     .where { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
-                    .singleOrNull() ?: return@transaction null
+                    .singleOrNull() ?: return@dbQuery null
                 val filename = attachment[NoteAttachmentsTable.filename]
                 NoteAttachmentsTable.deleteWhere { (NoteAttachmentsTable.id eq attachmentId) and (NoteAttachmentsTable.noteId eq noteId) }
                 NotesTable.update({ NotesTable.id eq noteId }) { it[updatedAt] = Instant.now() }

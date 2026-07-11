@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.UsersTable
 import com.homebase.model.ChangePasswordRequest
 import com.homebase.model.ErrorResponse
@@ -14,7 +15,6 @@ import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 
 // Minimum length for a new password (#100). bcrypt has no practical maximum (long inputs
@@ -33,7 +33,7 @@ private val AVATAR_HUE_RANGE = 0..359
  */
 fun Route.userRoutes() {
     get("/users") {
-        val users = transaction {
+        val users = dbQuery {
             UsersTable.selectAll()
                 .orderBy(UsersTable.username, SortOrder.ASC)
                 .map { UserDto(it[UsersTable.username], it[UsersTable.avatarHue]) }
@@ -55,7 +55,7 @@ fun Route.userRoutes() {
             )
         }
         val username = call.username()
-        val updated = transaction {
+        val updated = dbQuery {
             UsersTable.update({ UsersTable.username eq username }) { it[avatarHue] = req.hue }
         }
         if (updated == 0) {
@@ -87,7 +87,7 @@ fun Route.userRoutes() {
             )
         }
         val username = call.username()
-        val storedHash = transaction {
+        val storedHash = dbQuery {
             UsersTable.selectAll().where { UsersTable.username eq username }
                 .singleOrNull()?.get(UsersTable.passwordHash)
         } ?: return@put call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "user not found"))
@@ -100,7 +100,7 @@ fun Route.userRoutes() {
         }
 
         val newHash = Passwords.hash(req.newPassword)
-        transaction {
+        dbQuery {
             UsersTable.update({ UsersTable.username eq username }) { it[passwordHash] = newHash }
         }
         call.respond(HttpStatusCode.NoContent)

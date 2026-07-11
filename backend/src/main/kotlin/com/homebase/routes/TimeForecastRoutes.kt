@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.model.BASE_TARGET_PERIOD
@@ -22,7 +23,6 @@ import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.exceptions.ExposedSQLException
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.LocalDate
 import java.util.UUID
 
@@ -57,7 +57,7 @@ private const val MAX_WEEKLY_HOURS = 168.0
 fun Route.workTargetRoutes() {
     route("/targets") {
         get {
-            val targets = transaction {
+            val targets = dbQuery {
                 TimeWorkTargetsTable.selectAll()
                     .orderBy(
                         TimeWorkTargetsTable.userId to SortOrder.ASC,
@@ -81,10 +81,10 @@ fun Route.workTargetRoutes() {
                 ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "validFrom must be YYYY-MM-DD"))
 
             val target: Any? = try {
-                transaction {
-                    if (!userExists(userId)) return@transaction null
+                dbQuery {
+                    if (!userExists(userId)) return@dbQuery null
                     ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
-                        ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
+                        ?: return@dbQuery ErrorResponse("NOT_FOUND", "Project not found")
 
                     // Everything below is scoped to the one period: a person's default
                     // project, hours sum and the invariant are all per-period.
@@ -102,7 +102,7 @@ fun Route.workTargetRoutes() {
                     // while hours remain is rejected; switching it (isDefault=true elsewhere)
                     // stays the way to change it.
                     if (req.isDefault == false && defaultProjectId == projectId && sumAfter > 0) {
-                        return@transaction ErrorResponse(
+                        return@dbQuery ErrorResponse(
                             "DEFAULT_REQUIRED",
                             "a default project is required while weekly hours are configured — set another project as default first",
                         )
@@ -183,11 +183,11 @@ fun Route.workTargetRoutes() {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "the base period already exists"))
             }
 
-            val result: Any? = transaction {
-                if (!userExists(userId)) return@transaction null
+            val result: Any? = dbQuery {
+                if (!userExists(userId)) return@dbQuery null
                 val rows = TimeWorkTargetsTable.selectAll().where { TimeWorkTargetsTable.userId eq userId }.toList()
                 if (rows.any { it[TimeWorkTargetsTable.validFrom] == validFrom }) {
-                    return@transaction ErrorResponse("PERIOD_EXISTS", "a period with this start date already exists")
+                    return@dbQuery ErrorResponse("PERIOD_EXISTS", "a period with this start date already exists")
                 }
                 // Seed from the latest period on/before the new start date.
                 val sourceDate = rows.map { it[TimeWorkTargetsTable.validFrom] }
@@ -231,7 +231,7 @@ fun Route.workTargetRoutes() {
             if (validFrom.toString() == BASE_TARGET_PERIOD) {
                 return@delete call.respond(HttpStatusCode.BadRequest, ErrorResponse("BASE_PERIOD", "the base period cannot be deleted"))
             }
-            val deleted = transaction {
+            val deleted = dbQuery {
                 TimeWorkTargetsTable.deleteWhere {
                     (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom)
                 }

@@ -1,5 +1,6 @@
 package com.homebase.time
 
+import com.homebase.db.dbQuery
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
 import com.homebase.db.CustomHolidaysTable
@@ -11,7 +12,6 @@ import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.UUID
@@ -101,9 +101,9 @@ internal fun stateFor(settings: List<ResultRow>, year: Int): String {
  */
 class TimeCreditService {
 
-    fun credits(from: LocalDate, to: LocalDate): List<TimeCredit> {
+    suspend fun credits(from: LocalDate, to: LocalDate): List<TimeCredit> {
         if (to.isBefore(from)) return emptyList()
-        return transaction {
+        return dbQuery {
             val users = UsersTable.selectAll()
                 .orderBy(UsersTable.createdAt, SortOrder.ASC)
                 .map { it[UsersTable.username] }
