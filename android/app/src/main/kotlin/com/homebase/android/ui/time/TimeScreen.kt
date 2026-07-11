@@ -32,11 +32,14 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -57,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
+import com.homebase.android.data.model.BASE_TARGET_PERIOD
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
@@ -88,6 +92,7 @@ import com.homebase.android.ui.theme.Hb
 import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -806,25 +811,56 @@ internal fun TargetsSheet(
     projects: List<ProjectDto>,
     targets: List<WorkTargetDto>,
     onSave: (List<TargetChange>) -> Unit,
+    onCreatePeriod: (String) -> Unit,
+    onDeletePeriod: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    fun targetFor(u: String, p: String) = targets.firstOrNull { it.userId == u && it.projectId == p }
-    fun defaultFor(u: String) = targets.firstOrNull { it.userId == u && it.isDefault }?.projectId ?: ""
+    // Effective-dated Wochensoll (#31 follow-up): the sheet edits one period at a time.
+    val today = LocalDate.now().toString()
+    val periods = targetPeriods(targets)
+    var selectedPeriod by remember { mutableStateOf(effectiveTargetPeriod(periods, today)) }
+    val latestTargets by rememberUpdatedState(targets)
+
+    fun targetFor(u: String, p: String) =
+        targets.firstOrNull { it.userId == u && it.projectId == p && it.validFrom == selectedPeriod }
+    fun defaultFor(u: String) =
+        targets.firstOrNull { it.userId == u && it.validFrom == selectedPeriod && it.isDefault }?.projectId ?: ""
+
+    fun cellsFor(tgts: List<WorkTargetDto>, period: String) =
+        users.associateWith { u ->
+            projects.associate { p ->
+                val h = tgts.firstOrNull { it.userId == u && it.projectId == p.id && it.validFrom == period }?.weeklyHours ?: 0.0
+                p.id to if (h > 0) Format.amount(h).replace('.', ',') else ""
+            }
+        }
+    fun defsFor(tgts: List<WorkTargetDto>, period: String) =
+        users.associateWith { u -> tgts.firstOrNull { it.userId == u && it.validFrom == period && it.isDefault }?.projectId ?: "" }
 
     // user → projectId → hours text ("7,5"); user → default projectId
     // ("" only for legacy data without one — hours > 0 enforce a default, #59)
-    var hours by remember {
-        mutableStateOf(
-            users.associateWith { u ->
-                projects.associate { p ->
-                    val h = targetFor(u, p.id)?.weeklyHours ?: 0.0
-                    p.id to if (h > 0) Format.amount(h).replace('.', ',') else ""
-                }
-            }
-        )
-    }
-    var defaults by remember { mutableStateOf(users.associateWith { defaultFor(it) }) }
+    var hours by remember { mutableStateOf(cellsFor(targets, selectedPeriod)) }
+    var defaults by remember { mutableStateOf(defsFor(targets, selectedPeriod)) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    // Re-seed the grid from the latest targets whenever the selected period changes
+    // (switching periods discards unsaved edits — same as the web editor remount). A
+    // targets refetch that leaves the selection untouched preserves in-progress edits.
+    LaunchedEffect(selectedPeriod) {
+        hours = cellsFor(latestTargets, selectedPeriod)
+        defaults = defsFor(latestTargets, selectedPeriod)
+    }
+    // After scheduling a period, switch to it only once the refetch has landed (so the
+    // grid re-seeds from the server-seeded values, not the pre-create empty set).
+    var pendingSelect by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pendingSelect) {
+        val ps = pendingSelect ?: return@LaunchedEffect
+        val before = latestTargets
+        snapshotFlow { latestTargets }.first { it !== before }
+        selectedPeriod = ps
+        pendingSelect = null
+    }
+    var showAddPeriod by remember { mutableStateOf(false) }
+    var showDeletePeriod by remember { mutableStateOf(false) }
 
     val errHoursRange = stringResource(R.string.time_targets_hours_range)
     val errPickDefault = stringResource(R.string.time_targets_pick_default)
@@ -843,6 +879,8 @@ internal fun TargetsSheet(
                 stringResource(R.string.action_save),
                 onClick = {
                     // validate every cell, then collect only the changed ones (mirrors the web modal)
+                    // The base period omits validFrom (backend default); scheduled periods carry it.
+                    val vf = selectedPeriod.takeIf { it != BASE_TARGET_PERIOD }
                     val changes = mutableListOf<TargetChange>()
                     for (u in users) {
                         var sumHours = 0.0
@@ -854,7 +892,7 @@ internal fun TargetsSheet(
                                 return@HbButton
                             }
                             sumHours += parsed
-                            var change = TargetChange(u, p.id)
+                            var change = TargetChange(u, p.id, validFrom = vf)
                             if (parsed != (targetFor(u, p.id)?.weeklyHours ?: 0.0)) {
                                 change = change.copy(weeklyHours = parsed)
                             }
@@ -884,6 +922,35 @@ internal fun TargetsSheet(
             style = HbType.meta,
             color = Hb.ink3,
         )
+
+        // Period selector — which validity period the grid edits (#31 follow-up).
+        val baseLabel = stringResource(R.string.time_period_base)
+        val fromTemplate = stringResource(R.string.time_period_from)
+        val periodLabel = { p: String -> if (p == BASE_TARGET_PERIOD) baseLabel else fromTemplate.format(formatTargetPeriod(p)) }
+        Text(stringResource(R.string.time_period_label), style = HbType.small, color = Hb.ink3)
+        SelectField(
+            value = periodLabel(selectedPeriod),
+            options = periods.map { periodLabel(it) to it },
+            onSelect = { selectedPeriod = it },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HbButton(
+                stringResource(R.string.time_period_add),
+                onClick = { showAddPeriod = true },
+                variant = HbButtonVariant.Secondary,
+                size = HbButtonSize.Sm,
+            )
+            if (selectedPeriod != BASE_TARGET_PERIOD) {
+                HbButton(
+                    stringResource(R.string.time_period_delete),
+                    onClick = { showDeletePeriod = true },
+                    variant = HbButtonVariant.Secondary,
+                    size = HbButtonSize.Sm,
+                )
+            }
+        }
+        Text(stringResource(R.string.time_period_hint), style = HbType.meta, color = Hb.ink3)
+
         if (projects.isEmpty()) {
             Text(stringResource(R.string.time_targets_create_project_first), style = HbType.meta, color = Hb.ink3)
         } else {
@@ -942,6 +1009,70 @@ internal fun TargetsSheet(
             }
         }
         error?.let { Text(it, style = HbType.meta, color = Hb.clay) }
+    }
+
+    if (showAddPeriod) {
+        AddPeriodDialog(
+            existing = periods,
+            onAdd = { iso -> onCreatePeriod(iso); pendingSelect = iso },
+            onDismiss = { showAddPeriod = false },
+        )
+    }
+    if (showDeletePeriod) {
+        val gone = selectedPeriod
+        HbConfirmDialog(
+            message = stringResource(R.string.time_period_delete_confirm, formatTargetPeriod(gone)),
+            confirmLabel = stringResource(R.string.time_period_delete),
+            onConfirm = {
+                showDeletePeriod = false
+                onDeletePeriod(gone)
+                selectedPeriod = effectiveTargetPeriod(periods.filter { it != gone }, today)
+            },
+            onDismiss = { showDeletePeriod = false },
+        )
+    }
+}
+
+// Wochensoll period helpers (#31 follow-up): the API omits validFrom for the base period,
+// but the Moshi DTO defaults it to BASE_TARGET_PERIOD, so every row carries a real value.
+private fun targetPeriods(targets: List<WorkTargetDto>): List<String> =
+    (targets.map { it.validFrom } + BASE_TARGET_PERIOD).distinct().sorted()
+
+/** The period in force on [today] (ISO): the latest start on/before it, else the base. */
+private fun effectiveTargetPeriod(periods: List<String>, today: String): String =
+    periods.filter { it <= today }.maxOrNull() ?: BASE_TARGET_PERIOD
+
+/** ISO date → dd.MM.yyyy. */
+private fun formatTargetPeriod(iso: String): String {
+    val d = LocalDate.parse(iso)
+    return "%02d.%02d.%04d".format(d.dayOfMonth, d.monthValue, d.year)
+}
+
+/** Date picker to schedule a new Wochensoll period; rejects the base date and duplicates. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddPeriodDialog(existing: List<String>, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
+    val pickerState = rememberDatePickerState()
+    var error by remember { mutableStateOf<String?>(null) }
+    val existsMsg = stringResource(R.string.time_period_exists)
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                val ms = pickerState.selectedDateMillis ?: return@TextButton onDismiss()
+                val iso = Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate().toString()
+                if (iso == BASE_TARGET_PERIOD || existing.contains(iso)) {
+                    error = existsMsg
+                } else {
+                    onAdd(iso)
+                    onDismiss()
+                }
+            }) { Text(stringResource(R.string.action_ok)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    ) {
+        DatePicker(state = pickerState)
+        error?.let { Text(it, style = HbType.meta, color = Hb.clay, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
     }
 }
 

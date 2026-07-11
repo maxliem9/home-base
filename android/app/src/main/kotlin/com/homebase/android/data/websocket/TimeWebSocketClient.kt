@@ -18,8 +18,10 @@ class TimeWebSocketClient(
         data class EntryCreated(val entry: TimeEntryDto) : WsEvent()
         data class EntryUpdated(val entry: TimeEntryDto) : WsEvent()
         data class EntryDeleted(val entry: TimeEntryDto) : WsEvent()
-        // Wochensoll changed (#31/#55) — clients refetch targets + forecast.
-        data class TargetUpdated(val target: WorkTargetDto) : WsEvent()
+        // Wochensoll changed (#31/#55) — clients refetch targets + forecast. Carries no
+        // payload: single-cell edits send the changed row, period create/delete send none,
+        // and the VM refetches the whole list either way (#31 follow-up).
+        data object TargetUpdated : WsEvent()
     }
 
     override val path = "/ws/time"
@@ -34,7 +36,7 @@ class TimeWebSocketClient(
             "ENTRY_CREATED" -> msg.entry?.let { WsEvent.EntryCreated(it) }
             "ENTRY_UPDATED" -> msg.entry?.let { WsEvent.EntryUpdated(it) }
             "ENTRY_DELETED" -> msg.entry?.let { WsEvent.EntryDeleted(it) }
-            "TARGET_UPDATED" -> msg.target?.let { WsEvent.TargetUpdated(it) }
+            "TARGET_UPDATED" -> WsEvent.TargetUpdated
             else -> null
         }
     }

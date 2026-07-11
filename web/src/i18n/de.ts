@@ -631,6 +631,21 @@ export const de = {
     defaultRequired: 'Bitte ein Standard-Projekt wählen',
     invalidHours: 'Stunden müssen zwischen 0 und 168 liegen',
     targetsFailed: 'Wochensoll konnte nicht gespeichert werden',
+    // Effective-dated Wochensoll-Zeiträume (#31)
+    periodLabel: 'Zeitraum',
+    periodBase: 'Seit Beginn',
+    periodFrom: 'Ab {date}',
+    periodHint: 'Frühere Wochen behalten den damals gültigen Wert. Ein neuer Zeitraum gilt ab der ISO-Woche, deren Montag am/nach dem Startdatum liegt.',
+    periodAdd: 'Neuer Zeitraum',
+    periodAddTitle: 'Wochensoll ab Datum ändern',
+    periodAddHint: 'Wähle das Startdatum. Der neue Zeitraum übernimmt die aktuell gültigen Stunden — passe sie danach an.',
+    periodValidFrom: 'Gültig ab',
+    periodDatePick: 'Bitte ein Startdatum wählen',
+    periodExists: 'Für dieses Datum gibt es bereits einen Zeitraum',
+    periodDelete: 'Zeitraum löschen',
+    periodDeleteTitle: 'Zeitraum löschen?',
+    periodDeleteConfirm: 'Der Zeitraum ab {date} wird entfernt; die betroffenen Wochen nutzen wieder den vorherigen Wert.',
+    periodScheduled: 'ab {date}: {hours} Std./Woche',
     weekLeft: 'noch {time}', // remaining hours toward the weekly target
     weekOver: '+{time}', // weekly target exceeded
     todayLeft: 'Heute noch {time}',

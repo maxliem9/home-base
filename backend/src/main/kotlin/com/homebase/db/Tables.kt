@@ -278,11 +278,15 @@ object TimeWorkTargetsTable : Table("time_work_targets") {
     // Contracted hours per ISO week on this project; 0 = no target (#31).
     val weeklyHours = double("weekly_hours")
     // The person's one default project — absence/holiday credits are booked here.
-    // Uniqueness per user is enforced app-side + by a partial index in V20.
+    // Uniqueness per user×period is enforced app-side + by a partial index (V20/V44).
     val isDefault = bool("is_default")
+    // Start of the period this row's hours apply to (#31 follow-up). A person may have
+    // several periods per project; the forecast picks the latest one whose valid_from is
+    // on/before the week's Monday. Legacy rows sit in the base period 1970-01-01 (V44).
+    val validFrom = date("valid_from")
     override val primaryKey = PrimaryKey(id)
 
-    init { uniqueIndex("time_work_targets_user_project_uniq", userId, projectId) }
+    init { uniqueIndex("time_work_targets_user_project_uniq", userId, projectId, validFrom) }
 }
 
 object AbsencesTable : Table("absences") {

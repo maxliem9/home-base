@@ -553,7 +553,8 @@ class TimeViewModelTest {
         coEvery { repository.getTargets() } returns Result.success(listOf(target))
         coEvery { repository.getForecast() } returns Result.success(forecast(listOf(userForecast("alice"))))
 
-        wsEvents.emit(TimeWebSocketClient.WsEvent.TargetUpdated(target))
+        // TARGET_UPDATED carries no payload now (single edits + period ops both refetch).
+        wsEvents.emit(TimeWebSocketClient.WsEvent.TargetUpdated)
         advanceUntilIdle()
 
         assertEquals(listOf(target), vm.uiState.value.targets)
@@ -711,6 +712,40 @@ class TimeViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Wochensoll konnte nicht gespeichert werden.", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `createTargetPeriod posts for each user then refetches targets and forecast`() = runTest {
+        coEvery { repository.createTargetPeriod(any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getTargets() } returns
+            Result.success(listOf(WorkTargetDto("alice", "p1", 40.0, true, "2026-09-01")))
+        coEvery { repository.getForecast() } returns Result.success(forecast(listOf(userForecast("alice"))))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.createTargetPeriod(listOf("alice", "bob"), "2026-09-01")
+        advanceUntilIdle()
+
+        coVerify { repository.createTargetPeriod("alice", "2026-09-01") }
+        coVerify { repository.createTargetPeriod("bob", "2026-09-01") }
+        assertEquals("2026-09-01", vm.uiState.value.targets.single().validFrom)
+    }
+
+    @Test
+    fun `deleteTargetPeriod deletes for each user then refetches`() = runTest {
+        coEvery { repository.deleteTargetPeriod(any(), any()) } returns Result.success(Unit)
+        coEvery { repository.getTargets() } returns Result.success(emptyList())
+        coEvery { repository.getForecast() } returns Result.success(forecast(emptyList()))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.deleteTargetPeriod(listOf("alice", "bob"), "2026-09-01")
+        advanceUntilIdle()
+
+        coVerify { repository.deleteTargetPeriod("alice", "2026-09-01") }
+        coVerify { repository.deleteTargetPeriod("bob", "2026-09-01") }
     }
 
     // --- Live-Tick (#64): forecastAt snapshot timestamp ---

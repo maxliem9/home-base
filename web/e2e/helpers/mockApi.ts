@@ -513,8 +513,12 @@ export class MockApi {
     const secondsOf = (e: TimeEntry) =>
       e.stoppedAt ? (e.durationSeconds ?? 0) : Math.max(0, Math.floor((now.getTime() - Date.parse(e.startedAt)) / 1000))
 
+    const mondayKey = ymdLocal(monday)
     const users: UserForecast[] = [...new Set(this.targets.map((t) => t.userId))].map((userId) => {
-      const own = this.targets.filter((t) => t.userId === userId)
+      // Use the period in force for this week (latest start ≤ the week's Monday).
+      const mine = this.targets.filter((t) => t.userId === userId)
+      const active = [...new Set(mine.map(periodOf))].sort().filter((p) => p <= mondayKey).pop() ?? BASE_TARGET_PERIOD
+      const own = mine.filter((t) => periodOf(t) === active)
       const weeklyTargetHours = own.reduce((s, t) => s + t.weeklyHours, 0)
       const weekTargetSeconds = Math.round(weeklyTargetHours * 3600)
       const inWeek = this.entries.filter((e) => {
@@ -1561,24 +1565,51 @@ export class MockApi {
     if (path.endsWith('/time/targets') && method === 'GET') {
       return this.json(route, this.targets)
     }
+    // Create a Wochensoll period (#31 follow-up), seeded from the effective one ≤ validFrom.
+    const periodMatch = path.match(/\/time\/targets\/([^/]+)\/periods$/)
+    if (periodMatch && method === 'POST') {
+      const userId = decodeURIComponent(periodMatch[1])
+      const vf = JSON.parse(req.postData() ?? '{}').validFrom as string
+      if (this.targets.some((x) => x.userId === userId && periodOf(x) === vf)) {
+        return this.json(route, { code: 'PERIOD_EXISTS' }, 409)
+      }
+      const mine = this.targets.filter((x) => x.userId === userId)
+      const src = [...new Set(mine.map(periodOf))].sort().filter((p) => p <= vf).pop()
+      const created = (src ? mine.filter((x) => periodOf(x) === src) : []).map((s) => ({
+        userId, projectId: s.projectId, weeklyHours: s.weeklyHours, isDefault: s.isDefault, validFrom: vf,
+      }))
+      this.targets.push(...created)
+      return this.jsonWithFrames(route, created, 201, 'time', [{ type: 'TARGET_UPDATED' }])
+    }
+    // Delete a whole period.
+    const periodDelMatch = path.match(/\/time\/targets\/([^/]+)\/periods\/([^/]+)$/)
+    if (periodDelMatch && method === 'DELETE') {
+      const userId = decodeURIComponent(periodDelMatch[1])
+      const vf = periodDelMatch[2]
+      const before = this.targets.length
+      this.targets = this.targets.filter((x) => !(x.userId === userId && periodOf(x) === vf))
+      if (this.targets.length === before) return this.json(route, { code: 'PERIOD_NOT_FOUND' }, 404)
+      return this.jsonWithFrames(route, '', 204, 'time', [{ type: 'TARGET_UPDATED' }])
+    }
     const targetMatch = path.match(/\/time\/targets\/([^/]+)\/([^/]+)$/)
     if (targetMatch && method === 'PUT') {
       const userId = decodeURIComponent(targetMatch[1])
       const projectId = targetMatch[2]
       const b = JSON.parse(req.postData() ?? '{}')
-      let tgt = this.targets.find((x) => x.userId === userId && x.projectId === projectId)
+      const vf = typeof b.validFrom === 'string' ? b.validFrom : BASE_TARGET_PERIOD
+      let tgt = this.targets.find((x) => x.userId === userId && x.projectId === projectId && periodOf(x) === vf)
       if (!tgt) {
-        tgt = { userId, projectId, weeklyHours: 0, isDefault: false }
+        tgt = { userId, projectId, weeklyHours: 0, isDefault: false, ...(vf !== BASE_TARGET_PERIOD ? { validFrom: vf } : {}) }
         this.targets.push(tgt)
       }
       if (typeof b.weeklyHours === 'number') tgt.weeklyHours = b.weeklyHours
       if (typeof b.isDefault === 'boolean') {
-        // one default per person — mirrors the backend's clear-then-set
-        if (b.isDefault) for (const o of this.targets) if (o.userId === userId) o.isDefault = false
+        // one default per person *and period* — mirrors the backend's clear-then-set
+        if (b.isDefault) for (const o of this.targets) if (o.userId === userId && periodOf(o) === vf) o.isDefault = false
         tgt.isDefault = b.isDefault
       }
-      // hours > 0 ⇒ a default must exist — mirrors the backend's auto-assign (#59)
-      if (tgt.weeklyHours > 0 && !this.targets.some((x) => x.userId === userId && x.isDefault)) {
+      // hours > 0 ⇒ a default must exist in this period — mirrors the backend's auto-assign (#59)
+      if (tgt.weeklyHours > 0 && !this.targets.some((x) => x.userId === userId && periodOf(x) === vf && x.isDefault)) {
         tgt.isDefault = true
       }
       return this.jsonWithFrames(route, tgt, 200, 'time', [{ type: 'TARGET_UPDATED', target: tgt }])
@@ -2082,6 +2113,10 @@ function ymdLocal(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
+
+// Wochensoll period helpers (#31 follow-up): the API omits validFrom for the base period.
+const BASE_TARGET_PERIOD = '1970-01-01'
+const periodOf = (t: WorkTarget): string => t.validFrom ?? BASE_TARGET_PERIOD
 
 export function absence(partial: Partial<Absence> & { id: string; userId: string; date: string }): Absence {
   return { type: 'URLAUB', half: null, ...partial }

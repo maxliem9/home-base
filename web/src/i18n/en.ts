@@ -632,6 +632,21 @@ export const en: Messages = {
     defaultRequired: 'Please choose a default project',
     invalidHours: 'Hours must be between 0 and 168',
     targetsFailed: 'Weekly target could not be saved',
+    // Effective-dated weekly-target periods (#31)
+    periodLabel: 'Period',
+    periodBase: 'From the start',
+    periodFrom: 'From {date}',
+    periodHint: 'Earlier weeks keep the value valid then. A new period applies from the ISO week whose Monday is on/after the start date.',
+    periodAdd: 'New period',
+    periodAddTitle: 'Change weekly target from a date',
+    periodAddHint: 'Pick the start date. The new period is seeded from the hours in force then — adjust them afterwards.',
+    periodValidFrom: 'Valid from',
+    periodDatePick: 'Please choose a start date',
+    periodExists: 'A period with this start date already exists',
+    periodDelete: 'Delete period',
+    periodDeleteTitle: 'Delete period?',
+    periodDeleteConfirm: 'The period from {date} will be removed; the affected weeks revert to the previous value.',
+    periodScheduled: 'from {date}: {hours} h/week',
     weekLeft: '{time} left', // remaining hours toward the weekly target
     weekOver: '+{time}', // weekly target exceeded
     todayLeft: '{time} left today',

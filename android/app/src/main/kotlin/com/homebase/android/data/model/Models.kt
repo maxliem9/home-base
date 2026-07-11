@@ -599,7 +599,10 @@ data class TimeWsMessage(
 
 // ---------- Wochensoll & Forecast (#31 / #55) ----------
 
-/** Weekly work-hour target of one person on one project. */
+/** The base Wochensoll period all legacy rows sit in; the always-present fallback. */
+const val BASE_TARGET_PERIOD = "1970-01-01"
+
+/** Weekly work-hour target of one person on one project, within one period (#31). */
 @JsonClass(generateAdapter = true)
 data class WorkTargetDto(
     val userId: String,
@@ -607,13 +610,26 @@ data class WorkTargetDto(
     val weeklyHours: Double,
     // the person's one default project: absence/holiday credits are booked here
     val isDefault: Boolean,
+    // Start of the period these hours apply to (ISO date). Omitted by the API for the
+    // base period (encodeDefaults=false) → a missing value means BASE_TARGET_PERIOD.
+    val validFrom: String = BASE_TARGET_PERIOD,
 )
 
-/** Partial upsert; absent fields keep their current (or initial: 0h / false) value. */
+/**
+ * Partial upsert of one target cell; absent fields keep their current (or initial:
+ * 0h / false) value. [validFrom] selects the period to edit (default: base period).
+ */
 @JsonClass(generateAdapter = true)
 data class UpsertWorkTargetRequest(
     val weeklyHours: Double? = null,
     val isDefault: Boolean? = null,
+    val validFrom: String? = null,
+)
+
+/** Create a new Wochensoll period for a person, seeded from the currently-effective one. */
+@JsonClass(generateAdapter = true)
+data class CreateTargetPeriodRequest(
+    val validFrom: String,
 )
 
 /**

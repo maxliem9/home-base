@@ -9,6 +9,7 @@ import com.homebase.android.data.model.SplitTimeEntryRequest
 import com.homebase.android.data.model.SplitTimeEntryResponse
 import com.homebase.android.data.model.StartTimerRequest
 import com.homebase.android.data.model.TimeForecastDto
+import com.homebase.android.data.model.CreateTargetPeriodRequest
 import com.homebase.android.data.model.UpsertWorkTargetRequest
 import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.model.StopTimerRequest
@@ -19,6 +20,7 @@ import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import kotlinx.coroutines.flow.Flow
+import kotlin.coroutines.cancellation.CancellationException
 import retrofit2.HttpException
 
 class TimeRepository(
@@ -92,8 +94,36 @@ class TimeRepository(
         projectId: String,
         weeklyHours: Double? = null,
         isDefault: Boolean? = null,
+        validFrom: String? = null,
     ): Result<WorkTargetDto> =
-        apiCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault)) }
+        apiCatching { api.upsertWorkTarget(userId, projectId, UpsertWorkTargetRequest(weeklyHours, isDefault, validFrom)) }
+
+    /**
+     * Schedule a new Wochensoll period (#31), seeded server-side from the effective one.
+     * A 409 (this person already has the period) is tolerated: the household-wide create
+     * loops over both people and one may already have it.
+     */
+    suspend fun createTargetPeriod(userId: String, validFrom: String): Result<Unit> =
+        tolerating(409) { api.createTargetPeriod(userId, CreateTargetPeriodRequest(validFrom)) }
+
+    /**
+     * Delete a whole Wochensoll period for a person. A 404 (no such period) is tolerated:
+     * only one person may have configured the period the household-wide delete targets.
+     */
+    suspend fun deleteTargetPeriod(userId: String, validFrom: String): Result<Unit> =
+        tolerating(404) { api.deleteTargetPeriod(userId, validFrom) }
+
+    /** apiCatching that also maps an HTTP [tolerated] status to success (period create/delete). */
+    private suspend fun tolerating(tolerated: Int, block: suspend () -> Unit): Result<Unit> = try {
+        block()
+        Result.success(Unit)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: HttpException) {
+        if (e.code() == tolerated) Result.success(Unit) else Result.failure(mapApiError(e))
+    } catch (e: Throwable) {
+        Result.failure(mapApiError(e))
+    }
 
     /**
      * Download the server-rendered CSV export of completed entries as raw bytes

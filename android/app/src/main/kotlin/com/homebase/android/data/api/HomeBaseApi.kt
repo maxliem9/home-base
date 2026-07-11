@@ -307,6 +307,19 @@ interface HomeBaseApi {
         @Body request: UpsertWorkTargetRequest,
     ): WorkTargetDto
 
+    // Effective-dated Wochensoll periods (#31 follow-up): schedule a change from a date on.
+    @POST("time/targets/{userId}/periods")
+    suspend fun createTargetPeriod(
+        @Path("userId") userId: String,
+        @Body request: CreateTargetPeriodRequest,
+    ): List<WorkTargetDto>
+
+    @DELETE("time/targets/{userId}/periods/{validFrom}")
+    suspend fun deleteTargetPeriod(
+        @Path("userId") userId: String,
+        @Path("validFrom") validFrom: String,
+    )
+
     // CSV export of completed entries (text/csv, raw bytes); optional date-range + project filter.
     // `from`/`to` are ISO-8601 instants, `project_id` a UUID — same filters as the entry list.
     @GET("time/export.csv")
