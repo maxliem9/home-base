@@ -1,6 +1,7 @@
 package com.homebase.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class ErrorResponse(val code: String, val message: String)
@@ -203,8 +204,24 @@ data class UpdateTodoRequest(
     val recurrence: RecurrenceDto? = null
 )
 
+/**
+ * Generischer WebSocket-Sync-Umschlag für **alle** Echtzeit-Kanäle (Issue #552).
+ *
+ * Ersetzt die früheren ~10 strukturgleichen Envelope-DTOs (WsMessage,
+ * TodoListWsMessage, ShoppingWsMessage, NoteWsMessage, RecipeWsMessage,
+ * MealPlanWsMessage …). Das Wire-Format `{"type":…,"payload":…}` bleibt
+ * byte-identisch: [payload] ist ein bereits über [appJson][com.homebase.plugins.appJson]
+ * serialisiertes [JsonElement], damit die verschachtelte Payload dieselbe
+ * kompakte Form (encodeDefaults=false) behält wie zuvor. Ist [payload] `null`,
+ * wird der Key durch encodeDefaults=false weggelassen → `{"type":…}`
+ * (die frühere type-only-Form von MealPlan/Absence/Event).
+ *
+ * Broadcast ausschließlich über [com.homebase.ws.broadcastSync] (nutzt appJson,
+ * Konvention #134). **Ausnahme:** [TimeWsMessage] bleibt bestehen — sie hat ein
+ * abweichendes Wire-Format (`entry`/`project`/`target` statt `payload`).
+ */
 @Serializable
-data class WsMessage(val type: String, val payload: TodoDto? = null)
+data class SyncEnvelope(val type: String, val payload: JsonElement? = null)
 
 @Serializable
 data class TodoListDto(
@@ -227,8 +244,6 @@ data class UpdateTodoListRequest(
     val visibility: String? = null
 )
 
-@Serializable
-data class TodoListWsMessage(val type: String, val payload: TodoListDto? = null)
 
 @Serializable
 data class CreateSubtaskRequest(val title: String)
@@ -290,8 +305,6 @@ data class UpdateShoppingItemRequest(
     val note: String? = null
 )
 
-@Serializable
-data class ShoppingWsMessage(val type: String, val payload: ShoppingItemDto? = null)
 
 /** One ingredient line for [BatchAddShoppingRequest] — amount is already scaled by the client. */
 @Serializable
@@ -339,8 +352,6 @@ data class UpdateShoppingListRequest(
     val ownCategories: Boolean? = null,
 )
 
-@Serializable
-data class ShoppingListWsMessage(val type: String, val payload: ShoppingListDto? = null)
 
 // ---------- Shopping categories (editable catalog, #411) ----------
 // The grocery category LIST moved from the hardcoded GroceryCatalog into shopping_categories so the
@@ -372,8 +383,6 @@ data class UpdateShoppingCategoryRequest(
     val sortOrder: Int? = null,
 )
 
-@Serializable
-data class ShoppingCategoryWsMessage(val type: String, val payload: ShoppingCategoryDto? = null)
 
 // ---------- Shopping category rules (editable auto-resolve dictionary, #411 PR B) ----------
 // Maps a written item name → category key + emoji that newly added items auto-fill. Keyed by the
@@ -397,8 +406,6 @@ data class UpsertCategoryRuleRequest(
     val icon: String? = null,
 )
 
-@Serializable
-data class ShoppingCategoryRuleWsMessage(val type: String, val payload: ShoppingCategoryRuleDto? = null)
 
 // ---------- Shopping templates (#215) ----------
 // A named "standard list": a saved set of item names the household re-adds for the recurring
@@ -441,8 +448,6 @@ data class UpdateShoppingTemplateRequest(
     val items: List<TemplateItemInput>? = null
 )
 
-@Serializable
-data class ShoppingTemplateWsMessage(val type: String, val payload: ShoppingTemplateDto? = null)
 
 @Serializable
 data class NoteImageDto(
@@ -508,8 +513,6 @@ data class UpdateNoteRequest(
     val visibility: String? = null
 )
 
-@Serializable
-data class NoteWsMessage(val type: String, val payload: NoteDto? = null)
 
 @Serializable
 data class ProjectDto(
@@ -803,8 +806,6 @@ data class UpdateRecipeRequest(
     val steps: List<RecipeStepInput>? = null
 )
 
-@Serializable
-data class RecipeWsMessage(val type: String, val payload: RecipeDto? = null)
 
 // --- URL-Import (schema.org/Recipe JSON-LD), Issue #430 -----------------------------------
 // Request body for POST /recipes/import.
@@ -858,9 +859,6 @@ data class MealPlanEntryDto(
 @Serializable
 data class SetMealPlanRequest(val recipeId: String? = null, val dishTitle: String? = null, val servings: Int? = null)
 
-/** Any meal-plan mutation broadcasts this; clients refetch the visible range (like absence). */
-@Serializable
-data class MealPlanWsMessage(val type: String)
 
 // ---------- Kalender-Events / Termine (#434) ----------
 
@@ -903,9 +901,6 @@ data class CalendarEventRequest(
     val notes: String? = null,
 )
 
-/** Any event mutation broadcasts this; clients refetch the visible range (like meal-plan/absence). */
-@Serializable
-data class CalendarEventWsMessage(val type: String)
 
 // ---------- Abwesenheit / Familienkalender ----------
 
@@ -1049,5 +1044,3 @@ data class UpdateAbsSettingsRequest(
     val kindKrankCap: Int? = null
 )
 
-@Serializable
-data class AbsenceWsMessage(val type: String)

@@ -8,15 +8,11 @@ import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import com.homebase.model.*
 import com.homebase.recurrence.Recurrence
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
@@ -537,16 +533,7 @@ fun Route.todoRoutes() {
         }
     }
 
-    webSocket("/ws/todos") {
-        WsSessionManager.add(TODO_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(TODO_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(TODO_WS_CHANNEL)
 }
 
 /**
@@ -621,7 +608,7 @@ private fun todoWithVisibility(todoId: UUID): TodoMutation {
 
 private suspend fun broadcastTodoCreate(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_CREATED", todo, TodoDto.serializer())
     }
 }
 
@@ -636,12 +623,12 @@ internal suspend fun broadcastTodoUpdate(wasShared: Boolean, isShared: Boolean, 
         wasShared -> "TODO_DELETED"  // shared -> private: remove it for the other client
         else -> return               // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage(type, todo)))
+    WsSessionManager.broadcastSync(TODO_WS_CHANNEL, type, todo, TodoDto.serializer())
 }
 
 private suspend fun broadcastTodoDelete(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_DELETED", todo)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_DELETED", todo, TodoDto.serializer())
     }
 }
 
@@ -650,7 +637,7 @@ private suspend fun broadcastTodoSubtaskChange(mutation: TodoMutation) =
 
 private suspend fun broadcastListCreate(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_CREATED", list)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_LIST_CREATED", list, TodoListDto.serializer())
     }
 }
 
@@ -667,20 +654,20 @@ private suspend fun broadcastListUpdate(
         wasShared -> "TODO_LIST_DELETED"              // shared -> private: other client drops list + todos
         else -> return                                // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage(type, list)))
+    WsSessionManager.broadcastSync(TODO_WS_CHANNEL, type, list, TodoListDto.serializer())
     // private -> shared: the TODO_LIST_CREATED above only carries list metadata. The list's todos were
     // never broadcast while it was private, so the other client would render it empty until a manual
     // reload. Replay each as a TODO_CREATED upsert (the frontend handler is idempotent). See issue #75.
     if (isShared && !wasShared) {
         revealedTodos.forEach { todo ->
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
+            WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_CREATED", todo, TodoDto.serializer())
         }
     }
 }
 
 private suspend fun broadcastListDelete(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_DELETED", list)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_LIST_DELETED", list, TodoListDto.serializer())
     }
 }
 

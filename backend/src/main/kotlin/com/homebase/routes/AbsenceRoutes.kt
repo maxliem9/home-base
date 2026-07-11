@@ -8,16 +8,12 @@ import com.homebase.db.KitaClosuresTable
 import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.UsersTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.LocalDate
@@ -43,7 +39,7 @@ private val SETTINGS_YEAR_RANGE = 2000..2200
 
 fun Route.absenceRoutes() {
     suspend fun notify() =
-        WsSessionManager.broadcast(ABSENCE_WS_CHANNEL, appJson.encodeToString(AbsenceWsMessage("ABSENCE_CHANGED")))
+        WsSessionManager.broadcastSync(ABSENCE_WS_CHANNEL, "ABSENCE_CHANGED")
 
     route("/absence") {
 
@@ -83,16 +79,7 @@ fun Route.absenceRoutes() {
         settingsRoutes(::notify)
     }
 
-    webSocket("/ws/absence") {
-        WsSessionManager.add(ABSENCE_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(ABSENCE_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(ABSENCE_WS_CHANNEL)
 }
 
 private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {

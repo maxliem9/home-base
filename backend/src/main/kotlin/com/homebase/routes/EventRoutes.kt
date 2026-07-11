@@ -3,16 +3,12 @@ package com.homebase.routes
 import com.homebase.db.dbQuery
 import com.homebase.db.CalendarEventsTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.Instant
@@ -37,7 +33,7 @@ private val EVENT_TYPES = setOf("APPOINTMENT", "BIRTHDAY", "VET", "OTHER")
 
 fun Route.eventRoutes() {
     suspend fun notify() =
-        WsSessionManager.broadcast(EVENTS_WS_CHANNEL, appJson.encodeToString(CalendarEventWsMessage("EVENT_CHANGED")))
+        WsSessionManager.broadcastSync(EVENTS_WS_CHANNEL, "EVENT_CHANGED")
 
     route("/events") {
 
@@ -124,16 +120,7 @@ fun Route.eventRoutes() {
         }
     }
 
-    webSocket("/ws/events") {
-        WsSessionManager.add(EVENTS_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(EVENTS_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(EVENTS_WS_CHANNEL)
 }
 
 /** A validated, normalised event ready to persist. */

@@ -4,16 +4,12 @@ import com.homebase.db.dbQuery
 import com.homebase.db.MealPlanEntriesTable
 import com.homebase.db.RecipesTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.Instant
@@ -36,7 +32,7 @@ private const val MAX_DISH_TITLE_LEN = 200
 
 fun Route.mealPlanRoutes() {
     suspend fun notify() =
-        WsSessionManager.broadcast(MEAL_PLAN_WS_CHANNEL, appJson.encodeToString(MealPlanWsMessage("MEAL_PLAN_CHANGED")))
+        WsSessionManager.broadcastSync(MEAL_PLAN_WS_CHANNEL, "MEAL_PLAN_CHANGED")
 
     route("/meal-plan") {
 
@@ -122,16 +118,7 @@ fun Route.mealPlanRoutes() {
         }
     }
 
-    webSocket("/ws/meal-plan") {
-        WsSessionManager.add(MEAL_PLAN_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(MEAL_PLAN_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(MEAL_PLAN_WS_CHANNEL)
 }
 
 // Must be selected from (MealPlanEntriesTable leftJoin RecipesTable). For free-text entries the

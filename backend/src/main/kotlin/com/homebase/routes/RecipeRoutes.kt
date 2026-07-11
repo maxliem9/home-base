@@ -6,17 +6,13 @@ import com.homebase.db.RecipeImagesTable
 import com.homebase.db.RecipeStepsTable
 import com.homebase.db.RecipesTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.LocalFileContent
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import kotlinx.coroutines.Dispatchers
@@ -177,7 +173,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 RecipesTable.selectAll().where { RecipesTable.id eq id }.single().toRecipeDto()
             }
 
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_CREATED", recipe)))
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_CREATED", recipe, RecipeDto.serializer())
             call.respond(HttpStatusCode.Created, recipe)
         }
 
@@ -228,7 +224,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 return@put
             }
 
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
             call.respond(recipe)
         }
 
@@ -253,7 +249,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             }
             val (deleted, files) = outcome
             files.forEach { deleteImageFile(imageConfig, it) }
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_DELETED", deleted)))
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_DELETED", deleted, RecipeDto.serializer())
             call.respond(HttpStatusCode.NoContent)
         }
 
@@ -322,7 +318,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val (recipe, oldFiles) = outcome
             oldFiles.forEach { deleteImageFile(imageConfig, it) }
 
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
             call.respond(HttpStatusCode.Created, recipe)
         }
 
@@ -389,21 +385,12 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             }
             val (filename, recipe) = outcome
             deleteImageFile(imageConfig, filename)
-            WsSessionManager.broadcast(RECIPES_WS_CHANNEL, appJson.encodeToString(RecipeWsMessage("RECIPE_UPDATED", recipe)))
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
             call.respond(recipe)
         }
     }
 
-    webSocket("/ws/recipes") {
-        WsSessionManager.add(RECIPES_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(RECIPES_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(RECIPES_WS_CHANNEL)
 }
 
 // --- URL import fetch + SSRF guard (Issue #430) ---------------------------------------------

@@ -4,13 +4,11 @@ import com.homebase.db.dbQuery
 import com.homebase.db.ShoppingTemplateItemsTable
 import com.homebase.db.ShoppingTemplatesTable
 import com.homebase.model.*
-import com.homebase.plugins.appJson
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.Instant
@@ -29,7 +27,7 @@ private const val SHOPPING_WS_CHANNEL = "shopping"
 
 fun Route.shoppingTemplateRoutes() {
     suspend fun broadcast(type: String, template: ShoppingTemplateDto) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingTemplateWsMessage(type, template)))
+        WsSessionManager.broadcastSync(SHOPPING_WS_CHANNEL, type, template, ShoppingTemplateDto.serializer())
 
     route("/shopping/templates") {
         // All templates with their embedded items. Newest first (like the recipe/list reads use a

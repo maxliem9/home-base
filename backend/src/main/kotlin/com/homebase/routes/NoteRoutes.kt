@@ -5,17 +5,13 @@ import com.homebase.db.NoteAttachmentsTable
 import com.homebase.db.NoteImagesTable
 import com.homebase.db.NotesTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.server.application.*
 import io.ktor.http.*
 import io.ktor.server.http.content.LocalFileContent
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.nio.file.Files
@@ -187,7 +183,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
             files.forEach { deleteImageFile(imageConfig, it) }
             // only notify the other client about notes it could actually see
             if (deleted.visibility == VISIBILITY_SHARED) {
-                WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage("NOTE_DELETED", deleted)))
+                WsSessionManager.broadcastSync(NOTES_WS_CHANNEL, "NOTE_DELETED", deleted, NoteDto.serializer())
             }
             call.respond(HttpStatusCode.NoContent)
         }
@@ -471,16 +467,7 @@ fun Route.noteRoutes(imageConfig: ImageUploadConfig) {
         }
     }
 
-    webSocket("/ws/notes") {
-        WsSessionManager.add(NOTES_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(NOTES_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(NOTES_WS_CHANNEL)
 }
 
 private sealed interface NoteUpdateResult {
@@ -503,7 +490,7 @@ private fun ResultRow.isVisibleTo(username: String): Boolean =
  */
 private suspend fun broadcastCreate(note: NoteDto) {
     if (note.visibility == VISIBILITY_SHARED) {
-        WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage("NOTE_CREATED", note)))
+        WsSessionManager.broadcastSync(NOTES_WS_CHANNEL, "NOTE_CREATED", note, NoteDto.serializer())
     }
 }
 
@@ -513,7 +500,7 @@ private suspend fun broadcastUpdate(wasShared: Boolean, note: NoteDto) {
         wasShared -> "NOTE_DELETED"                                 // shared -> private: remove it
         else -> return                                              // private -> private: nothing to share
     }
-    WsSessionManager.broadcast(NOTES_WS_CHANNEL, appJson.encodeToString(NoteWsMessage(type, note)))
+    WsSessionManager.broadcastSync(NOTES_WS_CHANNEL, type, note, NoteDto.serializer())
 }
 
 private fun encodeTags(tags: List<String>?): String =

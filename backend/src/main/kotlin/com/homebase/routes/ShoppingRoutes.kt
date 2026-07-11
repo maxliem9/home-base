@@ -9,16 +9,12 @@ import com.homebase.db.ShoppingListsTable
 import com.homebase.model.*
 import com.homebase.shopping.GroceryCatalog
 import com.homebase.shopping.ShoppingCatalog
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import java.time.Instant
@@ -28,16 +24,16 @@ private const val SHOPPING_WS_CHANNEL = "shopping"
 
 fun Route.shoppingRoutes() {
     suspend fun broadcastItem(type: String, item: ShoppingItemDto) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingWsMessage(type, item)))
+        WsSessionManager.broadcastSync(SHOPPING_WS_CHANNEL, type, item, ShoppingItemDto.serializer())
 
     suspend fun broadcastList(type: String, list: ShoppingListDto) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingListWsMessage(type, list)))
+        WsSessionManager.broadcastSync(SHOPPING_WS_CHANNEL, type, list, ShoppingListDto.serializer())
 
     suspend fun broadcastCategory(type: String, category: ShoppingCategoryDto?) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingCategoryWsMessage(type, category)))
+        WsSessionManager.broadcastSync(SHOPPING_WS_CHANNEL, type, category, ShoppingCategoryDto.serializer())
 
     suspend fun broadcastRule(type: String, rule: ShoppingCategoryRuleDto?) =
-        WsSessionManager.broadcast(SHOPPING_WS_CHANNEL, appJson.encodeToString(ShoppingCategoryRuleWsMessage(type, rule)))
+        WsSessionManager.broadcastSync(SHOPPING_WS_CHANNEL, type, rule, ShoppingCategoryRuleDto.serializer())
 
     route("/shopping") {
         // ---- Lists (registered before /{id} so the static segment wins) ----
@@ -587,16 +583,7 @@ fun Route.shoppingRoutes() {
         }
     }
 
-    webSocket("/ws/shopping") {
-        WsSessionManager.add(SHOPPING_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(SHOPPING_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(SHOPPING_WS_CHANNEL)
 }
 
 private fun ResultRow.toListDto() = ShoppingListDto(

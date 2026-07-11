@@ -1,9 +1,8 @@
 package com.homebase.routes
 
-import com.homebase.db.dbQuery
-import org.jetbrains.exposed.sql.transactions.transaction
 import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeEntriesTable
+import com.homebase.db.dbQuery
 import com.homebase.model.*
 import com.homebase.time.TimeCreditService
 import com.homebase.ws.WsSessionManager
@@ -17,6 +16,7 @@ import io.ktor.websocket.*
 import com.homebase.plugins.appJson
 import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.vendors.ForUpdateOption
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
