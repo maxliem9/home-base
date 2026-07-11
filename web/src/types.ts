@@ -194,6 +194,21 @@ export interface TimeForecast {
   users?: UserForecast[]
 }
 
+// One absence/holiday work credit over a date range (GET /api/v1/time/credits):
+// the person's daily target booked to their default project on a day they were
+// absent or that was a holiday. Lets historical views (per-week breakdown) credit
+// sick/vacation/holiday hours the same way the live Wochenbilanz does.
+export interface TimeCredit {
+  userId: string
+  /** local date (server zone), YYYY-MM-DD */
+  date: string
+  /** the person's default project — credits always land there */
+  projectId: string
+  seconds: number
+  /** KRANK | URLAUB | KIND_KRANK | FEIERTAG */
+  type: string
+}
+
 // LUNCH was dropped (collapsed into DINNER) — see backend migration V17.
 export type RecipeCategory = 'BREAKFAST' | 'DINNER' | 'SNACK' | 'DESSERT' | 'DRINK'
 

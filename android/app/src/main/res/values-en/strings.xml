@@ -386,6 +386,8 @@
     <string name="time_today_over">%1$s over target today</string>
     <string name="time_today_reached">Daily target reached</string>
     <string name="time_credited">· %1$s credited</string>
+    <!-- credited hours on a week with no tracked entries (no leading separator) -->
+    <string name="time_credited_only">%1$s credited</string>
     <string name="time_section_projects">Projects</string>
     <string name="time_show_active">Active</string>
     <string name="time_show_archive">Archive</string>

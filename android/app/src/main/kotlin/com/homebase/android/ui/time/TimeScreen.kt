@@ -58,6 +58,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homebase.android.R
 import com.homebase.android.data.model.ProjectDto
+import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.model.UserForecastDto
@@ -362,6 +363,7 @@ fun TimeScreen(
             ProjectDetailSheet(
                 project = detailProject,
                 entries = entriesByProject[detailProject.id].orEmpty(),
+                credits = state.credits,
                 isRunning = state.running?.projectId == detailProject.id,
                 onDelete = { requestDelete(it) },
                 onEdit = { requestEdit(it) },
@@ -1670,6 +1672,7 @@ private fun TimeField(value: LocalTime, onChange: (LocalTime) -> Unit) {
 private fun ProjectDetailSheet(
     project: ProjectDto,
     entries: List<TimeEntryDto>,
+    credits: List<TimeCreditDto>,
     isRunning: Boolean,
     onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
@@ -1677,26 +1680,37 @@ private fun ProjectDetailSheet(
     onDismiss: () -> Unit,
 ) {
     val finished = remember(entries) { entries.filter { it.stoppedAt != null } }
-    val totalSeconds = remember(finished) { sumSeconds(finished) }
+    // Absence/holiday credits that landed on THIS project — only ever the default project
+    // of whoever was absent. Folded into the totals/weeks so sick/vacation/holiday hours
+    // count in the historical timesheet, not just the live Wochenbilanz (#31).
+    val projCredits = remember(credits, project.id) { credits.filter { it.projectId == project.id } }
+    val recordedTotal = remember(finished) { sumSeconds(finished) }
+    val creditedTotal = remember(projCredits) { projCredits.sumOf { it.seconds } }
+    val totalSeconds = recordedTotal + creditedTotal
     val count = finished.size
-    val avgSeconds = if (count > 0) totalSeconds / count else 0L
+    // Ø per entry stays recorded-only — credits have no entry to average over.
+    val avgSeconds = if (count > 0) recordedTotal / count else 0L
 
     val today = LocalDate.now()
     val thisWeekStart = today.with(DayOfWeek.MONDAY)
-    val thisWeekSeconds = remember(finished) {
-        finished.filter { weekStartOf(it.startedAt) == thisWeekStart }.let { sumSeconds(it) }
+    val thisWeekSeconds = remember(finished, projCredits, thisWeekStart) {
+        val recorded = finished.filter { weekStartOf(it.startedAt) == thisWeekStart }.let { sumSeconds(it) }
+        val credited = projCredits
+            .filter { runCatching { LocalDate.parse(it.date) }.getOrNull()?.with(DayOfWeek.MONDAY) == thisWeekStart }
+            .sumOf { it.seconds }
+        recorded + credited
     }
 
-    // Per-user totals.
-    val byUser = remember(finished) {
-        finished.groupBy { it.userId }
-            .mapValues { (_, list) -> sumSeconds(list) }
-            .toList()
-            .sortedByDescending { it.second }
+    // Per-user totals (recorded + credited).
+    val byUser = remember(finished, projCredits) {
+        val m = LinkedHashMap<String, Long>()
+        finished.forEach { m[it.userId] = (m[it.userId] ?: 0L) + Format.entrySeconds(it.startedAt, it.stoppedAt) }
+        projCredits.forEach { m[it.userId] = (m[it.userId] ?: 0L) + it.seconds }
+        m.toList().sortedByDescending { it.second }
     }
 
-    // Weekly aggregation: Monday -> (per-user seconds, entry count).
-    val weeks = remember(finished) { buildWeeks(finished) }
+    // Weekly aggregation: Monday -> (per-user seconds, entry count, credited).
+    val weeks = remember(finished, projCredits) { buildWeekStats(finished, projCredits) }
     val busiestWeek = weeks.maxOfOrNull { it.totalSeconds } ?: 0L
 
     val projectColor = Format.parseColor(project.color)
@@ -1854,44 +1868,20 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
             val remaining = (1f - scale).coerceIn(0f, 1f)
             if (remaining > 0f) Spacer(Modifier.weight(remaining))
         }
-        Text(pluralStringResource(R.plurals.time_week_entries, week.count, week.count), style = HbType.small, color = Hb.ink3)
+        // entry count + (if any) credited absence/holiday hours — mirrors web's sublabel
+        val entriesText = if (week.count > 0) pluralStringResource(R.plurals.time_week_entries, week.count, week.count) else ""
+        val creditedText = if (week.creditedSeconds > 0) {
+            val credited = Format.durationLong(week.creditedSeconds)
+            if (week.count > 0) " " + stringResource(R.string.time_credited, credited)
+            else stringResource(R.string.time_credited_only, credited)
+        } else ""
+        Text(entriesText + creditedText, style = HbType.small, color = Hb.ink3)
     }
 }
 
 // ---------------------------------------------------------------------------
 // Weekly aggregation helpers
 // ---------------------------------------------------------------------------
-
-private data class WeekStat(
-    val weekStart: LocalDate,
-    val byUser: List<Pair<String, Long>>,
-    val totalSeconds: Long,
-    val count: Int,
-)
-
-/** Build week stats (Monday-anchored) for weeks that have entries, newest first, max 6. */
-private fun buildWeeks(entries: List<TimeEntryDto>): List<WeekStat> {
-    val byWeek = LinkedHashMap<LocalDate, MutableList<TimeEntryDto>>()
-    entries.forEach { entry ->
-        val ws = weekStartOf(entry.startedAt) ?: return@forEach
-        byWeek.getOrPut(ws) { mutableListOf() }.add(entry)
-    }
-    return byWeek.entries
-        .map { (weekStart, list) ->
-            val perUser = list.groupBy { it.userId }
-                .mapValues { (_, l) -> sumSeconds(l) }
-                .toList()
-                .sortedByDescending { it.second }
-            WeekStat(
-                weekStart = weekStart,
-                byUser = perUser,
-                totalSeconds = sumSeconds(list),
-                count = list.size,
-            )
-        }
-        .sortedByDescending { it.weekStart }
-        .take(6)
-}
 
 private val DETAIL_ZONE: ZoneId get() = ZoneId.systemDefault()
 

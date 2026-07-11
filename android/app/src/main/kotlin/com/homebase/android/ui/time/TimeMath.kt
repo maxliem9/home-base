@@ -2,6 +2,7 @@ package com.homebase.android.ui.time
 
 import androidx.annotation.StringRes
 import com.homebase.android.R
+import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.ui.util.Format
@@ -177,4 +178,71 @@ fun checkSplit(startedAtIso: String, stoppedAtIso: String?, splitAt: Instant, br
         return SplitCheck.Invalid(R.string.time_split_err_break_overrun)
     }
     return SplitCheck.Valid(splitAt, breakMinutes, secondStart)
+}
+
+// ---------------------------------------------------------------------------
+// Projekt-Detail per-week aggregation (#31). Mirrors web's ProjectDetail: recorded
+// entries plus absence/holiday credits (sick/vacation/holiday hours booked to the
+// default project) folded into each week's total, per-user bar and a credited line.
+// `count` stays entry-only — a credit is not a tracked entry.
+// ---------------------------------------------------------------------------
+
+/** One week's stats for the project detail; [creditedSeconds] is the part of
+ *  [totalSeconds] that came from absences/holidays (not from tracked entries). */
+data class WeekStat(
+    val weekStart: LocalDate,
+    val byUser: List<Pair<String, Long>>,
+    val totalSeconds: Long,
+    val count: Int,
+    val creditedSeconds: Long = 0,
+)
+
+/**
+ * Build Monday-anchored week stats for a project, newest first, capped at [maxWeeks].
+ * [entries] should be the project's finished entries; [credits] the project's absence/
+ * holiday credits (already filtered to this project — they only ever land on someone's
+ * default project). A week that was entirely absent (credits, no entries) still appears.
+ */
+fun buildWeekStats(
+    entries: List<TimeEntryDto>,
+    credits: List<TimeCreditDto>,
+    zone: ZoneId = ZoneId.systemDefault(),
+    maxWeeks: Int = 6,
+): List<WeekStat> {
+    class Acc {
+        var total = 0L
+        var count = 0
+        var credited = 0L
+        val byUser = LinkedHashMap<String, Long>()
+        fun add(user: String, seconds: Long) { byUser[user] = (byUser[user] ?: 0L) + seconds }
+    }
+
+    val byWeek = LinkedHashMap<LocalDate, Acc>()
+    for (e in entries) {
+        val ws = Format.parseInstant(e.startedAt)?.atZone(zone)?.toLocalDate()?.with(DayOfWeek.MONDAY) ?: continue
+        val secs = Format.entrySeconds(e.startedAt, e.stoppedAt)
+        val acc = byWeek.getOrPut(ws) { Acc() }
+        acc.total += secs
+        acc.count += 1
+        acc.add(e.userId, secs)
+    }
+    for (c in credits) {
+        val ws = runCatching { LocalDate.parse(c.date) }.getOrNull()?.with(DayOfWeek.MONDAY) ?: continue
+        val acc = byWeek.getOrPut(ws) { Acc() }
+        acc.total += c.seconds
+        acc.credited += c.seconds
+        acc.add(c.userId, c.seconds)
+    }
+    return byWeek.entries
+        .map { (ws, acc) ->
+            WeekStat(
+                weekStart = ws,
+                byUser = acc.byUser.toList().sortedByDescending { it.second },
+                totalSeconds = acc.total,
+                count = acc.count,
+                creditedSeconds = acc.credited,
+            )
+        }
+        .sortedByDescending { it.weekStart }
+        .take(maxWeeks)
 }

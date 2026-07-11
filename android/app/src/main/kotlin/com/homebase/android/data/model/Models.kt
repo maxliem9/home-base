@@ -657,6 +657,24 @@ data class ProjectForecastDto(
     val deltaSeconds: Long,
 )
 
+/**
+ * One absence/holiday work credit over a date range (GET /api/v1/time/credits): the
+ * person's daily target booked to their default project on a day they were absent or
+ * that was a holiday. Lets the historical Projekt-Detail per-week list credit
+ * sick/vacation/holiday hours the same way the live Wochenbilanz does (#31).
+ */
+@JsonClass(generateAdapter = true)
+data class TimeCreditDto(
+    val userId: String,
+    // local date (server zone), YYYY-MM-DD
+    val date: String,
+    // the person's default project — credits always land there
+    val projectId: String,
+    val seconds: Long,
+    // KRANK | URLAUB | KIND_KRANK | FEIERTAG
+    val type: String,
+)
+
 // ---------------------------------------------------------------------------
 // Recipes
 // ---------------------------------------------------------------------------

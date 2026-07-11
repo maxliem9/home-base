@@ -55,6 +55,23 @@ description?, created_at, updated_at
   Ende = jetzt + (Tagesziel − heute erfasst), nur bei laufendem Timer, nie in der
   Vergangenheit. Zusätzlich Pro-Projekt-Saldo. Einträge zählen zum lokalen Datum
   ihres Starts (Serverzone, wie CSV-Export).
+- **Historische Zeitgutschriften (#31):** Dieselbe Krank-/Urlaub-/Kind-krank-/Feiertags-Gutschrift,
+  die die Wochenbilanz für die *laufende* Woche rechnet, zählt auch rückwirkend. Die Gutschrift-Mathematik
+  liegt geteilt in `time/TimeCredits.kt` (`workPortion`/`dayCredit`/`stateFor` + `TimeCreditService`) —
+  **einzige Quelle**, `ForecastService` ruft dieselben Helfer auf, damit Verlauf und Live-Bilanz nie
+  auseinanderlaufen. Eine Gutschrift = Tagessoll der Person auf ihr **Default-Projekt** an einem Abwesenheits-/
+  Feiertag (halbe Tage 0,5×); ohne Default-Projekt entsteht keine Gutschrift. Label-Präzedenz: die eingetragene
+  Abwesenheit gewinnt vor einem zusammenfallenden Feiertag (Summe bleibt exakt, Label bleibt aussagekräftig).
+  - `GET /api/v1/time/credits?from=&to=` (beide Pflicht, YYYY-MM-DD) → `[{userId,date,projectId,seconds,type}]`.
+    Web `TimeView` **und** Android `TimeViewModel` laden sie best-effort über die Spanne der geladenen Einträge
+    (frühester Eintragstag → heute); die Projekt-Detail-**Pro-Woche**-Liste faltet sie in Wochensumme/Balken/Nutzer
+    ein (`count` bleibt Eintrags-only; reine Abwesenheitswochen erzeugen eigene Zeilen). Die Faltung liegt geteilt/
+    testbar in `ui/time/TimeMath.kt::buildWeekStats` (Android) bzw. inline in `ProjectDetail` (Web). Credits werden
+    **nicht** offline gecacht (wie der Forecast, #520). Nachträglich im Kalender eingetragene Abwesenheiten erscheinen
+    erst beim nächsten Load/Sync (Verlauf ist nicht live).
+  - **CSV-Export** (`/time/export.csv`) mischt Gutschrift-Zeilen (Datum, gutgeschriebene Stunden, leeres Ende,
+    Label „Krank/Urlaub/… (Zeitgutschrift)") nach Tag sortiert unter die Einträge; Bereich = Query-Grenzen, sonst
+    Einträge-Spanne bis heute; `project_id`-Filter greift auch für Gutschriften (nur das jeweilige Default-Projekt).
 - Gesetzliche Feiertage berechnet das Backend selbst: `holidays/GermanHolidays.kt`
   ist der Kotlin-Port von `web/src/components/abwesenheit/holidays.ts` — **beide
   synchron halten**. Bundesland je Nutzer aus abs_settings (nearest-year,

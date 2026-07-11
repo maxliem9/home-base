@@ -2,7 +2,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'rea
 import { useTranslation } from 'react-i18next'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { Project, TimeEntry, TimeForecast, User, UserForecast } from '../types'
+import { Project, TimeCredit, TimeEntry, TimeForecast, User, UserForecast } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
@@ -104,6 +104,10 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   // when the forecast snapshot was taken — lets a running timer tick the displayed
   // soll/ist live instead of freezing it at fetch time (#59)
   const [forecastAtMs, setForecastAtMs] = useState(0)
+  // Absence/holiday work credits over the tracked-entry span (#31) — the Projekt-Detail
+  // per-week breakdown folds these in so past weeks show sick/vacation/holiday hours the
+  // same way the live Wochenbilanz credits the current week. Non-critical read.
+  const [credits, setCredits] = useState<TimeCredit[]>([])
   // Pending cross-person action: both users may manage each other's entries and
   // timers, but anything touching the partner's data confirms first — via a custom
   // ConfirmDialog, never window.confirm() (#125/#129).
@@ -177,6 +181,33 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   }, [onLogout, token])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Earliest tracked day: the start of the window the per-week credits cover. A string
+  // primitive so the fetch below only re-fires when the earliest date actually shifts
+  // (e.g. a historical entry is added), not on every running-timer tick.
+  const creditFrom = useMemo(() => {
+    let min: string | null = null
+    for (const e of entries) {
+      const d = dayKey(new Date(e.startedAt))
+      if (!min || d < min) min = d
+    }
+    return min
+  }, [entries])
+
+  // Absence/holiday credits for [creditFrom, today] (best-effort; the Projekt-Detail
+  // per-week breakdown is the only consumer). Absences entered in the calendar while
+  // this view is open are picked up on the next load — historical data isn't live.
+  useEffect(() => {
+    if (!creditFrom) { setCredits([]); return }
+    const to = dayKey(new Date())
+    let cancelled = false
+    void (async () => {
+      const result = await safeFetch(token, `${API_BASE}/time/credits?from=${creditFrom}&to=${to}`)
+      if (cancelled || !result.ok || !result.res.ok) return
+      setCredits(await result.res.json())
+    })()
+    return () => { cancelled = true }
+  }, [creditFrom, token])
 
   // Mirror the current projects + entries + users into the durable read-cache (#520) on every change
   // so the next launch can show the last state offline. Never wipes: seeded from that same cache.
@@ -529,6 +560,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         <ProjectDetail
           project={detailLive}
           entries={entries}
+          credits={credits}
           projectsById={projectsById}
           onDelete={requestDelete}
           onEdit={requestEdit}
@@ -1005,14 +1037,18 @@ interface WeekBucket {
   key: string
   label: string | null
   range: string
+  // recorded + credited (bars and the week total reflect both)
   seconds: number
   count: number
+  // absence/holiday hours credited to this project that week (subset of `seconds`)
+  credited: number
   byUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSplit, onBack }: {
+function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEdit, onSplit, onBack }: {
   project: Project
   entries: TimeEntry[]
+  credits: TimeCredit[]
   projectsById: Record<string, Project>
   onDelete: (entry: TimeEntry) => void
   onEdit: (entry: TimeEntry) => void
@@ -1028,31 +1064,58 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
     [entries, project.id],
   )
 
-  const totalSeconds = projEntries.reduce((s, e) => s + (e.durationSeconds ?? 0), 0)
+  // Absence/holiday credits (#31) that landed on THIS project — only ever the default
+  // project of whoever was absent. Folded into the week/user/total figures so sick,
+  // vacation and holiday hours count in the historical timesheet, not just the live
+  // Wochenbilanz. `count` stays entry-only (a credit is not a tracked entry).
+  const projCredits = useMemo(() => credits.filter((c) => c.projectId === project.id), [credits, project.id])
 
-  // per-user totals
+  const recordedTotal = projEntries.reduce((s, e) => s + (e.durationSeconds ?? 0), 0)
+  const creditedTotal = projCredits.reduce((s, c) => s + c.seconds, 0)
+  const totalSeconds = recordedTotal + creditedTotal
+  // Ø per entry stays recorded-only — credits have no entry to average over.
+  const avgSeconds = projEntries.length ? recordedTotal / projEntries.length : 0
+
+  // per-user totals (recorded + credited)
   const byUser: Record<string, number> = {}
   for (const e of projEntries) byUser[e.userId] = (byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
+  for (const c of projCredits) byUser[c.userId] = (byUser[c.userId] ?? 0) + c.seconds
   const userIds = Object.keys(byUser)
 
-  // per-week summary (entries are newest-first → weeks newest-first)
+  // per-week summary (entries are newest-first → weeks newest-first; credit-only weeks
+  // are appended, so the list is re-sorted by week key below)
   const weekMap = new Map<string, WeekBucket>()
   for (const e of projEntries) {
     const k = weekKey(e.stoppedAt!)
     let w = weekMap.get(k)
     if (!w) {
       const { label, range } = weekLabel(e.stoppedAt!)
-      w = { key: k, label, range, seconds: 0, count: 0, byUser: {} }
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
       weekMap.set(k, w)
     }
     w.seconds += e.durationSeconds ?? 0
     w.count += 1
     w.byUser[e.userId] = (w.byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
   }
-  const weeks = [...weekMap.values()]
+  // Fold each credit into its week (noon-local so the date lands in the right week
+  // regardless of zone), creating a bucket for weeks that were entirely absent.
+  for (const c of projCredits) {
+    const iso = `${c.date}T12:00:00`
+    const k = weekKey(iso)
+    let w = weekMap.get(k)
+    if (!w) {
+      const { label, range } = weekLabel(iso)
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
+      weekMap.set(k, w)
+    }
+    w.seconds += c.seconds
+    w.credited += c.seconds
+    w.byUser[c.userId] = (w.byUser[c.userId] ?? 0) + c.seconds
+  }
+  // Newest week first — credit-only weeks were appended out of order above.
+  const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
   const maxWeekSeconds = Math.max(...weeks.map((w) => w.seconds), 1)
   const thisWeekSeconds = weekMap.get(weekKey(new Date().toISOString()))?.seconds ?? 0
-  const avgSeconds = projEntries.length ? totalSeconds / projEntries.length : 0
 
   return (
     <>
@@ -1088,7 +1151,7 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
           </div>
         )}
 
-        {projEntries.length === 0 ? (
+        {projEntries.length === 0 && projCredits.length === 0 ? (
           <EmptyState icon="clock" title={t('time.noEntries')} hint={t('time.detailEmptyHint')} />
         ) : (
           <>
@@ -1113,7 +1176,11 @@ function ProjectDetail({ project, entries, projectsById, onDelete, onEdit, onSpl
                       ) : null,
                     )}
                   </div>
-                  <div className="hb-weekrow__sub">{w.count} {w.count === 1 ? t('time.entryOne') : t('time.entryMany')}</div>
+                  <div className="hb-weekrow__sub">
+                    {w.count > 0 && `${w.count} ${w.count === 1 ? t('time.entryOne') : t('time.entryMany')}`}
+                    {w.count > 0 && w.credited > 0 && ' · '}
+                    {w.credited > 0 && `${fmtDurationShort(w.credited)} ${t('time.creditedShort')}`}
+                  </div>
                 </div>
               ))}
             </div>

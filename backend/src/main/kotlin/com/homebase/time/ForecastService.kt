@@ -7,7 +7,6 @@ import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.UsersTable
-import com.homebase.holidays.GermanHolidays
 import com.homebase.model.ProjectForecastDto
 import com.homebase.model.TimeForecastDto
 import com.homebase.model.UserForecastDto
@@ -20,7 +19,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToLong
 
 /**
@@ -114,31 +112,11 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
         val weeklyHours = targets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
         val weekTargetSeconds = weeklyHours * 3600.0
 
-        // 1.0 for a Mon–Fri day that is not part-time-free, else 0.
-        fun workPortion(d: LocalDate): Double {
-            if (d.dayOfWeek == DayOfWeek.SATURDAY || d.dayOfWeek == DayOfWeek.SUNDAY) return 0.0
-            val free = partTime.any { rule ->
-                rule[PartTimeRulesTable.weekday] == d.dayOfWeek.value &&
-                    !d.isBefore(rule[PartTimeRulesTable.startDate]) &&
-                    (rule[PartTimeRulesTable.endDate]?.let { !d.isAfter(it) } ?: true)
-            }
-            return if (free) 0.0 else 1.0
-        }
-
-        // Fraction of the daily target credited on a workday (0 / 0.5 / 1).
-        // Statutory holidays win over custom ones (same precedence as the web client);
-        // a half holiday plus a half absence stack, capped at one full day.
-        fun creditPortion(d: LocalDate): Double {
-            if (workPortion(d) == 0.0) return 0.0
-            val statutory = GermanHolidays.holidays(d.year, stateFor(settings, d.year)).containsKey(d)
-            val holiday = if (statutory) 1.0 else customHolidays
-                .firstOrNull { it[CustomHolidaysTable.month] == d.monthValue && it[CustomHolidaysTable.day] == d.dayOfMonth }
-                ?.let { if (it[CustomHolidaysTable.half]) 0.5 else 1.0 } ?: 0.0
-            val absence = absences
-                .firstOrNull { it[AbsencesTable.date].isEqual(d) }
-                ?.let { if (it[AbsencesTable.half] != null) 0.5 else 1.0 } ?: 0.0
-            return min(1.0, holiday + absence)
-        }
+        // Work/credit math is shared with TimeCredits.kt (single source of truth so the
+        // historical CSV/per-week views credit absences exactly like this live forecast).
+        fun workPortion(d: LocalDate): Double = workPortion(d, partTime)
+        fun creditPortion(d: LocalDate): Double =
+            dayCredit(d, partTime, absences, customHolidays, settings)?.portion ?: 0.0
 
         val workdayCount = weekDays.sumOf(::workPortion)
         val dailyTarget = if (workdayCount > 0) weekTargetSeconds / workdayCount else 0.0
@@ -216,13 +194,5 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
             expectedEndAt = expectedEndAt,
             projects = projects,
         )
-    }
-
-    /** The user's Bundesland for [year]: exact row, else the nearest earlier year,
-     *  else the nearest later one — same inheritance idea as the absence settings. */
-    private fun stateFor(settings: List<ResultRow>, year: Int): String {
-        val row = settings.filter { it[AbsSettingsTable.year] <= year }.maxByOrNull { it[AbsSettingsTable.year] }
-            ?: settings.minByOrNull { it[AbsSettingsTable.year] }
-        return row?.get(AbsSettingsTable.state) ?: "BE"
     }
 }

@@ -5,8 +5,10 @@ import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.model.ErrorResponse
 import com.homebase.model.TimeWsMessage
 import com.homebase.model.UpsertWorkTargetRequest
+import com.homebase.model.TimeCreditDto
 import com.homebase.model.WorkTargetDto
 import com.homebase.time.ForecastService
+import com.homebase.time.TimeCreditService
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -169,6 +171,38 @@ fun Route.forecastRoute() {
                 ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "date must be YYYY-MM-DD"))
         }
         call.respond(service.forecast(date))
+    }
+}
+
+/**
+ * Absence/holiday work credits over an inclusive [from]..[to] date range (#31),
+ * so the historical views can add sick/vacation/holiday hours to past weeks the same
+ * way the live Wochenbilanz credits the current week. Both bounds are required
+ * (YYYY-MM-DD) — the client passes the span of its loaded entries.
+ */
+fun Route.creditsRoute() {
+    val service = TimeCreditService()
+
+    get("/credits") {
+        val from = call.request.queryParameters["from"]?.let {
+            runCatching { LocalDate.parse(it) }.getOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "from must be YYYY-MM-DD"))
+        } ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("MISSING_FROM", "from is required (YYYY-MM-DD)"))
+        val to = call.request.queryParameters["to"]?.let {
+            runCatching { LocalDate.parse(it) }.getOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "to must be YYYY-MM-DD"))
+        } ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("MISSING_TO", "to is required (YYYY-MM-DD)"))
+
+        val credits = service.credits(from, to).map {
+            TimeCreditDto(
+                userId = it.user,
+                date = it.date.toString(),
+                projectId = it.projectId.toString(),
+                seconds = it.seconds,
+                type = it.type,
+            )
+        }
+        call.respond(credits)
     }
 }
 

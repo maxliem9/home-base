@@ -3,6 +3,7 @@ package com.homebase.android.ui.time
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.ProjectDto
+import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /** One changed Wochensoll cell to PUT (#55); null fields stay untouched server-side. */
 data class TargetChange(
@@ -43,6 +46,9 @@ data class TimeUiState(
     // Soll/Ist live instead of freezing it at fetch time (#64, web: forecastAtMs).
     val forecastAt: Instant? = null,
     val targets: List<WorkTargetDto> = emptyList(),
+    // Absence/holiday work credits over the tracked-entry span (#31) — the Projekt-Detail
+    // per-week list folds these in. Non-critical read; not persisted offline (like the forecast).
+    val credits: List<TimeCreditDto> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
 ) {
@@ -92,6 +98,8 @@ class TimeViewModel(
             // Wochensoll UI simply stays hidden, the rest of the screen works.
             val forecast = repository.getForecast()
             val targets = repository.getTargets()
+            // Credits span the loaded entries (#31); skipped when entries failed to load.
+            val credits = entries.getOrNull()?.let { fetchCreditsFor(it) }
             val error = projects.exceptionOrNull()?.message ?: entries.exceptionOrNull()?.message
             if (error == null) hasServerData = true // critical reads landed → the cache seed must not clobber (#520)
             _uiState.update { state ->
@@ -106,6 +114,7 @@ class TimeViewModel(
                     forecast = forecast.getOrNull() ?: state.forecast,
                     forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
                     targets = targets.getOrDefault(state.targets),
+                    credits = credits ?: state.credits,
                     isLoading = false,
                     // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
                     // data on screen a failed refresh stays silent — offline we show the old state.
@@ -321,6 +330,20 @@ class TimeViewModel(
     private fun findOthersRunning(entries: List<TimeEntryDto>): List<TimeEntryDto> =
         entries.filter { it.stoppedAt == null && username != null && it.userId != username }
 
+    private val zone: ZoneId = ZoneId.systemDefault()
+
+    /**
+     * Absence/holiday credits (#31) over the tracked-entry span (earliest entry day → today),
+     * for the Projekt-Detail per-week list. No entries → empty span → empty list. Best-effort
+     * (mirrors the web credit fetch): a failure keeps whatever we already have.
+     */
+    private suspend fun fetchCreditsFor(entries: List<TimeEntryDto>): List<TimeCreditDto>? {
+        val from = entries
+            .mapNotNull { runCatching { Instant.parse(it.startedAt).atZone(zone).toLocalDate() }.getOrNull() }
+            .minOrNull() ?: return emptyList()
+        return repository.getCredits(from.toString(), LocalDate.now(zone).toString()).getOrNull()
+    }
+
     /** Refetch only the forecast — any entry change shifts recorded time / expected end. */
     private fun refreshForecast() {
         viewModelScope.launch {
@@ -356,6 +379,7 @@ class TimeViewModel(
         viewModelScope.launch {
             val entries = repository.getEntries()
             val forecast = repository.getForecast()
+            val credits = entries.getOrNull()?.let { fetchCreditsFor(it) }
             _uiState.update { state ->
                 val nextEntries = entries.getOrDefault(state.entries)
                 state.copy(
@@ -364,6 +388,7 @@ class TimeViewModel(
                     othersRunning = findOthersRunning(nextEntries),
                     forecast = forecast.getOrNull() ?: state.forecast,
                     forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
+                    credits = credits ?: state.credits,
                 )
             }
         }

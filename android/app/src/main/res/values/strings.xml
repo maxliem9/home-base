@@ -398,6 +398,8 @@
     <string name="time_today_over">Heute %1$s über Soll</string>
     <string name="time_today_reached">Tagessoll erreicht</string>
     <string name="time_credited">· %1$s gutgeschrieben</string>
+    <!-- credited hours on a week with no tracked entries (no leading separator) -->
+    <string name="time_credited_only">%1$s gutgeschrieben</string>
     <string name="time_section_projects">Projekte</string>
     <string name="time_show_active">Aktive</string>
     <string name="time_show_archive">Archiv</string>

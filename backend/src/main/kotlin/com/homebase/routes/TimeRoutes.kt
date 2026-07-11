@@ -3,6 +3,7 @@ package com.homebase.routes
 import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.model.*
+import com.homebase.time.TimeCreditService
 import com.homebase.ws.WsSessionManager
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -21,6 +22,7 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -39,6 +41,7 @@ fun Route.timeRoutes() {
         exportRoutes()
         workTargetRoutes()
         forecastRoute()
+        creditsRoute()
 
         // All currently running timers across the shared household (0..2). Lets the
         // dashboard and the time view show the partner's live timer without pulling the
@@ -504,7 +507,7 @@ private fun Route.exportRoutes() {
             parseInstant(it) ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "to must be an ISO-8601 timestamp"))
         }
 
-        val rows = transaction {
+        val loaded = transaction {
             val projectNames = ProjectsTable.selectAll()
                 .associate { it[ProjectsTable.id] to it[ProjectsTable.name] }
             val query = TimeEntriesTable.selectAll()
@@ -512,7 +515,7 @@ private fun Route.exportRoutes() {
             projectId?.let { pid -> query.andWhere { TimeEntriesTable.projectId eq pid } }
             from?.let { f -> query.andWhere { TimeEntriesTable.startedAt greaterEq f } }
             to?.let { t -> query.andWhere { TimeEntriesTable.startedAt lessEq t } }
-            query.orderBy(TimeEntriesTable.startedAt, SortOrder.ASC).map { row ->
+            val entries = query.orderBy(TimeEntriesTable.startedAt, SortOrder.ASC).map { row ->
                 CsvRow(
                     project = projectNames[row[TimeEntriesTable.projectId]] ?: "—",
                     user = row[TimeEntriesTable.userId],
@@ -521,9 +524,30 @@ private fun Route.exportRoutes() {
                     description = row[TimeEntriesTable.description] ?: "",
                 )
             }
+            LoadedCsv(entries, projectNames)
         }
 
-        val csv = buildTimeCsv(rows, zone)
+        // Absence/holiday credits (#31) over the same window, so a past week that was
+        // partly sick/vacation shows those hours in the export just like the live
+        // Wochenbilanz. Range: the query bounds if given, else the tracked-entry span
+        // (a timesheet is anchored to when tracking started) up to today.
+        val toDate = to?.atZone(zone)?.toLocalDate() ?: LocalDate.now(zone)
+        val fromDate = from?.atZone(zone)?.toLocalDate()
+            ?: loaded.entries.minOfOrNull { it.startedAt.atZone(zone).toLocalDate() }
+            ?: toDate
+        val creditRows = TimeCreditService().credits(fromDate, toDate)
+            .filter { projectId == null || it.projectId == projectId }
+            .map { c ->
+                CreditCsvRow(
+                    project = loaded.projectNames[c.projectId] ?: "—",
+                    user = c.user,
+                    date = c.date,
+                    seconds = c.seconds,
+                    label = creditLabel(c.type),
+                )
+            }
+
+        val csv = buildTimeCsv(loaded.entries, creditRows, zone)
         val filename = exportFilename(from, to, zone)
         call.response.header(
             HttpHeaders.ContentDisposition,
@@ -533,6 +557,8 @@ private fun Route.exportRoutes() {
     }
 }
 
+private data class LoadedCsv(val entries: List<CsvRow>, val projectNames: Map<UUID, String>)
+
 private data class CsvRow(
     val project: String,
     val user: String,
@@ -541,29 +567,77 @@ private data class CsvRow(
     val description: String,
 )
 
+/** An absence/holiday credit rendered as a whole-day CSV line (no end time). */
+private data class CreditCsvRow(
+    val project: String,
+    val user: String,
+    val date: LocalDate,
+    val seconds: Long,
+    val label: String,
+)
+
+/** German report label for a credit type; the entered absence keeps its own name. */
+private fun creditLabel(type: String): String = when (type) {
+    "KRANK" -> "Krank (Zeitgutschrift)"
+    "URLAUB" -> "Urlaub (Zeitgutschrift)"
+    "KIND_KRANK" -> "Kind krank (Zeitgutschrift)"
+    "FEIERTAG" -> "Feiertag (Zeitgutschrift)"
+    else -> "Zeitgutschrift"
+}
+
 private val CSV_DATETIME = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+private val CSV_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val FILENAME_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-/** Builds the CSV body: UTF-8 BOM, `;`-separated, CRLF line endings (Excel-friendly). */
-private fun buildTimeCsv(rows: List<CsvRow>, zone: ZoneId): String {
+/**
+ * Builds the CSV body: UTF-8 BOM, `;`-separated, CRLF line endings (Excel-friendly).
+ * Recorded [entries] and absence/holiday [credits] are merged into one table ordered
+ * by day; a credit row carries a date and its credited hours but no end time.
+ */
+private fun buildTimeCsv(entries: List<CsvRow>, credits: List<CreditCsvRow>, zone: ZoneId): String {
+    // One sortable line type for both sources: entries anchor on their start instant,
+    // credits on the day's start — so a credit sorts among that day's entries.
+    data class Line(val at: Instant, val cells: List<String>)
+
+    val entryLines = entries.map { r ->
+        val seconds = Duration.between(r.startedAt, r.stoppedAt).seconds
+        Line(
+            r.startedAt,
+            listOf(
+                r.project,
+                r.user,
+                CSV_DATETIME.format(r.startedAt.atZone(zone)),
+                CSV_DATETIME.format(r.stoppedAt.atZone(zone)),
+                String.format(Locale.GERMANY, "%.2f", seconds / 3600.0),
+                "%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60),
+                r.description,
+            ),
+        )
+    }
+    val creditLines = credits.map { c ->
+        Line(
+            c.date.atStartOfDay(zone).toInstant(),
+            listOf(
+                c.project,
+                c.user,
+                CSV_DATE.format(c.date),
+                "",
+                String.format(Locale.GERMANY, "%.2f", c.seconds / 3600.0),
+                "%02d:%02d".format(c.seconds / 3600, (c.seconds % 3600) / 60),
+                c.label,
+            ),
+        )
+    }
+    val allLines = (entryLines + creditLines).sortedBy { it.at }
+
     val sb = StringBuilder()
     sb.append('\uFEFF') // BOM → Excel detects UTF-8 and renders umlauts correctly
     // `sep=;` directive: tells Excel the delimiter is a semicolon before it guesses
     // from the locale (comma in some regions). Must be the first line after the BOM.
     sb.append("sep=;\r\n")
     sb.append("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung\r\n")
-    for (r in rows) {
-        val seconds = Duration.between(r.startedAt, r.stoppedAt).seconds
-        val cells = listOf(
-            r.project,
-            r.user,
-            CSV_DATETIME.format(r.startedAt.atZone(zone)),
-            CSV_DATETIME.format(r.stoppedAt.atZone(zone)),
-            String.format(Locale.GERMANY, "%.2f", seconds / 3600.0),
-            "%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60),
-            r.description,
-        )
-        sb.append(cells.joinToString(";") { csvField(it) }).append("\r\n")
+    for (line in allLines) {
+        sb.append(line.cells.joinToString(";") { csvField(it) }).append("\r\n")
     }
     return sb.toString()
 }

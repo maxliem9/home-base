@@ -558,6 +558,8 @@ export const de = {
     detailEmptyHint: 'Starte den Timer für dieses Projekt.',
     entryOne: 'Eintrag',
     entryMany: 'Einträge',
+    // absence/holiday hours credited to this project that week (Krank/Urlaub/Feiertag, #31)
+    creditedShort: 'gutgeschrieben',
     noProjects: 'Noch keine Projekte',
     noProjectsHint: 'Lege oben rechts ein Projekt an',
     noProjectsConfigHint: 'Lege ein erstes Projekt an, um die Zeit zu erfassen', // shown on the main view's empty state (#86)
