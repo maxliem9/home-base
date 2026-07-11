@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.homebase.model.ErrorResponse
@@ -15,7 +16,6 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.util.*
 
 fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
@@ -39,7 +39,7 @@ fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
         val request = call.receive<LoginRequest>()
         val config = call.application.environment.config
 
-        val user = transaction {
+        val user = dbQuery {
             UsersTable.selectAll().where { UsersTable.username eq request.username }
                 .singleOrNull()
         } ?: run {

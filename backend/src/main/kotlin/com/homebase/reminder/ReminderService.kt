@@ -1,5 +1,6 @@
 package com.homebase.reminder
 
+import com.homebase.db.dbQuery
 import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodosTable
 import com.homebase.notifications.privateTodoListIds
@@ -9,7 +10,6 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -52,7 +52,7 @@ class ReminderService(
         // Collect + stamp inside the transaction; send the HTTP messages outside it (never hold a DB
         // transaction across network I/O). We stamp BEFORE sending: fire-once beats best-effort
         // delivery — a crash mid-send loses one reminder rather than risking a duplicate.
-        val messages = transaction {
+        val messages = dbQuery {
             val out = mutableListOf<String>()
             // Private-list todos never surface in the shared reminder (it reaches the one household
             // chat + all push devices) — that would leak their title to the partner.

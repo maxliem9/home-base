@@ -1,20 +1,16 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.CalendarEventsTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -37,7 +33,7 @@ private val EVENT_TYPES = setOf("APPOINTMENT", "BIRTHDAY", "VET", "OTHER")
 
 fun Route.eventRoutes() {
     suspend fun notify() =
-        WsSessionManager.broadcast(EVENTS_WS_CHANNEL, appJson.encodeToString(CalendarEventWsMessage("EVENT_CHANGED")))
+        WsSessionManager.broadcastSync(EVENTS_WS_CHANNEL, "EVENT_CHANGED")
 
     route("/events") {
 
@@ -50,7 +46,7 @@ fun Route.eventRoutes() {
             if (ChronoUnit.DAYS.between(from, to) + 1 > MAX_RANGE_DAYS) {
                 return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("RANGE_TOO_LARGE", "range must not exceed $MAX_RANGE_DAYS days"))
             }
-            val events = transaction {
+            val events = dbQuery {
                 CalendarEventsTable.selectAll()
                     .where { (CalendarEventsTable.date greaterEq from) and (CalendarEventsTable.date lessEq to) }
                     .orderBy(CalendarEventsTable.date to SortOrder.ASC, CalendarEventsTable.startTime to SortOrder.ASC_NULLS_FIRST)
@@ -65,7 +61,7 @@ fun Route.eventRoutes() {
             val parsed = parseEvent(req) ?: return@post call.invalidEvent()
             val username = call.username()
 
-            val dto = transaction {
+            val dto = dbQuery {
                 val id = UUID.randomUUID()
                 CalendarEventsTable.insert {
                     it[CalendarEventsTable.id] = id
@@ -93,8 +89,8 @@ fun Route.eventRoutes() {
             val req = call.receive<CalendarEventRequest>()
             val parsed = parseEvent(req) ?: return@put call.invalidEvent()
 
-            val dto = transaction {
-                if (CalendarEventsTable.selectAll().where { CalendarEventsTable.id eq id }.empty()) return@transaction null
+            val dto = dbQuery {
+                if (CalendarEventsTable.selectAll().where { CalendarEventsTable.id eq id }.empty()) return@dbQuery null
                 CalendarEventsTable.update({ CalendarEventsTable.id eq id }) {
                     it[title] = parsed.title
                     it[type] = parsed.type
@@ -115,7 +111,7 @@ fun Route.eventRoutes() {
         // Delete an event. Household-shared — any user may delete any event.
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val existed = transaction {
+            val existed = dbQuery {
                 CalendarEventsTable.deleteWhere { CalendarEventsTable.id eq id } > 0
             }
             if (!existed) return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Event not found"))
@@ -124,16 +120,7 @@ fun Route.eventRoutes() {
         }
     }
 
-    webSocket("/ws/events") {
-        WsSessionManager.add(EVENTS_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(EVENTS_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(EVENTS_WS_CHANNEL)
 }
 
 /** A validated, normalised event ready to persist. */

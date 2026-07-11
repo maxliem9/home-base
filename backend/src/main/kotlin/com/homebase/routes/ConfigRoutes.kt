@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.AppSettingsTable
 import com.homebase.db.UserPrefsTable
 import com.homebase.digest.DigestSection
@@ -26,7 +27,6 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import java.time.Duration
 import java.time.LocalTime
@@ -209,7 +209,7 @@ fun Route.configRoutes(
 }
 
 /** One user's current iCal-feed category selection (unset = all) + the full available list (#427). */
-private fun currentCalendarFeedConfig(username: String): CalendarFeedConfigResponse {
+private suspend fun currentCalendarFeedConfig(username: String): CalendarFeedConfigResponse {
     val selected = CalendarFeedSection.parseSelection(
         readUserPref(username, UserPrefsTable.CALENDAR_FEED_SECTIONS),
     )
@@ -220,15 +220,15 @@ private fun currentCalendarFeedConfig(username: String): CalendarFeedConfigRespo
 }
 
 /** Reads one (user, key) pref value, or null if unset. */
-private fun readUserPref(username: String, prefKey: String): String? = transaction {
+private suspend fun readUserPref(username: String, prefKey: String): String? = dbQuery {
     UserPrefsTable.selectAll()
         .where { (UserPrefsTable.userId eq username) and (UserPrefsTable.key eq prefKey) }
         .singleOrNull()?.get(UserPrefsTable.value)
 }
 
 /** Upserts one (user, key) pref (update-then-insert; the composite PK guards duplicates). */
-private fun upsertUserPref(username: String, prefKey: String, prefValue: String) {
-    transaction {
+private suspend fun upsertUserPref(username: String, prefKey: String, prefValue: String) {
+    dbQuery {
         val updated = UserPrefsTable.update({
             (UserPrefsTable.userId eq username) and (UserPrefsTable.key eq prefKey)
         }) { it[value] = prefValue }
@@ -244,13 +244,13 @@ private fun upsertUserPref(username: String, prefKey: String, prefValue: String)
  * Reads the configured "Erledigt"-window length, defaulting to [DONE_WINDOW_DEFAULT_DAYS] when
  * unset and clamping a stored value into the valid range (defensive against a hand-edited row).
  */
-private fun readDoneWindowDays(): Int {
+private suspend fun readDoneWindowDays(): Int {
     val stored = readSetting(AppSettingsTable.DONE_WINDOW_DAYS)?.toIntOrNull() ?: return DONE_WINDOW_DEFAULT_DAYS
     return stored.coerceIn(DONE_WINDOW_MIN_DAYS, DONE_WINDOW_MAX_DAYS)
 }
 
 /** Current reminders config: enabled (unset = on) + the optional quiet-hours window (#429). */
-private fun currentRemindersConfig(): RemindersConfigResponse {
+private suspend fun currentRemindersConfig(): RemindersConfigResponse {
     val enabled = readSetting(AppSettingsTable.REMINDERS_ENABLED)?.equals("false", ignoreCase = true) != true
     val start = readSetting(AppSettingsTable.REMINDER_QUIET_START)?.takeIf { it.isNotBlank() }
     val end = readSetting(AppSettingsTable.REMINDER_QUIET_END)?.takeIf { it.isNotBlank() }
@@ -272,7 +272,7 @@ private fun Route.digestConfigRoutes(
     allowedSections: List<DigestSection>,
     telegramConfigured: Boolean,
 ) {
-    fun currentResponse() = DigestConfigResponse(
+    suspend fun currentResponse() = DigestConfigResponse(
         time = readSetting(timeKey) ?: defaultTime,
         // Unset = on (default); only an explicit "false" disables.
         enabled = readSetting(enabledKey)?.equals("false", ignoreCase = true) != true,
@@ -316,14 +316,14 @@ private fun Route.digestConfigRoutes(
 }
 
 /** Reads one app_settings value by key, or null if unset. */
-private fun readSetting(settingKey: String): String? = transaction {
+private suspend fun readSetting(settingKey: String): String? = dbQuery {
     AppSettingsTable.selectAll().where { AppSettingsTable.key eq settingKey }
         .singleOrNull()?.get(AppSettingsTable.value)
 }
 
 /** Upserts one app_settings value (update-then-insert; the PK guards against duplicates). */
-private fun upsertSetting(settingKey: String, settingValue: String) {
-    transaction {
+private suspend fun upsertSetting(settingKey: String, settingValue: String) {
+    dbQuery {
         val updated = AppSettingsTable.update({ AppSettingsTable.key eq settingKey }) { it[value] = settingValue }
         if (updated == 0) AppSettingsTable.insert {
             it[key] = settingKey

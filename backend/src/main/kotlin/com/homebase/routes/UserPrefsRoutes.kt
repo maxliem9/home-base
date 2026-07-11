@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.UserPrefsTable
 import com.homebase.model.ErrorResponse
 import com.homebase.model.UpdateUserPrefRequest
@@ -12,7 +13,6 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 
 // Mirrors the column widths in V22 / UserPrefsTable.
@@ -68,14 +68,14 @@ fun Route.userPrefsRoutes() {
 }
 
 /** All of one user's prefs as a flat key→value map (empty when none). */
-private fun readPrefs(username: String): Map<String, String> = transaction {
+private suspend fun readPrefs(username: String): Map<String, String> = dbQuery {
     UserPrefsTable.selectAll().where { UserPrefsTable.userId eq username }
         .associate { it[UserPrefsTable.key] to it[UserPrefsTable.value] }
 }
 
 /** Upserts one (user, key) pref (update-then-insert; the composite PK guards duplicates). */
-private fun upsertPref(username: String, prefKey: String, prefValue: String) {
-    transaction {
+private suspend fun upsertPref(username: String, prefKey: String, prefValue: String) {
+    dbQuery {
         val updated = UserPrefsTable.update({
             (UserPrefsTable.userId eq username) and (UserPrefsTable.key eq prefKey)
         }) { it[value] = prefValue }

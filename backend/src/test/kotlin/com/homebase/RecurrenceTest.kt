@@ -7,6 +7,7 @@ import com.homebase.recurrence.Recurrence
 import com.homebase.recurrence.RecurringTodoScheduler
 import com.homebase.recurrence.RecurringTodoService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
@@ -132,7 +133,7 @@ class RecurrenceTest {
         val today = LocalDate.of(2026, 6, 16)
         val id = insertRecurring("Müll", dueDate = LocalDate.of(2026, 6, 1)) // 3 weeks back
 
-        val rolled = RecurringTodoService().rollForwardOverdue(today)
+        val rolled = runBlocking { RecurringTodoService().rollForwardOverdue(today) }
 
         assertEquals(1, rolled.size)
         assertEquals(LocalDate.of(2026, 6, 15), dueOf(id))
@@ -145,7 +146,7 @@ class RecurrenceTest {
         val done = insertRecurring("Done", dueDate = LocalDate.of(2026, 6, 1), status = "DONE")
         val oneOff = insertRecurring("OneOff", dueDate = LocalDate.of(2026, 6, 1), freq = null, interval = null)
 
-        val rolled = RecurringTodoService().rollForwardOverdue(today)
+        val rolled = runBlocking { RecurringTodoService().rollForwardOverdue(today) }
 
         assertEquals(0, rolled.size)
         assertEquals(LocalDate.of(2026, 6, 15), dueOf(recent))

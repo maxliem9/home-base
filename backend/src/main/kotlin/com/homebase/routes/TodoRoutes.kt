@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.TodoAssigneesTable
 import com.homebase.db.TodoListsTable
 import com.homebase.db.TodoSubtasksTable
@@ -7,19 +8,14 @@ import com.homebase.db.TodosTable
 import com.homebase.db.UsersTable
 import com.homebase.model.*
 import com.homebase.recurrence.Recurrence
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -39,7 +35,7 @@ fun Route.todoRoutes() {
         route("/lists") {
             get {
                 val username = call.username()
-                val lists = transaction {
+                val lists = dbQuery {
                     // shared lists are visible to everyone; private lists only to their creator
                     TodoListsTable.selectAll()
                         .where { (TodoListsTable.visibility eq VISIBILITY_SHARED) or (TodoListsTable.createdBy eq username) }
@@ -61,7 +57,7 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
                     return@post
                 }
-                val list = transaction {
+                val list = dbQuery {
                     val id = UUID.randomUUID()
                     TodoListsTable.insert {
                         it[TodoListsTable.id] = id
@@ -88,13 +84,13 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_LIST", "name must not be blank"))
                     return@put
                 }
-                val result = transaction {
+                val result = dbQuery {
                     val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     // A private list belongs to its creator; nobody else may rename, re-share or even
                     // observe it. Treat a foreign private list as non-existent so its UUID stays inert.
                     if (existing[TodoListsTable.visibility] == VISIBILITY_PRIVATE && existing[TodoListsTable.createdBy] != username) {
-                        return@transaction null
+                        return@dbQuery null
                     }
                     val wasShared = existing[TodoListsTable.visibility] == VISIBILITY_SHARED
                     TodoListsTable.update({ TodoListsTable.id eq id }) {
@@ -123,12 +119,12 @@ fun Route.todoRoutes() {
             delete("/{id}") {
                 val username = call.username()
                 val id = call.uuidParam() ?: return@delete
-                val deleted = transaction {
+                val deleted = dbQuery {
                     val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
-                        ?: return@transaction null
+                        ?: return@dbQuery null
                     // Only the owner may delete a private list (see PUT above).
                     if (existing[TodoListsTable.visibility] == VISIBILITY_PRIVATE && existing[TodoListsTable.createdBy] != username) {
-                        return@transaction null
+                        return@dbQuery null
                     }
                     // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for
                     // the H2 test DB, which models list_id without a FK; real Postgres cascades via V7)
@@ -153,7 +149,7 @@ fun Route.todoRoutes() {
 
         get {
             val username = call.username()
-            val todos = transaction {
+            val todos = dbQuery {
                 // hide todos that live in someone else's private list
                 val hiddenListIds = TodoListsTable.selectAll()
                     .where { (TodoListsTable.visibility eq VISIBILITY_PRIVATE) and (TodoListsTable.createdBy neq username) }
@@ -197,18 +193,18 @@ fun Route.todoRoutes() {
                 return@post
             }
             // Every assignee must be a known household user (the join table FKs users.username).
-            val unknownAssignees = transaction { unknownUsers(assignees) }
+            val unknownAssignees = dbQuery { unknownUsers(assignees) }
             if (unknownAssignees.isNotEmpty()) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknownAssignees.joinToString(", ")}"))
                 return@post
             }
 
-            val result = transaction {
+            val result = dbQuery {
                 // resolve the target list's visibility, enforcing ownership: a foreign private list
                 // is treated as non-existent so it can neither be written into nor probed (#73)
                 val listVisibility = if (listId != null) {
                     writableListVisibility(listId, username)
-                        ?: return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                        ?: return@dbQuery ErrorResponse("NOT_FOUND", "List not found")
                 } else null
                 val id = UUID.randomUUID()
                 val createdNow = Instant.now()
@@ -255,12 +251,12 @@ fun Route.todoRoutes() {
                 return@put
             }
 
-            val result = transaction {
+            val result = dbQuery {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 // a todo in someone else's private list is invisible to the caller (see GET filter);
                 // treat it as non-existent so its UUID can't be written through or probed here (#73)
-                if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction null
+                if (!listVisibleTo(existing[TodosTable.listId], username)) return@dbQuery null
                 // capture the pre-update visibility so the broadcast can translate transitions
                 val wasShared = listIsShared(existing[TodosTable.listId])
                 val nextStatus = req.status ?: existing[TodosTable.status]
@@ -288,7 +284,7 @@ fun Route.todoRoutes() {
                 if (req.assignees != null) {
                     val unknown = unknownUsers(nextAssignees)
                     if (unknown.isNotEmpty()) {
-                        return@transaction ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknown.joinToString(", ")}")
+                        return@dbQuery ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknown.joinToString(", ")}")
                     }
                 }
                 validateTodoInput(
@@ -301,10 +297,10 @@ fun Route.todoRoutes() {
                     priority = nextPriority,
                     recurrenceFreq = nextRecFreq,
                     recurrenceInterval = nextRecInterval,
-                )?.let { return@transaction it }
+                )?.let { return@dbQuery it }
                 // moving into a list requires it to be writable: unknown or foreign-private -> 404 (#73)
                 if (targetListId != null && writableListVisibility(targetListId, username) == null) {
-                    return@transaction ErrorResponse("NOT_FOUND", "List not found")
+                    return@dbQuery ErrorResponse("NOT_FOUND", "List not found")
                 }
                 // null = unchanged keeps the old list; "" cleared it (targetListId == null)
                 val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
@@ -430,11 +426,11 @@ fun Route.todoRoutes() {
         delete("/{id}") {
             val username = call.username()
             val id = call.uuidParam() ?: return@delete
-            val result = transaction {
+            val result = dbQuery {
                 val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
-                    ?: return@transaction null
+                    ?: return@dbQuery null
                 // a todo in someone else's private list is invisible; treat it as non-existent (#73)
-                if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction null
+                if (!listVisibleTo(existing[TodosTable.listId], username)) return@dbQuery null
                 val shared = listIsShared(existing[TodosTable.listId])
                 // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
                 TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
@@ -461,8 +457,8 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
                     return@post
                 }
-                val result = transaction {
-                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
+                val result = dbQuery {
+                    if (!parentTodoVisibleTo(todoId, username)) return@dbQuery null
                     val nextOrder = (TodoSubtasksTable.selectAll()
                         .where { TodoSubtasksTable.todoId eq todoId }
                         .maxOfOrNull { it[TodoSubtasksTable.sortOrder] } ?: -1) + 1
@@ -493,13 +489,13 @@ fun Route.todoRoutes() {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
                     return@put
                 }
-                val result = transaction {
+                val result = dbQuery {
                     // a subtask under a foreign private todo is as hidden as a missing one -> same 404
-                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
+                    if (!parentTodoVisibleTo(todoId, username)) return@dbQuery null
                     val exists = TodoSubtasksTable.selectAll()
                         .where { (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId) }
                         .empty().not()
-                    if (!exists) return@transaction null
+                    if (!exists) return@dbQuery null
                     TodoSubtasksTable.update({ TodoSubtasksTable.id eq subtaskId }) {
                         req.title?.let { v -> it[title] = v.trim() }
                         req.done?.let { v -> it[done] = v }
@@ -518,13 +514,13 @@ fun Route.todoRoutes() {
                 val username = call.username()
                 val todoId = call.uuidParam() ?: return@delete
                 val subtaskId = call.uuidParam("subtaskId") ?: return@delete
-                val result = transaction {
+                val result = dbQuery {
                     // a subtask under a foreign private todo is as hidden as a missing one -> same 404
-                    if (!parentTodoVisibleTo(todoId, username)) return@transaction null
+                    if (!parentTodoVisibleTo(todoId, username)) return@dbQuery null
                     val deleted = TodoSubtasksTable.deleteWhere {
                         (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId)
                     }
-                    if (deleted == 0) return@transaction null
+                    if (deleted == 0) return@dbQuery null
                     todoWithVisibility(todoId)
                 }
                 if (result == null) {
@@ -537,16 +533,7 @@ fun Route.todoRoutes() {
         }
     }
 
-    webSocket("/ws/todos") {
-        WsSessionManager.add(TODO_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(TODO_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(TODO_WS_CHANNEL)
 }
 
 /**
@@ -621,7 +608,7 @@ private fun todoWithVisibility(todoId: UUID): TodoMutation {
 
 private suspend fun broadcastTodoCreate(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_CREATED", todo, TodoDto.serializer())
     }
 }
 
@@ -636,12 +623,12 @@ internal suspend fun broadcastTodoUpdate(wasShared: Boolean, isShared: Boolean, 
         wasShared -> "TODO_DELETED"  // shared -> private: remove it for the other client
         else -> return               // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage(type, todo)))
+    WsSessionManager.broadcastSync(TODO_WS_CHANNEL, type, todo, TodoDto.serializer())
 }
 
 private suspend fun broadcastTodoDelete(shared: Boolean, todo: TodoDto) {
     if (shared) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_DELETED", todo)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_DELETED", todo, TodoDto.serializer())
     }
 }
 
@@ -650,7 +637,7 @@ private suspend fun broadcastTodoSubtaskChange(mutation: TodoMutation) =
 
 private suspend fun broadcastListCreate(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_CREATED", list)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_LIST_CREATED", list, TodoListDto.serializer())
     }
 }
 
@@ -667,20 +654,20 @@ private suspend fun broadcastListUpdate(
         wasShared -> "TODO_LIST_DELETED"              // shared -> private: other client drops list + todos
         else -> return                                // stays private: nothing to share
     }
-    WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage(type, list)))
+    WsSessionManager.broadcastSync(TODO_WS_CHANNEL, type, list, TodoListDto.serializer())
     // private -> shared: the TODO_LIST_CREATED above only carries list metadata. The list's todos were
     // never broadcast while it was private, so the other client would render it empty until a manual
     // reload. Replay each as a TODO_CREATED upsert (the frontend handler is idempotent). See issue #75.
     if (isShared && !wasShared) {
         revealedTodos.forEach { todo ->
-            WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(WsMessage("TODO_CREATED", todo)))
+            WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_CREATED", todo, TodoDto.serializer())
         }
     }
 }
 
 private suspend fun broadcastListDelete(list: TodoListDto) {
     if (list.visibility != VISIBILITY_PRIVATE) {
-        WsSessionManager.broadcast(TODO_WS_CHANNEL, appJson.encodeToString(TodoListWsMessage("TODO_LIST_DELETED", list)))
+        WsSessionManager.broadcastSync(TODO_WS_CHANNEL, "TODO_LIST_DELETED", list, TodoListDto.serializer())
     }
 }
 

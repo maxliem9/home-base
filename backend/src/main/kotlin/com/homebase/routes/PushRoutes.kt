@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.PushSubscriptionsTable
 import com.homebase.model.ErrorResponse
 import io.ktor.http.*
@@ -10,7 +11,6 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.upsert
 import java.time.Instant
 import java.util.UUID
@@ -68,7 +68,7 @@ fun Route.pushRoutes(vapidPublicKey: String?) {
 
     delete("/push/subscribe") {
         val req = call.receive<PushUnsubscribeRequest>()
-        transaction {
+        dbQuery {
             PushSubscriptionsTable.deleteWhere { endpoint eq req.endpoint }
         }
         call.respond(HttpStatusCode.NoContent)
@@ -76,8 +76,8 @@ fun Route.pushRoutes(vapidPublicKey: String?) {
 }
 
 /** Upserts a subscription on its unique endpoint. Atomic + idempotent + race-free. */
-private fun upsertSubscription(req: PushSubscribeRequest, username: String) {
-    transaction {
+private suspend fun upsertSubscription(req: PushSubscribeRequest, username: String) {
+    dbQuery {
         // Native INSERT … ON CONFLICT(endpoint) DO UPDATE: a concurrent or repeat re-subscribe with
         // the same endpoint just refreshes its keys/owner instead of 500-ing on the unique index.
         // The original row's id + createdAt are preserved (only the mutable fields update).

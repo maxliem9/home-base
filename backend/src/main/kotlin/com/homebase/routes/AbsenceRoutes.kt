@@ -1,5 +1,6 @@
 package com.homebase.routes
 
+import com.homebase.db.dbQuery
 import com.homebase.db.AbsSettingsTable
 import com.homebase.db.AbsencesTable
 import com.homebase.db.CustomHolidaysTable
@@ -7,19 +8,14 @@ import com.homebase.db.KitaClosuresTable
 import com.homebase.db.PartTimeRulesTable
 import com.homebase.db.UsersTable
 import com.homebase.model.*
-import com.homebase.ws.WsSessionManager
+import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
-import com.homebase.plugins.appJson
-import kotlinx.serialization.encodeToString
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -43,13 +39,13 @@ private val SETTINGS_YEAR_RANGE = 2000..2200
 
 fun Route.absenceRoutes() {
     suspend fun notify() =
-        WsSessionManager.broadcast(ABSENCE_WS_CHANNEL, appJson.encodeToString(AbsenceWsMessage("ABSENCE_CHANGED")))
+        WsSessionManager.broadcastSync(ABSENCE_WS_CHANNEL, "ABSENCE_CHANGED")
 
     route("/absence") {
 
         // Full snapshot — clients refetch this on every change.
         get {
-            val state = transaction {
+            val state = dbQuery {
                 val users = UsersTable.selectAll()
                     .orderBy(UsersTable.createdAt, SortOrder.ASC)
                     .map { it[UsersTable.username] }
@@ -83,16 +79,7 @@ fun Route.absenceRoutes() {
         settingsRoutes(::notify)
     }
 
-    webSocket("/ws/absence") {
-        WsSessionManager.add(ABSENCE_WS_CHANNEL, this)
-        try {
-            for (frame in incoming) {
-                if (frame is Frame.Close) break
-            }
-        } finally {
-            WsSessionManager.remove(ABSENCE_WS_CHANNEL, this)
-        }
-    }
+    syncChannel(ABSENCE_WS_CHANNEL)
 }
 
 private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {
@@ -109,8 +96,8 @@ private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_HALF", "half must be null, 'vm' or 'nm'"))
             }
 
-            val dto = transaction {
-                if (!userExists(req.userId)) return@transaction null
+            val dto = dbQuery {
+                if (!userExists(req.userId)) return@dbQuery null
                 upsertAbsence(req.userId, date, req.type, req.half)
             } ?: return@post call.userNotFound()
 
@@ -132,8 +119,8 @@ private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {
             }
             val dates = req.dates.map { parseDate(it) ?: return@post call.invalidDate() }
 
-            val ok = transaction {
-                if (!userExists(req.userId)) return@transaction false
+            val ok = dbQuery {
+                if (!userExists(req.userId)) return@dbQuery false
                 dates.forEach { d ->
                     AbsencesTable.deleteWhere { (AbsencesTable.userId eq req.userId) and (AbsencesTable.date eq d) }
                     if (req.type != null) {
@@ -161,7 +148,7 @@ private fun Route.absenceEntryRoutes(notify: suspend () -> Unit) {
             val date = call.request.queryParameters["date"]?.let { parseDate(it) }
                 ?: return@delete call.invalidDate()
 
-            transaction {
+            dbQuery {
                 AbsencesTable.deleteWhere { (AbsencesTable.userId eq userId) and (AbsencesTable.date eq date) }
             }
             notify()
@@ -180,8 +167,8 @@ private fun Route.partTimeRoutes(notify: suspend () -> Unit) {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_WEEKDAY", "weekday must be 1..7 (ISO)"))
             }
 
-            val dto = transaction {
-                if (!userExists(req.userId)) return@transaction null
+            val dto = dbQuery {
+                if (!userExists(req.userId)) return@dbQuery null
                 val id = UUID.randomUUID()
                 PartTimeRulesTable.insert {
                     it[PartTimeRulesTable.id] = id
@@ -206,8 +193,8 @@ private fun Route.partTimeRoutes(notify: suspend () -> Unit) {
                 return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_WEEKDAY", "weekday must be 1..7 (ISO)"))
             }
 
-            val dto = transaction {
-                if (PartTimeRulesTable.selectAll().where { PartTimeRulesTable.id eq id }.empty()) return@transaction null
+            val dto = dbQuery {
+                if (PartTimeRulesTable.selectAll().where { PartTimeRulesTable.id eq id }.empty()) return@dbQuery null
                 PartTimeRulesTable.update({ PartTimeRulesTable.id eq id }) {
                     it[weekday] = req.weekday
                     it[startDate] = start
@@ -222,7 +209,7 @@ private fun Route.partTimeRoutes(notify: suspend () -> Unit) {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val existed = transaction {
+            val existed = dbQuery {
                 PartTimeRulesTable.deleteWhere { PartTimeRulesTable.id eq id } > 0
             }
             if (!existed) return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Rule not found"))
@@ -242,7 +229,7 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             // (Two truly-concurrent posts for the same new date can still race here; the
             // unique index is the backstop — the loser's insert rolls back rather than
             // creating a duplicate.)
-            val (dto, created) = transaction {
+            val (dto, created) = dbQuery {
                 val existing = KitaClosuresTable.selectAll()
                     .where { KitaClosuresTable.date eq date }
                     .singleOrNull()
@@ -263,7 +250,7 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
                 return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("RANGE_TOO_LARGE", "range must not exceed $MAX_KITA_RANGE_DAYS days"))
             }
 
-            transaction {
+            dbQuery {
                 // Skip dates that already have a closure so a re-run stays idempotent
                 // and doesn't trip the unique(date) index (the DB is the hard backstop).
                 val existing = KitaClosuresTable
@@ -287,13 +274,13 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
             val date = req.date?.let { parseDate(it) ?: return@put call.invalidDate() }
 
             // dto==null → not found; conflict==true → target date already taken by another closure.
-            val (dto, conflict) = transaction {
-                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@transaction null to false
+            val (dto, conflict) = dbQuery {
+                if (KitaClosuresTable.selectAll().where { KitaClosuresTable.id eq id }.empty()) return@dbQuery null to false
                 // Moving onto a date another closure occupies would violate unique(date) → clean 409.
                 if (date != null && !KitaClosuresTable.selectAll()
                         .where { (KitaClosuresTable.date eq date) and (KitaClosuresTable.id neq id) }
                         .empty()
-                ) return@transaction null to true
+                ) return@dbQuery null to true
                 KitaClosuresTable.update({ KitaClosuresTable.id eq id }) {
                     date?.let { v -> it[KitaClosuresTable.date] = v }
                     req.label?.let { v -> it[label] = v }
@@ -309,7 +296,7 @@ private fun Route.kitaRoutes(notify: suspend () -> Unit) {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val existed = transaction {
+            val existed = dbQuery {
                 KitaClosuresTable.deleteWhere { KitaClosuresTable.id eq id } > 0
             }
             if (!existed) return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Kita closure not found"))
@@ -329,7 +316,7 @@ private fun Route.holidayRoutes(notify: suspend () -> Unit) {
             if (!isValidMonthDay(req.month, req.day)) return@post call.invalidMonthDay()
             // Idempotent: one holiday per (month, day). If the date is already taken, return
             // that holiday instead of duplicating it (the unique index is the race backstop).
-            val (dto, created) = transaction {
+            val (dto, created) = dbQuery {
                 val existing = CustomHolidaysTable.selectAll()
                     .where { (CustomHolidaysTable.month eq req.month) and (CustomHolidaysTable.day eq req.day) }
                     .singleOrNull()
@@ -344,19 +331,19 @@ private fun Route.holidayRoutes(notify: suspend () -> Unit) {
             val id = call.uuidParam() ?: return@put
             val req = call.receive<UpdateCustomHolidayRequest>()
             // Resolve the would-be (month, day) so we can validate + clash-check before writing.
-            val (dto, conflict) = transaction {
+            val (dto, conflict) = dbQuery {
                 val current = CustomHolidaysTable.selectAll()
                     .where { CustomHolidaysTable.id eq id }
-                    .singleOrNull() ?: return@transaction null to false
+                    .singleOrNull() ?: return@dbQuery null to false
                 val newMonth = req.month ?: current[CustomHolidaysTable.month]
                 val newDay = req.day ?: current[CustomHolidaysTable.day]
-                if (!isValidMonthDay(newMonth, newDay)) return@transaction null to false // signalled as 400 below
+                if (!isValidMonthDay(newMonth, newDay)) return@dbQuery null to false // signalled as 400 below
                 // Moving onto a date another holiday occupies would violate unique(month, day) → 409.
                 if ((newMonth != current[CustomHolidaysTable.month] || newDay != current[CustomHolidaysTable.day]) &&
                     !CustomHolidaysTable.selectAll()
                         .where { (CustomHolidaysTable.month eq newMonth) and (CustomHolidaysTable.day eq newDay) and (CustomHolidaysTable.id neq id) }
                         .empty()
-                ) return@transaction null to true
+                ) return@dbQuery null to true
                 CustomHolidaysTable.update({ CustomHolidaysTable.id eq id }) {
                     req.month?.let { v -> it[month] = v }
                     req.day?.let { v -> it[day] = v }
@@ -369,7 +356,7 @@ private fun Route.holidayRoutes(notify: suspend () -> Unit) {
             // an invalid resulting date. Re-check existence to pick the right 4xx.
             if (conflict) return@put call.respond(HttpStatusCode.Conflict, ErrorResponse("DATE_CONFLICT", "Another holiday already exists on that date"))
             if (dto == null) {
-                val exists = transaction { !CustomHolidaysTable.selectAll().where { CustomHolidaysTable.id eq id }.empty() }
+                val exists = dbQuery { !CustomHolidaysTable.selectAll().where { CustomHolidaysTable.id eq id }.empty() }
                 return@put if (exists) call.invalidMonthDay()
                 else call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Custom holiday not found"))
             }
@@ -379,7 +366,7 @@ private fun Route.holidayRoutes(notify: suspend () -> Unit) {
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val existed = transaction {
+            val existed = dbQuery {
                 CustomHolidaysTable.deleteWhere { CustomHolidaysTable.id eq id } > 0
             }
             if (!existed) return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Custom holiday not found"))
@@ -406,7 +393,7 @@ private fun Route.settingsRoutes(notify: suspend () -> Unit) {
             parseDate(req.carryoverExpires) ?: return call.invalidDate()
         } else null
 
-        val dto = transaction { upsertAbsSettings(userId, year, req, expires) }
+        val dto = dbQuery { upsertAbsSettings(userId, year, req, expires) }
             ?: return call.userNotFound()
 
         notify()
