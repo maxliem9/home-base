@@ -1086,10 +1086,13 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
   // are appended, so the list is re-sorted by week key below)
   const weekMap = new Map<string, WeekBucket>()
   for (const e of projEntries) {
-    const k = weekKey(e.stoppedAt!)
+    // Bucket by START date — matches Android (buildWeekStats), backend forecast and
+    // CSV export, all of which attribute by started_at (#541). A shift that starts
+    // Sun 23:00 and stops Mon 01:00 counts in the Sunday-start week on every client.
+    const k = weekKey(e.startedAt)
     let w = weekMap.get(k)
     if (!w) {
-      const { label, range } = weekLabel(e.stoppedAt!)
+      const { label, range } = weekLabel(e.startedAt)
       w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
       weekMap.set(k, w)
     }
