@@ -418,6 +418,14 @@
     <string name="time_project_archived_suffix">%1$s (Archiviert)</string>
     <string name="time_targets_hours_range">Stunden müssen zwischen 0 und 168 liegen</string>
     <string name="time_targets_pick_default">Bitte ein Standard-Projekt wählen</string>
+    <string name="time_period_label">Zeitraum</string>
+    <string name="time_period_base">Seit Beginn</string>
+    <string name="time_period_from">Ab %s</string>
+    <string name="time_period_hint">Frühere Wochen behalten den damals gültigen Wert. Ein neuer Zeitraum gilt ab der ISO-Woche, deren Montag am/nach dem Startdatum liegt.</string>
+    <string name="time_period_add">Neuer Zeitraum</string>
+    <string name="time_period_delete">Zeitraum löschen</string>
+    <string name="time_period_delete_confirm">Der Zeitraum ab %s wird entfernt; die betroffenen Wochen nutzen wieder den vorherigen Wert.</string>
+    <string name="time_period_exists">Für dieses Datum gibt es bereits einen Zeitraum</string>
     <string name="time_new_project_title">Neues Projekt</string>
     <string name="time_project_name_placeholder">z. B. Renovierung</string>
     <string name="time_field_color">Farbe</string>

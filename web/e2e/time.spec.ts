@@ -233,6 +233,44 @@ test.describe('Time tracking', () => {
     await expect(body).toContainText('40 Std/Woche')
   })
 
+  test('schedules a weekly-target change from a future date (effective-dated period)', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true })])
+    await openTimeSettings(page, mock)
+    const body = page.locator('.hb-settings-body')
+
+    await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
+    await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
+
+    // schedule a new period from 1 Sep 2026 — it is seeded from the current 40h
+    const postPromise = page.waitForRequest(
+      (r) => r.url().includes('/time/targets/max/periods') && r.method() === 'POST',
+    )
+    await body.getByRole('button', { name: 'Neuer Zeitraum' }).click()
+    const modal = page.locator('.hb-modal')
+    await modal.getByLabel('Gültig ab').fill('2026-09-01')
+    await modal.getByRole('button', { name: 'Neuer Zeitraum' }).click()
+    expect((await postPromise).postDataJSON()).toEqual({ validFrom: '2026-09-01' })
+    // still in the editor, now on the new period
+    await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
+    await expect(body.getByRole('combobox').first()).toHaveValue('2026-09-01')
+
+    // the grid now edits that period (seeded to 40h) — lower it to 32h
+    await expect(body.getByLabel('Std/Woche Arbeit Max')).toHaveValue('40')
+    await body.getByLabel('Std/Woche Arbeit Max').fill('32')
+    const putPromise = page.waitForRequest(
+      (r) => r.url().includes('/time/targets/max/p1') && r.method() === 'PUT',
+    )
+    await body.getByRole('button', { name: 'Speichern' }).click()
+    // the PUT carries the period start so the change lands in the new period only
+    expect((await putPromise).postDataJSON()).toEqual({ weeklyHours: 32, validFrom: '2026-09-01' })
+
+    // overview summary: still 40h now, with the 32h change noted as scheduled
+    await expect(body).toContainText('40 Std/Woche')
+    await expect(body).toContainText('32 Std./Woche')
+  })
+
   test('rejects invalid weekly hours inline (in settings)', async ({ page }) => {
     await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
     const body = page.locator('.hb-settings-body')

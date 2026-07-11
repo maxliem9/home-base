@@ -9,10 +9,10 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../../api'
 import { errorText } from '../../i18n'
-import { Project, User, WorkTarget } from '../../types'
+import { BASE_TARGET_PERIOD, Project, User, WorkTarget } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { Icon } from '../../ui/Icon'
-import { Avatar, Button, Card, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../../ui/primitives'
+import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, TextInput } from '../../ui/primitives'
 import { formatDecimal, parseLocaleNumber, userMeta } from '../../ui/format'
 import { COLOR_CHOICES, ProjectDraft, ProjectModal } from '../TimeView'
 
@@ -109,6 +109,7 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
   }
 
   // One PUT per changed person×project cell; inline-error convention as in TimeView.
+  // Each body may carry a `validFrom` so the edit lands in the right Wochensoll period.
   const saveTargets = async (puts: { userId: string; projectId: string; body: object }[]): Promise<string | null> => {
     for (const { userId, projectId, body } of puts) {
       const result = await safeFetch(token, `${API_BASE}/time/targets/${encodeURIComponent(userId)}/${projectId}`, {
@@ -119,7 +120,37 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
       if (!result.res.ok) return errorText(await errorCode(result.res), t('time.targetsFailed'))
     }
     await fetchTargets()
-    setView('overview')
+    return null
+  }
+
+  // A Wochensoll period is household-wide in the UI: creating/deleting one loops over
+  // every person so their targets stay aligned (the backend stores per-person rows).
+  // Each new period is seeded server-side from the values in force on `validFrom`.
+  const createPeriod = async (validFrom: string): Promise<string | null> => {
+    for (const userId of users) {
+      const result = await safeFetch(token, `${API_BASE}/time/targets/${encodeURIComponent(userId)}/periods`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ validFrom }),
+      })
+      if (!result.ok) return errorText(null, t('time.targetsFailed'))
+      if (result.res.status === 401) { onLogout(); return null }
+      // 409 only when this person already has the period (partial create) — ignore, keep going.
+      if (!result.res.ok && result.res.status !== 409) return errorText(await errorCode(result.res), t('time.targetsFailed'))
+    }
+    await fetchTargets()
+    return null
+  }
+
+  const deletePeriod = async (validFrom: string): Promise<string | null> => {
+    for (const userId of users) {
+      const result = await safeFetch(token, `${API_BASE}/time/targets/${encodeURIComponent(userId)}/periods/${validFrom}`, {
+        method: 'DELETE',
+      })
+      if (!result.ok) return errorText(null, t('time.targetsFailed'))
+      if (result.res.status === 401) { onLogout(); return null }
+      // 404 = this person had no such period — fine when only one person configured it.
+      if (!result.res.ok && result.res.status !== 404) return errorText(await errorCode(result.res), t('time.targetsFailed'))
+    }
+    await fetchTargets()
     return null
   }
 
@@ -170,6 +201,8 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
         projects={targetProjects}
         targets={targets}
         onSave={saveTargets}
+        onCreatePeriod={createPeriod}
+        onDeletePeriod={deletePeriod}
         onBack={() => setView('overview')}
       />
     )
@@ -268,13 +301,54 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
   )
 }
 
+// --- Wochensoll periods (#31 follow-up) ------------------------------------
+// A target's period start; the API omits validFrom for the base period.
+const periodOf = (x: WorkTarget) => x.validFrom ?? BASE_TARGET_PERIOD
+
+// Distinct period start dates across the given targets, always incl. the base, sorted
+// ascending. ISO YYYY-MM-DD strings sort chronologically, so plain string order works.
+function periodsOf(targets: WorkTarget[]): string[] {
+  const set = new Set<string>([BASE_TARGET_PERIOD])
+  targets.forEach((x) => set.add(periodOf(x)))
+  return [...set].sort()
+}
+
+// The period in force on `onDate` (ISO): the latest start on/before it, else the base.
+function effectivePeriod(periods: string[], onDate: string): string {
+  const applicable = periods.filter((p) => p <= onDate)
+  return applicable.length ? applicable[applicable.length - 1] : BASE_TARGET_PERIOD
+}
+
+// Local today as YYYY-MM-DD (matches the server's start-date attribution well enough
+// for the "which period is current" hint — the backend stays the source of truth).
+function todayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// ISO date → locale date, parsed as a local (not UTC) day to avoid an off-by-one.
+function formatPeriodDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString()
+}
+
 // Read-only summary of the configured Wochensoll, so the settings card shows the
-// current state at a glance (the editor opens via the card's button).
+// current state at a glance (the editor opens via the card's button). Shows each
+// person's currently-effective period and notes any changes scheduled for later.
 function TargetsSummary({ users, projects, targets }: { users: string[]; projects: Project[]; targets: WorkTarget[] }) {
   const { t } = useTranslation()
+  const today = todayIso()
   const groups = users
-    .map((u) => ({ u, rows: targets.filter((x) => x.userId === u && (x.weeklyHours > 0 || x.isDefault)) }))
-    .filter((g) => g.rows.length > 0)
+    .map((u) => {
+      const mine = targets.filter((x) => x.userId === u)
+      const eff = effectivePeriod(periodsOf(mine), today)
+      const rows = mine.filter((x) => periodOf(x) === eff && (x.weeklyHours > 0 || x.isDefault))
+      const future = periodsOf(mine)
+        .filter((p) => p > today)
+        .map((p) => ({ p, hours: mine.filter((x) => periodOf(x) === p).reduce((s, x) => s + x.weeklyHours, 0) }))
+      return { u, rows, future }
+    })
+    .filter((g) => g.rows.length > 0 || g.future.length > 0)
   if (groups.length === 0) return <p className="hb-muted" style={{ margin: '12px 0 0' }}>{t('settings.wochensollEmpty')}</p>
   const proj = (id: string) => projects.find((p) => p.id === id)
   return (
@@ -300,6 +374,11 @@ function TargetsSummary({ users, projects, targets }: { users: string[]; project
               </div>
             ))}
           </div>
+          {g.future.map((f) => (
+            <p key={f.p} className="hb-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              {t('time.periodScheduled', { date: formatPeriodDate(f.p), hours: formatDecimal(f.hours) })}
+            </p>
+          ))}
         </div>
       ))}
     </div>
@@ -313,23 +392,128 @@ function TargetsSummary({ users, projects, targets }: { users: string[]; project
 // Moved here from TimeView with #99 — configuration now lives in the settings hub.
 // Its own full page rather than a modal (#128/#29): the per-person×project table
 // grows with the project count and scrolls badly when boxed into a dialog.
-function TargetsPage({ users, projects, targets, onSave, onBack }: {
+//
+// The hours are effective-dated (#31 follow-up): the page edits one period at a time,
+// picked from the selector; a new period is seeded server-side from the values in force
+// then, so past weeks keep the value that was valid then (e.g. 40h until August, 32h from
+// September). Periods are household-wide in the UI (see createPeriod/deletePeriod above).
+function TargetsPage({ users, projects, targets, onSave, onCreatePeriod, onDeletePeriod, onBack }: {
   users: string[]
   projects: Project[]
   targets: WorkTarget[]
   onSave: (puts: { userId: string; projectId: string; body: object }[]) => Promise<string | null>
+  onCreatePeriod: (validFrom: string) => Promise<string | null>
+  onDeletePeriod: (validFrom: string) => Promise<string | null>
   onBack: () => void
 }) {
   const { t } = useTranslation()
-  const targetFor = (u: string, p: string) => targets.find((x) => x.userId === u && x.projectId === p)
-  const defaultFor = (u: string) => targets.find((x) => x.userId === u && x.isDefault)?.projectId ?? ''
+  const periods = useMemo(() => periodsOf(targets), [targets])
+  const [selected, setSelected] = useState(() => effectivePeriod(periods, todayIso()))
+  const [showAdd, setShowAdd] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // After a create/delete refetch changes the period set, keep the selection valid.
+  useEffect(() => {
+    if (!periods.includes(selected)) setSelected(effectivePeriod(periods, todayIso()))
+  }, [periods, selected])
+
+  const periodLabel = (p: string) =>
+    p === BASE_TARGET_PERIOD ? t('time.periodBase') : t('time.periodFrom', { date: formatPeriodDate(p) })
+
+  const addPeriod = async (validFrom: string) => {
+    setError(null)
+    const err = await onCreatePeriod(validFrom)
+    if (err) return setError(err)
+    setShowAdd(false)
+    setSelected(validFrom)
+  }
+  const removePeriod = async () => {
+    if (selected === BASE_TARGET_PERIOD) return
+    setError(null)
+    const gone = selected
+    const err = await onDeletePeriod(gone)
+    if (err) return setError(err)
+    setSelected(effectivePeriod(periods.filter((p) => p !== gone), todayIso()))
+  }
+
+  return (
+    <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
+      <div className="hb-detailnav">
+        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t('time.backToOverview')}</Button>
+      </div>
+      <PageHead eyebrow={t('settings.time')} title={t('time.targetsModalTitle')} />
+      <Card className="hb-card--pad">
+        <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.targetsModalHint')}</p>
+
+        {/* Period selector — which validity period the grid below edits. */}
+        <Field label={t('time.periodLabel')}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ minWidth: 200, flex: '1 1 200px' }}>
+              <Select value={selected} onChange={setSelected}>
+                {periods.map((p) => <option key={p} value={p}>{periodLabel(p)}</option>)}
+              </Select>
+            </div>
+            <Button size="sm" variant="secondary" icon="plus" onClick={() => setShowAdd(true)}>{t('time.periodAdd')}</Button>
+            {selected !== BASE_TARGET_PERIOD && (
+              <Button size="sm" variant="ghost" icon="trash" onClick={() => setConfirmDelete(true)}>{t('time.periodDelete')}</Button>
+            )}
+          </div>
+        </Field>
+        <p className="hb-muted" style={{ margin: '2px 0 14px', fontSize: 13 }}>{t('time.periodHint')}</p>
+        {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '0 0 14px' }}>{error}</p>}
+
+        {projects.length === 0 ? (
+          <p className="hb-muted">{t('time.noProjectsHint')}</p>
+        ) : (
+          <PeriodEditor
+            key={selected}
+            period={selected}
+            users={users}
+            projects={projects}
+            targets={targets}
+            onSave={onSave}
+            onDone={onBack}
+          />
+        )}
+      </Card>
+
+      {showAdd && <AddPeriodModal existing={periods} onAdd={addPeriod} onClose={() => setShowAdd(false)} />}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={t('time.periodDeleteTitle')}
+          message={t('time.periodDeleteConfirm', { date: formatPeriodDate(selected) })}
+          confirmLabel={t('time.periodDelete')}
+          danger
+          onConfirm={removePeriod}
+          onClose={() => setConfirmDelete(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// The person×project hours grid for ONE Wochensoll period. Re-mounted (keyed on the
+// period) whenever the selection changes so its draft reflects that period's values.
+// Every PUT carries the period's `validFrom` so the edit lands in the right period.
+function PeriodEditor({ period, users, projects, targets, onSave, onDone }: {
+  period: string
+  users: string[]
+  projects: Project[]
+  targets: WorkTarget[]
+  onSave: (puts: { userId: string; projectId: string; body: object }[]) => Promise<string | null>
+  onDone: () => void
+}) {
+  const { t } = useTranslation()
+  const targetFor = (u: string, p: string) => targets.find((x) => x.userId === u && x.projectId === p && periodOf(x) === period)
+  const defaultFor = (u: string) => targets.find((x) => x.userId === u && periodOf(x) === period && x.isDefault)?.projectId ?? ''
   const [draft, setDraft] = useState<Record<string, { hours: Record<string, string>; def: string }>>(() =>
     Object.fromEntries(users.map((u) => [u, {
       hours: Object.fromEntries(projects.map((p) => {
         const h = targetFor(u, p.id)?.weeklyHours ?? 0
         // Pre-fill the editable field with the locale decimal mark (#299) so it matches the
-        // read-only summary (formatDecimal, line ~298) and round-trips: en "1.5" / de "1,5".
-        // Hours stay ≤168, so formatDecimal never adds a grouping separator here.
+        // read-only summary and round-trips: en "1.5" / de "1,5". Hours stay ≤168, so
+        // formatDecimal never adds a grouping separator here.
         return [p.id, h > 0 ? formatDecimal(h) : '']
       })),
       def: defaultFor(u),
@@ -365,12 +549,16 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
           return
         }
         sumHours += hours
-        const body: { weeklyHours?: number; isDefault?: boolean } = {}
+        const body: { weeklyHours?: number; isDefault?: boolean; validFrom?: string } = {}
         if (hours !== (targetFor(u, p.id)?.weeklyHours ?? 0)) body.weeklyHours = hours
         const defBefore = defaultFor(u)
-        // setting the new default clears the old one server-side
+        // setting the new default clears the old one (within this period) server-side
         if (draft[u].def !== defBefore && draft[u].def === p.id) body.isDefault = true
-        if (Object.keys(body).length > 0) puts.push({ userId: u, projectId: p.id, body })
+        if (body.weeklyHours === undefined && body.isDefault === undefined) continue
+        // The base period omits validFrom (backend default) so its payloads stay identical
+        // to the pre-periods behaviour; scheduled periods carry their start date.
+        if (period !== BASE_TARGET_PERIOD) body.validFrom = period
+        puts.push({ userId: u, projectId: p.id, body })
       }
       // hours > 0 ⇒ a default project must be chosen (#59); auto-select normally
       // covers this — backstop for legacy data without a default
@@ -379,7 +567,7 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
         return
       }
     }
-    if (puts.length === 0) return onBack()
+    if (puts.length === 0) return onDone()
     submitRef.current = true
     setError(null)
     try {
@@ -387,6 +575,8 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
       if (err) {
         submitRef.current = false
         setError(err)
+      } else {
+        onDone()
       }
     } catch {
       submitRef.current = false
@@ -395,61 +585,87 @@ function TargetsPage({ users, projects, targets, onSave, onBack }: {
   }
 
   return (
-    <div className="hb-stack" style={{ gap: 'var(--gap)' }}>
-      <div className="hb-detailnav">
-        <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>{t('time.backToOverview')}</Button>
-      </div>
-      <PageHead eyebrow={t('settings.time')} title={t('time.targetsModalTitle')} />
-      <Card className="hb-card--pad">
-        <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.targetsModalHint')}</p>
-        {projects.length === 0 ? (
-          <p className="hb-muted">{t('time.noProjectsHint')}</p>
-        ) : (
-          users.map((u) => (
-            <div key={u} style={{ marginBottom: 18 }}>
-              <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
-              </div>
-              <div className="hb-targetgrid">
-                <span className="hb-muted hb-targetgrid__h">{t('time.project')}</span>
-                <span className="hb-muted hb-targetgrid__h">{t('time.hoursPerWeek')}</span>
-                <span className="hb-muted hb-targetgrid__h">{t('time.defaultColumn')}</span>
-                {projects.map((p) => (
-                  <Fragment key={p.id}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                      <span className="hb-pdot" style={{ background: p.color }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.name}{p.archived && <span className="hb-muted"> ({t('time.archivedSection')})</span>}
-                      </span>
-                    </span>
-                    <input
-                      className="hb-input"
-                      inputMode="decimal"
-                      value={draft[u].hours[p.id] ?? ''}
-                      onChange={(e) => setHours(u, p.id, e.target.value)}
-                      placeholder="0"
-                      aria-label={`${t('time.hoursPerWeek')} ${p.name} ${userMeta(u)?.name ?? u}`}
-                    />
-                    <input
-                      type="radio"
-                      name={`hb-default-${u}`}
-                      checked={draft[u].def === p.id}
-                      onChange={() => setDef(u, p.id)}
-                      aria-label={`${t('time.defaultColumn')} ${p.name} ${userMeta(u)?.name ?? u}`}
-                    />
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-        {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '0 0 14px' }}>{error}</p>}
-        <div className="hb-formactions">
-          <Button variant="ghost" onClick={onBack}>{t('common.cancel')}</Button>
-          <Button onClick={submit}>{t('common.save')}</Button>
+    <>
+      {users.map((u) => (
+        <div key={u} style={{ marginBottom: 18 }}>
+          <div className="hb-sectionlabel" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Avatar user={u} size={20} /> {userMeta(u)?.name ?? u}
+          </div>
+          <div className="hb-targetgrid">
+            <span className="hb-muted hb-targetgrid__h">{t('time.project')}</span>
+            <span className="hb-muted hb-targetgrid__h">{t('time.hoursPerWeek')}</span>
+            <span className="hb-muted hb-targetgrid__h">{t('time.defaultColumn')}</span>
+            {projects.map((p) => (
+              <Fragment key={p.id}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                  <span className="hb-pdot" style={{ background: p.color }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.name}{p.archived && <span className="hb-muted"> ({t('time.archivedSection')})</span>}
+                  </span>
+                </span>
+                <input
+                  className="hb-input"
+                  inputMode="decimal"
+                  value={draft[u].hours[p.id] ?? ''}
+                  onChange={(e) => setHours(u, p.id, e.target.value)}
+                  placeholder="0"
+                  aria-label={`${t('time.hoursPerWeek')} ${p.name} ${userMeta(u)?.name ?? u}`}
+                />
+                <input
+                  type="radio"
+                  name={`hb-default-${u}`}
+                  checked={draft[u].def === p.id}
+                  onChange={() => setDef(u, p.id)}
+                  aria-label={`${t('time.defaultColumn')} ${p.name} ${userMeta(u)?.name ?? u}`}
+                />
+              </Fragment>
+            ))}
+          </div>
         </div>
-      </Card>
-    </div>
+      ))}
+      {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '0 0 14px' }}>{error}</p>}
+      <div className="hb-formactions">
+        <Button variant="ghost" onClick={onDone}>{t('common.cancel')}</Button>
+        <Button onClick={submit}>{t('common.save')}</Button>
+      </div>
+    </>
+  )
+}
+
+// Small modal to schedule a new Wochensoll period from a chosen date. The date must be
+// unique and not the base period; the backend seeds the new period from the values in
+// force then, so the grid opens pre-filled with the current hours to adjust.
+function AddPeriodModal({ existing, onAdd, onClose }: {
+  existing: string[]
+  onAdd: (validFrom: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [date, setDate] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const submit = () => {
+    if (!date) return setErr(t('time.periodDatePick'))
+    if (date === BASE_TARGET_PERIOD || existing.includes(date)) return setErr(t('time.periodExists'))
+    onAdd(date)
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('time.periodAddTitle')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button icon="plus" onClick={submit}>{t('time.periodAdd')}</Button>
+        </>
+      }
+    >
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.periodAddHint')}</p>
+      <Field label={t('time.periodValidFrom')}>
+        <TextInput type="date" value={date} onChange={(v) => { setDate(v); setErr(null) }} />
+      </Field>
+      {err && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: '8px 0 0' }}>{err}</p>}
+    </Modal>
   )
 }
 

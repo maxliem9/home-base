@@ -157,7 +157,14 @@ export interface WorkTarget {
   projectId: string
   weeklyHours: number
   isDefault: boolean
+  // Start of the period these hours apply to (ISO date). Omitted by the API for the
+  // base period (encodeDefaults=false) → treat a missing value as BASE_TARGET_PERIOD.
+  validFrom?: string
 }
+
+// The always-present base period all legacy targets sit in (backend V44). A change
+// scheduled from a later date leaves earlier weeks on the value in force then.
+export const BASE_TARGET_PERIOD = '1970-01-01'
 
 export interface ProjectForecast {
   projectId: string

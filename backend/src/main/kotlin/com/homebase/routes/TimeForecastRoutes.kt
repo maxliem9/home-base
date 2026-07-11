@@ -2,6 +2,8 @@ package com.homebase.routes
 
 import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeWorkTargetsTable
+import com.homebase.model.BASE_TARGET_PERIOD
+import com.homebase.model.CreateTargetPeriodRequest
 import com.homebase.model.ErrorResponse
 import com.homebase.model.TimeWsMessage
 import com.homebase.model.UpsertWorkTargetRequest
@@ -57,7 +59,10 @@ fun Route.workTargetRoutes() {
         get {
             val targets = transaction {
                 TimeWorkTargetsTable.selectAll()
-                    .orderBy(TimeWorkTargetsTable.userId, SortOrder.ASC)
+                    .orderBy(
+                        TimeWorkTargetsTable.userId to SortOrder.ASC,
+                        TimeWorkTargetsTable.validFrom to SortOrder.ASC,
+                    )
                     .map { it.toTargetDto() }
             }
             call.respond(targets)
@@ -72,6 +77,8 @@ fun Route.workTargetRoutes() {
             if (hours != null && (!hours.isFinite() || hours < 0 || hours > MAX_WEEKLY_HOURS)) {
                 return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_HOURS", "weeklyHours must be between 0 and $MAX_WEEKLY_HOURS"))
             }
+            val validFrom = parsePeriod(req.validFrom)
+                ?: return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "validFrom must be YYYY-MM-DD"))
 
             val target: Any? = try {
                 transaction {
@@ -79,7 +86,11 @@ fun Route.workTargetRoutes() {
                     ProjectsTable.selectAll().where { ProjectsTable.id eq projectId }.singleOrNull()
                         ?: return@transaction ErrorResponse("NOT_FOUND", "Project not found")
 
-                    val rows = TimeWorkTargetsTable.selectAll().where { TimeWorkTargetsTable.userId eq userId }.toList()
+                    // Everything below is scoped to the one period: a person's default
+                    // project, hours sum and the invariant are all per-period.
+                    val rows = TimeWorkTargetsTable.selectAll()
+                        .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom) }
+                        .toList()
                     val existing = rows.firstOrNull { it[TimeWorkTargetsTable.projectId] == projectId }
                     val defaultProjectId = rows.firstOrNull { it[TimeWorkTargetsTable.isDefault] }?.get(TimeWorkTargetsTable.projectId)
                     val newHours = hours ?: existing?.get(TimeWorkTargetsTable.weeklyHours) ?: 0.0
@@ -100,10 +111,11 @@ fun Route.workTargetRoutes() {
                     // becomes the default automatically (self-heals legacy data too).
                     val autoDefault = req.isDefault == null && defaultProjectId == null && sumAfter > 0
 
-                    // A person has exactly one default project (credits land there) —
-                    // making this one the default clears any other (V20 partial index backstop).
+                    // A person has exactly one default project per period (credits land
+                    // there) — making this one the default clears any other in the same
+                    // period (V44 partial index backstop).
                     if (req.isDefault == true) {
-                        TimeWorkTargetsTable.update({ (TimeWorkTargetsTable.userId eq userId) and TimeWorkTargetsTable.isDefault }) {
+                        TimeWorkTargetsTable.update({ (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom) and TimeWorkTargetsTable.isDefault }) {
                             it[isDefault] = false
                         }
                     }
@@ -114,23 +126,24 @@ fun Route.workTargetRoutes() {
                             it[TimeWorkTargetsTable.projectId] = projectId
                             it[weeklyHours] = hours ?: 0.0
                             it[isDefault] = req.isDefault ?: autoDefault
+                            it[TimeWorkTargetsTable.validFrom] = validFrom
                         }
                     } else {
-                        TimeWorkTargetsTable.update({ (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) }) {
+                        TimeWorkTargetsTable.update({ (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) and (TimeWorkTargetsTable.validFrom eq validFrom) }) {
                             hours?.let { v -> it[weeklyHours] = v }
                             req.isDefault?.let { v -> it[isDefault] = v }
                             if (autoDefault) it[isDefault] = true
                         }
                     }
                     TimeWorkTargetsTable.selectAll()
-                        .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) }
+                        .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.projectId eq projectId) and (TimeWorkTargetsTable.validFrom eq validFrom) }
                         .single().toTargetDto()
                 }
             } catch (e: ExposedSQLException) {
-                // Two concurrent requests both set isDefault=true for the same person on
-                // different projects: the clear-then-set in transaction A is invisible to
-                // transaction B, so both end up committing a default row → the partial
-                // unique index `time_work_targets_one_default` (V20) rejects the second
+                // Two concurrent requests both set isDefault=true for the same person and
+                // period on different projects: the clear-then-set in transaction A is
+                // invisible to transaction B, so both commit a default row → the partial
+                // unique index `time_work_targets_one_default` (V44) rejects the second
                 // commit. Return 409 so the client knows to retry; any other SQL error
                 // (FK violation, type mismatch, …) is re-thrown and becomes a 500. (#57)
                 if (e.isDefaultIndexConflict()) {
@@ -156,7 +169,86 @@ fun Route.workTargetRoutes() {
                 }
             }
         }
+
+        // Create a new Wochensoll period for a person, seeded from the currently-effective
+        // one (the latest period on/before validFrom) so the caller starts from the values
+        // in force then — including the default project. The clients edit the seeded cells
+        // afterwards via PUT. Household-shared like the rest of the targets API.
+        post("/{userId}/periods") {
+            val userId = call.parameters["userId"]!!
+            val req = call.receive<CreateTargetPeriodRequest>()
+            val validFrom = parsePeriod(req.validFrom)
+                ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "validFrom must be YYYY-MM-DD"))
+            if (validFrom.toString() == BASE_TARGET_PERIOD) {
+                return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "the base period already exists"))
+            }
+
+            val result: Any? = transaction {
+                if (!userExists(userId)) return@transaction null
+                val rows = TimeWorkTargetsTable.selectAll().where { TimeWorkTargetsTable.userId eq userId }.toList()
+                if (rows.any { it[TimeWorkTargetsTable.validFrom] == validFrom }) {
+                    return@transaction ErrorResponse("PERIOD_EXISTS", "a period with this start date already exists")
+                }
+                // Seed from the latest period on/before the new start date.
+                val sourceDate = rows.map { it[TimeWorkTargetsTable.validFrom] }
+                    .filter { !it.isAfter(validFrom) }
+                    .maxOrNull()
+                val seed = if (sourceDate != null) rows.filter { it[TimeWorkTargetsTable.validFrom] == sourceDate } else emptyList()
+                seed.forEach { row ->
+                    TimeWorkTargetsTable.insert {
+                        it[id] = UUID.randomUUID()
+                        it[TimeWorkTargetsTable.userId] = userId
+                        it[projectId] = row[TimeWorkTargetsTable.projectId]
+                        it[weeklyHours] = row[TimeWorkTargetsTable.weeklyHours]
+                        it[isDefault] = row[TimeWorkTargetsTable.isDefault]
+                        it[TimeWorkTargetsTable.validFrom] = validFrom
+                    }
+                }
+                TimeWorkTargetsTable.selectAll()
+                    .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom) }
+                    .map { it.toTargetDto() }
+            }
+
+            when (result) {
+                null -> call.respond(HttpStatusCode.NotFound, ErrorResponse("USER_NOT_FOUND", "User not found"))
+                is ErrorResponse -> call.respond(HttpStatusCode.Conflict, result)
+                else -> {
+                    @Suppress("UNCHECKED_CAST") val created = result as List<WorkTargetDto>
+                    // target-less TARGET_UPDATED: the whole period changed; clients refetch.
+                    WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("TARGET_UPDATED")))
+                    call.respond(HttpStatusCode.Created, created)
+                }
+            }
+        }
+
+        // Delete a whole Wochensoll period for a person. The base period (1970-01-01) is the
+        // always-present fallback and cannot be removed; weeks before the earliest remaining
+        // period simply have no target (0h).
+        delete("/{userId}/periods/{validFrom}") {
+            val userId = call.parameters["userId"]!!
+            val validFrom = parsePeriod(call.parameters["validFrom"])
+                ?: return@delete call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_DATE", "validFrom must be YYYY-MM-DD"))
+            if (validFrom.toString() == BASE_TARGET_PERIOD) {
+                return@delete call.respond(HttpStatusCode.BadRequest, ErrorResponse("BASE_PERIOD", "the base period cannot be deleted"))
+            }
+            val deleted = transaction {
+                TimeWorkTargetsTable.deleteWhere {
+                    (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom)
+                }
+            }
+            if (deleted == 0) {
+                return@delete call.respond(HttpStatusCode.NotFound, ErrorResponse("PERIOD_NOT_FOUND", "no such period"))
+            }
+            WsSessionManager.broadcast(TIME_WS_CHANNEL, appJson.encodeToString(TimeWsMessage("TARGET_UPDATED")))
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
+}
+
+/** Parse a `YYYY-MM-DD` period start; blank/null → the base period. Null on malformed input. */
+private fun parsePeriod(raw: String?): LocalDate? {
+    if (raw.isNullOrBlank()) return LocalDate.parse(BASE_TARGET_PERIOD)
+    return runCatching { LocalDate.parse(raw) }.getOrNull()
 }
 
 fun Route.forecastRoute() {
@@ -211,4 +303,5 @@ private fun ResultRow.toTargetDto() = WorkTargetDto(
     projectId = this[TimeWorkTargetsTable.projectId].toString(),
     weeklyHours = this[TimeWorkTargetsTable.weeklyHours],
     isDefault = this[TimeWorkTargetsTable.isDefault],
+    validFrom = this[TimeWorkTargetsTable.validFrom].toString(),
 )

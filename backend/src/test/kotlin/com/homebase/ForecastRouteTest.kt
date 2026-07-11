@@ -47,6 +47,16 @@ class ForecastRouteTest {
             setBody(body)
         }
 
+    private suspend fun ApplicationTestBuilder.createPeriod(token: String, user: String, validFrom: String) =
+        client.post("/api/v1/time/targets/$user/periods") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"validFrom":"$validFrom"}""")
+        }
+
+    private suspend fun ApplicationTestBuilder.deletePeriod(token: String, user: String, validFrom: String) =
+        client.delete("/api/v1/time/targets/$user/periods/$validFrom") { bearerAuth(token) }
+
     private suspend fun ApplicationTestBuilder.createEntry(token: String, projectId: String, startedAt: String, stoppedAt: String) {
         val res = client.post("/api/v1/time/entries") {
             bearerAuth(token)
@@ -273,6 +283,104 @@ class ForecastRouteTest {
 
         // a pinned past date never carries an expected end, even while a timer runs
         assertNull(forecastUser(token, "2026-01-07", "alice")["expectedEndAt"])
+    }
+
+    // ---------- effective-dated periods (#31 follow-up) ----------
+
+    @Test
+    fun `a scheduled period changes the target from its Monday on, past weeks keep the old value`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+
+        // Schedule 32h from the week starting Mon 2026-07-06.
+        val period = createPeriod(token, "alice", "2026-07-06")
+        assertEquals(HttpStatusCode.Created, period.status)
+        // The new period is seeded from the effective values (40h, default kept).
+        val seeded = Json.parseToJsonElement(period.bodyAsText()).jsonArray.map { it.jsonObject }.single()
+        assertEquals(40.0, seeded["weeklyHours"]?.jsonPrimitive?.double)
+        assertEquals(true, seeded["isDefault"]?.jsonPrimitive?.boolean)
+        assertEquals("2026-07-06", seeded["validFrom"]?.jsonPrimitive?.content)
+        // Now lower it to 32h.
+        putTarget(token, "alice", p1, """{"weeklyHours":32,"validFrom":"2026-07-06"}""")
+
+        // A week before the change keeps 40h …
+        val before = forecastUser(token, "2026-06-10", "alice")
+        assertEquals(144000, before["weekTargetSeconds"]?.jsonPrimitive?.long) // 40h
+        assertEquals(40.0, before["weeklyTargetHours"]?.jsonPrimitive?.double)
+        // … the week of the change (Mon 2026-07-06) is 32h …
+        val after = forecastUser(token, "2026-07-08", "alice")
+        assertEquals(115200, after["weekTargetSeconds"]?.jsonPrimitive?.long) // 32h
+        assertEquals(32.0, after["weeklyTargetHours"]?.jsonPrimitive?.double)
+        // … and the straddling week whose Monday is before the start still uses 40h.
+        val straddle = forecastUser(token, "2026-07-01", "alice") // week Mon 2026-06-29
+        assertEquals(144000, straddle["weekTargetSeconds"]?.jsonPrimitive?.long)
+    }
+
+    @Test
+    fun `period create rejects duplicates and the base date, list carries all periods`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+
+        assertEquals(HttpStatusCode.Created, createPeriod(token, "alice", "2026-09-01").status)
+        // same start again → 409
+        assertEquals(HttpStatusCode.Conflict, createPeriod(token, "alice", "2026-09-01").status)
+        // the base period cannot be created explicitly
+        assertEquals(HttpStatusCode.BadRequest, createPeriod(token, "alice", "1970-01-01").status)
+        // malformed date → 400
+        assertEquals(HttpStatusCode.BadRequest, createPeriod(token, "alice", "nope").status)
+
+        val list = Json.parseToJsonElement(
+            client.get("/api/v1/time/targets") { bearerAuth(token) }.bodyAsText(),
+        ).jsonArray.map { it.jsonObject }
+        // Base-period rows omit validFrom (encodeDefaults=false) → a missing field means 1970-01-01.
+        assertEquals(setOf("1970-01-01", "2026-09-01"), list.map { it["validFrom"]?.jsonPrimitive?.content ?: "1970-01-01" }.toSet())
+    }
+
+    @Test
+    fun `deleting a period reverts later weeks to the earlier one, base is protected`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+        createPeriod(token, "alice", "2026-07-06")
+        putTarget(token, "alice", p1, """{"weeklyHours":32,"validFrom":"2026-07-06"}""")
+
+        // week after the change: 32h while the period exists
+        assertEquals(115200, forecastUser(token, "2026-07-08", "alice")["weekTargetSeconds"]?.jsonPrimitive?.long)
+
+        // the base period is the fallback and cannot be removed
+        assertEquals(HttpStatusCode.BadRequest, deletePeriod(token, "alice", "1970-01-01").status)
+        // deleting the 32h period → that week falls back to the base 40h
+        assertEquals(HttpStatusCode.NoContent, deletePeriod(token, "alice", "2026-07-06").status)
+        assertEquals(144000, forecastUser(token, "2026-07-08", "alice")["weekTargetSeconds"]?.jsonPrimitive?.long)
+        // deleting a non-existent period → 404
+        assertEquals(HttpStatusCode.NotFound, deletePeriod(token, "alice", "2026-07-06").status)
+    }
+
+    @Test
+    fun `each period keeps its own default project`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token, "Arbeit")
+        val p2 = createProject(token, "Nebenjob")
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+        putTarget(token, "alice", p2, """{"weeklyHours":5}""")
+
+        createPeriod(token, "alice", "2026-09-01")
+        // switch the default within the new period only
+        putTarget(token, "alice", p2, """{"isDefault":true,"validFrom":"2026-09-01"}""")
+
+        val list = Json.parseToJsonElement(
+            client.get("/api/v1/time/targets") { bearerAuth(token) }.bodyAsText(),
+        ).jsonArray.map { it.jsonObject }
+        val defByPeriod = list.filter { it["isDefault"]?.jsonPrimitive?.boolean == true }
+            .associate { (it["validFrom"]?.jsonPrimitive?.content ?: "1970-01-01") to it["projectId"]?.jsonPrimitive?.content }
+        assertEquals(p1, defByPeriod["1970-01-01"])
+        assertEquals(p2, defByPeriod["2026-09-01"])
     }
 
     @Test

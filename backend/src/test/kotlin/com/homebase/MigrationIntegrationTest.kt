@@ -372,6 +372,7 @@ class MigrationIntegrationTest {
                 it[projectId] = projectAId
                 it[weeklyHours] = 20.0
                 it[isDefault] = true   // first default — must succeed
+                it[validFrom] = LocalDate.parse("1970-01-01")
             }
         }
 
@@ -387,6 +388,7 @@ class MigrationIntegrationTest {
                     it[projectId] = projectBId
                     it[weeklyHours] = 0.0
                     it[isDefault] = true   // second default — must be rejected
+                    it[validFrom] = LocalDate.parse("1970-01-01")   // same period → index must reject
                 }
             }
         }

@@ -30,6 +30,8 @@ data class TargetChange(
     val projectId: String,
     val weeklyHours: Double? = null,
     val isDefault: Boolean? = null,
+    // Wochensoll period this change lands in (null → base period, #31 follow-up).
+    val validFrom: String? = null,
 )
 
 data class TimeUiState(
@@ -236,19 +238,50 @@ class TimeViewModel(
         viewModelScope.launch {
             var failed = false
             changes.forEach { c ->
-                repository.upsertTarget(c.userId, c.projectId, c.weeklyHours, c.isDefault)
+                repository.upsertTarget(c.userId, c.projectId, c.weeklyHours, c.isDefault, c.validFrom)
                     .onFailure { failed = true }
             }
-            val targets = repository.getTargets()
-            val forecast = repository.getForecast()
-            _uiState.update { state ->
-                state.copy(
-                    targets = targets.getOrDefault(state.targets),
-                    forecast = forecast.getOrNull() ?: state.forecast,
-                    forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
-                    error = if (failed) "Wochensoll konnte nicht gespeichert werden." else state.error,
-                )
+            refreshTargetsAndForecast(failed)
+        }
+    }
+
+    /**
+     * Schedule a new Wochensoll period across the household (#31 follow-up): one POST per
+     * person so their targets stay aligned; each is seeded server-side from the effective
+     * values. A 409 (this person already has the period) is tolerated. Then refetch.
+     */
+    fun createTargetPeriod(userIds: List<String>, validFrom: String) {
+        viewModelScope.launch {
+            var failed = false
+            userIds.forEach { userId ->
+                repository.createTargetPeriod(userId, validFrom).onFailure { failed = true }
             }
+            refreshTargetsAndForecast(failed)
+        }
+    }
+
+    /** Delete a Wochensoll period across the household; a 404 (no such period) is tolerated. */
+    fun deleteTargetPeriod(userIds: List<String>, validFrom: String) {
+        viewModelScope.launch {
+            var failed = false
+            userIds.forEach { userId ->
+                repository.deleteTargetPeriod(userId, validFrom).onFailure { failed = true }
+            }
+            refreshTargetsAndForecast(failed)
+        }
+    }
+
+    /** Refetch targets + forecast after a mutation so the UI reflects real server state. */
+    private suspend fun refreshTargetsAndForecast(failed: Boolean) {
+        val targets = repository.getTargets()
+        val forecast = repository.getForecast()
+        _uiState.update { state ->
+            state.copy(
+                targets = targets.getOrDefault(state.targets),
+                forecast = forecast.getOrNull() ?: state.forecast,
+                forecastAt = if (forecast.isSuccess) Instant.now() else state.forecastAt,
+                error = if (failed) "Wochensoll konnte nicht gespeichert werden." else state.error,
+            )
         }
     }
 

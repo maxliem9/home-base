@@ -109,7 +109,17 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
         settings: List<ResultRow>,
         entries: List<ResultRow>,
     ): UserForecastDto {
-        val weeklyHours = targets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
+        // Effective-dated Wochensoll (#31 follow-up): a person may have several target
+        // periods; use the one in force for this ISO week, i.e. the latest whose
+        // valid_from is on/before the week's Monday. Weeks before the earliest period
+        // have no target (0h). Anchoring on Monday keeps one target for the whole week.
+        val weekStart = weekDays.first()
+        val activePeriod = targets.map { it[TimeWorkTargetsTable.validFrom] }
+            .filter { !it.isAfter(weekStart) }
+            .maxOrNull()
+        val periodTargets = if (activePeriod != null)
+            targets.filter { it[TimeWorkTargetsTable.validFrom] == activePeriod } else emptyList()
+        val weeklyHours = periodTargets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
         val weekTargetSeconds = weeklyHours * 3600.0
 
         // Work/credit math is shared with TimeCredits.kt (single source of truth so the
@@ -162,12 +172,12 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
             now.plusSeconds(max(0L, todayRemaining)).toString()
         } else null
 
-        val defaultProjectId = targets.firstOrNull { it[TimeWorkTargetsTable.isDefault] }
+        val defaultProjectId = periodTargets.firstOrNull { it[TimeWorkTargetsTable.isDefault] }
             ?.get(TimeWorkTargetsTable.projectId)
         val weekCreditedSeconds = weekCredited.roundToLong()
-        val projectIds = (targets.map { it[TimeWorkTargetsTable.projectId] } + recordedByProject.keys).distinct()
+        val projectIds = (periodTargets.map { it[TimeWorkTargetsTable.projectId] } + recordedByProject.keys).distinct()
         val projects = projectIds.map { pid ->
-            val hours = targets.firstOrNull { it[TimeWorkTargetsTable.projectId] == pid }
+            val hours = periodTargets.firstOrNull { it[TimeWorkTargetsTable.projectId] == pid }
                 ?.get(TimeWorkTargetsTable.weeklyHours) ?: 0.0
             val recorded = recordedByProject[pid] ?: 0L
             val credited = if (pid == defaultProjectId) weekCreditedSeconds else 0L

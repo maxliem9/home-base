@@ -406,6 +406,14 @@
     <string name="time_project_archived_suffix">%1$s (archived)</string>
     <string name="time_targets_hours_range">Hours must be between 0 and 168</string>
     <string name="time_targets_pick_default">Please pick a default project</string>
+    <string name="time_period_label">Period</string>
+    <string name="time_period_base">From the start</string>
+    <string name="time_period_from">From %s</string>
+    <string name="time_period_hint">Earlier weeks keep the value valid then. A new period applies from the ISO week whose Monday is on/after the start date.</string>
+    <string name="time_period_add">New period</string>
+    <string name="time_period_delete">Delete period</string>
+    <string name="time_period_delete_confirm">The period from %s will be removed; the affected weeks revert to the previous value.</string>
+    <string name="time_period_exists">A period with this start date already exists</string>
     <string name="time_new_project_title">New project</string>
     <string name="time_project_name_placeholder">e.g. Renovation</string>
     <string name="time_field_color">Color</string>

@@ -1314,6 +1314,8 @@ private fun ZeiterfassungPage(timeViewModel: TimeViewModel, onBack: () -> Unit) 
                 projects = targetProjects,
                 targets = state.targets,
                 onSave = { changes -> timeViewModel.saveTargets(changes); showTargets = false },
+                onCreatePeriod = { validFrom -> timeViewModel.createTargetPeriod(state.users, validFrom) },
+                onDeletePeriod = { validFrom -> timeViewModel.deleteTargetPeriod(state.users, validFrom) },
                 onDismiss = { showTargets = false },
             )
         }

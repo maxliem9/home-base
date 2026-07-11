@@ -46,8 +46,27 @@ description?, created_at, updated_at
   auf dem letzten Default wird bei verbleibenden Stunden mit 409 DEFAULT_REQUIRED
   abgelehnt (Wechsel weiterhin via `isDefault:true` auf einem anderen Projekt).
   Damit summieren sich Projekt-Saldi stets zum Personen-Saldo.
+- **Effektiv-datierte Perioden (#31-Folge, V44):** Das Wochensoll kann sich ab einem
+  Datum ändern (z. B. 40 h bis August, 32 h ab September), frühere Wochen behalten den
+  damals gültigen Wert. `time_work_targets` hat dazu ein `valid_from` (DATE); jede
+  (Person×Projekt) kann mehrere Perioden-Zeilen haben. Bestandsdaten liegen in der
+  **Basisperiode `1970-01-01`** (immer vorhandener Fallback). Eindeutigkeit jetzt über
+  (user, project, valid_from); der „ein Default pro Person"-Partialindex greift **pro
+  Periode** (user, valid_from) WHERE is_default — die #59-Invariante gilt je Periode.
+  Endpunkte: `POST /targets/{userId}/periods {validFrom}` legt eine Periode an, **geseedet
+  aus der zu `validFrom` gültigen Periode** (die letzte mit valid_from ≤ validFrom); Basis
+  ist nicht anlegbar (400), Duplikat → 409 PERIOD_EXISTS. `DELETE
+  /targets/{userId}/periods/{validFrom}` löscht eine ganze Periode (Basis nicht löschbar →
+  400 BASE_PERIOD, unbekannt → 404). `PUT /targets/{userId}/{projectId}` nimmt optional
+  `validFrom` im Body (fehlt → Basis; **encodeDefaults=false lässt validFrom für die Basis
+  weg** → Clients lesen „fehlt" als `1970-01-01`). Periode-Create/Delete senden ein
+  **payload-loses** TARGET_UPDATED (Clients refetchen die ganze Liste). Web/Android: die
+  Wochensoll-Editoren wählen die Periode oben aus und legen neue an; die Perioden sind in
+  der UI **haushaltsweit** (Create/Delete loopt über beide Personen).
 - GET /api/v1/time/forecast (optional ?date=, für Tests) berechnet **serverseitig**
-  pro Person und ISO-Woche (Mo–So): Tagessoll = Wochensoll ÷ Arbeitstage (Mo–Fr
+  pro Person und ISO-Woche (Mo–So): Für jede Person greift die **zum Montag der Woche
+  gültige Periode** (letztes valid_from ≤ weekStart; Wochen vor der frühesten Periode haben
+  0 h). Tagessoll = Wochensoll ÷ Arbeitstage (Mo–Fr
   minus Teilzeit-freie Tage; Feiertage/Abwesenheiten verkleinern den Teiler nicht).
   Urlaub/Krank/Kind-krank und Feiertage schreiben das Tagessoll dem Default-Projekt
   gut (halbe Tage = 0,5×). Tagesziel = offener Wochenrest ÷ verbleibende erfassbare

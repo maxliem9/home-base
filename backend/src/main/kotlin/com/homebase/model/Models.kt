@@ -617,21 +617,37 @@ data class TimeWsMessage(
 
 // ---------- Wochensoll & Forecast (#31) ----------
 
-/** Weekly work-hour target of one person on one project. */
+/** The base Wochensoll period all legacy rows sit in (see V44); the always-present fallback. */
+const val BASE_TARGET_PERIOD = "1970-01-01"
+
+/** Weekly work-hour target of one person on one project, within one period (#31). */
 @Serializable
 data class WorkTargetDto(
     val userId: String,
     val projectId: String,
     val weeklyHours: Double,
     // the person's one default project: absence/holiday credits are booked here
-    val isDefault: Boolean
+    val isDefault: Boolean,
+    // Start of the period this target applies to (ISO date). The base period is
+    // 1970-01-01; later periods let the weekly hours change from a chosen date on.
+    val validFrom: String = BASE_TARGET_PERIOD,
 )
 
-/** Partial upsert; absent fields keep their current (or initial: 0h / false) value. */
+/**
+ * Partial upsert of one target cell; absent fields keep their current (or initial:
+ * 0h / false) value. [validFrom] selects the period to edit (default: base period).
+ */
 @Serializable
 data class UpsertWorkTargetRequest(
     val weeklyHours: Double? = null,
-    val isDefault: Boolean? = null
+    val isDefault: Boolean? = null,
+    val validFrom: String? = null,
+)
+
+/** Create a new Wochensoll period for a person, seeded from the currently-effective one. */
+@Serializable
+data class CreateTargetPeriodRequest(
+    val validFrom: String,
 )
 
 /**
