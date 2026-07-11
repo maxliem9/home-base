@@ -229,7 +229,7 @@ fun Route.shoppingRoutes() {
         // ?listId=L — an own-categories list has its own private dictionary, shared lists the household one. ----
         route("/category-rules") {
             get {
-                val scope = call.categoryScopeListId() ?: return@get
+                val scope = call.categoryScopeListIdExisting() ?: return@get
                 val rules = transaction {
                     val scopeId = ShoppingCatalog.statsScopeFor(scope.value)
                     ShoppingCategoryRulesTable.selectAll()
@@ -241,7 +241,7 @@ fun Route.shoppingRoutes() {
             }
 
             put {
-                val scope = call.categoryScopeListId() ?: return@put
+                val scope = call.categoryScopeListIdExisting() ?: return@put
                 val req = call.receive<UpsertCategoryRuleRequest>()
                 val display = req.displayName.trim()
                 val normalized = GroceryCatalog.normalize(display)
@@ -279,7 +279,7 @@ fun Route.shoppingRoutes() {
             }
 
             delete("/{name}") {
-                val scope = call.categoryScopeListId() ?: return@delete
+                val scope = call.categoryScopeListIdExisting() ?: return@delete
                 val raw = call.parameters["name"]?.takeIf { it.isNotBlank() } ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_ID", "name required")); return@delete
                 }
@@ -657,6 +657,22 @@ private suspend fun ApplicationCall.categoryScopeListId(): ListScope? {
         return null
     }
     return ListScope(uuid)
+}
+
+/**
+ * Like [categoryScopeListId] but also 404s when a well-formed listId names a non-existent list (#538),
+ * instead of silently falling back to the SHARED dictionary. Mirrors the item/resolve sites, which
+ * already 404 on an unknown listId — call as `val s = call.categoryScopeListIdExisting() ?: return@get`.
+ */
+private suspend fun ApplicationCall.categoryScopeListIdExisting(): ListScope? {
+    val scope = categoryScopeListId() ?: return null
+    val id = scope.value ?: return scope // no listId → shared dictionary, nothing to verify
+    val exists = transaction { !ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.empty() }
+    if (!exists) {
+        respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "List not found"))
+        return null
+    }
+    return scope
 }
 
 /**
