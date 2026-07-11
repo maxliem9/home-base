@@ -146,7 +146,20 @@ class TodoServiceTest {
         val id = UUID.fromString(created.mutation.todo.id)
 
         val r = service.updateTodo(id, UpdateTodoRequest(title = "geändert"), "alice")
-        assertEquals(TodoService.UpdateTodoResult.NotFound, r)
+        assertTrue(r is TodoService.UpdateTodoResult.NotFound)
+        assertEquals("Todo not found", r.message)
+    }
+
+    @Test
+    fun `moving a todo into an unknown list is NotFound with the list message`() {
+        val created = service.createTodo(CreateTodoRequest(title = "X"), "alice")
+        assertTrue(created is TodoService.CreateTodoResult.Ok)
+        val id = UUID.fromString(created.mutation.todo.id)
+
+        // 404 with "List not found" (not "Todo not found") — the todo exists, the target list doesn't
+        val r = service.updateTodo(id, UpdateTodoRequest(listId = UUID.randomUUID().toString()), "alice")
+        assertTrue(r is TodoService.UpdateTodoResult.NotFound)
+        assertEquals("List not found", r.message)
     }
 
     @Test

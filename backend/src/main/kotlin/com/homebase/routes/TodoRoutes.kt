@@ -92,8 +92,8 @@ fun Route.todoRoutes() {
             val id = call.uuidParam() ?: return@put
             when (val r = service.updateTodo(id, call.receive<UpdateTodoRequest>(), username)) {
                 is TodoService.UpdateTodoResult.Invalid -> call.respond(HttpStatusCode.BadRequest, r.error)
-                TodoService.UpdateTodoResult.NotFound ->
-                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Todo not found"))
+                is TodoService.UpdateTodoResult.NotFound ->
+                    call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", r.message))
                 is TodoService.UpdateTodoResult.Ok -> {
                     val m = r.mutation
                     broadcastTodoUpdate(m.wasShared, m.isShared, m.todo)

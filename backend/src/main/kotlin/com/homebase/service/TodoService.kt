@@ -233,7 +233,10 @@ class TodoService(
     sealed interface UpdateTodoResult {
         data class Ok(val mutation: TodoMutation) : UpdateTodoResult
         data class Invalid(val error: ErrorResponse) : UpdateTodoResult
-        data object NotFound : UpdateTodoResult
+        // Carries the 404 message: a missing/invisible todo answers "Todo not found", while moving
+        // into an unknown or foreign-private target list answers "List not found" (both 404, no
+        // existence oracle, #73) — preserving the exact bodies the pre-service route returned.
+        data class NotFound(val message: String) : UpdateTodoResult
     }
 
     fun updateTodo(id: UUID, req: UpdateTodoRequest, username: String): UpdateTodoResult {
@@ -245,10 +248,10 @@ class TodoService(
 
         return transaction {
             val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
-                ?: return@transaction UpdateTodoResult.NotFound
+                ?: return@transaction UpdateTodoResult.NotFound("Todo not found")
             // a todo in someone else's private list is invisible to the caller (see GET filter);
             // treat it as non-existent so its UUID can't be written through or probed here (#73)
-            if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction UpdateTodoResult.NotFound
+            if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction UpdateTodoResult.NotFound("Todo not found")
             // capture the pre-update visibility so the broadcast can translate transitions
             val wasShared = listIsShared(existing[TodosTable.listId])
             val nextStatus = req.status ?: existing[TodosTable.status]
@@ -294,7 +297,7 @@ class TodoService(
             )?.let { return@transaction UpdateTodoResult.Invalid(it) }
             // moving into a list requires it to be writable: unknown or foreign-private -> 404 (#73)
             if (targetListId != null && writableListVisibility(targetListId, username) == null) {
-                return@transaction UpdateTodoResult.NotFound
+                return@transaction UpdateTodoResult.NotFound("List not found")
             }
             // null = unchanged keeps the old list; "" cleared it (targetListId == null)
             val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
