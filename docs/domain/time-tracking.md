@@ -58,8 +58,11 @@ description?, created_at, updated_at
 - **Historische Zeitgutschriften (#31):** Dieselbe Krank-/Urlaub-/Kind-krank-/Feiertags-Gutschrift,
   die die Wochenbilanz für die *laufende* Woche rechnet, zählt auch rückwirkend. Die Gutschrift-Mathematik
   liegt geteilt in `time/TimeCredits.kt` (`workPortion`/`dayCredit`/`stateFor` + `TimeCreditService`) —
-  **einzige Quelle**, `ForecastService` ruft dieselben Helfer auf, damit Verlauf und Live-Bilanz nie
-  auseinanderlaufen. Eine Gutschrift = Tagessoll der Person auf ihr **Default-Projekt** an einem Abwesenheits-/
+  **einzige Quelle**, `ForecastService` ruft dieselben Helfer auf, damit Verlauf und Live-Bilanz für dieselben
+  Tage nie auseinanderlaufen. **Bewusster Unterschied:** die historischen Flächen enden bei **heute** (Verlauf =
+  „bisher"), die Live-Wochenbilanz rechnet die **ganze** laufende Woche inkl. künftiger Tage — eine vorab für
+  später in dieser Woche eingetragene Abwesenheit steht schon im Hero, aber erst am jeweiligen Tag in der
+  Pro-Woche-Liste. Eine Gutschrift = Tagessoll der Person auf ihr **Default-Projekt** an einem Abwesenheits-/
   Feiertag (halbe Tage 0,5×); ohne Default-Projekt entsteht keine Gutschrift. Label-Präzedenz: die eingetragene
   Abwesenheit gewinnt vor einem zusammenfallenden Feiertag (Summe bleibt exakt, Label bleibt aussagekräftig).
   - `GET /api/v1/time/credits?from=&to=` (beide Pflicht, YYYY-MM-DD) → `[{userId,date,projectId,seconds,type}]`.
