@@ -84,6 +84,9 @@ description?, created_at, updated_at
   Pro-Woche-Liste. Eine Gutschrift = Tagessoll der Person auf ihr **Default-Projekt** an einem Abwesenheits-/
   Feiertag (halbe Tage 0,5×); ohne Default-Projekt entsteht keine Gutschrift. Label-Präzedenz: die eingetragene
   Abwesenheit gewinnt vor einem zusammenfallenden Feiertag (Summe bleibt exakt, Label bleibt aussagekräftig).
+  `TimeCreditService` wählt das Wochensoll **pro Woche** aus der dafür gültigen Periode (wie der Forecast, s. o.),
+  damit rückwirkende Gutschriften gegen den **damals** gültigen Wert rechnen (z. B. 8 h/Tag vor, 6,4 h/Tag ab der
+  Reduktion) — Voraussetzung dafür, dass historische Überstunden zum alten Soll passen.
   - `GET /api/v1/time/credits?from=&to=` (beide Pflicht, YYYY-MM-DD) → `[{userId,date,projectId,seconds,type}]`.
     Web `TimeView` **und** Android `TimeViewModel` laden sie best-effort über die Spanne der geladenen Einträge
     (frühester Eintragstag → heute); die Projekt-Detail-**Pro-Woche**-Liste faltet sie in Wochensumme/Balken/Nutzer

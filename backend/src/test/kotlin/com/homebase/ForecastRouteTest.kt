@@ -434,6 +434,33 @@ class ForecastRouteTest {
     }
 
     @Test
+    fun `credits use the target period in force for each week (historical overtime)`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""") // base: 8h/day
+        // reduce to 32h (→ 6.4h/day) from the week starting Mon 2026-07-06
+        createPeriod(token, "alice", "2026-07-06")
+        putTarget(token, "alice", p1, """{"weeklyHours":32,"validFrom":"2026-07-06"}""")
+
+        // sick Wed 2026-06-10 (old period) and sick Wed 2026-07-08 (new period week)
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","date":"2026-06-10","type":"KRANK"}""")
+        }
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","date":"2026-07-08","type":"KRANK"}""")
+        }
+
+        val credits = getCredits(token, "2026-06-08", "2026-07-12").associateBy { it["date"]?.jsonPrimitive?.content }
+        // pre-change week credits the old 40h target (8h) …
+        assertEquals(28800, credits["2026-06-10"]!!["seconds"]?.jsonPrimitive?.long)
+        // … the reduced week credits the new 32h target (6.4h)
+        assertEquals(23040, credits["2026-07-08"]!!["seconds"]?.jsonPrimitive?.long)
+    }
+
+    @Test
     fun `credits include statutory holidays and skip days outside the range`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()

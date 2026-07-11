@@ -92,8 +92,10 @@ internal fun stateFor(settings: List<ResultRow>, year: Int): String {
 /**
  * Computes per-day work credits for every person over the inclusive date range
  * [from]..[to]. Weeks are treated whole (the daily target divides that week's weekly
- * target), but only days inside the range are emitted. Current targets apply to all
- * weeks (targets are not versioned) — the same limitation as the live forecast.
+ * target), but only days inside the range are emitted. Effective-dated Wochensoll
+ * (#31 follow-up): each week uses the target period in force for it (latest valid_from
+ * ≤ the week's Monday), so historical weeks credit against the value that was valid
+ * then — the same period selection as the live forecast.
  *
  * Runs its own read transaction; safe to call from a route handler.
  */
@@ -138,23 +140,29 @@ class TimeCreditService {
         customHolidays: List<ResultRow>,
         settings: List<ResultRow>,
     ): List<TimeCredit> {
-        val weeklyHours = targets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
-        if (weeklyHours <= 0.0) return emptyList()
-        // Credits land on the default project; without one there is nowhere to book them.
-        val defaultProjectId = targets.firstOrNull { it[TimeWorkTargetsTable.isDefault] }
-            ?.get(TimeWorkTargetsTable.projectId) ?: return emptyList()
-        val weekTargetSeconds = weeklyHours * 3600.0
-
         val out = ArrayList<TimeCredit>()
         // Walk whole ISO weeks; the daily target is per-week (workdays can change with
         // part-time rules), but only days within [from, to] are emitted.
         var weekStart = from.with(DayOfWeek.MONDAY)
         val lastWeekStart = to.with(DayOfWeek.MONDAY)
         while (!weekStart.isAfter(lastWeekStart)) {
+            // Effective-dated Wochensoll (#31 follow-up): the target period in force for
+            // THIS week (latest valid_from ≤ its Monday), so a week before a change still
+            // credits against the value that was valid then.
+            val activePeriod = targets.map { it[TimeWorkTargetsTable.validFrom] }
+                .filter { !it.isAfter(weekStart) }
+                .maxOrNull()
+            val periodTargets = if (activePeriod != null)
+                targets.filter { it[TimeWorkTargetsTable.validFrom] == activePeriod } else emptyList()
+            val weeklyHours = periodTargets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
+            // Credits land on the default project; without hours or a default there is
+            // nothing to book this week (skip it, later weeks may differ).
+            val defaultProjectId = periodTargets.firstOrNull { it[TimeWorkTargetsTable.isDefault] }
+                ?.get(TimeWorkTargetsTable.projectId)
             val weekDays = (0L..6L).map { weekStart.plusDays(it) }
             val workdayCount = weekDays.sumOf { workPortion(it, partTime) }
-            if (workdayCount > 0) {
-                val dailyTarget = weekTargetSeconds / workdayCount
+            if (weeklyHours > 0.0 && defaultProjectId != null && workdayCount > 0) {
+                val dailyTarget = weeklyHours * 3600.0 / workdayCount
                 for (d in weekDays) {
                     if (d.isBefore(from) || d.isAfter(to)) continue
                     val credit = dayCredit(d, partTime, absences, customHolidays, settings) ?: continue
