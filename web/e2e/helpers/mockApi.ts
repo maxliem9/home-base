@@ -11,7 +11,7 @@ import type {
   MealSlot, MealPlanEntry,
   CalendarEvent, CalendarEventType,
   NoteVisibility, NoteImage, NoteAttachment, Note,
-  Project, TimeEntry, WorkTarget, TimeForecast, UserForecast,
+  Project, TimeEntry, WorkTarget, TimeForecast, UserForecast, TimeCredit,
   Absence, PartTimeRule, KitaClosure, CustomHoliday, AbsSettings,
 } from '../../src/types'
 
@@ -152,6 +152,7 @@ export class MockApi {
   private projects: Project[] = []
   private entries: TimeEntry[] = []
   private targets: WorkTarget[] = []
+  private credits: TimeCredit[] = []
   private absUsers: string[] = []
   private absences: Absence[] = []
   private partTime: PartTimeRule[] = []
@@ -285,6 +286,13 @@ export class MockApi {
 
   seedTargets(targets: WorkTarget[]): this {
     this.targets = targets.map((t) => ({ ...t }))
+    return this
+  }
+
+  // Absence/holiday credits GET /time/credits serves (#31) — the Projekt-Detail
+  // per-week list folds these in. Seeded raw; the range filter is applied in handle().
+  seedCredits(credits: TimeCredit[]): this {
+    this.credits = credits.map((c) => ({ ...c }))
     return this
   }
 
@@ -1577,6 +1585,12 @@ export class MockApi {
     }
     if (path.endsWith('/time/forecast') && method === 'GET') {
       return this.json(route, this.buildForecast())
+    }
+    if (path.endsWith('/time/credits') && method === 'GET') {
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      const inRange = this.credits.filter((c) => (!from || c.date >= from) && (!to || c.date <= to))
+      return this.json(route, inRange)
     }
 
     // ---- Time: projects (checked before /time/entries matchers) ----

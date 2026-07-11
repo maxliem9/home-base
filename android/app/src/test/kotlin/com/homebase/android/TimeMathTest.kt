@@ -2,14 +2,17 @@ package com.homebase.android
 
 import com.homebase.android.R
 import com.homebase.android.data.model.ProjectForecastDto
+import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
 import com.homebase.android.ui.time.SplitCheck
+import com.homebase.android.ui.time.buildWeekStats
 import com.homebase.android.ui.time.checkSplit
 import com.homebase.android.ui.time.defaultSplitAt
 import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.withLiveExtra
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -310,5 +313,45 @@ class TimeMathTest {
         val cutBeforeStart = Instant.parse("2026-06-03T11:00:00Z") // before start
         val check = checkSplit(start, stop, cutBeforeStart, "abc")
         assertEquals(R.string.time_split_err_range, (check as SplitCheck.Invalid).messageRes)
+    }
+
+    // --- Projekt-Detail per-week credits (#31) -----------------------------
+
+    private fun credit(date: String, seconds: Long, type: String = "KRANK", user: String = "alice") =
+        TimeCreditDto(userId = user, date = date, projectId = "p1", seconds = seconds, type = type)
+
+    @Test
+    fun `buildWeekStats folds credits into the entry week and adds credit-only weeks`() {
+        // Week Mon 2026-06-01: a 2h entry (Berlin) + an 8h sick day → 10h total.
+        val entries = listOf(entry("2026-06-01T08:00:00Z", "2026-06-01T10:00:00Z"))
+        val credits = listOf(
+            credit("2026-06-03", 28_800),               // Wed same week
+            credit("2026-05-25", 28_800, type = "FEIERTAG"), // earlier week, no entries
+        )
+
+        val weeks = buildWeekStats(entries, credits, zone)
+        assertEquals(2, weeks.size)
+        // newest week first
+        assertEquals(LocalDate.of(2026, 6, 1), weeks[0].weekStart)
+        assertEquals(36_000L, weeks[0].totalSeconds) // 2h recorded + 8h credited
+        assertEquals(28_800L, weeks[0].creditedSeconds)
+        assertEquals(1, weeks[0].count)               // count stays entry-only
+        assertEquals(36_000L, weeks[0].byUser.single { it.first == "alice" }.second)
+
+        // a fully-absent week still shows up, as a credit-only row
+        assertEquals(LocalDate.of(2026, 5, 25), weeks[1].weekStart)
+        assertEquals(28_800L, weeks[1].totalSeconds)
+        assertEquals(28_800L, weeks[1].creditedSeconds)
+        assertEquals(0, weeks[1].count)
+    }
+
+    @Test
+    fun `buildWeekStats without credits behaves like the old entry-only aggregation`() {
+        val entries = listOf(entry("2026-06-01T08:00:00Z", "2026-06-01T10:00:00Z"))
+        val weeks = buildWeekStats(entries, emptyList(), zone)
+        assertEquals(1, weeks.size)
+        assertEquals(7_200L, weeks[0].totalSeconds)
+        assertEquals(0L, weeks[0].creditedSeconds)
+        assertEquals(1, weeks[0].count)
     }
 }

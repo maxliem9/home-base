@@ -287,4 +287,99 @@ class ForecastRouteTest {
         assertEquals(0, u["todayTargetSeconds"]?.jsonPrimitive?.long)
         assertNull(u["expectedEndAt"])
     }
+
+    // ---------- credits (historical, #31) ----------
+
+    private suspend fun ApplicationTestBuilder.getCredits(token: String, from: String, to: String): List<JsonObject> {
+        val res = client.get("/api/v1/time/credits?from=$from&to=$to") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.OK, res.status)
+        return Json.parseToJsonElement(res.bodyAsText()).jsonArray.map { it.jsonObject }
+    }
+
+    @Test
+    fun `credits book absences to the default project at the daily target`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""") // 5 workdays → 8h/day
+
+        // full sick day Wed, half child-sick Thu — week Mon 2026-06-08 … Sun 2026-06-14
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","date":"2026-06-10","type":"KRANK"}""")
+        }
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","date":"2026-06-11","type":"KIND_KRANK","half":"vm"}""")
+        }
+
+        val credits = getCredits(token, "2026-06-08", "2026-06-14").associateBy { it["date"]?.jsonPrimitive?.content }
+        assertEquals(2, credits.size)
+        val wed = credits["2026-06-10"]!!
+        assertEquals(28800, wed["seconds"]?.jsonPrimitive?.long) // full 8h
+        assertEquals("KRANK", wed["type"]?.jsonPrimitive?.content)
+        assertEquals(p1, wed["projectId"]?.jsonPrimitive?.content)
+        assertEquals("alice", wed["userId"]?.jsonPrimitive?.content)
+        val thu = credits["2026-06-11"]!!
+        assertEquals(14400, thu["seconds"]?.jsonPrimitive?.long) // half → 4h
+        assertEquals("KIND_KRANK", thu["type"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `credits include statutory holidays and skip days outside the range`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+
+        // Pfingstmontag 2026-05-25 (nationwide; alice defaults to BE). Query only Mon–Tue,
+        // so the holiday is in range but the rest of the week is not.
+        val credits = getCredits(token, "2026-05-25", "2026-05-26")
+        assertEquals(1, credits.size)
+        assertEquals("2026-05-25", credits[0]["date"]?.jsonPrimitive?.content)
+        assertEquals(28800, credits[0]["seconds"]?.jsonPrimitive?.long) // 8h
+        assertEquals("FEIERTAG", credits[0]["type"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `credits are empty without a default project and require both bounds`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token)
+        // hours but the auto-default still lands — so drop hours to 0 to have no credit target
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"bob","date":"2026-06-10","type":"KRANK"}""")
+        }
+        // bob has no target/default → his sick day yields no credit
+        assertTrue(getCredits(token, "2026-06-08", "2026-06-14").none { it["userId"]?.jsonPrimitive?.content == "bob" })
+
+        // both bounds are required
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/time/credits?from=2026-06-08") { bearerAuth(token) }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/time/credits?to=2026-06-14") { bearerAuth(token) }.status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/time/credits?from=nope&to=2026-06-14") { bearerAuth(token) }.status)
+    }
+
+    @Test
+    fun `CSV export includes absence credit rows`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token, "Arbeit")
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""")
+        createEntry(token, p1, "2026-06-09T09:00:00Z", "2026-06-09T13:00:00Z") // Tue 4h recorded
+        client.post("/api/v1/absence/entries") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"userId":"alice","date":"2026-06-10","type":"KRANK"}""")
+        }
+
+        val body = client.get("/api/v1/time/export.csv?from=2026-06-08T00:00:00Z&to=2026-06-14T23:59:59Z") {
+            bearerAuth(token)
+        }.bodyAsText()
+        assertTrue(body.contains("Krank (Zeitgutschrift)"), "sick-day credit row missing in: $body")
+        assertTrue(body.contains("8,00"), "credited decimal hours missing in: $body")
+        assertTrue(body.contains("08:00"), "credited hh:mm missing in: $body")
+        // the recorded Tue entry is still there
+        assertTrue(body.contains("Arbeit"), "recorded entry missing")
+    }
 }

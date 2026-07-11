@@ -90,6 +90,9 @@ class TimeViewModelTest {
         // #55 added forecast + targets fetches to load() — same reasoning.
         coEvery { repository.getForecast() } returns Result.success(forecast())
         coEvery { repository.getTargets() } returns Result.success(emptyList())
+        // #31 added a credits fetch to load()/syncFromServer() — Result is a value class,
+        // so an unstubbed relaxed default is a broken cast; stub the empty happy path.
+        coEvery { repository.getCredits(any(), any()) } returns Result.success(emptyList())
     }
 
     @After

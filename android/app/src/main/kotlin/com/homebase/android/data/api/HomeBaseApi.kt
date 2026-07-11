@@ -288,6 +288,14 @@ interface HomeBaseApi {
     @GET("time/forecast")
     suspend fun getTimeForecast(): TimeForecastDto
 
+    // Absence/holiday work credits over an inclusive date range (#31) — both bounds
+    // required (YYYY-MM-DD). The Projekt-Detail per-week list folds these in.
+    @GET("time/credits")
+    suspend fun getTimeCredits(
+        @Query("from") from: String,
+        @Query("to") to: String,
+    ): List<TimeCreditDto>
+
     @GET("time/targets")
     suspend fun getWorkTargets(): List<WorkTargetDto>
 

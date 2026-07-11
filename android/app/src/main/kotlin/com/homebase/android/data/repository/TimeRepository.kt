@@ -12,6 +12,7 @@ import com.homebase.android.data.model.TimeForecastDto
 import com.homebase.android.data.model.UpsertWorkTargetRequest
 import com.homebase.android.data.model.UserDto
 import com.homebase.android.data.model.StopTimerRequest
+import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateProjectRequest
 import com.homebase.android.data.model.UpdateTimeEntryRequest
@@ -78,6 +79,10 @@ class TimeRepository(
     // --- Wochensoll & Forecast (#31 / #55) ---
 
     suspend fun getForecast(): Result<TimeForecastDto> = apiCatching { api.getTimeForecast() }
+
+    /** Absence/holiday work credits over [from]..[to] (YYYY-MM-DD, both inclusive, #31). */
+    suspend fun getCredits(from: String, to: String): Result<List<TimeCreditDto>> =
+        apiCatching { api.getTimeCredits(from, to) }
 
     suspend fun getTargets(): Result<List<WorkTargetDto>> = apiCatching { api.getWorkTargets() }
 

@@ -671,6 +671,23 @@ data class UserForecastDto(
     val projects: List<ProjectForecastDto> = emptyList()
 )
 
+/**
+ * One absence/holiday work credit (#31) for the historical views (CSV export,
+ * per-week project breakdown): the person's daily target booked to their default
+ * project on a day they were absent or that was a holiday. Half days credit 0.5×.
+ */
+@Serializable
+data class TimeCreditDto(
+    val userId: String,
+    // local date (server zone) the credit belongs to, YYYY-MM-DD
+    val date: String,
+    // the person's default project — credits always land there
+    val projectId: String,
+    val seconds: Long,
+    // KRANK | URLAUB | KIND_KRANK (the entered absence) or FEIERTAG (holiday only)
+    val type: String,
+)
+
 /** Week balance of one project that has a target (or recorded time) this week. */
 @Serializable
 data class ProjectForecastDto(

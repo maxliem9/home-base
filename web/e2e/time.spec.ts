@@ -155,6 +155,26 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-projcard', { hasText: 'Arbeit' })).toBeVisible()
   })
 
+  test('project detail folds absence credits into the per-week list (#31)', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 40, isDefault: true })])
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
+      ])
+      // a full sick day the same week credits the daily target (8h) to the default project
+      .seedCredits([{ userId: 'alice', date: '2026-06-03', projectId: 'p1', seconds: 28800, type: 'KRANK' }])
+    await openTime(page, mock)
+
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
+    // total = 2h recorded + 8h credited
+    await expect(page.locator('.hb-detailpage')).toContainText('10 Std 0 Min')
+    // the week row surfaces the credited hours next to the entry count
+    const week = page.locator('.hb-weekrow').first()
+    await expect(week.locator('.hb-weekrow__sub')).toContainText('gutgeschrieben')
+    await expect(week.locator('.hb-weekrow__ms')).toContainText('10 Std 0 Min')
+  })
+
   // --- Wochensoll & Forecast (#31) ---------------------------------------
 
   test('shows the expected end at the running timer once a Wochensoll exists', async ({ page }) => {
