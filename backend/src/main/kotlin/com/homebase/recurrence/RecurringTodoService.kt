@@ -3,8 +3,8 @@ package com.homebase.recurrence
 import com.homebase.db.dbQuery
 import com.homebase.db.TodosTable
 import com.homebase.model.TodoDto
-import com.homebase.routes.listIsShared
-import com.homebase.routes.toTodoDto
+import com.homebase.service.listIsShared
+import com.homebase.service.toTodoDto
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
