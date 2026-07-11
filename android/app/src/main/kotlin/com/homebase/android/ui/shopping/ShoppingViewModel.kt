@@ -65,6 +65,13 @@ data class ShoppingUiState(
      * sheet's rule editor. Loaded alongside [manageCategories] when the sheet opens; empty otherwise.
      */
     val manageRules: List<ShoppingCategoryRuleDto> = emptyList(),
+    /**
+     * Whether the "Kategorien verwalten" sheet is currently open (#538). Drives the WS live-refresh
+     * gate for [manageRules]/[manageCategories]: keying off "sheet open" instead of "list non-empty"
+     * so a partner adding the *first* rule/category to an empty own-list is picked up live, and lets
+     * the ViewModel clear the stale [manageRules]/[manageCategories] on dismiss.
+     */
+    val manageSheetOpen: Boolean = false,
     /** List vs. tile rendering (#446); persisted across launches, tiles by default (web parity). */
     val tileView: Boolean = true,
 ) {
@@ -397,6 +404,26 @@ class ShoppingViewModel(
     // Scoped to the active list's OWN set (its custom rows; the shared „Sonstiges" is managed
     // household-wide under Settings and stays out of this editor). Mutations refetch the sheet's list
     // AND the grouping catalog so the shopping view updates at once.
+
+    /**
+     * Open the "Kategorien verwalten" sheet (#538): flag it open (arms the WS live-refresh gate) and
+     * load the active list's own categories + rules. The screen keeps the sheet visible while
+     * [ShoppingUiState.manageSheetOpen] is true.
+     */
+    fun openManageSheet() {
+        _uiState.update { it.copy(manageSheetOpen = true) }
+        loadManageCategories()
+        loadManageRules()
+    }
+
+    /**
+     * Dismiss the sheet (#538): clear the flag and drop [ShoppingUiState.manageCategories]/[manageRules]
+     * so a later WS event can't reload dead state, and the next open starts clean (no stale flash from
+     * the previous list while the reload is in flight).
+     */
+    fun closeManageSheet() {
+        _uiState.update { it.copy(manageSheetOpen = false, manageCategories = emptyList(), manageRules = emptyList()) }
+    }
 
     /** Fetch the active list's own categories into [ShoppingUiState.manageCategories] (sheet open). */
     fun loadManageCategories() {
@@ -943,7 +970,7 @@ class ShoppingViewModel(
                     is ShoppingWebSocketClient.WsEvent.CategoryChanged -> loadCategories()
                     // Rule changes don't affect the list view (rules only resolve at add-time,
                     // server-side), but keep the manage sheet's per-list rules fresh if it's open (#501).
-                    is ShoppingWebSocketClient.WsEvent.CategoryRuleChanged -> if (_uiState.value.manageRules.isNotEmpty()) loadManageRules()
+                    is ShoppingWebSocketClient.WsEvent.CategoryRuleChanged -> if (_uiState.value.manageSheetOpen) loadManageRules()
                 }
             }
         }

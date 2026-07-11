@@ -256,8 +256,7 @@ fun ShoppingScreen(
                         on = active.ownCategories,
                         onToggle = { viewModel.toggleOwnCategories(it) },
                         onManage = {
-                            viewModel.loadManageCategories()
-                            viewModel.loadManageRules() // #501: also load the list's own rules for the sheet
+                            viewModel.openManageSheet() // #538: flag open + load own categories/rules
                             showManageCats = true
                         },
                     )
@@ -309,7 +308,10 @@ fun ShoppingScreen(
                 onMove = { index, dir -> viewModel.moveManageCategory(index, dir) },
                 onSaveRule = { displayName, category, icon, editingName -> viewModel.saveManageRule(editingName, displayName, category, icon) },
                 onDeleteRule = { viewModel.deleteManageRule(it) },
-                onDismiss = { showManageCats = false },
+                onDismiss = {
+                    showManageCats = false
+                    viewModel.closeManageSheet() // #538: clear sheet state so a later WS event can't reload dead state
+                },
             )
         }
 
