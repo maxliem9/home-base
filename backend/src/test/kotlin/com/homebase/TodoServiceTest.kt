@@ -16,6 +16,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -66,7 +67,7 @@ class TodoServiceTest {
     // ---- create: status inference & validation ---------------------------
 
     @Test
-    fun `create with only a title stays in the INBOX`() {
+    fun `create with only a title stays in the INBOX`() = runBlocking {
         val r = service.createTodo(CreateTodoRequest(title = "Milch kaufen"), "alice")
         assertTrue(r is TodoService.CreateTodoResult.Ok)
         assertEquals("INBOX", r.mutation.todo.status)
@@ -74,35 +75,35 @@ class TodoServiceTest {
     }
 
     @Test
-    fun `create with a due date is born PLANNED`() {
+    fun `create with a due date is born PLANNED`() = runBlocking {
         val r = service.createTodo(CreateTodoRequest(title = "Zahnarzt", dueDate = "2026-07-20"), "alice")
         assertTrue(r is TodoService.CreateTodoResult.Ok)
         assertEquals("PLANNED", r.mutation.todo.status)
     }
 
     @Test
-    fun `create rejects a blank title as Invalid`() {
+    fun `create rejects a blank title as Invalid`() = runBlocking {
         val r = service.createTodo(CreateTodoRequest(title = "  "), "alice")
         assertTrue(r is TodoService.CreateTodoResult.Invalid)
         assertEquals("INVALID_TODO", r.error.code)
     }
 
     @Test
-    fun `create rejects an unknown assignee as Invalid`() {
+    fun `create rejects an unknown assignee as Invalid`() = runBlocking {
         val r = service.createTodo(CreateTodoRequest(title = "X", assignees = listOf("carol")), "alice")
         assertTrue(r is TodoService.CreateTodoResult.Invalid)
         assertEquals("INVALID_ASSIGNEE", r.error.code)
     }
 
     @Test
-    fun `create into someone else's private list is NotFound, never a 403 oracle`() {
+    fun `create into someone else's private list is NotFound, never a 403 oracle`() = runBlocking {
         val bobsPrivate = insertList(owner = "bob", visibility = "PRIVATE")
         val r = service.createTodo(CreateTodoRequest(title = "X", listId = bobsPrivate.toString()), "alice")
         assertEquals(TodoService.CreateTodoResult.NotFound, r)
     }
 
     @Test
-    fun `create rejects a recurrence without a due-date anchor`() {
+    fun `create rejects a recurrence without a due-date anchor`() = runBlocking {
         val r = service.createTodo(
             CreateTodoRequest(title = "Müll", recurrence = RecurrenceDto("WEEKLY", 1)),
             "alice",
@@ -114,7 +115,7 @@ class TodoServiceTest {
     // ---- update: recurrence completion spawns a successor ----------------
 
     @Test
-    fun `completing a recurring todo spawns a successor and clears the rule on the original`() {
+    fun `completing a recurring todo spawns a successor and clears the rule on the original`() = runBlocking {
         val created = service.createTodo(
             CreateTodoRequest(title = "Müll", dueDate = "2026-07-06", recurrence = RecurrenceDto("WEEKLY", 1)),
             "alice",
@@ -136,7 +137,7 @@ class TodoServiceTest {
     }
 
     @Test
-    fun `updating a todo in a foreign private list is NotFound`() {
+    fun `updating a todo in a foreign private list is NotFound`() = runBlocking {
         val bobsPrivate = insertList(owner = "bob", visibility = "PRIVATE")
         val created = service.createTodo(
             CreateTodoRequest(title = "Geheim", listId = bobsPrivate.toString()),
@@ -151,7 +152,7 @@ class TodoServiceTest {
     }
 
     @Test
-    fun `moving a todo into an unknown list is NotFound with the list message`() {
+    fun `moving a todo into an unknown list is NotFound with the list message`() = runBlocking {
         val created = service.createTodo(CreateTodoRequest(title = "X"), "alice")
         assertTrue(created is TodoService.CreateTodoResult.Ok)
         val id = UUID.fromString(created.mutation.todo.id)
@@ -163,7 +164,7 @@ class TodoServiceTest {
     }
 
     @Test
-    fun `update leaves the assignee set untouched when the field is absent`() {
+    fun `update leaves the assignee set untouched when the field is absent`() = runBlocking {
         val created = service.createTodo(
             CreateTodoRequest(title = "X", assignees = listOf("alice")),
             "alice",
@@ -180,7 +181,7 @@ class TodoServiceTest {
     // ---- subtasks --------------------------------------------------------
 
     @Test
-    fun `adding a blank subtask is Invalid`() {
+    fun `adding a blank subtask is Invalid`() = runBlocking {
         val created = service.createTodo(CreateTodoRequest(title = "X"), "alice")
         assertTrue(created is TodoService.CreateTodoResult.Ok)
         val id = UUID.fromString(created.mutation.todo.id)
@@ -191,7 +192,7 @@ class TodoServiceTest {
     }
 
     @Test
-    fun `adding a subtask to an unknown todo is NotFound`() {
+    fun `adding a subtask to an unknown todo is NotFound`() = runBlocking {
         val r = service.addSubtask(UUID.randomUUID(), CreateSubtaskRequest(title = "Teil"), "alice")
         assertEquals(TodoService.SubtaskResult.NotFound, r)
     }

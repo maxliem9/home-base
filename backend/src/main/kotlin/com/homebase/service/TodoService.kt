@@ -11,7 +11,7 @@ import com.homebase.recurrence.RecurrenceSpawner
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
-import org.jetbrains.exposed.sql.transactions.transaction
+import com.homebase.db.dbQuery
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -51,7 +51,7 @@ class TodoService(
     // ---- Lists -----------------------------------------------------------
 
     /** Shared lists are visible to everyone; private lists only to their creator. */
-    fun listLists(username: String): List<TodoListDto> = transaction {
+    suspend fun listLists(username: String): List<TodoListDto> = dbQuery {
         TodoListsTable.selectAll()
             .where { (TodoListsTable.visibility eq VISIBILITY_SHARED) or (TodoListsTable.createdBy eq username) }
             .orderBy(TodoListsTable.createdAt to SortOrder.ASC)
@@ -63,7 +63,7 @@ class TodoService(
         data class Invalid(val error: ErrorResponse) : CreateListResult
     }
 
-    fun createList(req: CreateTodoListRequest, username: String): CreateListResult {
+    suspend fun createList(req: CreateTodoListRequest, username: String): CreateListResult {
         if (req.name.isBlank()) {
             return CreateListResult.Invalid(ErrorResponse("INVALID_LIST", "name must not be blank"))
         }
@@ -71,7 +71,7 @@ class TodoService(
         if (visibility !in VALID_LIST_VISIBILITIES) {
             return CreateListResult.Invalid(ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
         }
-        val list = transaction {
+        val list = dbQuery {
             val id = UUID.randomUUID()
             TodoListsTable.insert {
                 it[TodoListsTable.id] = id
@@ -92,20 +92,20 @@ class TodoService(
         data object NotFound : UpdateListResult
     }
 
-    fun updateList(id: UUID, req: UpdateTodoListRequest, username: String): UpdateListResult {
+    suspend fun updateList(id: UUID, req: UpdateTodoListRequest, username: String): UpdateListResult {
         if (req.visibility != null && req.visibility !in VALID_LIST_VISIBILITIES) {
             return UpdateListResult.Invalid(ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
         }
         if (req.name != null && req.name.isBlank()) {
             return UpdateListResult.Invalid(ErrorResponse("INVALID_LIST", "name must not be blank"))
         }
-        return transaction {
+        return dbQuery {
             val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
-                ?: return@transaction UpdateListResult.NotFound
+                ?: return@dbQuery UpdateListResult.NotFound
             // A private list belongs to its creator; nobody else may rename, re-share or even
             // observe it. Treat a foreign private list as non-existent so its UUID stays inert.
             if (existing[TodoListsTable.visibility] == VISIBILITY_PRIVATE && existing[TodoListsTable.createdBy] != username) {
-                return@transaction UpdateListResult.NotFound
+                return@dbQuery UpdateListResult.NotFound
             }
             val wasShared = existing[TodoListsTable.visibility] == VISIBILITY_SHARED
             TodoListsTable.update({ TodoListsTable.id eq id }) {
@@ -129,12 +129,12 @@ class TodoService(
         data object NotFound : DeleteListResult
     }
 
-    fun deleteList(id: UUID, username: String): DeleteListResult = transaction {
+    suspend fun deleteList(id: UUID, username: String): DeleteListResult = dbQuery {
         val existing = TodoListsTable.selectAll().where { TodoListsTable.id eq id }.singleOrNull()
-            ?: return@transaction DeleteListResult.NotFound
+            ?: return@dbQuery DeleteListResult.NotFound
         // Only the owner may delete a private list (see updateList above).
         if (existing[TodoListsTable.visibility] == VISIBILITY_PRIVATE && existing[TodoListsTable.createdBy] != username) {
-            return@transaction DeleteListResult.NotFound
+            return@dbQuery DeleteListResult.NotFound
         }
         // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for the H2 test DB,
         // which models list_id without a FK; real Postgres cascades via V7)
@@ -151,7 +151,7 @@ class TodoService(
 
     // ---- Todos -----------------------------------------------------------
 
-    fun listTodos(username: String): List<TodoDto> = transaction {
+    suspend fun listTodos(username: String): List<TodoDto> = dbQuery {
         // hide todos that live in someone else's private list
         val hiddenListIds = TodoListsTable.selectAll()
             .where { (TodoListsTable.visibility eq VISIBILITY_PRIVATE) and (TodoListsTable.createdBy neq username) }
@@ -168,7 +168,7 @@ class TodoService(
         data object NotFound : CreateTodoResult
     }
 
-    fun createTodo(req: CreateTodoRequest, username: String): CreateTodoResult {
+    suspend fun createTodo(req: CreateTodoRequest, username: String): CreateTodoResult {
         // Capturing an assignee or due date plants the todo straight into PLANNED — the domain
         // rule is that PLANNED needs at least one of them. A bare title (or only a
         // description/priority, which alone can't satisfy PLANNED) stays in the INBOX. This lets
@@ -192,18 +192,18 @@ class TodoService(
             return CreateTodoResult.Invalid(ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
         }
 
-        return transaction {
+        return dbQuery {
             // Every assignee must be a known household user (the join table FKs users.username).
             val unknownAssignees = unknownUsers(assignees)
             if (unknownAssignees.isNotEmpty()) {
-                return@transaction CreateTodoResult.Invalid(
+                return@dbQuery CreateTodoResult.Invalid(
                     ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknownAssignees.joinToString(", ")}"),
                 )
             }
             // resolve the target list's visibility, enforcing ownership: a foreign private list is
             // treated as non-existent so it can neither be written into nor probed (#73)
             val listVisibility = if (listId != null) {
-                writableListVisibility(listId, username) ?: return@transaction CreateTodoResult.NotFound
+                writableListVisibility(listId, username) ?: return@dbQuery CreateTodoResult.NotFound
             } else null
             val id = UUID.randomUUID()
             val createdNow = Instant.now()
@@ -239,19 +239,19 @@ class TodoService(
         data class NotFound(val message: String) : UpdateTodoResult
     }
 
-    fun updateTodo(id: UUID, req: UpdateTodoRequest, username: String): UpdateTodoResult {
+    suspend fun updateTodo(id: UUID, req: UpdateTodoRequest, username: String): UpdateTodoResult {
         // null = unchanged, "" = clear, else target list id (must exist)
         val targetListId: UUID? = req.listId?.takeIf { it.isNotBlank() }?.let { runCatching { UUID.fromString(it) }.getOrNull() }
         if (req.listId != null && req.listId.isNotBlank() && targetListId == null) {
             return UpdateTodoResult.Invalid(ErrorResponse("INVALID_ID", "listId must be a valid UUID"))
         }
 
-        return transaction {
+        return dbQuery {
             val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
-                ?: return@transaction UpdateTodoResult.NotFound("Todo not found")
+                ?: return@dbQuery UpdateTodoResult.NotFound("Todo not found")
             // a todo in someone else's private list is invisible to the caller (see GET filter);
             // treat it as non-existent so its UUID can't be written through or probed here (#73)
-            if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction UpdateTodoResult.NotFound("Todo not found")
+            if (!listVisibleTo(existing[TodosTable.listId], username)) return@dbQuery UpdateTodoResult.NotFound("Todo not found")
             // capture the pre-update visibility so the broadcast can translate transitions
             val wasShared = listIsShared(existing[TodosTable.listId])
             val nextStatus = req.status ?: existing[TodosTable.status]
@@ -279,7 +279,7 @@ class TodoService(
             if (req.assignees != null) {
                 val unknown = unknownUsers(nextAssignees)
                 if (unknown.isNotEmpty()) {
-                    return@transaction UpdateTodoResult.Invalid(
+                    return@dbQuery UpdateTodoResult.Invalid(
                         ErrorResponse("INVALID_ASSIGNEE", "unknown assignee(s): ${unknown.joinToString(", ")}"),
                     )
                 }
@@ -294,10 +294,10 @@ class TodoService(
                 priority = nextPriority,
                 recurrenceFreq = nextRecFreq,
                 recurrenceInterval = nextRecInterval,
-            )?.let { return@transaction UpdateTodoResult.Invalid(it) }
+            )?.let { return@dbQuery UpdateTodoResult.Invalid(it) }
             // moving into a list requires it to be writable: unknown or foreign-private -> 404 (#73)
             if (targetListId != null && writableListVisibility(targetListId, username) == null) {
-                return@transaction UpdateTodoResult.NotFound("List not found")
+                return@dbQuery UpdateTodoResult.NotFound("List not found")
             }
             // null = unchanged keeps the old list; "" cleared it (targetListId == null)
             val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
@@ -388,11 +388,11 @@ class TodoService(
         data object NotFound : DeleteTodoResult
     }
 
-    fun deleteTodo(id: UUID, username: String): DeleteTodoResult = transaction {
+    suspend fun deleteTodo(id: UUID, username: String): DeleteTodoResult = dbQuery {
         val existing = TodosTable.selectAll().where { TodosTable.id eq id }.singleOrNull()
-            ?: return@transaction DeleteTodoResult.NotFound
+            ?: return@dbQuery DeleteTodoResult.NotFound
         // a todo in someone else's private list is invisible; treat it as non-existent (#73)
-        if (!listVisibleTo(existing[TodosTable.listId], username)) return@transaction DeleteTodoResult.NotFound
+        if (!listVisibleTo(existing[TodosTable.listId], username)) return@dbQuery DeleteTodoResult.NotFound
         val shared = listIsShared(existing[TodosTable.listId])
         // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
         TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId eq id }
@@ -409,12 +409,12 @@ class TodoService(
         data object NotFound : SubtaskResult
     }
 
-    fun addSubtask(todoId: UUID, req: CreateSubtaskRequest, username: String): SubtaskResult {
+    suspend fun addSubtask(todoId: UUID, req: CreateSubtaskRequest, username: String): SubtaskResult {
         if (req.title.isBlank()) {
             return SubtaskResult.Invalid(ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
         }
-        return transaction {
-            if (!parentTodoVisibleTo(todoId, username)) return@transaction SubtaskResult.NotFound
+        return dbQuery {
+            if (!parentTodoVisibleTo(todoId, username)) return@dbQuery SubtaskResult.NotFound
             val nextOrder = (TodoSubtasksTable.selectAll()
                 .where { TodoSubtasksTable.todoId eq todoId }
                 .maxOfOrNull { it[TodoSubtasksTable.sortOrder] } ?: -1) + 1
@@ -430,17 +430,17 @@ class TodoService(
         }
     }
 
-    fun updateSubtask(todoId: UUID, subtaskId: UUID, req: UpdateSubtaskRequest, username: String): SubtaskResult {
+    suspend fun updateSubtask(todoId: UUID, subtaskId: UUID, req: UpdateSubtaskRequest, username: String): SubtaskResult {
         if (req.title != null && req.title.isBlank()) {
             return SubtaskResult.Invalid(ErrorResponse("INVALID_SUBTASK", "title must not be blank"))
         }
-        return transaction {
+        return dbQuery {
             // a subtask under a foreign private todo is as hidden as a missing one -> same 404
-            if (!parentTodoVisibleTo(todoId, username)) return@transaction SubtaskResult.NotFound
+            if (!parentTodoVisibleTo(todoId, username)) return@dbQuery SubtaskResult.NotFound
             val exists = TodoSubtasksTable.selectAll()
                 .where { (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId) }
                 .empty().not()
-            if (!exists) return@transaction SubtaskResult.NotFound
+            if (!exists) return@dbQuery SubtaskResult.NotFound
             TodoSubtasksTable.update({ TodoSubtasksTable.id eq subtaskId }) {
                 req.title?.let { v -> it[title] = v.trim() }
                 req.done?.let { v -> it[done] = v }
@@ -449,13 +449,13 @@ class TodoService(
         }
     }
 
-    fun deleteSubtask(todoId: UUID, subtaskId: UUID, username: String): SubtaskResult = transaction {
+    suspend fun deleteSubtask(todoId: UUID, subtaskId: UUID, username: String): SubtaskResult = dbQuery {
         // a subtask under a foreign private todo is as hidden as a missing one -> same 404
-        if (!parentTodoVisibleTo(todoId, username)) return@transaction SubtaskResult.NotFound
+        if (!parentTodoVisibleTo(todoId, username)) return@dbQuery SubtaskResult.NotFound
         val deleted = TodoSubtasksTable.deleteWhere {
             (TodoSubtasksTable.id eq subtaskId) and (TodoSubtasksTable.todoId eq todoId)
         }
-        if (deleted == 0) return@transaction SubtaskResult.NotFound
+        if (deleted == 0) return@dbQuery SubtaskResult.NotFound
         SubtaskResult.Ok(todoWithVisibility(todoId))
     }
 }
