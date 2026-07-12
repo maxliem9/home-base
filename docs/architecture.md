@@ -18,7 +18,10 @@
 
 ## Das Sync-Modell (Write-Pfad)
 
-Jede Mutation nimmt denselben Weg:
+Jede Mutation einer **Service-Domäne** (Todos, Notizen, Rezepte, Einkauf, Zeit, Abwesenheit)
+nimmt denselben Weg — die kleineren CRUD-Routen (MealPlan, Events, Config, UserPrefs, Push,
+Calendar) folgen demselben Muster, nur ohne eigene Service-Klasse (Handler → `dbQuery` →
+Broadcast):
 
 ```
 Client ──REST-Write (JWT)──▶ Route-Handler
@@ -54,15 +57,15 @@ keinen Delta-/Versions-Mechanismus: der Broadcast trägt immer das vollständige
 
 ## WS-Kanäle
 
-Alle unter `authenticate("auth-jwt")`, registriert via `syncChannel("<kanal>")` in der jeweiligen
-Route-Datei:
+Alle unter `authenticate("auth-jwt")`; bis auf `time` registriert via `syncChannel("<kanal>")`
+in der jeweiligen Route-Datei:
 
 | Kanal | Beispiel-Events | Anmerkung |
 |---|---|---|
 | `todos` | `TODO_CREATED/UPDATED/DELETED`, `TODO_LIST_*` | Sichtbarkeits-Übersetzung (s. u.) |
 | `shopping` | `SHOPPING_*`, `SHOPPING_LIST_*`, `SHOPPING_TEMPLATE_*`, `SHOPPING_CATEGORY[_RULE]_CHANGED` | Kategorie-/Regel-Events sind Refetch-Trigger |
 | `notes` | `NOTE_*` | Visibility wie Todos (→ [notes.md](domain/notes.md)) |
-| `time` | Timer-/Entry-/Target-Events | treibt u. a. den „Timer läuft“-Punkt |
+| `time` | Timer-/Entry-/Target-Events | **Bestandsausnahme (#564):** eigenes Wire-Format `{type, entry\|project\|target}` (`TimeWsMessage`) + handgerollter Endpoint — nicht auf `syncChannel` migriert |
 | `recipes` | `RECIPE_*` | auch vom Wochenplan konsumiert |
 | `absence` | Refetch-Trigger | Client lädt den Absence-State neu |
 | `meal-plan` | Refetch-Trigger | dto-lose type-only-Envelopes |
@@ -72,18 +75,20 @@ Type-only-Events (ohne Payload) sind legitim, wo der Client ohnehin einen zusamm
 State neu lädt — `broadcastSync(channel, type)` lässt den `payload`-Key dann komplett weg
 (`encodeDefaults = false`).
 
-## Sichtbarkeit auf gemeinsamen Kanälen (#73/#75)
+## Sichtbarkeit auf gemeinsamen Kanälen
 
 Ein Kanal erreicht **beide** Nutzer. Private Inhalte (private Todo-Listen, private Notizen)
 dürfen deshalb nie roh gebroadcastet werden. Ausgearbeitetes Muster (Todos, gilt sinngemäß für
-Notizen):
+Notizen; in Code-Kommentaren als „#73/#75“ zitiert — das sind historische Nummern aus der Zeit
+vor der Issue-Migration, im heutigen Tracker nicht auflösbar, siehe `backlog/README.md`):
 
 - bleibt privat → **kein** Broadcast;
 - shared → privat → fürs Gegenüber als **DELETE** übersetzt;
-- privat → shared → als **CREATE** gebroadcastet, plus Replay der bislang nie gesendeten Inhalte
-  (#75);
+- privat → shared → fürs Gegenüber als Upsert: Listen als **CREATE** plus Replay der bislang nie
+  gesendeten Inhalte, einzelne Todos/Notizen als **UPDATED** (der idempotente Client-Upsert
+  deckt beides);
 - Schreibpfade behandeln fremde private Objekte als **404 „not found“** — dieselbe Antwort wie
-  für eine unbekannte id, damit die UUID kein Existenz-Orakel wird (#73). Diese Checks leben in
+  für eine unbekannte id, damit die UUID kein Existenz-Orakel wird. Diese Checks leben in
   den Services und müssen bei jeder neuen Route erhalten bleiben.
 
 ## Auth & Token-Transport
@@ -111,7 +116,8 @@ Wachstumsgrenzen und der inkrementelle Plan stehen in Issue #559.
   „Server-wieder-erreichbar“-Signal für Refetch/Flush (besser als das Browser-`online`-Event).
   Pro Kanal existiert genau **eine** geteilte WS-Verbindung (`hooks/wsConnectionManager.ts`,
   #551) — beliebig viele Views subscriben per Fan-out; `onOpen` feuert pro Subscriber. Das
-  Standard-Plumbing (Fetch + Cache + WS-Reducer + 401) kapselt `useSyncedCollection` (#550).
+  Standard-Plumbing (Fetch + Cache + WS-Reducer + 401) kapselt `useSyncedCollection`
+  (Rollout über die Views läuft, #550).
 - **Android:** durable **Pending-Queue** (latest-wins pro Item; drei Flush-Trigger: WS-Reconnect,
   `ConnectivityObserver`, periodischer Backstop) für Einkaufs-Abhaken (#170) und Notizen (#323);
   `SnapshotStore<T>` als Read-Cache für den Kaltstart ohne Netz (#517-Familie).
@@ -121,7 +127,8 @@ Wachstumsgrenzen und der inkrementelle Plan stehen in Issue #559.
 `DigestScheduler` ×2 (Telegram Abend/Morgen), `ReminderScheduler` (60-s-Tick, Quiet-Hours),
 `RecurringTodoScheduler` (Safety-Net für Wiederholungen). Alle lesen ihre Einstellungen **je
 Zyklus** live aus `app_settings` (Config-Grundsatz #100) — In-App-Änderungen wirken ohne
-Neustart. Ohne konfigurierten Kanal (Telegram/VAPID) bleiben die Jobs schlafend.
+Neustart. Digest (ohne Telegram) und Reminder (ohne Telegram **und** VAPID) bleiben schlafend;
+das Recurring-Safety-Net läuft immer — es braucht keine externen Credentials.
 
 <a id="single-instance"></a>
 ## Betriebs-Constraint: genau EINE Backend-Instanz
