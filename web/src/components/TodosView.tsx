@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
+import { API_BASE, errorCode, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
-import { useWebSocket } from '../hooks/useWebSocket'
+import { useSyncedCollection } from '../hooks/useSyncedCollection'
 import { Icon } from '../ui/Icon'
 import {
   Avatar,
@@ -239,10 +239,75 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // known lists + todos instead of an empty screen; a successful fetch replaces them below. Read once
   // (useMemo, not a per-render localStorage hit) — it only feeds the initial state below.
   const initialCache = useMemo(() => loadCache(), [])
-  const [todos, setTodos] = useState<Todo[]>(initialCache?.todos ?? [])
-  const [lists, setLists] = useState<TodoList[]>(initialCache?.lists ?? [])
   // Skip the full-screen spinner when we already have cached content to show — refresh happens underneath.
-  const [loading, setLoading] = useState(!(initialCache && (initialCache.todos.length > 0 || initialCache.lists.length > 0)))
+  const hasCachedContent = !!(initialCache && (initialCache.todos.length > 0 || initialCache.lists.length > 0))
+
+  // Todos + lists share the `todos` WS channel but are two independent collections, so they are two
+  // useSyncedCollection instances (#550) on the same socket (one connection thanks to #551). The hook
+  // owns fetch-on-mount, 401→logout, the transport toast and the standard upsert/delete reducers;
+  // optimistic updates keep using the exposed setters, and the combined read-cache stays in this view
+  // (saveCache effect below). The TODO_LIST_DELETED private-flip (#75) — a shared→private flip that the
+  // owner keeps but everyone else drops — is not a plain delete, so it is routed to onOtherMessage.
+  const {
+    items: todos,
+    setItems: setTodos,
+    loading: todosLoading,
+    refresh: refreshTodos,
+  } = useSyncedCollection<Todo>({
+    token,
+    endpoint: `${API_BASE}/todos`,
+    wsUrl: WS_URL,
+    events: { created: 'TODO_CREATED', updated: 'TODO_UPDATED', deleted: 'TODO_DELETED' },
+    onLogout,
+    initial: initialCache?.todos ?? [],
+    skipInitialLoading: hasCachedContent,
+    onOtherMessage: (msg) => {
+      // A genuine list delete (a SHARED list, or one that isn't mine) also drops that list's todos; a
+      // shared→private flip (PRIVATE + mine) keeps them — the list only hides from the partner.
+      if (msg.type === 'TODO_LIST_DELETED') {
+        const p = msg.payload as TodoList | undefined
+        if (!p) return
+        const privateFlipForMe = p.visibility === 'PRIVATE' && p.createdBy === me
+        if (!privateFlipForMe) setTodos((prev) => prev.filter((x) => x.listId !== p.id))
+      }
+    },
+  })
+
+  const {
+    items: lists,
+    setItems: setLists,
+    loading: listsLoading,
+    refresh: refreshLists,
+  } = useSyncedCollection<TodoList>({
+    token,
+    endpoint: `${API_BASE}/todos/lists`,
+    wsUrl: WS_URL,
+    // Lists are returned oldest-first (createdAt ASC), so a new one appends; an update never inserts a
+    // list we don't hold (the pre-hook reducer only mapped in place). No `deleted`: TODO_LIST_DELETED is
+    // the private-flip special case, handled in onOtherMessage.
+    events: { created: 'TODO_LIST_CREATED', updated: 'TODO_LIST_UPDATED', insertAt: 'end', upsertOnUpdate: false },
+    onLogout,
+    initial: initialCache?.lists ?? [],
+    skipInitialLoading: hasCachedContent,
+    onOtherMessage: (msg) => {
+      if (msg.type === 'TODO_LIST_DELETED') {
+        const p = msg.payload as TodoList | undefined
+        if (!p) return
+        if (p.visibility === 'PRIVATE' && p.createdBy === me) {
+          // keep it for the owner, just flipped to private
+          setLists((prev) => prev.map((x) => (x.id === p.id ? p : x)))
+        } else {
+          setLists((prev) => prev.filter((x) => x.id !== p.id))
+        }
+      }
+    },
+  })
+
+  const loading = todosLoading || listsLoading
+  // Refetch both collections together (the pre-hook fetchTodos loaded /todos + /todos/lists as a pair).
+  const refreshTodosAndLists = useCallback(async () => {
+    await Promise.all([refreshTodos(), refreshLists()])
+  }, [refreshTodos, refreshLists])
   // Tab precedence on mount: an explicit dashboard deep-link wins; otherwise
   // restore the last-active tab from localStorage (#339); otherwise the
   // post-lists-load effect picks the default. A restored real-list UUID is
@@ -305,32 +370,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     })
   }, [])
 
-  const fetchTodos = useCallback(async () => {
-    try {
-      const [todoResult, listResult] = await Promise.all([
-        safeFetch(token, `${API_BASE}/todos`),
-        safeFetch(token, `${API_BASE}/todos/lists`),
-      ])
-      // a transport reject on either → fire the global toast once, keep existing data
-      if (!todoResult.ok || !listResult.ok) {
-        notifyTransportError()
-        return
-      }
-      const { res: todoRes } = todoResult
-      const { res: listRes } = listResult
-      if (todoRes.status === 401 || listRes.status === 401) {
-        onLogout()
-        return
-      }
-      if (todoRes.ok) setTodos(await todoRes.json())
-      if (listRes.ok) setLists(await listRes.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [onLogout, token])
-
-  useEffect(() => { fetchTodos() }, [fetchTodos])
-
   // Mirror the current lists + todos into the durable read-cache (#520) on every change — server
   // fetches and optimistic edits alike — so the next launch can show the last state offline. The
   // initial run re-writes the seeded cache (harmless); it never wipes it, since the state was seeded
@@ -387,48 +426,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
       /* quota / private mode — remembering is best-effort, the session still works */
     }
   }, [activeId])
-
-  useWebSocket({ url: WS_URL, token }, (raw) => {
-    try {
-      const msg = JSON.parse(raw)
-      if (!msg.payload) return
-      switch (msg.type) {
-        case 'TODO_CREATED':
-          setTodos((prev) => (prev.some((x) => x.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
-          break
-        case 'TODO_UPDATED':
-          setTodos((prev) =>
-            prev.some((x) => x.id === msg.payload.id)
-              ? prev.map((x) => (x.id === msg.payload.id ? msg.payload : x))
-              : [msg.payload, ...prev],
-          )
-          break
-        case 'TODO_DELETED':
-          setTodos((prev) => prev.filter((x) => x.id !== msg.payload.id))
-          break
-        case 'TODO_LIST_CREATED':
-          setLists((prev) => (prev.some((x) => x.id === msg.payload.id) ? prev : [...prev, msg.payload]))
-          break
-        case 'TODO_LIST_UPDATED':
-          setLists((prev) => prev.map((x) => (x.id === msg.payload.id ? msg.payload : x)))
-          break
-        case 'TODO_LIST_DELETED':
-          // A shared→private flip is broadcast as a delete whose payload is the now-PRIVATE list.
-          // For its owner that means "keep it, just hide it from the other user" — so mark it private
-          // instead of dropping it. A genuine delete always carries a SHARED list; everyone else drops
-          // it either way (they lost access). See issue #75 / the private-list visibility model.
-          if (msg.payload.visibility === 'PRIVATE' && msg.payload.createdBy === me) {
-            setLists((prev) => prev.map((x) => (x.id === msg.payload.id ? msg.payload : x)))
-          } else {
-            setLists((prev) => prev.filter((x) => x.id !== msg.payload.id))
-            setTodos((prev) => prev.filter((x) => x.listId !== msg.payload.id))
-          }
-          break
-      }
-    } catch {
-      // ignore malformed frames
-    }
-  })
 
   // Returns true on success so callers (e.g. the plan modal) can decide whether
   // to close. On failure a toast is shown and the call resolves false.
@@ -623,13 +620,13 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     // On failure (transport reject or HTTP error) refetch to resync rather than
     // restoring a captured snapshot, which could clobber a concurrent WS update.
     if (!result.ok) {
-      await fetchTodos()
+      await refreshTodosAndLists()
       return flashError(errorText(null, t('todos.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      await fetchTodos()
+      await refreshTodosAndLists()
       flashError(errorText(await errorCode(res), t('todos.deleteFailed')))
     }
   }
@@ -747,13 +744,13 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     // On failure refetch to resync rather than restoring a captured snapshot,
     // which could clobber a concurrent WS update.
     if (!result.ok) {
-      await fetchTodos()
+      await refreshTodosAndLists()
       return flashError(errorText(null, t('todos.listDeleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      await fetchTodos()
+      await refreshTodosAndLists()
       flashError(errorText(await errorCode(res), t('todos.listDeleteFailed')))
     }
   }
