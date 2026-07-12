@@ -27,12 +27,14 @@ homebase/
 ## Doc-Index — was lesen, bevor du woran arbeitest
 | Arbeitest du an … | Lies zuerst |
 |---|---|
+| **Architektur & Datenfluss** (Sync-Modell, WS-Kanäle, Offline-Strategien, Single-Instance-Constraint) — Backend-Querschnitt & Onboarding | [docs/architecture.md](docs/architecture.md) |
 | Aufgaben/Todos, Inbox, Zuständige, Wiederholung, Todo-Edit-Sheet | [docs/domain/todos.md](docs/domain/todos.md) |
 | Rezepten | [docs/domain/recipes.md](docs/domain/recipes.md) |
 | Wochenplan/Essensplaner | [docs/domain/meal-plan.md](docs/domain/meal-plan.md) |
 | Einkaufsliste / Offline-Abhaken | [docs/domain/shopping.md](docs/domain/shopping.md) |
 | Zeiterfassung, Wochensoll, Ende-Prognose | [docs/domain/time-tracking.md](docs/domain/time-tracking.md) |
 | Abwesenheit / Familienkalender | [docs/domain/absence.md](docs/domain/absence.md) |
+| Terminen/Events (#434 — Arzt, Geburtstage; Teil des Familienkalenders) | [docs/domain/absence.md](docs/domain/absence.md) |
 | Notizen (Modell + Editor-UX) | [docs/domain/notes.md](docs/domain/notes.md) |
 | Dashboard / „Heute"-View | [docs/domain/dashboard.md](docs/domain/dashboard.md) |
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
@@ -77,6 +79,19 @@ Damit nicht zwei Menschen/KI-Agenten/Sessions **dasselbe Ticket parallel** anfan
 - JWT Auth (2 feste Nutzer, kein Registration-Flow). Login-Throttling pro IP →
   [docs/security-invariants.md](docs/security-invariants.md).
 - REST für CRUD, WebSockets für Echtzeit-Sync; alle Endpunkte unter /api/v1/
+- **Service-Schicht (#546):** Business-Logik (Validierung, Tri-State-Merge #265, Domänenregeln,
+  Sichtbarkeits-/Ownership-Checks #73, Persistenz) lebt in `service/<Domäne>Service.kt` mit
+  sealed-Result-Typen (`Ok`/`Invalid`/`NotFound`). Route-Handler nur: Request parsen → Service
+  aufrufen → Result auf Status/Body mappen → **nach** dem Commit broadcasten. Kein
+  `transaction {`-/Table-Zugriff in Routen-Handlern.
+- **DB-Zugriff (#549):** In suspend-Kontexten (Route-Handler, Scheduler-Coroutinen) immer
+  `dbQuery { }` (`db/DbQuery.kt`) statt Exposeds blockierendem `transaction { }`. Blockierend
+  bleibt nur der einmalige Boot-Pfad (Seeder & Co., je mit Begründungskommentar).
+- **WS-Sync (#552):** Endpunkte über `syncChannel("<kanal>")`, Broadcasts über
+  `WsSessionManager.broadcastSync(channel, type[, payload, serializer])` (`ws/SyncChannel.kt`) —
+  keine eigenen Envelope-DTOs, keine handgeschriebenen `webSocket {}`-Blöcke. Wire-Format bleibt
+  `{type, payload}` über die zentrale `appJson` (Guard: `WsBroadcastAppJsonConventionTest`, #134).
+  Details zum Sync-Modell → [docs/architecture.md](docs/architecture.md).
 - Fehlerbehandlung: einheitliche ErrorResponse(code, message)
 - Konfiguration über Umgebungsvariablen — **aber** editierbare Optionen leben in der DB, nicht in
   der .env (siehe Config-Grundsatz unten).
