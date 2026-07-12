@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
+import { subscribeWs } from './wsConnectionManager'
 
 // The JWT is passed as a WebSocket subprotocol (`["bearer", token]`) so it travels in the
 // `Sec-WebSocket-Protocol` handshake header instead of the URL query string — keeping the token
@@ -8,47 +9,27 @@ import { useEffect, useRef, useCallback } from 'react'
 // signal that callers use to flush work queued while offline (e.g. the shopping
 // view's pending check-offs). It's a better trigger than the window `online` event,
 // which doesn't fire for "connected to wifi but no internet" (a store's flaky AP).
+//
+// The actual socket is shared per `(url, token)` by the connection manager (#551): many
+// views can subscribe to the same channel while only one WebSocket exists. This hook is just
+// the React glue — it subscribes on mount and releases its ref on unmount. Callbacks are held in
+// refs so a re-render doesn't churn the subscription (the identity that matters is url+token).
 export function useWebSocket(
   target: { url: string; token?: string },
   onMessage: (data: string) => void,
   onOpen?: () => void,
 ) {
   const { url, token } = target
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
   const onOpenRef = useRef(onOpen)
   onOpenRef.current = onOpen
 
-  const connect = useCallback((activeRef: { current: boolean }) => {
-    if (!activeRef.current) return null
-    const ws = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url)
-    wsRef.current = ws
-
-    ws.onopen = () => onOpenRef.current?.()
-    ws.onmessage = (e) => onMessageRef.current(e.data)
-    ws.onclose = () => {
-      if (activeRef.current) {
-        reconnectRef.current = setTimeout(() => connect(activeRef), 3000)
-      }
-    }
-
-    return ws
-  }, [url, token])
-
   useEffect(() => {
-    const activeRef = { current: true }
-    connect(activeRef)
-    return () => {
-      activeRef.current = false
-      if (reconnectRef.current) {
-        clearTimeout(reconnectRef.current)
-      }
-      if (wsRef.current) {
-        wsRef.current.onclose = null
-        wsRef.current.close()
-      }
-    }
-  }, [connect])
+    const unsubscribe = subscribeWs(url, token, {
+      onMessage: (data) => onMessageRef.current(data),
+      onOpen: () => onOpenRef.current?.(),
+    })
+    return unsubscribe
+  }, [url, token])
 }
