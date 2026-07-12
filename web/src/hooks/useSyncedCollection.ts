@@ -78,6 +78,12 @@ export interface SyncedCollectionOptions<T> {
   /** Seed items (e.g. from a durable read-cache) so the view can render offline before the fetch lands. */
   initial?: T[]
   /**
+   * Normalize a raw item from the REST array or a WS payload before it enters state (e.g. filling
+   * fields the server omits under encodeDefaults=false, #96). Applied uniformly to the fetch and to
+   * created/updated frames so cached, fetched and pushed items share one shape.
+   */
+  mapItem?: (raw: unknown) => T
+  /**
    * Start with `loading` already false — the view sets this when it seeded `initial` from a warm cache,
    * so no full-screen spinner flashes over content that is already on screen.
    */
@@ -97,7 +103,7 @@ export interface SyncedCollection<T> {
 export function useSyncedCollection<T extends { id: string }>(
   opts: SyncedCollectionOptions<T>,
 ): SyncedCollection<T> {
-  const { token, endpoint, wsUrl, events, onLogout, initial, skipInitialLoading, onOtherMessage } = opts
+  const { token, endpoint, wsUrl, events, onLogout, initial, skipInitialLoading, onOtherMessage, mapItem } = opts
   const [items, setItems] = useState<T[]>(initial ?? [])
   const [loading, setLoading] = useState(!skipInitialLoading)
 
@@ -109,6 +115,8 @@ export function useSyncedCollection<T extends { id: string }>(
   onOtherRef.current = onOtherMessage
   const onLogoutRef = useRef(onLogout)
   onLogoutRef.current = onLogout
+  const mapItemRef = useRef(mapItem)
+  mapItemRef.current = mapItem
 
   const refresh = useCallback(async () => {
     try {
@@ -122,7 +130,11 @@ export function useSyncedCollection<T extends { id: string }>(
         onLogoutRef.current()
         return
       }
-      if (res.ok) setItems(await res.json())
+      if (res.ok) {
+        const raw = (await res.json()) as unknown[]
+        const map = mapItemRef.current
+        setItems(map ? raw.map(map) : (raw as T[]))
+      }
     } finally {
       setLoading(false)
     }
@@ -144,7 +156,11 @@ export function useSyncedCollection<T extends { id: string }>(
     // Classify outside the state updater so the updater stays pure (no side effects under StrictMode).
     const isStandard = msg.type === ev.created || msg.type === ev.updated || msg.type === ev.deleted
     if (isStandard) {
-      setItems((prev) => reduceSyncEvent(prev, msg, ev).next)
+      // Normalize a created/updated payload the same way the fetch does (delete carries only an id).
+      const map = mapItemRef.current
+      const normalized: SyncMessage<T> =
+        map && msg.payload != null ? { type: msg.type, payload: map(msg.payload) } : msg
+      setItems((prev) => reduceSyncEvent(prev, normalized, ev).next)
     } else {
       onOtherRef.current?.(msg as SyncMessage<unknown>)
     }
