@@ -178,6 +178,41 @@ class TodoServiceTest {
         assertEquals(listOf("alice"), r.mutation.todo.assignees)
     }
 
+    // ---- listTodos: batched loading + SQL visibility filter (#548) -------
+
+    @Test
+    fun `listTodos hides todos in a foreign private list but keeps own and shared ones`() = runBlocking {
+        val bobsPrivate = insertList(owner = "bob", visibility = "PRIVATE")
+        val alicesPrivate = insertList(owner = "alice", visibility = "PRIVATE")
+        val shared = insertList(owner = "bob", visibility = "SHARED")
+
+        service.createTodo(CreateTodoRequest(title = "inbox"), "alice") // list-less, always visible
+        service.createTodo(CreateTodoRequest(title = "mine", listId = alicesPrivate.toString()), "alice")
+        service.createTodo(CreateTodoRequest(title = "shared", listId = shared.toString()), "bob")
+        service.createTodo(CreateTodoRequest(title = "secret", listId = bobsPrivate.toString()), "bob")
+
+        val titles = service.listTodos("alice").map { it.title }.toSet()
+        assertEquals(setOf("inbox", "mine", "shared"), titles)
+    }
+
+    @Test
+    fun `listTodos maps assignees and subtasks to the right todo`() = runBlocking {
+        val a = service.createTodo(CreateTodoRequest(title = "A", assignees = listOf("alice")), "alice")
+        val b = service.createTodo(CreateTodoRequest(title = "B", assignees = listOf("alice", "bob")), "alice")
+        assertTrue(a is TodoService.CreateTodoResult.Ok && b is TodoService.CreateTodoResult.Ok)
+        val idA = UUID.fromString(a.mutation.todo.id)
+        val idB = UUID.fromString(b.mutation.todo.id)
+        service.addSubtask(idA, CreateSubtaskRequest(title = "a1"), "alice")
+        service.addSubtask(idB, CreateSubtaskRequest(title = "b1"), "alice")
+        service.addSubtask(idB, CreateSubtaskRequest(title = "b2"), "alice")
+
+        val byTitle = service.listTodos("alice").associateBy { it.title }
+        assertEquals(listOf("alice"), byTitle.getValue("A").assignees)
+        assertEquals(listOf("alice", "bob"), byTitle.getValue("B").assignees)
+        assertEquals(listOf("a1"), byTitle.getValue("A").subtasks.map { it.title })
+        assertEquals(listOf("b1", "b2"), byTitle.getValue("B").subtasks.map { it.title })
+    }
+
     // ---- subtasks --------------------------------------------------------
 
     @Test

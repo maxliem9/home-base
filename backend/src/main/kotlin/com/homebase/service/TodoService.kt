@@ -152,14 +152,36 @@ class TodoService(
     // ---- Todos -----------------------------------------------------------
 
     suspend fun listTodos(username: String): List<TodoDto> = dbQuery {
-        // hide todos that live in someone else's private list
+        // Hide todos that live in someone else's private list — filtered in SQL (#548) instead of
+        // loading the whole table and dropping rows in Kotlin.
         val hiddenListIds = TodoListsTable.selectAll()
             .where { (TodoListsTable.visibility eq VISIBILITY_PRIVATE) and (TodoListsTable.createdBy neq username) }
             .map { it[TodoListsTable.id] }
-            .toSet()
-        TodosTable.selectAll()
-            .map { it.toTodoDto() }
-            .filter { it.listId == null || UUID.fromString(it.listId) !in hiddenListIds }
+
+        val query = TodosTable.selectAll()
+        if (hiddenListIds.isNotEmpty()) {
+            query.andWhere { TodosTable.listId.isNull() or (TodosTable.listId notInList hiddenListIds) }
+        }
+        val rows = query.toList()
+        if (rows.isEmpty()) return@dbQuery emptyList()
+
+        // Batch-load subtasks and assignees for all visible todos in one query each (#548), turning the
+        // former 1 + 2N queries into a constant 3. groupBy preserves the query's order within each group,
+        // so the ORDER BY carries into the per-todo lists.
+        val todoIds = rows.map { it[TodosTable.id] }
+        val subtasksByTodo = TodoSubtasksTable.selectAll()
+            .where { TodoSubtasksTable.todoId inList todoIds }
+            .orderBy(TodoSubtasksTable.sortOrder to SortOrder.ASC)
+            .groupBy({ it[TodoSubtasksTable.todoId] }, { it.toSubtaskDto() })
+        val assigneesByTodo = TodoAssigneesTable.selectAll()
+            .where { TodoAssigneesTable.todoId inList todoIds }
+            .orderBy(TodoAssigneesTable.username to SortOrder.ASC)
+            .groupBy({ it[TodoAssigneesTable.todoId] }, { it[TodoAssigneesTable.username] })
+
+        rows.map { row ->
+            val id = row[TodosTable.id]
+            row.toTodoDto(subtasksByTodo[id] ?: emptyList(), assigneesByTodo[id] ?: emptyList())
+        }
     }
 
     sealed interface CreateTodoResult {
@@ -631,18 +653,31 @@ private fun ResultRow.toListDto() = TodoListDto(
     createdAt = this[TodoListsTable.createdAt].toString(),
 )
 
+/**
+ * Single-todo mapper: loads this todo's subtasks + assignees itself (two extra queries). Fine for the
+ * write paths that only touch one todo; the list path uses the batch overload below to avoid N+1 (#548).
+ */
 internal fun ResultRow.toTodoDto(): TodoDto {
     val todoId = this[TodosTable.id]
     val subtasks = TodoSubtasksTable.selectAll()
         .where { TodoSubtasksTable.todoId eq todoId }
         .orderBy(TodoSubtasksTable.sortOrder to SortOrder.ASC)
         .map { it.toSubtaskDto() }
+    return toTodoDto(subtasks, loadTodoAssignees(todoId))
+}
+
+/**
+ * Pure mapper taking pre-fetched [subtasks] and [assignees] — no DB access. Lets the list path load both
+ * relations in one batched query each and map without per-row queries (#548).
+ */
+internal fun ResultRow.toTodoDto(subtasks: List<SubtaskDto>, assignees: List<String>): TodoDto {
+    val todoId = this[TodosTable.id]
     return TodoDto(
         id = todoId.toString(),
         title = this[TodosTable.title],
         description = this[TodosTable.description],
         status = this[TodosTable.status],
-        assignees = loadTodoAssignees(todoId),
+        assignees = assignees,
         dueDate = this[TodosTable.dueDate]?.toString(),
         // LocalTime.toString() is "HH:mm" (or "HH:mm:ss" with seconds) — clients tolerate both.
         dueTime = this[TodosTable.dueTime]?.toString(),
