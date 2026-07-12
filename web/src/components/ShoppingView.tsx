@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { API_BASE, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { ShoppingCategory, ShoppingCategoryRule, ShoppingItem, ShoppingList, ShoppingSuggestion, ShoppingTemplate } from '../types'
+import { useSyncedCollection } from '../hooks/useSyncedCollection'
+// ListCategoriesSheet uses the raw socket for a refetch-on-broadcast (not a collection reducer).
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -103,12 +105,10 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   // known lists + items instead of an empty screen; a successful fetch replaces them below. Read once
   // (useMemo, not a per-render localStorage hit) — it only feeds the initial state below.
   const initialCache = useMemo(() => loadCache(), [])
-  const [items, setItems] = useState<ShoppingItem[]>(initialCache?.items ?? [])
-  const [lists, setLists] = useState<ShoppingList[]>(initialCache?.lists ?? [])
+  // Skip the full-screen spinner when we already have cached lists to show — refresh happens underneath.
+  const hasCachedLists = !!(initialCache && initialCache.lists.length > 0)
   // Live editable category catalog (#411), seeded with the builtins so headers render before the fetch.
   const [categories, setCategories] = useState<ShoppingCategory[]>(BUILTIN_CATEGORIES)
-  // Skip the full-screen spinner when we already have cached lists to show — refresh happens underneath.
-  const [loading, setLoading] = useState(!(initialCache && initialCache.lists.length > 0))
   const [activeId, setActiveId] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -135,31 +135,75 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const { flashError, errorToast } = useErrorToast()
 
-  const fetchAll = useCallback(async () => {
-    try {
-      const [itemResult, listResult] = await Promise.all([
-        safeFetch(token, `${API_BASE}/shopping`),
-        safeFetch(token, `${API_BASE}/shopping/lists`),
-      ])
-      // a transport reject on either → fire the global toast once, keep existing data
-      if (!itemResult.ok || !listResult.ok) {
-        notifyTransportError()
-        return
+  // Items + lists share the `shopping` WS channel but are two collections, so two useSyncedCollection
+  // instances (#550) on the one socket (#551). The hook owns fetch-on-mount, 401→logout, the transport
+  // toast and the standard reducers; the combined read-cache (saveCache below) and the offline
+  // check-queue stay view-owned. Two shopping-specific twists ride the hook's escape hatches:
+  //  • mergeUpdate keeps a not-yet-synced local check-off over a server echo (#517);
+  //  • onOpen (items) drains the offline queue on a (re)connect.
+  const {
+    items,
+    setItems,
+    loading: itemsLoading,
+    refresh: refreshItems,
+  } = useSyncedCollection<ShoppingItem>({
+    token,
+    endpoint: `${API_BASE}/shopping`,
+    wsUrl: WS_URL,
+    events: { created: 'SHOPPING_CREATED', updated: 'SHOPPING_UPDATED', deleted: 'SHOPPING_DELETED' },
+    onLogout,
+    initial: initialCache?.items ?? [],
+    skipInitialLoading: hasCachedLists,
+    // A not-yet-synced local check intent wins over a server echo for that item (the echo may carry an
+    // older state, e.g. our own in-flight PUT after we re-toggled). Other fields take the server value.
+    mergeUpdate: (incoming, existing) =>
+      pendingRef.current[existing.id] ? { ...incoming, checked: existing.checked, checkedAt: existing.checkedAt } : incoming,
+    onOtherMessage: (msg) => {
+      switch (msg.type) {
+        case 'SHOPPING_LIST_DELETED':
+          // The list is gone: drop its items here (the lists hook removes the list; the effect below
+          // dequeues any pending checks for the now-missing items).
+          if (msg.payload) setItems((prev) => prev.filter((i) => i.listId !== (msg.payload as ShoppingList).id))
+          break
+        // Template mutations ride the same channel (#215). Refetch the full set — few and rare.
+        case 'SHOPPING_TEMPLATE_CREATED':
+        case 'SHOPPING_TEMPLATE_UPDATED':
+        case 'SHOPPING_TEMPLATE_DELETED':
+          void fetchTemplates()
+          break
+        // A category edit/delete changes headers and reassigns items to OTHER (#411) — reload both.
+        case 'SHOPPING_CATEGORY_CHANGED':
+          void fetchCategories()
+          void refreshItems()
+          void refreshLists()
+          break
       }
-      const { res: itemRes } = itemResult
-      const { res: listRes } = listResult
-      if (itemRes.status === 401 || listRes.status === 401) {
-        onLogout()
-        return
-      }
-      if (itemRes.ok) setItems(await itemRes.json())
-      if (listRes.ok) setLists(await listRes.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [onLogout, token])
+    },
+    // A (re)connected socket means the server is reachable — drain the offline check queue (#517).
+    onOpen: () => void flushPending(),
+  })
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  const {
+    items: lists,
+    setItems: setLists,
+    loading: listsLoading,
+    refresh: refreshLists,
+  } = useSyncedCollection<ShoppingList>({
+    token,
+    endpoint: `${API_BASE}/shopping/lists`,
+    wsUrl: WS_URL,
+    // Lists append (oldest-first), never upsert an unknown list on update, and delete plainly.
+    events: { created: 'SHOPPING_LIST_CREATED', updated: 'SHOPPING_LIST_UPDATED', deleted: 'SHOPPING_LIST_DELETED', insertAt: 'end', upsertOnUpdate: false },
+    onLogout,
+    initial: initialCache?.lists ?? [],
+    skipInitialLoading: hasCachedLists,
+  })
+
+  const loading = itemsLoading || listsLoading
+  // Refetch both collections together (the pre-hook fetchAll loaded /shopping + /shopping/lists).
+  const fetchAll = useCallback(async () => {
+    await Promise.all([refreshItems(), refreshLists()])
+  }, [refreshItems, refreshLists])
 
   // Load the named templates. `items` is omitted by the backend when empty
   // (encodeDefaults=false) — normalize to [] so the UI can treat it as an array.
@@ -287,61 +331,14 @@ export function ShoppingView({ token, onLogout }: ShoppingViewProps) {
     saveCache(lists, items)
   }, [lists, items])
 
-  useWebSocket({ url: WS_URL, token }, (raw) => {
-    try {
-      const msg = JSON.parse(raw)
-      if (!msg.payload) return
-      switch (msg.type) {
-        case 'SHOPPING_CREATED':
-          setItems((prev) => (prev.some((i) => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
-          break
-        case 'SHOPPING_UPDATED':
-          // A not-yet-synced local check intent wins over a server echo for that item
-          // (the echo may carry an older state, e.g. our own in-flight PUT after we
-          // re-toggled). Other fields (name/list) still take the server value.
-          setItems((prev) =>
-            prev.map((i) => {
-              if (i.id !== msg.payload.id) return i
-              return pendingRef.current[i.id] ? { ...msg.payload, checked: i.checked, checkedAt: i.checkedAt } : msg.payload
-            }),
-          )
-          break
-        case 'SHOPPING_DELETED':
-          setItems((prev) => prev.filter((i) => i.id !== msg.payload.id))
-          dequeue(msg.payload.id) // a queued check for a now-deleted item can never land
-          break
-        case 'SHOPPING_LIST_CREATED':
-          setLists((prev) => (prev.some((l) => l.id === msg.payload.id) ? prev : [...prev, msg.payload]))
-          break
-        case 'SHOPPING_LIST_UPDATED':
-          setLists((prev) => prev.map((l) => (l.id === msg.payload.id ? msg.payload : l)))
-          break
-        case 'SHOPPING_LIST_DELETED': {
-          // dequeue outside the setItems updater (no setState-in-updater); the closure's
-          // `items` is current enough and dequeue is idempotent.
-          const goneList = msg.payload.id
-          items.filter((i) => i.listId === goneList).forEach((i) => dequeue(i.id))
-          setItems((prev) => prev.filter((i) => i.listId !== goneList))
-          setLists((prev) => prev.filter((l) => l.id !== goneList))
-          break
-        }
-        // Template mutations ride the same shopping channel (#215). Refetch the full
-        // set — they're few and rarely change, so a reload is simpler than reconciling.
-        case 'SHOPPING_TEMPLATE_CREATED':
-        case 'SHOPPING_TEMPLATE_UPDATED':
-        case 'SHOPPING_TEMPLATE_DELETED':
-          void fetchTemplates()
-          break
-        // A category edit/delete changes headers and reassigns items to OTHER (#411) — reload both.
-        case 'SHOPPING_CATEGORY_CHANGED':
-          void fetchCategories()
-          void fetchAll()
-          break
-      }
-    } catch {
-      // ignore malformed frames
+  // A queued check for an item that has vanished — deleted, or its whole list removed — can never
+  // land, so drop it. Deriving this from `items` covers both the item-delete and list-delete frames
+  // (whose collection updates live in the two hooks above) in one place; dequeue is idempotent.
+  useEffect(() => {
+    for (const id of Object.keys(pendingRef.current)) {
+      if (!items.some((i) => i.id === id)) dequeue(id)
     }
-  }, () => void flushPending()) // onOpen: a (re)connected socket means the server is reachable — drain the queue
+  }, [items, dequeue])
 
   const handleAdd = async (nameArg?: string) => {
     const name = (nameArg ?? newName).trim()
