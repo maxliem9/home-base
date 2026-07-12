@@ -54,6 +54,13 @@ describe('reduceSyncEvent', () => {
     expect(r.next).toEqual([A, B])
   })
 
+  it('applies mergeUpdate to keep local fields over the server echo on update', () => {
+    // e.g. an offline shopping check-off: keep local `name` (stand-in), take everything else from server.
+    const merge = (incoming: Item, existing: Item): Item => ({ ...incoming, name: existing.name })
+    const r = reduceSyncEvent<Item>([{ id: 'a', name: 'local' }], { type: 'UPDATED', payload: { id: 'a', name: 'server' } }, events, merge)
+    expect(r.next).toEqual([{ id: 'a', name: 'local' }])
+  })
+
   it('does not upsert an unseen item on update when upsertOnUpdate is false', () => {
     const listEvents: SyncEvents = { created: 'CREATED', updated: 'UPDATED', upsertOnUpdate: false }
     const prev = [A]

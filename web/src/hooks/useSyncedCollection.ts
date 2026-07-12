@@ -44,6 +44,7 @@ export function reduceSyncEvent<T extends { id: string }>(
   prev: T[],
   msg: SyncMessage<T>,
   events: SyncEvents,
+  mergeUpdate?: (incoming: T, existing: T) => T,
 ): { next: T[]; handled: boolean } {
   const p = msg.payload
   const insert = (list: T[], item: T) => (events.insertAt === 'end' ? [...list, item] : [item, ...list])
@@ -54,8 +55,12 @@ export function reduceSyncEvent<T extends { id: string }>(
   }
   if (msg.type === events.updated) {
     if (!p) return { next: prev, handled: true }
-    if (prev.some((x) => x.id === p.id)) {
-      return { next: prev.map((x) => (x.id === p.id ? p : x)), handled: true }
+    const existing = prev.find((x) => x.id === p.id)
+    if (existing) {
+      // mergeUpdate lets a view keep local, not-yet-synced fields over the server echo (e.g. an
+      // offline shopping check-off the server hasn't seen yet); default replaces with the incoming.
+      const merged = mergeUpdate ? mergeUpdate(p, existing) : p
+      return { next: prev.map((x) => (x.id === p.id ? merged : x)), handled: true }
     }
     // Not held: upsert it (a create missed while disconnected) unless the view opted out.
     return { next: events.upsertOnUpdate === false ? prev : insert(prev, p), handled: true }
@@ -90,6 +95,17 @@ export interface SyncedCollectionOptions<T> {
   skipInitialLoading?: boolean
   /** Domain frames the standard reducer doesn't own (unknown `type`) — the view handles them here. */
   onOtherMessage?: (msg: SyncMessage<unknown>) => void
+  /**
+   * Fires on every (re)connect of the channel (and once immediately if it is already open) — the
+   * "server reachable again" signal offline-capable views use to flush a queued-writes backlog.
+   */
+  onOpen?: () => void
+  /**
+   * Merge an `updated` frame for an item already held: `(incoming, existing) => merged`. Lets a view
+   * keep fields it changed locally but hasn't synced yet (e.g. an offline check-off) over the server
+   * echo. Omit to replace with the incoming item.
+   */
+  mergeUpdate?: (incoming: T, existing: T) => T
 }
 
 export interface SyncedCollection<T> {
@@ -103,7 +119,7 @@ export interface SyncedCollection<T> {
 export function useSyncedCollection<T extends { id: string }>(
   opts: SyncedCollectionOptions<T>,
 ): SyncedCollection<T> {
-  const { token, endpoint, wsUrl, events, onLogout, initial, skipInitialLoading, onOtherMessage, mapItem } = opts
+  const { token, endpoint, wsUrl, events, onLogout, initial, skipInitialLoading, onOtherMessage, mapItem, onOpen, mergeUpdate } = opts
   const [items, setItems] = useState<T[]>(initial ?? [])
   const [loading, setLoading] = useState(!skipInitialLoading)
 
@@ -117,6 +133,10 @@ export function useSyncedCollection<T extends { id: string }>(
   onLogoutRef.current = onLogout
   const mapItemRef = useRef(mapItem)
   mapItemRef.current = mapItem
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const mergeUpdateRef = useRef(mergeUpdate)
+  mergeUpdateRef.current = mergeUpdate
 
   const refresh = useCallback(async () => {
     try {
@@ -160,11 +180,11 @@ export function useSyncedCollection<T extends { id: string }>(
       const map = mapItemRef.current
       const normalized: SyncMessage<T> =
         map && msg.payload != null ? { type: msg.type, payload: map(msg.payload) } : msg
-      setItems((prev) => reduceSyncEvent(prev, normalized, ev).next)
+      setItems((prev) => reduceSyncEvent(prev, normalized, ev, mergeUpdateRef.current).next)
     } else {
       onOtherRef.current?.(msg as SyncMessage<unknown>)
     }
-  })
+  }, () => onOpenRef.current?.())
 
   return { items, setItems, loading, refresh }
 }
