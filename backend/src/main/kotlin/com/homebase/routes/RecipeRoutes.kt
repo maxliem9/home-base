@@ -1,11 +1,7 @@
 package com.homebase.routes
 
-import com.homebase.db.dbQuery
-import com.homebase.db.IngredientsTable
-import com.homebase.db.RecipeImagesTable
-import com.homebase.db.RecipeStepsTable
-import com.homebase.db.RecipesTable
 import com.homebase.model.*
+import com.homebase.service.RecipeService
 import com.homebase.ws.*
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -13,11 +9,8 @@ import io.ktor.server.http.content.LocalFileContent
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.jetbrains.exposed.sql.*
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.math.BigDecimal
 import java.net.InetAddress
 import java.net.URI
 import java.net.http.HttpClient
@@ -27,14 +20,21 @@ import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.time.Duration
-import java.time.Instant
 import java.util.UUID
 
 private const val RECIPES_WS_CHANNEL = "recipes"
 // LUNCH was dropped (collapsed into DINNER) — see migration V17. Clients only offer these five.
 private val VALID_CATEGORIES = setOf("BREAKFAST", "DINNER", "SNACK", "DESSERT", "DRINK")
 
+/**
+ * HTTP surface for the recipes domain. Handlers validate, keep the servings scaling, the Markdown/PDF
+ * export rendering, the SSRF-guarded URL import and the cover-image file-I/O + multipart, call
+ * [RecipeService] for all persistence, then broadcast. No handler touches a `Recipes*Table.`/
+ * `dbQuery {}` (issue #565, following the TodoService pattern of #546). Broadcasts use the generic
+ * SyncEnvelope via broadcastSync (#552).
+ */
 fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
+    val service = RecipeService()
 
     route("/recipes") {
         // List recipes, optionally filtered by ?category=. Newest first.
@@ -44,13 +44,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_CATEGORY", "unknown category"))
                 return@get
             }
-            val recipes = dbQuery {
-                RecipesTable.selectAll()
-                    .apply { if (categoryFilter != null) andWhere { RecipesTable.category eq categoryFilter } }
-                    .orderBy(RecipesTable.updatedAt, SortOrder.DESC)
-                    .map { it.toRecipeDto() }
-            }
-            call.respond(recipes)
+            call.respond(service.list(categoryFilter))
         }
 
         // Detail incl. ingredients + steps. Optional ?servings=N scales ingredient amounts.
@@ -62,9 +56,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
                 return@get
             }
-            val recipe = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
-            }
+            val recipe = service.get(id)
             if (recipe == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@get
@@ -73,7 +65,6 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
         }
 
         // Download a single recipe as Markdown (?format=md, default) or PDF (?format=pdf).
-        // Optional ?servings=N scales amounts exactly like the detail endpoint.
         get("/{id}/export") {
             val id = call.uuidParam() ?: return@get
             val format = (call.request.queryParameters["format"] ?: "md").lowercase()
@@ -87,9 +78,7 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse("INVALID_RECIPE", "servings must be >= 1"))
                 return@get
             }
-            val recipe = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()?.toRecipeDto()
-            }
+            val recipe = service.get(id)
             if (recipe == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@get
@@ -106,14 +95,9 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             }
         }
 
-        // Import a recipe DRAFT from a URL by parsing the page's schema.org/Recipe JSON-LD
-        // (Issue #430). The page is fetched server-side (SSRF-guarded: http(s) only, no
-        // private/internal hosts, timeout + size cap), the Recipe node is extracted and mapped to
-        // the editable draft shape. NOT persisted — the client pre-fills its editor; the user
-        // reviews and saves via the normal POST.
+        // Import a recipe DRAFT from a URL by parsing schema.org/Recipe JSON-LD (#430). Fetched
+        // server-side (SSRF-guarded), mapped to the editable draft shape, NOT persisted.
         post("/import") {
-            // Auth is enforced by the surrounding authenticate("auth-jwt") block; the draft is
-            // not persisted, so there is no created_by to record here.
             val req = call.receive<ImportRecipeRequest>()
             val url = req.url.trim()
 
@@ -146,33 +130,14 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 servings = req.servings,
                 prepTimeMinutes = req.prepTimeMinutes,
                 cookTimeMinutes = req.cookTimeMinutes,
-                ingredients = req.ingredients
+                ingredients = req.ingredients,
             )
             if (validation != null) {
                 call.respond(HttpStatusCode.BadRequest, validation)
                 return@post
             }
 
-            val recipe = dbQuery {
-                val id = UUID.randomUUID()
-                val now = Instant.now()
-                RecipesTable.insert {
-                    it[RecipesTable.id] = id
-                    it[title] = req.title.trim()
-                    it[description] = req.description
-                    it[servings] = req.servings ?: 1
-                    it[prepTimeMinutes] = req.prepTimeMinutes
-                    it[cookTimeMinutes] = req.cookTimeMinutes
-                    it[category] = req.category.uppercase()
-                    it[createdBy] = username
-                    it[createdAt] = now
-                    it[updatedAt] = now
-                }
-                insertIngredients(id, req.ingredients)
-                insertSteps(id, req.steps)
-                RecipesTable.selectAll().where { RecipesTable.id eq id }.single().toRecipeDto()
-            }
-
+            val recipe = service.create(req, username)
             WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_CREATED", recipe, RecipeDto.serializer())
             call.respond(HttpStatusCode.Created, recipe)
         }
@@ -187,87 +152,41 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
                 servings = req.servings,
                 prepTimeMinutes = req.prepTimeMinutes,
                 cookTimeMinutes = req.cookTimeMinutes,
-                ingredients = req.ingredients
+                ingredients = req.ingredients,
             )
             if (validation != null) {
                 call.respond(HttpStatusCode.BadRequest, validation)
                 return@put
             }
 
-            val recipe = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()
-                    ?: return@dbQuery null
-
-                RecipesTable.update({ RecipesTable.id eq id }) {
-                    req.title?.let { v -> it[title] = v.trim() }
-                    req.description?.let { v -> it[description] = v }
-                    req.servings?.let { v -> it[servings] = v }
-                    req.prepTimeMinutes?.let { v -> it[prepTimeMinutes] = v }
-                    req.cookTimeMinutes?.let { v -> it[cookTimeMinutes] = v }
-                    req.category?.let { v -> it[category] = v.uppercase() }
-                    it[updatedAt] = Instant.now()
-                }
-                // Ingredients / steps are owned by the recipe: when supplied, replace wholesale.
-                req.ingredients?.let { items ->
-                    IngredientsTable.deleteWhere { IngredientsTable.recipeId eq id }
-                    insertIngredients(id, items)
-                }
-                req.steps?.let { steps ->
-                    RecipeStepsTable.deleteWhere { RecipeStepsTable.recipeId eq id }
-                    insertSteps(id, steps)
-                }
-                RecipesTable.selectAll().where { RecipesTable.id eq id }.single().toRecipeDto()
-            }
-
+            val recipe = service.update(id, req)
             if (recipe == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@put
             }
-
             WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
             call.respond(recipe)
         }
 
         delete("/{id}") {
             val id = call.uuidParam() ?: return@delete
-            val outcome = dbQuery {
-                val existing = RecipesTable.selectAll().where { RecipesTable.id eq id }.singleOrNull()
-                    ?: return@dbQuery null
-                val dto = existing.toRecipeDto()
-                // Capture the image filenames before the cascade removes their rows so we can
-                // clean up the files on disk afterwards.
-                val files = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq id }
-                    .map { it[RecipeImagesTable.filename] }
-                IngredientsTable.deleteWhere { IngredientsTable.recipeId eq id }
-                RecipeStepsTable.deleteWhere { RecipeStepsTable.recipeId eq id }
-                RecipesTable.deleteWhere { RecipesTable.id eq id }
-                dto to files
-            }
+            val outcome = service.delete(id)
             if (outcome == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@delete
             }
-            val (deleted, files) = outcome
-            files.forEach { deleteImageFile(imageConfig, it) }
-            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_DELETED", deleted, RecipeDto.serializer())
+            outcome.files.forEach { deleteImageFile(imageConfig, it) }
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_DELETED", outcome.recipe, RecipeDto.serializer())
             call.respond(HttpStatusCode.NoContent)
         }
 
-        // --- Cover image --------------------------------------------------
-        // A recipe has at most one cover image (recipe_images.recipe_id is UNIQUE). Recipes are
-        // shared between both users, so there is no per-image owner check; any authenticated user
-        // may set, view and remove it. Streaming / validation / disk plumbing is shared with the
-        // note images (see ImageUploads.kt).
+        // --- Cover image (a recipe has at most one; shared between both users) ---
 
-        // Set (or replace) a recipe's cover image. Returns the updated recipe.
         post("/{id}/images") {
             val username = call.username()
             val recipeId = call.uuidParam() ?: return@post
 
-            val exists = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull() != null
-            }
-            if (!exists) {
+            if (!service.exists(recipeId)) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@post
             }
@@ -289,37 +208,19 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             // The bytes are already streamed to a temp file; promote it to its final name.
             finalizeImageFile(imageConfig, upload.tempFile, storedName)
 
-            val outcome = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
-                    ?: return@dbQuery null
-                // single cover image: drop the previous one (its file is removed after commit)
-                val oldFiles = RecipeImagesTable.selectAll().where { RecipeImagesTable.recipeId eq recipeId }
-                    .map { it[RecipeImagesTable.filename] }
-                RecipeImagesTable.deleteWhere { RecipeImagesTable.recipeId eq recipeId }
-                RecipeImagesTable.insert {
-                    it[RecipeImagesTable.id] = imageId
-                    it[RecipeImagesTable.recipeId] = recipeId
-                    it[filename] = storedName
-                    it[RecipeImagesTable.originalName] = upload.originalName
-                    it[RecipeImagesTable.contentType] = upload.contentType
-                    it[sizeBytes] = upload.size
-                    it[createdBy] = username
-                    it[createdAt] = Instant.now()
-                }
-                RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto() to oldFiles
-            }
+            val outcome = service.setCoverImage(
+                recipeId, username,
+                RecipeService.StoredUpload(imageId, storedName, upload.originalName, upload.contentType, upload.size),
+            )
             if (outcome == null) {
                 // recipe vanished between the existence check and the insert — undo the new file
                 deleteImageFile(imageConfig, storedName)
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Recipe not found"))
                 return@post
             }
-            val (recipe, oldFiles) = outcome
-            oldFiles.forEach { deleteImageFile(imageConfig, it) }
-
-            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
-            call.respond(HttpStatusCode.Created, recipe)
+            outcome.oldFiles.forEach { deleteImageFile(imageConfig, it) }
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", outcome.recipe, RecipeDto.serializer())
+            call.respond(HttpStatusCode.Created, outcome.recipe)
         }
 
         // Serve the raw image bytes. Any authenticated user may read them (recipes are shared).
@@ -327,16 +228,12 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val recipeId = call.uuidParam() ?: return@get
             val imageId = call.uuidParam("imageId") ?: return@get
 
-            val row = dbQuery {
-                RecipeImagesTable.selectAll()
-                    .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
-                    .singleOrNull()
-            }
+            val row = service.imageForDownload(recipeId, imageId)
             if (row == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image not found"))
                 return@get
             }
-            val file = imageConfig.uploadDir.resolve(row[RecipeImagesTable.filename])
+            val file = imageConfig.uploadDir.resolve(row.filename)
             if (!Files.exists(file)) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image file missing"))
                 return@get
@@ -346,19 +243,14 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             // Don't let the browser MIME-sniff a crafted file: the declared content-type is trusted
             // as-is and never validated to be a real image.
             call.response.headers.append("X-Content-Type-Options", "nosniff")
-            // Hand the browser the original upload name so a download is saved as e.g. "Lasagne.jpg"
-            // instead of the browser's generic fallback. Use *inline* (not attachment) so Android
-            // Coil keeps rendering the image in place. Ktor encodes the value (umlauts → RFC 5987),
-            // we only sanitize it. Same fix as the notes endpoint (issue #272 / PR #271).
-            val downloadName = safeImageFilename(
-                row[RecipeImagesTable.originalName],
-                row[RecipeImagesTable.contentType],
-            )
+            // Hand the browser the original upload name; use *inline* so Android Coil keeps rendering
+            // the image in place (issue #272 / PR #271).
+            val downloadName = safeImageFilename(row.originalName, row.contentType)
             call.response.header(
                 HttpHeaders.ContentDisposition,
                 ContentDisposition.Inline.withParameter(ContentDisposition.Parameters.FileName, downloadName).toString(),
             )
-            call.respond(LocalFileContent(file.toFile(), ContentType.parse(row[RecipeImagesTable.contentType])))
+            call.respond(LocalFileContent(file.toFile(), ContentType.parse(row.contentType)))
         }
 
         // Remove a recipe's cover image. Returns the updated recipe.
@@ -366,34 +258,61 @@ fun Route.recipeRoutes(imageConfig: ImageUploadConfig) {
             val recipeId = call.uuidParam() ?: return@delete
             val imageId = call.uuidParam("imageId") ?: return@delete
 
-            val outcome = dbQuery {
-                RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.singleOrNull()
-                    ?: return@dbQuery null
-                val image = RecipeImagesTable.selectAll()
-                    .where { (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId) }
-                    .singleOrNull() ?: return@dbQuery null
-                val filename = image[RecipeImagesTable.filename]
-                RecipeImagesTable.deleteWhere {
-                    (RecipeImagesTable.id eq imageId) and (RecipeImagesTable.recipeId eq recipeId)
-                }
-                RecipesTable.update({ RecipesTable.id eq recipeId }) { it[updatedAt] = Instant.now() }
-                filename to RecipesTable.selectAll().where { RecipesTable.id eq recipeId }.single().toRecipeDto()
-            }
+            val outcome = service.deleteCoverImage(recipeId, imageId)
             if (outcome == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Image not found"))
                 return@delete
             }
-            val (filename, recipe) = outcome
-            deleteImageFile(imageConfig, filename)
-            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", recipe, RecipeDto.serializer())
-            call.respond(recipe)
+            deleteImageFile(imageConfig, outcome.filename)
+            WsSessionManager.broadcastSync(RECIPES_WS_CHANNEL, "RECIPE_UPDATED", outcome.recipe, RecipeDto.serializer())
+            call.respond(outcome.recipe)
         }
     }
 
     syncChannel(RECIPES_WS_CHANNEL)
 }
 
-// --- URL import fetch + SSRF guard (Issue #430) ---------------------------------------------
+// --- Servings scaling + validation (pure, no DB) ------------------------------------------------
+
+/** Scales ingredient amounts so the recipe yields [targetServings] portions. */
+private fun RecipeDto.scaledTo(targetServings: Int): RecipeDto {
+    if (targetServings < 1 || targetServings == servings || servings < 1) return this
+    val factor = targetServings.toDouble() / servings.toDouble()
+    return copy(
+        servings = targetServings,
+        ingredients = ingredients.map { ing ->
+            ing.copy(amount = ing.amount?.let { Math.round(it * factor * 1000.0) / 1000.0 })
+        },
+    )
+}
+
+private fun validate(
+    title: String? = null,
+    category: String? = null,
+    servings: Int? = null,
+    prepTimeMinutes: Int? = null,
+    cookTimeMinutes: Int? = null,
+    ingredients: List<IngredientInput>? = null,
+): ErrorResponse? = when {
+    title != null && title.isBlank() -> ErrorResponse("INVALID_RECIPE", "title must not be blank")
+    category != null && category.uppercase() !in VALID_CATEGORIES -> ErrorResponse("INVALID_CATEGORY", "unknown category")
+    servings != null && servings < 1 -> ErrorResponse("INVALID_RECIPE", "servings must be >= 1")
+    prepTimeMinutes != null && prepTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "prepTimeMinutes must be >= 0")
+    cookTimeMinutes != null && cookTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "cookTimeMinutes must be >= 0")
+    ingredients?.any { it.amount != null && it.amount < 0.0 } == true ->
+        ErrorResponse("INVALID_INGREDIENT", "ingredient amount must be >= 0")
+    else -> null
+}
+
+/** Sets `Content-Disposition: attachment; filename="…"` so the browser downloads the body. */
+private fun ApplicationCall.attachmentHeader(filename: String) {
+    response.header(
+        HttpHeaders.ContentDisposition,
+        ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
+    )
+}
+
+// --- URL import fetch + SSRF guard (Issue #430; no DB, stays in the route) -----------------------
 
 /** Outcome of fetching a page for import: either the HTML body or a client-facing rejection. */
 private sealed interface ImportFetch {
@@ -405,8 +324,8 @@ private sealed interface ImportFetch {
 private const val IMPORT_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
 private val IMPORT_TIMEOUT: Duration = Duration.ofSeconds(10)
 
-// One shared client. NEVER follow redirects automatically: a redirect could bounce an allowed
-// public URL to an internal one, bypassing the SSRF host check. We resolve each hop ourselves.
+// One shared client. NEVER follow redirects automatically: a redirect could bounce an allowed public
+// URL to an internal one, bypassing the SSRF host check. We resolve each hop ourselves.
 private val importHttpClient: HttpClient by lazy {
     HttpClient.newBuilder()
         .connectTimeout(IMPORT_TIMEOUT)
@@ -415,13 +334,9 @@ private val importHttpClient: HttpClient by lazy {
 }
 
 /**
- * Fetch [rawUrl] server-side for recipe import with SSRF protection:
- *  - http(s) scheme only
- *  - the resolved host must not be a private / loopback / link-local / multicast / wildcard address
- *  - redirects are followed manually (max 5 hops), re-validating the host every hop
- *  - connect/read timeout + a 5 MB body cap
- *
- * Returns the HTML body on success, or a [ImportFetch.Rejected] with a stable error code.
+ * Fetch [rawUrl] server-side for recipe import with SSRF protection: http(s) only, resolved host must
+ * not be private/loopback/link-local/multicast/wildcard, redirects followed manually (max 5 hops,
+ * re-validating every hop), connect/read timeout + a 5 MB body cap.
  */
 private suspend fun fetchForImport(rawUrl: String): ImportFetch = withContext(Dispatchers.IO) {
     var current = rawUrl
@@ -474,9 +389,8 @@ private suspend fun fetchForImport(rawUrl: String): ImportFetch = withContext(Di
         if (bytes.size > IMPORT_MAX_BYTES) {
             return@withContext ImportFetch.Rejected("TOO_LARGE", "Die Seite ist zu groß.")
         }
-        // Decode using the Content-Type charset when the server declares one (some German recipe
-        // sites still serve ISO-8859-1/Windows-1252 — UTF-8 alone would mangle umlauts). Fall back
-        // to UTF-8 for the common case or an unknown/missing charset.
+        // Decode using the Content-Type charset when the server declares one (some German recipe sites
+        // still serve ISO-8859-1/Windows-1252). Fall back to UTF-8 for the common/unknown case.
         val charset = response.headers().firstValue("content-type").orElse(null)
             ?.let { charsetFromContentType(it) }
             ?: StandardCharsets.UTF_8
@@ -486,8 +400,8 @@ private suspend fun fetchForImport(rawUrl: String): ImportFetch = withContext(Di
 }
 
 /**
- * Pull the charset from a Content-Type header (e.g. "text/html; charset=ISO-8859-1"), or null when
- * absent / unsupported. Internal so the import-charset handling can be unit-tested without a network.
+ * Pull the charset from a Content-Type header, or null when absent/unsupported. Internal so the
+ * import-charset handling can be unit-tested without a network.
  */
 internal fun charsetFromContentType(contentType: String): Charset? {
     val name = Regex("""charset\s*=\s*"?([^";\s]+)""", RegexOption.IGNORE_CASE)
@@ -514,126 +428,4 @@ internal fun InetAddress.isCgnatOrUniqueLocal(): Boolean {
         16 -> (a[0].toInt() and 0xFE) == 0xFC // fc00::/7
         else -> false
     }
-}
-
-/** Sets `Content-Disposition: attachment; filename="…"` so the browser downloads the body. */
-private fun ApplicationCall.attachmentHeader(filename: String) {
-    response.header(
-        HttpHeaders.ContentDisposition,
-        ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
-    )
-}
-
-private fun validate(
-    title: String? = null,
-    category: String? = null,
-    servings: Int? = null,
-    prepTimeMinutes: Int? = null,
-    cookTimeMinutes: Int? = null,
-    ingredients: List<IngredientInput>? = null
-): ErrorResponse? = when {
-    title != null && title.isBlank() -> ErrorResponse("INVALID_RECIPE", "title must not be blank")
-    category != null && category.uppercase() !in VALID_CATEGORIES -> ErrorResponse("INVALID_CATEGORY", "unknown category")
-    servings != null && servings < 1 -> ErrorResponse("INVALID_RECIPE", "servings must be >= 1")
-    prepTimeMinutes != null && prepTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "prepTimeMinutes must be >= 0")
-    cookTimeMinutes != null && cookTimeMinutes < 0 -> ErrorResponse("INVALID_RECIPE", "cookTimeMinutes must be >= 0")
-    ingredients?.any { it.amount != null && it.amount < 0.0 } == true ->
-        ErrorResponse("INVALID_INGREDIENT", "ingredient amount must be >= 0")
-    else -> null
-}
-
-// Must be called inside a transaction. Ingredient order is taken from list position.
-private fun insertIngredients(recipeId: UUID, items: List<IngredientInput>) {
-    items.filter { it.name.isNotBlank() }.forEachIndexed { index, ing ->
-        IngredientsTable.insert {
-            it[id] = UUID.randomUUID()
-            it[IngredientsTable.recipeId] = recipeId
-            it[name] = ing.name.trim()
-            it[amount] = ing.amount?.let { a -> BigDecimal.valueOf(a) }
-            it[unit] = ing.unit?.takeIf { u -> u.isNotBlank() }
-            it[section] = ing.section?.trim()?.takeIf { s -> s.isNotBlank() }
-            it[sortOrder] = index
-        }
-    }
-}
-
-// Must be called inside a transaction. Step numbers are 1-based list positions.
-private fun insertSteps(recipeId: UUID, steps: List<RecipeStepInput>) {
-    steps.filter { it.description.isNotBlank() }.forEachIndexed { index, step ->
-        RecipeStepsTable.insert {
-            it[id] = UUID.randomUUID()
-            it[RecipeStepsTable.recipeId] = recipeId
-            it[stepNumber] = index + 1
-            it[description] = step.description.trim()
-        }
-    }
-}
-
-/** Scales ingredient amounts so the recipe yields [targetServings] portions. */
-private fun RecipeDto.scaledTo(targetServings: Int): RecipeDto {
-    if (targetServings < 1 || targetServings == servings || servings < 1) return this
-    val factor = targetServings.toDouble() / servings.toDouble()
-    return copy(
-        servings = targetServings,
-        ingredients = ingredients.map { ing ->
-            ing.copy(amount = ing.amount?.let { Math.round(it * factor * 1000.0) / 1000.0 })
-        }
-    )
-}
-
-// Loads the recipe with its ingredients + steps. Must be called inside a transaction.
-private fun ResultRow.toRecipeDto(): RecipeDto {
-    val recipeId = this[RecipesTable.id]
-    val ingredients = IngredientsTable.selectAll()
-        .where { IngredientsTable.recipeId eq recipeId }
-        .orderBy(IngredientsTable.sortOrder, SortOrder.ASC)
-        .map {
-            IngredientDto(
-                id = it[IngredientsTable.id].toString(),
-                name = it[IngredientsTable.name],
-                amount = it[IngredientsTable.amount]?.toDouble(),
-                unit = it[IngredientsTable.unit],
-                section = it[IngredientsTable.section],
-                sortOrder = it[IngredientsTable.sortOrder]
-            )
-        }
-    val steps = RecipeStepsTable.selectAll()
-        .where { RecipeStepsTable.recipeId eq recipeId }
-        .orderBy(RecipeStepsTable.stepNumber, SortOrder.ASC)
-        .map {
-            RecipeStepDto(
-                id = it[RecipeStepsTable.id].toString(),
-                stepNumber = it[RecipeStepsTable.stepNumber],
-                description = it[RecipeStepsTable.description]
-            )
-        }
-    val image = RecipeImagesTable.selectAll()
-        .where { RecipeImagesTable.recipeId eq recipeId }
-        .firstOrNull()
-        ?.let {
-            RecipeImageDto(
-                id = it[RecipeImagesTable.id].toString(),
-                recipeId = it[RecipeImagesTable.recipeId].toString(),
-                originalName = it[RecipeImagesTable.originalName],
-                contentType = it[RecipeImagesTable.contentType],
-                sizeBytes = it[RecipeImagesTable.sizeBytes],
-                createdBy = it[RecipeImagesTable.createdBy],
-                createdAt = it[RecipeImagesTable.createdAt].toString()
-            )
-        }
-    return RecipeDto(
-        id = recipeId.toString(),
-        title = this[RecipesTable.title],
-        description = this[RecipesTable.description],
-        servings = this[RecipesTable.servings],
-        prepTimeMinutes = this[RecipesTable.prepTimeMinutes],
-        cookTimeMinutes = this[RecipesTable.cookTimeMinutes],
-        category = this[RecipesTable.category],
-        ingredients = ingredients,
-        steps = steps,
-        image = image,
-        createdBy = this[RecipesTable.createdBy],
-        createdAt = this[RecipesTable.createdAt].toString(),
-        updatedAt = this[RecipesTable.updatedAt].toString()
-    )
 }
