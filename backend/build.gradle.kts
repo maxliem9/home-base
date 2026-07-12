@@ -106,4 +106,9 @@ tasks.test {
     // seeds users hashes passwords. Drop the work factor to bcrypt's minimum for tests
     // only; production never sets this property and keeps the default cost of 12.
     systemProperty("homebase.bcrypt.cost", "4")
+    // The default forked test JVM heap (Gradle picks a small fraction of RAM on CI
+    // runners) OOMs in WebPushNotifierTest's ECDH/HKDF key-agreement work (issue #572);
+    // give the test JVM a fixed, generous heap so the suite is deterministic across
+    // runners rather than dependent on the host's memory pressure.
+    maxHeapSize = "2g"
 }
