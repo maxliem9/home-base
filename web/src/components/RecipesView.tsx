@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next'
 import { API_BASE, authFetch, downloadImage, errorCode, notifyTransportError, recipeImageUrl, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { Ingredient, Recipe, RecipeCategory, ShoppingList } from '../types'
-import { useWebSocket } from '../hooks/useWebSocket'
+import { useSyncedCollection } from '../hooks/useSyncedCollection'
 import { formatNumber, parseLocaleNumber } from '../ui/format'
 import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
@@ -172,10 +172,7 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
   // known recipes instead of an empty screen; a successful fetch replaces them below. Read once.
   const initialRecipesCache = useMemo(() => loadRecipesCache(), [])
-  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipesCache ?? [])
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([])
-  // Skip the full-screen spinner when we already have cached recipes to show — refresh happens underneath.
-  const [loading, setLoading] = useState(!(initialRecipesCache && initialRecipesCache.length > 0))
   const [filter, setFilter] = useState<RecipeCategory | 'ALL'>('ALL')
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -187,26 +184,24 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   const [importOpen, setImportOpen] = useState(false)
   const { flashError, errorToast } = useErrorToast()
 
-  const fetchRecipes = useCallback(async () => {
-    try {
-      const result = await safeFetch(token, `${API_BASE}/recipes`)
-      // transport reject → fire the global toast once, keep existing data
-      if (!result.ok) {
-        notifyTransportError()
-        return
-      }
-      const { res } = result
-      if (res.status === 401) {
-        onLogout()
-        return
-      }
-      if (!res.ok) return
-      const list = (await res.json()) as Recipe[]
-      setRecipes(list.map(normalizeRecipe))
-    } finally {
-      setLoading(false)
-    }
-  }, [onLogout, token])
+  // Recipes are a single WS-synced collection (#550): the hook owns fetch-on-mount, 401→logout, the
+  // transport toast and the standard created/updated/deleted reducers; local edits keep using setRecipes.
+  // normalizeRecipe (#96 encodeDefaults) is applied uniformly to the fetch and to pushed frames via mapItem.
+  const {
+    items: recipes,
+    setItems: setRecipes,
+    loading,
+    refresh: fetchRecipes,
+  } = useSyncedCollection<Recipe>({
+    token,
+    endpoint: `${API_BASE}/recipes`,
+    wsUrl: WS_URL,
+    events: { created: 'RECIPE_CREATED', updated: 'RECIPE_UPDATED', deleted: 'RECIPE_DELETED' },
+    onLogout,
+    initial: initialRecipesCache ?? [],
+    skipInitialLoading: !!(initialRecipesCache && initialRecipesCache.length > 0),
+    mapItem: (raw) => normalizeRecipe(raw as Recipe),
+  })
 
   const fetchShoppingLists = useCallback(async () => {
     const result = await safeFetch(token, `${API_BASE}/shopping/lists`)
@@ -219,8 +214,6 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
     if (res.ok) setShoppingLists(await res.json())
   }, [token])
 
-  useEffect(() => { fetchRecipes() }, [fetchRecipes])
-
   // Mirror the current recipes into the durable read-cache (#520) on every change so the next launch
   // can show the last state offline. Never wipes the cache: the state was seeded from that same cache.
   useEffect(() => {
@@ -228,27 +221,13 @@ export function RecipesView({ token, onLogout }: RecipesViewProps) {
   }, [recipes])
   useEffect(() => { fetchShoppingLists() }, [fetchShoppingLists])
 
-  useWebSocket({ url: WS_URL, token }, (raw) => {
-    try {
-      const msg = JSON.parse(raw)
-      if (!msg.payload) return
-      if (msg.type === 'RECIPE_CREATED') {
-        const incoming = normalizeRecipe(msg.payload)
-        setRecipes((prev) => (prev.some((r) => r.id === incoming.id) ? prev : [incoming, ...prev]))
-      } else if (msg.type === 'RECIPE_UPDATED') {
-        const incoming = normalizeRecipe(msg.payload)
-        setRecipes((prev) =>
-          prev.some((r) => r.id === incoming.id) ? prev.map((r) => (r.id === incoming.id ? incoming : r)) : [incoming, ...prev],
-        )
-        setSelected((cur) => (cur && cur.id === incoming.id ? incoming : cur))
-      } else if (msg.type === 'RECIPE_DELETED') {
-        setRecipes((prev) => prev.filter((r) => r.id !== msg.payload.id))
-        setSelected((cur) => (cur && cur.id === msg.payload.id ? null : cur))
-      }
-    } catch {
-      // ignore malformed frames
-    }
-  })
+  // Keep the open recipe detail in sync with the collection: when a WS update (or a local edit) changes
+  // its recipe, refresh the pane; when the recipe disappears (deleted), close it. Previously done inline
+  // in the WS handler — deriving it from `recipes` reaches the same end state (a save's own echo already
+  // re-synced it) and lets the standard reducer own the collection.
+  useEffect(() => {
+    setSelected((cur) => (cur ? recipes.find((r) => r.id === cur.id) ?? null : cur))
+  }, [recipes])
 
   const handleSave = async () => {
     if (!draft || !draft.title.trim()) return
