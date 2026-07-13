@@ -15,6 +15,7 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlin.test.BeforeTest
@@ -116,8 +117,13 @@ class TodoServiceTest {
 
     @Test
     fun `completing a recurring todo spawns a successor and clears the rule on the original`() = runBlocking {
+        // Anchor on today so the successor is deterministic on any run date: the spawner picks the
+        // first occurrence strictly after today (Recurrence.nextDueAfterCompletion), which for an
+        // on-time weekly completion is exactly one week on. Hardcoded calendar dates made this test
+        // fail whenever it ran on the expected successor's date (#584).
+        val today = LocalDate.now()
         val created = service.createTodo(
-            CreateTodoRequest(title = "Müll", dueDate = "2026-07-06", recurrence = RecurrenceDto("WEEKLY", 1)),
+            CreateTodoRequest(title = "Müll", dueDate = today.toString(), recurrence = RecurrenceDto("WEEKLY", 1)),
             "alice",
         )
         assertTrue(created is TodoService.CreateTodoResult.Ok)
@@ -132,7 +138,7 @@ class TodoServiceTest {
         val spawned = done.mutation.spawned
         assertNotNull(spawned)
         assertEquals("PLANNED", spawned.status)
-        assertEquals("2026-07-13", spawned.dueDate)
+        assertEquals(today.plusWeeks(1).toString(), spawned.dueDate)
         assertEquals("WEEKLY", spawned.recurrence?.freq)
     }
 

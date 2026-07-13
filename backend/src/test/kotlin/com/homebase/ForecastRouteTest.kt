@@ -362,6 +362,38 @@ class ForecastRouteTest {
     }
 
     @Test
+    fun `editing a target for a non-existent period is rejected, not silently shadowed`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        val p1 = createProject(token, "Arbeit")
+        val p2 = createProject(token, "Nebenjob")
+        putTarget(token, "alice", p1, """{"weeklyHours":40,"isDefault":true}""") // base
+        putTarget(token, "alice", p2, """{"weeklyHours":5}""") // base
+
+        // A period starting Mon 2026-09-07 was never created (no POST /periods). Editing a target
+        // for it must 404 instead of inserting a lone stub row that would shadow p1/p2 for that week.
+        val rejected = putTarget(token, "alice", p1, """{"weeklyHours":32,"validFrom":"2026-09-07"}""")
+        assertEquals(HttpStatusCode.NotFound, rejected.status)
+        assertEquals(
+            "PERIOD_NOT_FOUND",
+            Json.parseToJsonElement(rejected.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+
+        // No rogue period leaked into the list — only the base period exists.
+        val periods = Json.parseToJsonElement(
+            client.get("/api/v1/time/targets") { bearerAuth(token) }.bodyAsText(),
+        ).jsonArray.map { it.jsonObject["validFrom"]?.jsonPrimitive?.content ?: "1970-01-01" }.toSet()
+        assertEquals(setOf("1970-01-01"), periods)
+        // The week of Mon 2026-09-07 still reflects the full base target (40 + 5 = 45h), not a stub.
+        assertEquals(162000, forecastUser(token, "2026-09-09", "alice")["weekTargetSeconds"]?.jsonPrimitive?.long)
+
+        // The proper flow still works: create the period, then the same edit lands.
+        assertEquals(HttpStatusCode.Created, createPeriod(token, "alice", "2026-09-07").status)
+        assertEquals(HttpStatusCode.OK, putTarget(token, "alice", p1, """{"weeklyHours":32,"validFrom":"2026-09-07"}""").status)
+        assertEquals(133200, forecastUser(token, "2026-09-09", "alice")["weekTargetSeconds"]?.jsonPrimitive?.long) // 32 + 5 = 37h
+    }
+
+    @Test
     fun `each period keeps its own default project`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
