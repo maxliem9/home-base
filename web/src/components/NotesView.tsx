@@ -17,12 +17,11 @@ import {
   errorCode,
   noteAttachmentUrl,
   noteImageUrl,
-  notifyTransportError,
   safeFetch,
 } from '../api'
 import { errorText } from '../i18n'
 import { Note, NoteImage, NoteVisibility } from '../types'
-import { useWebSocket } from '../hooks/useWebSocket'
+import { useSyncedCollection } from '../hooks/useSyncedCollection'
 import { AuthedImage } from '../ui/AuthedImage'
 import { Icon } from '../ui/Icon'
 import { useErrorToast } from '../ui/ErrorToast'
@@ -159,9 +158,8 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
   // known notes instead of an empty screen; a successful fetch replaces them below. Read once (useMemo,
   // not a per-render localStorage hit) — it only feeds the initial state.
   const initialNotesCache = useMemo(() => loadNotesCache(), [])
-  const [notes, setNotes] = useState<Note[]>(initialNotesCache ?? [])
   // Skip the full-screen spinner when we already have cached notes to show — refresh happens underneath.
-  const [loading, setLoading] = useState(!(initialNotesCache && initialNotesCache.length > 0))
+  const hasCachedNotes = !!(initialNotesCache && initialNotesCache.length > 0)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -276,33 +274,47 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     })
   }, [])
 
-  const fetchNotes = useCallback(async (q: string) => {
-    try {
-      const url = q.trim() ? `${API_BASE}/notes?q=${encodeURIComponent(q.trim())}` : `${API_BASE}/notes`
-      const result = await safeFetch(token, url)
-      // transport reject → fire the global toast once, keep existing data
-      if (!result.ok) {
-        notifyTransportError()
-        return
-      }
-      const { res } = result
-      if (res.status === 401) {
-        onLogout()
-        return
-      }
-      if (!res.ok) return
-      setNotes(await res.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [onLogout, token])
-
-  const debounce = useRef<ReturnType<typeof setTimeout>>()
+  // Debounce the search box so typing doesn't fire a request per keystroke (200ms); the debounced
+  // value drives the collection endpoint, so the hook refetches the filtered list once it settles.
+  const [debouncedQuery, setDebouncedQuery] = useState(query)
   useEffect(() => {
-    clearTimeout(debounce.current)
-    debounce.current = setTimeout(() => fetchNotes(query), 200)
-    return () => clearTimeout(debounce.current)
-  }, [query, fetchNotes])
+    const h = setTimeout(() => setDebouncedQuery(query), 200)
+    return () => clearTimeout(h)
+  }, [query])
+  const notesEndpoint = debouncedQuery.trim()
+    ? `${API_BASE}/notes?q=${encodeURIComponent(debouncedQuery.trim())}`
+    : `${API_BASE}/notes`
+
+  // notes is a single WS-synced collection (#550) with a search-driven endpoint. The hook owns the
+  // fetch (re-run whenever the debounced query changes), the read-path 401→logout, the transport toast
+  // and the NOTE_CREATED/NOTE_UPDATED reducers; optimistic edits keep using setNotes. The read-cache and
+  // the offline pending-save queue stay view-owned. NOTE_DELETED also clears the selection and drops any
+  // queued save for the gone note, so it rides onOtherMessage rather than the plain delete reducer.
+  const {
+    items: notes,
+    setItems: setNotes,
+    loading,
+    refresh: refreshNotes,
+  } = useSyncedCollection<Note>({
+    token,
+    endpoint: notesEndpoint,
+    wsUrl: WS_URL,
+    events: { created: 'NOTE_CREATED', updated: 'NOTE_UPDATED' },
+    onLogout,
+    initial: initialNotesCache ?? [],
+    skipInitialLoading: hasCachedNotes,
+    onOtherMessage: (msg) => {
+      if (msg.type === 'NOTE_DELETED' && msg.payload) {
+        const id = (msg.payload as Note).id
+        setNotes((prev) => prev.filter((n) => n.id !== id))
+        setSelectedId((cur) => (cur === id ? null : cur))
+        dequeuePending(id) // a queued save for a now-deleted note can never land (#323)
+      }
+    },
+    // A (re)connected socket means the server is reachable — drain the offline pending-save queue (#323).
+    // Routed through the ref so it always calls the latest flushPendingNotes (declared below).
+    onOpen: () => void flushNotesRef.current?.(),
+  })
 
   // Mirror the current notes into the durable read-cache (#520) on every change — server fetches and
   // optimistic edits alike — but only while the search box is empty, so a filtered result never
@@ -311,33 +323,10 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     if (!query.trim()) saveNotesCache(notes)
   }, [notes, query])
 
-  useWebSocket({ url: WS_URL, token }, (raw) => {
-    try {
-      const msg = JSON.parse(raw)
-      if (!msg.payload) return
-      // WS-echo safety (#309): every save broadcasts NOTE_UPDATED, and we merge it into
-      // the `notes` list only. The editor binds to the separate `draft` state, so the
-      // echo never clobbers the in-progress text/caret — we deliberately do NOT feed the
-      // echoed payload back into `draft`.
-      if (msg.type === 'NOTE_CREATED') {
-        setNotes((prev) => (prev.some((n) => n.id === msg.payload.id) ? prev : [msg.payload, ...prev]))
-      } else if (msg.type === 'NOTE_UPDATED') {
-        setNotes((prev) =>
-          prev.some((n) => n.id === msg.payload.id)
-            ? prev.map((n) => (n.id === msg.payload.id ? msg.payload : n))
-            : [msg.payload, ...prev],
-        )
-      } else if (msg.type === 'NOTE_DELETED') {
-        setNotes((prev) => prev.filter((n) => n.id !== msg.payload.id))
-        setSelectedId((cur) => (cur === msg.payload.id ? null : cur))
-        dequeuePending(msg.payload.id) // a queued save for a now-deleted note can never land (#323)
-      }
-    } catch {
-      // ignore malformed frames
-    }
-    // onOpen: a (re)connected socket means the server is reachable — drain the pending-save queue.
-    // Routed through a ref so this (declared before flushPendingNotes) always calls the latest one.
-  }, () => void flushNotesRef.current?.())
+  // The NOTE_CREATED/UPDATED reducers and the NOTE_DELETED/onOpen handling now live in the
+  // useSyncedCollection call above (#550). The editor binds to the separate `draft` state, so the
+  // WS echo (every save broadcasts NOTE_UPDATED) only ever updates the `notes` list — it never
+  // clobbers the in-progress text/caret (#309); the hook applies it to the collection, not to `draft`.
 
   // Persist the given draft (POST for a new note, PUT for an existing one). Reads from an
   // explicit `d` snapshot so it can run against the OUTGOING note when the user is already
@@ -669,13 +658,13 @@ export function NotesView({ token, onLogout }: NotesViewProps) {
     // On failure refetch to resync rather than restoring a captured snapshot,
     // which could clobber a concurrent WS update.
     if (!result.ok) {
-      await fetchNotes(query)
+      await refreshNotes()
       return flashError(errorText(null, t('notes.deleteFailed')))
     }
     const { res } = result
     if (res.status === 401) return onLogout()
     if (!res.ok) {
-      await fetchNotes(query)
+      await refreshNotes()
       flashError(errorText(await errorCode(res), t('notes.deleteFailed')))
     }
   }
