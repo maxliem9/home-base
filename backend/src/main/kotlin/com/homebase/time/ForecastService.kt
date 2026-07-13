@@ -118,7 +118,7 @@ class ForecastService(private val clock: Clock = Clock.systemDefaultZone()) {
             .filter { !it.isAfter(weekStart) }
             .maxOrNull()
         val periodTargets = if (activePeriod != null)
-            targets.filter { it[TimeWorkTargetsTable.validFrom] == activePeriod } else emptyList()
+            targets.filter { it[TimeWorkTargetsTable.validFrom].isEqual(activePeriod) } else emptyList()
         val weeklyHours = periodTargets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
         val weekTargetSeconds = weeklyHours * 3600.0
 

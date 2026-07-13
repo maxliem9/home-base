@@ -432,14 +432,21 @@ class TimeService {
     suspend fun createPeriod(userId: String, validFrom: LocalDate): PeriodResult = dbQuery {
         if (!userExists(userId)) return@dbQuery PeriodResult.UserNotFound
         val rows = TimeWorkTargetsTable.selectAll().where { TimeWorkTargetsTable.userId eq userId }.toList()
-        if (rows.any { it[TimeWorkTargetsTable.validFrom] == validFrom }) {
+        if (rows.any { it[TimeWorkTargetsTable.validFrom].isEqual(validFrom) }) {
             return@dbQuery PeriodResult.Conflict(ErrorResponse("PERIOD_EXISTS", "a period with this start date already exists"))
         }
-        // Seed from the latest period on/before the new start date.
+        // Seed from the latest period on/before the new start date. A period with nothing to seed from
+        // — the person has no target valid on/before validFrom (no base row, or only later periods) —
+        // must not be "created": it would insert zero rows, read back as non-existent, and a later edit
+        // at this date would then be rejected by upsertTarget's period guard. Reject it honestly instead
+        // of returning a success that created nothing.
         val sourceDate = rows.map { it[TimeWorkTargetsTable.validFrom] }
             .filter { !it.isAfter(validFrom) }
             .maxOrNull()
-        val seed = if (sourceDate != null) rows.filter { it[TimeWorkTargetsTable.validFrom] == sourceDate } else emptyList()
+            ?: return@dbQuery PeriodResult.Conflict(
+                ErrorResponse("NO_SEED_SOURCE", "no earlier Wochensoll to seed this period from — configure the base target first"),
+            )
+        val seed = rows.filter { it[TimeWorkTargetsTable.validFrom].isEqual(sourceDate) }
         seed.forEach { row ->
             TimeWorkTargetsTable.insert {
                 it[id] = UUID.randomUUID()

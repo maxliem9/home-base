@@ -153,7 +153,7 @@ class TimeCreditService {
                 .filter { !it.isAfter(weekStart) }
                 .maxOrNull()
             val periodTargets = if (activePeriod != null)
-                targets.filter { it[TimeWorkTargetsTable.validFrom] == activePeriod } else emptyList()
+                targets.filter { it[TimeWorkTargetsTable.validFrom].isEqual(activePeriod) } else emptyList()
             val weeklyHours = periodTargets.sumOf { it[TimeWorkTargetsTable.weeklyHours] }
             // Credits land on the default project; without hours or a default there is
             // nothing to book this week (skip it, later weeks may differ).
