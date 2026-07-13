@@ -341,6 +341,28 @@ class ForecastRouteTest {
     }
 
     @Test
+    fun `creating a period with nothing to seed from is rejected, not a phantom success`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+        createProject(token)
+
+        // bob has no target valid on/before the start date (no base row) → nothing to seed. Creating
+        // the period must fail rather than report success while inserting zero rows (which would read
+        // back as non-existent and get rejected on the next edit).
+        val res = createPeriod(token, "bob", "2026-09-07")
+        assertEquals(HttpStatusCode.Conflict, res.status)
+        assertEquals(
+            "NO_SEED_SOURCE",
+            Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+        // No rows leaked for bob.
+        val list = Json.parseToJsonElement(
+            client.get("/api/v1/time/targets") { bearerAuth(token) }.bodyAsText(),
+        ).jsonArray.map { it.jsonObject }
+        assertTrue(list.none { it["userId"]?.jsonPrimitive?.content == "bob" })
+    }
+
+    @Test
     fun `deleting a period reverts later weeks to the earlier one, base is protected`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
