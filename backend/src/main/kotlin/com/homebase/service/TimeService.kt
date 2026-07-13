@@ -22,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap
 private val TIMER_START_LOCKS = ConcurrentHashMap<String, Any>()
 private const val PG_UNIQUE_VIOLATION = "23505"
 private const val DEFAULT_INDEX_NAME = "time_work_targets_one_default"
-private const val MAX_WEEKLY_HOURS = 168.0
 
 /**
  * Owns the time-tracking domain's persistence and business rules (issue #564, following the
@@ -353,9 +352,20 @@ class TimeService {
 
                 // Everything below is scoped to the one period: a person's default project, hours sum
                 // and the invariant are all per-period.
-                val rows = TimeWorkTargetsTable.selectAll()
-                    .where { (TimeWorkTargetsTable.userId eq userId) and (TimeWorkTargetsTable.validFrom eq validFrom) }
+                val allUserRows = TimeWorkTargetsTable.selectAll()
+                    .where { TimeWorkTargetsTable.userId eq userId }
                     .toList()
+                val rows = allUserRows.filter { it[TimeWorkTargetsTable.validFrom].isEqual(validFrom) }
+                // A non-base period must be created (and seeded) via POST /periods first: editing a
+                // target for a period this person was never seeded into would insert a lone row, and
+                // the forecast/credits would then treat that stub as the person's whole Wochensoll for
+                // those weeks — silently zeroing their other projects. Allow the base period (first-time
+                // setup) and a person with no targets at all (nothing to shadow — this is their first).
+                if (validFrom.toString() != BASE_TARGET_PERIOD && rows.isEmpty() && allUserRows.isNotEmpty()) {
+                    return@dbQuery TargetResult.Fault(
+                        ErrorResponse("PERIOD_NOT_FOUND", "no Wochensoll period starts on $validFrom — create the period first"),
+                    )
+                }
                 val existing = rows.firstOrNull { it[TimeWorkTargetsTable.projectId] == projectId }
                 val defaultProjectId = rows.firstOrNull { it[TimeWorkTargetsTable.isDefault] }?.get(TimeWorkTargetsTable.projectId)
                 val newHours = hours ?: existing?.get(TimeWorkTargetsTable.weeklyHours) ?: 0.0
