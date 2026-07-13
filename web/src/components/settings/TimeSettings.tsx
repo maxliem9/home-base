@@ -133,7 +133,8 @@ export function TimeSettings({ token, onLogout }: { token: string; onLogout: () 
       })
       if (!result.ok) return errorText(null, t('time.targetsFailed'))
       if (result.res.status === 401) { onLogout(); return null }
-      // 409 only when this person already has the period (partial create) — ignore, keep going.
+      // 409 = this person already has the period, or has no base target to seed it from
+      // (NO_SEED_SOURCE). Either way there is nothing to create for them — ignore, keep going.
       if (!result.res.ok && result.res.status !== 409) return errorText(await errorCode(result.res), t('time.targetsFailed'))
     }
     await fetchTargets()
