@@ -27,12 +27,14 @@ homebase/
 ## Doc-Index — was lesen, bevor du woran arbeitest
 | Arbeitest du an … | Lies zuerst |
 |---|---|
+| **Architektur & Datenfluss** (Sync-Modell, WS-Kanäle, Offline-Strategien, Single-Instance-Constraint) — Backend-Querschnitt & Onboarding | [docs/architecture.md](docs/architecture.md) |
 | Aufgaben/Todos, Inbox, Zuständige, Wiederholung, Todo-Edit-Sheet | [docs/domain/todos.md](docs/domain/todos.md) |
 | Rezepten | [docs/domain/recipes.md](docs/domain/recipes.md) |
 | Wochenplan/Essensplaner | [docs/domain/meal-plan.md](docs/domain/meal-plan.md) |
 | Einkaufsliste / Offline-Abhaken | [docs/domain/shopping.md](docs/domain/shopping.md) |
 | Zeiterfassung, Wochensoll, Ende-Prognose | [docs/domain/time-tracking.md](docs/domain/time-tracking.md) |
 | Abwesenheit / Familienkalender | [docs/domain/absence.md](docs/domain/absence.md) |
+| Terminen/Events (#434 — Arzt, Geburtstage; Teil des Familienkalenders) | [docs/domain/absence.md](docs/domain/absence.md) — Events-Abschnitt dort noch dünn (#580) |
 | Notizen (Modell + Editor-UX) | [docs/domain/notes.md](docs/domain/notes.md) |
 | Dashboard / „Heute"-View | [docs/domain/dashboard.md](docs/domain/dashboard.md) |
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
@@ -77,6 +79,25 @@ Damit nicht zwei Menschen/KI-Agenten/Sessions **dasselbe Ticket parallel** anfan
 - JWT Auth (2 feste Nutzer, kein Registration-Flow). Login-Throttling pro IP →
   [docs/security-invariants.md](docs/security-invariants.md).
 - REST für CRUD, WebSockets für Echtzeit-Sync; alle Endpunkte unter /api/v1/
+- **Service-Schicht (#546):** Business-Logik (Validierung, Tri-State-Merge #265, Domänenregeln,
+  Sichtbarkeits-/Ownership-Checks, Persistenz) lebt in `service/<Domäne>Service.kt` mit
+  sealed-Result-Typen (`Ok`/`Invalid`/`NotFound`) — Services existieren für Todos, Notizen,
+  Rezepte, Einkauf, Zeit und Abwesenheit. Route-Handler dort nur: Request parsen → Service
+  aufrufen → Result auf Status/Body mappen → **nach** dem Commit broadcasten; kein
+  `transaction {`-/Table-Zugriff in diesen Handlern. Die kleineren Routen (MealPlan, Events,
+  Config, UserPrefs, Push, Calendar) greifen noch direkt per `dbQuery` auf Tables zu — wächst
+  dort Domänenlogik, zieht sie in einen Service.
+- **DB-Zugriff (#549):** In Route-Handlern immer `dbQuery { }` (`db/DbQuery.kt`) statt Exposeds
+  blockierendem `transaction { }`. Blockierend bleiben der einmalige Boot-Pfad (Seeder & Co.),
+  die nicht-suspend Scheduler-Provider (`plugins/Digest.kt`/`RecurringTodos.kt`) und der
+  TimeService-Lock — bewusste #549-Randfälle, je mit Begründungskommentar.
+- **WS-Sync (#552):** Endpunkte über `syncChannel("<kanal>")`, Broadcasts über
+  `WsSessionManager.broadcastSync(channel, type[, payload, serializer])` (`ws/SyncChannel.kt`) —
+  keine eigenen Envelope-DTOs, keine handgeschriebenen `webSocket {}`-Blöcke. Wire-Format ist
+  `{type, payload}` über die zentrale `appJson` (Guard: `WsBroadcastAppJsonConventionTest`, #134).
+  **Bestandsausnahme:** der `time`-Kanal behält bewusst sein typisiertes `TimeWsMessage`-Format
+  `{type, entry|project|target}` + handgerollten Endpoint (#564) — die Regel gilt für alle
+  neuen Kanäle/Broadcasts. Details zum Sync-Modell → [docs/architecture.md](docs/architecture.md).
 - Fehlerbehandlung: einheitliche ErrorResponse(code, message)
 - Konfiguration über Umgebungsvariablen — **aber** editierbare Optionen leben in der DB, nicht in
   der .env (siehe Config-Grundsatz unten).
