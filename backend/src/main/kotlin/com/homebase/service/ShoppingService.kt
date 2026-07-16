@@ -243,43 +243,64 @@ class ShoppingService {
             // Working snapshot of the target bucket (a real list, or the null/unfiled bucket).
             val working = ShoppingItemsTable.selectAll()
                 .where { if (listId != null) ShoppingItemsTable.listId eq listId else ShoppingItemsTable.listId.isNull() }
-                .map { WorkingItem(it[ShoppingItemsTable.id], it[ShoppingItemsTable.name]) }
+                .map { WorkingItem(it[ShoppingItemsTable.id], it[ShoppingItemsTable.name], it[ShoppingItemsTable.quantity]) }
                 .toMutableList()
 
             for (line in lines) {
                 val name = line.name.trim()
                 val unit = line.unit?.trim()?.takeIf { it.isNotBlank() }
                 val amount = line.amount
-                val display = formatLine(amount, unit, name)
+                // #554: write like the web quick-add — bare name + a separate "<amount> <unit>" quantity
+                // field — instead of the composite "200 g Mehl" label. Display is unchanged because
+                // itemDisplayParts/displayParts already prefer the explicit quantity field (web + Android).
+                val newQuantity = buildQuantity(amount, unit)
+                val display = formatLine(amount, unit, name) // canonical composite, only for dup-compare
 
-                // 1. Mergeable into an existing numeric line with the same name + unit?
+                // 1. Mergeable into an existing numeric line with the same name + unit? Reads amount/unit
+                //    from the quantity field for new-format rows and from the name for legacy rows.
                 val target = if (amount != null) working.firstOrNull { w ->
-                    val p = parseQty(w.name)
+                    val p = parseItem(w.name, w.quantity)
                     p.amount != null && p.name.equals(name, ignoreCase = true) && unitsMatch(p.unit, unit)
                 } else null
 
                 if (target != null) {
-                    val p = parseQty(target.name)
-                    val mergedName = formatLine(p.amount!! + amount!!, p.unit ?: unit, p.name)
-                    ShoppingItemsTable.update({ ShoppingItemsTable.id eq target.id }) { it[ShoppingItemsTable.name] = mergedName }
-                    target.name = mergedName
+                    val p = parseItem(target.name, target.quantity)
+                    val mergedQuantity = buildQuantity(p.amount!! + amount!!, p.unit ?: unit)
+                    // Persist the sum in the #554 representation; a legacy row merged into is upgraded
+                    // (bare name + quantity field), which stays display-neutral.
+                    ShoppingItemsTable.update({ ShoppingItemsTable.id eq target.id }) {
+                        it[ShoppingItemsTable.name] = p.name
+                        it[ShoppingItemsTable.quantity] = mergedQuantity
+                    }
+                    target.name = p.name
+                    target.quantity = mergedQuantity
                     usedNames += name // count the re-add toward "most used"
                     updated += ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq target.id }.single().toDto()
                     continue
                 }
 
-                // 2. Exact duplicate (same label already present) → leave it be.
-                if (working.any { it.name.equals(display, ignoreCase = true) }) {
+                // 2. Exact duplicate already present → leave it be. New-format rows compare the stored
+                //    (bare name, quantity) pair against what we would write; legacy rows (no quantity
+                //    field) compare the composite label — so a re-add matches either representation.
+                if (working.any { w ->
+                        if (w.quantity != null) {
+                            w.name.equals(name, ignoreCase = true) && quantitiesEqual(w.quantity, newQuantity)
+                        } else {
+                            w.name.equals(display, ignoreCase = true)
+                        }
+                    }
+                ) {
                     skipped++
                     continue
                 }
 
-                // 3. Otherwise add a new item.
+                // 3. Otherwise add a new item (bare name + quantity field, #554).
                 val id = UUID.randomUUID()
                 val (resolvedCategory, resolvedIcon) = resolveForItem(name, rules, liveKeys, statsScope)
                 ShoppingItemsTable.insert {
                     it[ShoppingItemsTable.id] = id
-                    it[ShoppingItemsTable.name] = display
+                    it[ShoppingItemsTable.name] = name
+                    it[ShoppingItemsTable.quantity] = newQuantity
                     it[ShoppingItemsTable.listId] = listId
                     it[checked] = false
                     it[createdBy] = username
@@ -288,7 +309,7 @@ class ShoppingService {
                     it[ShoppingItemsTable.icon] = resolvedIcon
                 }
                 usedNames += name
-                working += WorkingItem(id, display)
+                working += WorkingItem(id, name, newQuantity)
                 created += ShoppingItemsTable.selectAll().where { ShoppingItemsTable.id eq id }.single().toDto()
             }
             true
@@ -551,9 +572,13 @@ private suspend fun rememberStatsPreference(rawName: String, categoryOverride: S
 // ---- Batch add: quantity-aware merging of "200 g Mehl" style labels ----------------------
 
 /** Mutable view of a list item used while a batch add reconciles against the existing entries. */
-private class WorkingItem(val id: UUID, var name: String)
+private class WorkingItem(val id: UUID, var name: String, var quantity: String?)
 
-/** Short units recognised when parsing a "200 g Mehl" shopping label back into parts (backend-internal, #103). */
+/**
+ * Short units recognised when reading amount/unit back out of a string representation — the legacy
+ * composite name ("200 g Mehl") and the "200 g" quantity label (backend-internal, #103/#554). Only
+ * used by the fallback string parsers below; freshly added rows carry a bare name + quantity field.
+ */
 private val KNOWN_UNITS = setOf(
     "g", "kg", "mg", "ml", "l", "el", "tl", "stk", "stück", "prise",
     "bund", "dose", "pkg", "pck", "tasse", "cup", "msp",
@@ -562,9 +587,43 @@ private val KNOWN_UNITS = setOf(
 private data class ParsedQty(val amount: Double?, val unit: String?, val name: String)
 
 /**
- * Split a label like "200 g Mehl" into amount / unit / name. A leading number (comma decimals allowed)
- * is the amount; a following token that is a known unit (KNOWN_UNITS) is the unit; the rest is the
- * name. Without a leading number the whole string is the name (amount/unit null). See issue #47/#103.
+ * Amount/unit/name for the batch merge, honouring the #554 representation: a new-format row carries the
+ * bare name in [name] and a "<amount> <unit>" label in [quantity]; a legacy row carries the composite
+ * ("200 g Mehl") in [name] with [quantity] null. Reads the amount/unit from the quantity field when set,
+ * otherwise falls back to parsing it out of the (legacy) composite name.
+ */
+private fun parseItem(name: String, quantity: String?): ParsedQty {
+    val q = quantity?.trim()
+    if (!q.isNullOrBlank()) {
+        val (amount, unit) = parseQuantityField(q)
+        return ParsedQty(amount, unit, name.trim())
+    }
+    return parseQty(name) // legacy fallback: amount/unit encoded in the composite name
+}
+
+/**
+ * Split a standalone "200 g" quantity label into amount + unit. A leading number (comma decimals
+ * allowed) is the amount; a following known unit (KNOWN_UNITS) is the unit. Without a leading number
+ * there is no numeric amount (e.g. "2×"), so the line is not numerically mergeable.
+ */
+private fun parseQuantityField(quantity: String): Pair<Double?, String?> {
+    val tokens = quantity.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return null to null
+    val amount = tokens[0].replace(',', '.').toDoubleOrNull() ?: return null to null
+    val unit = tokens.getOrNull(1)?.takeIf { it.lowercase() in KNOWN_UNITS }
+    return amount to unit
+}
+
+/** Build the "200 g" quantity label written to the quantity column (#445/#554); null when empty. */
+private fun buildQuantity(amount: Double?, unit: String?): String? =
+    listOfNotNull(amount?.let { fmtAmount(it) }, unit?.takeIf { it.isNotBlank() })
+        .joinToString(" ").ifBlank { null }
+
+/**
+ * Legacy fallback — split a composite label like "200 g Mehl" into amount / unit / name. A leading
+ * number (comma decimals allowed) is the amount; a following token that is a known unit (KNOWN_UNITS)
+ * is the unit; the rest is the name. Without a leading number the whole string is the name (amount/unit
+ * null). Only reached for pre-#554 rows that still encode the quantity in the name. See issue #47/#103.
  */
 private fun parseQty(line: String): ParsedQty {
     val tokens = line.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -583,6 +642,10 @@ private fun parseQty(line: String): ParsedQty {
 
 /** Units match case-insensitively; a missing unit is treated as blank, so null matches null. */
 private fun unitsMatch(a: String?, b: String?): Boolean = (a ?: "").lowercase() == (b ?: "").lowercase()
+
+/** Two quantity labels are equal case-insensitively; a null/blank label matches another null/blank. */
+private fun quantitiesEqual(a: String?, b: String?): Boolean =
+    a?.trim().orEmpty().equals(b?.trim().orEmpty(), ignoreCase = true)
 
 /** "1,5" → drops a trailing ".0", keeps up to 3 decimals (matches the recipe scaling on the server). */
 private fun fmtAmount(value: Double): String {
