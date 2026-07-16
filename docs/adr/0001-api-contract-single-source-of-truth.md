@@ -1,8 +1,13 @@
 # 0001 — API-Kontrakt: Single Source of Truth vs. Drift-Guard
 
-- **Status:** Proposed — Empfehlung steht, Richtungsentscheidung liegt beim Menschen (Issue [#547](https://github.com/maxliem9/home-base/issues/547))
+- **Status:** Accepted — vom Menschen ratifiziert am 2026-07-17 (Issue [#547](https://github.com/maxliem9/home-base/issues/547))
 - **Datum:** 2026-07-17
-- **Kontext-Issues:** #547 (dieses ADR) · #96/#109/#82/#134 (encodeDefaults-Guards) · #452 (Icon-Map-Drift-Guard) · #546 (Service-Schicht) · #552 (Sync-Envelope)
+- **Kontext-Issues:** #547 (dieses ADR) · [#593](https://github.com/maxliem9/home-base/issues/593) (der beschlossene Struktur-Drift-Guard) · #96/#109/#82/#134 (encodeDefaults-Guards) · #452 (Icon-Map-Drift-Guard) · #546 (Service-Schicht) · #552 (Sync-Envelope)
+
+> **Ratifizierung (2026-07-17):** Empfehlung **angenommen** — Full-Codegen vertagt, leichter
+> Parität-Guard beschlossen und als #593 (`test-gap`) angelegt. Ausdrücklich bestätigt: **kein**
+> dritter Nicht-Kotlin-Client und **keine** öffentliche/Dritt-Consumer-API auf der Roadmap — der
+> Haupt-Kipp-Trigger aus §5 ist damit derzeit nicht aktiv.
 
 > **TL;DR:** Codegen aus einer OpenAPI-Spec beseitigt nur die **Typ-Form**-Drift (und die
 > betrifft **drei** Quellen, nicht vier — `mockApi.ts` hängt schon heute an `types.ts`).
@@ -225,12 +230,11 @@ wartungsfrei. Bewusst **kein** Semantik-Check (Tri-State/Default-Werte bleiben P
 
 - **Kurzfristig:** kein Code-/Build-Change durch dieses ADR. Der Kontrakt bleibt handgepflegt;
   die bestehenden Guards (#134 etc.) bleiben die Absicherung.
-- Der **Parität-Guard** wird als separates `test-gap`/`tech-debt`-Issue vorgeschlagen (siehe
-  „Decision points" im PR) — bewusst getrennt, damit dieses ADR eine reine Richtungsentscheidung bleibt.
+- Der **Parität-Guard** ist als separates `test-gap`-Issue [#593](https://github.com/maxliem9/home-base/issues/593)
+  angelegt — bewusst getrennt, damit dieses ADR eine reine Richtungsentscheidung bleibt.
 - Die „4-Wege"-Formulierung in #547 ist präzisiert: **3-Wege** für Typen; `mockApi.ts` ist ein
   Consumer von `types.ts` und ein separates *Verhaltens*-Artefakt.
-- **Status `Proposed`:** #547 ist explizit eine dem Menschen vorbehaltene Richtungsentscheidung
-  („sollte explizit entschieden werden"). Dieses ADR wird via **`Refs #547`** verlinkt, **nicht**
-  `Closes` — das Issue schließt erst, wenn der Mensch die Empfehlung ratifiziert (Status → `Accepted`)
-  oder verwirft (Status → `Rejected`).
+- **Status `Accepted`:** #547 war explizit eine dem Menschen vorbehaltene Richtungsentscheidung
+  („sollte explizit entschieden werden"); am 2026-07-17 ratifiziert. #547 schließt mit dem Merge
+  dieses PRs (`Closes #547`).
 </content>
