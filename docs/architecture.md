@@ -104,9 +104,23 @@ Transportwege in fester Prioritätsreihenfolge (`plugins/Authentication.kt`):
 
 ## Read-Pfad (bewusste Entscheidung)
 
-Sammel-GETs (`/todos`, `/shopping`, `/notes`, …) liefern die **volle Collection**, kein Paging;
-die Clients fenstern lokal (z. B. Erledigt-Fenster #263/#356). Das ist bewusst simpel gehalten —
-Wachstumsgrenzen und der inkrementelle Plan stehen in Issue #559.
+Sammel-GETs (`/todos`, `/shopping`, `/notes`, …) liefern grundsätzlich die **volle Collection**, kein
+Paging; die Clients fenstern lokal (z. B. Erledigt-Fenster #263/#356). Das ist bewusst simpel gehalten.
+
+**Optionales serverseitiges Fenster (#559, inkrementell):**
+- `GET /todos?doneSince=YYYY-MM-DD` — mit gesetztem Param liefert der Server **nur** DONE-Todos, die am
+  Stichtag oder später abgeschlossen wurden (offene INBOX/PLANNED bleiben immer dabei); so wird die volle
+  Erledigt-Historie nicht mehr bei jedem Refetch mitgeschickt. **Ohne** Param = altes Vollverhalten
+  (abwärtskompatibel — Clients, die den Param nicht senden bzw. ihren „Alle anzeigen"-Modus, sind
+  unverändert). Der Stichtag ist der Tagesanfang in der Serverzone (dieselbe Lokaltag-Basis wie
+  CSV-Export/Forecast), das Filtern passiert in SQL in `TodoService.listTodos`.
+- `GET /time/entries` fenstert bereits über `from`/`to` (unverändert); der CSV-Export
+  (`/time/export.csv`) **streamt** die Zeilen jetzt direkt in die Response statt das ganze Dokument
+  vorher als String zu materialisieren.
+- **Notizen/Rezepte/Einkauf: bewusst noch kein Fenster** (#559) — die wachsen bei 2 Nutzern langsam und
+  haben kein natürliches Zeitfenster wie erledigte Todos; nachrüsten, wenn es relevant wird. Das
+  konsequente Umstellen der Client-Aufrufe auf `?doneSince=` (bzw. `from/to`) statt Voll-Refetch (#551)
+  ist als eigener Folgeschritt in Issue #559 vermerkt.
 
 ## Offline-Strategien
 

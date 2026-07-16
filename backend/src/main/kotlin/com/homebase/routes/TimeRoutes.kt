@@ -311,13 +311,16 @@ private fun Route.exportRoutes(service: TimeService) {
                 )
             }
 
-        val csv = buildTimeCsv(loaded.entries, creditRows, zone)
         val filename = exportFilename(from, to, zone)
         call.response.header(
             HttpHeaders.ContentDisposition,
             ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, filename).toString(),
         )
-        call.respondText(csv, ContentType.parse("text/csv; charset=UTF-8"))
+        // Stream the CSV straight to the response writer instead of materialising the whole document as
+        // one String first (#559) — Ktor flushes it in chunks, so peak memory is a row, not the report.
+        call.respondTextWriter(ContentType.parse("text/csv; charset=UTF-8")) {
+            writeTimeCsv(this, loaded.entries, creditRows, zone)
+        }
     }
 }
 
@@ -344,11 +347,12 @@ private val CSV_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val FILENAME_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 /**
- * Builds the CSV body: UTF-8 BOM, `;`-separated, CRLF line endings (Excel-friendly). Recorded
+ * Streams the CSV body to [out]: UTF-8 BOM, `;`-separated, CRLF line endings (Excel-friendly). Recorded
  * [entries] and absence/holiday [credits] are merged into one table ordered by day; a credit row
- * carries a date and its credited hours but no end time.
+ * carries a date and its credited hours but no end time. Writing directly to the response avoids
+ * building the whole document in a String first (#559).
  */
-private fun buildTimeCsv(entries: List<TimeService.CsvRow>, credits: List<CreditCsvRow>, zone: ZoneId): String {
+private fun writeTimeCsv(out: Appendable, entries: List<TimeService.CsvRow>, credits: List<CreditCsvRow>, zone: ZoneId) {
     // One sortable line type for both sources: entries anchor on their start instant, credits on the
     // day's start — so a credit sorts among that day's entries.
     data class Line(val at: Instant, val cells: List<String>)
@@ -384,15 +388,13 @@ private fun buildTimeCsv(entries: List<TimeService.CsvRow>, credits: List<Credit
     }
     val allLines = (entryLines + creditLines).sortedBy { it.at }
 
-    val sb = StringBuilder()
-    sb.append('\uFEFF') // BOM → Excel detects UTF-8 and renders umlauts correctly
+    out.append('\uFEFF') // BOM → Excel detects UTF-8 and renders umlauts correctly
     // `sep=;` directive: tells Excel the delimiter is a semicolon before it guesses from the locale.
-    sb.append("sep=;\r\n")
-    sb.append("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung\r\n")
+    out.append("sep=;\r\n")
+    out.append("Projekt;Nutzer;Start;Ende;Dauer (h);Dauer (hh:mm);Beschreibung\r\n")
     for (line in allLines) {
-        sb.append(line.cells.joinToString(";") { csvField(it) }).append("\r\n")
+        out.append(line.cells.joinToString(";") { csvField(it) }).append("\r\n")
     }
-    return sb.toString()
 }
 
 // Leading characters Excel/LibreOffice interpret as a formula — even inside a quoted field — turning
