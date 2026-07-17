@@ -166,6 +166,11 @@ Proxy-Count). Vollständige, kommentierte Variablen-Liste → [`.env.example`](.
 - Backend: `./gradlew run`   → http://localhost:8080
 - Web:     `npm run dev`     → http://localhost:5173
 - DB:      `docker compose -f docker-compose.dev.yml up`
+- **Backend-Tests brauchen eine laufende Container-Engine** (Docker/Podman): die Routen-Test-Suite
+  läuft über Testcontainers gegen ein echtes Postgres 16 statt gegen H2 (#555, `TestDatabase`). Ein
+  geteilter Container für die ganze Suite, pro Test TRUNCATE + Re-Seed. Die isolierten Service-/
+  Logik-Unit-Tests laufen weiter gegen ihre eigene H2 — dafür ist keine Engine nötig, für ein volles
+  `./gradlew test` schon.
 
 ## Review
 Wenn du einen PR erstellt hast, starte einen neuen Agent, der das Review des PRs macht.
