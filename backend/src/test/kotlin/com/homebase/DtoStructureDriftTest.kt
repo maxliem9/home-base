@@ -37,11 +37,17 @@ class DtoStructureDriftTest {
 
     // ── Quellen-Parser ──────────────────────────────────────────────────────
 
+    // Annahme: kein String-Default und kein Feldwert enthält `//` oder `/* */` (heute in allen drei
+    // Quellen erfüllt). Ein solcher Literal-Inhalt würde hier fälschlich als Kommentar entfernt.
     private fun stripComments(text: String): String =
         text.replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("//[^\n]*"), "")
 
-    /** Splittet an Top-Level-Kommas (Klammern `()` und Generics `<>` als Tiefe zählen). */
+    /**
+     * Splittet an Top-Level-Kommas (Klammern `()` und Generics `<>` als Tiefe zählen).
+     * Annahme: keine Funktionstyp-Parameter (`(X) -> Y`) — deren `>` würde die Tiefe verfälschen;
+     * heute hat kein DTO einen solchen Parameter.
+     */
     private fun splitTopLevel(s: String): List<String> {
         val parts = mutableListOf<String>()
         var depth = 0
@@ -115,7 +121,17 @@ class DtoStructureDriftTest {
     // Backend/Android führen teils `…Dto`-Suffix, Web nicht → auf gemeinsamen logischen Namen mappen.
     private fun logical(name: String) = name.removeSuffix("Dto")
 
-    private fun byLogical(m: Map<String, Dto>) = m.entries.associate { logical(it.key) to it.value }
+    private fun byLogical(m: Map<String, Dto>): Map<String, Dto> {
+        val out = LinkedHashMap<String, Dto>()
+        for ((name, dto) in m) {
+            val key = logical(name)
+            // Kollision (z. B. `Foo` und `FooDto` in derselben Quelle) würde eines der DTOs still
+            // überschreiben und echte Drift maskieren → laut scheitern statt schlucken.
+            if (out.containsKey(key)) fail("Logischer DTO-Name '$key' kollidiert (mehrere Quell-DTOs mappen darauf)")
+            out[key] = dto
+        }
+        return out
+    }
 
     // ── Repo-Root robust finden (Test-CWD = backend/) ───────────────────────
 
