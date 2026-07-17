@@ -3,6 +3,7 @@ package com.homebase
 import com.homebase.plugins.*
 import io.ktor.server.config.*
 import io.ktor.server.testing.*
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -40,6 +41,12 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
         // Re-assert Postgres as the current Exposed DB for this app's handlers (last-connect-wins),
         // in case an interleaved H2 service test made its own DB current after reset() ran.
         TestDatabase.useAsCurrent()
+        // Fail loudly if this app would not resolve to the seeded test DB: a route test asserting an
+        // *empty* result could otherwise pass green against the wrong (empty) DB. dbQuery binds to
+        // TransactionManager.defaultDatabase, so that must be our shared Postgres now.
+        check(TransactionManager.defaultDatabase === TestDatabase.db) {
+            "Test-App ist nicht an die geteilte Postgres-Test-DB gebunden — DB-Reihenfolge verletzt"
+        }
         configureSerialization()
         configureAuthentication(environment.config)
         configureWebSockets()

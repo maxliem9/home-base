@@ -8,6 +8,7 @@ import com.zaxxer.hikari.HikariDataSource
 import org.flywaydb.core.Flyway
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
@@ -31,6 +32,14 @@ import java.util.UUID
  * Braucht eine laufende Docker-Engine (lokal wie im CI-Runner). Die isolierten Service-/Logik-Tests
  * (TodoServiceTest, TimeServiceTest …) bleiben bewusst auf ihrer eigenen minimalen H2 — sie prüfen
  * Service-Logik, nicht das Prod-Schema (#555-AC: „H2 nur noch für isolierte Unit-Helfer").
+ *
+ * **Lasttragende Invariante — serielle In-JVM-Ausführung.** Postgres-Routen-Tests und H2-Service-Tests
+ * teilen sich im selben JVM Exposeds prozessweiten „aktuelle DB"-Zeiger (`databases.first`). Isolation
+ * beruht darauf, dass jeder Test seine DB unmittelbar vor Gebrauch wieder nach vorn holt und nichts
+ * dazwischen parallel läuft. Die Suite nutzt JUnit4 (kotlin-test-junit) ohne In-JVM-Parallelität, und
+ * Gradle setzt keinen `maxParallelForks > 1` (separate JVMs wären ok — je eigener Container). Wer
+ * In-JVM-Parallelität aktiviert, bricht diese Koexistenz — dann H2-Service-Tests in eigenes JVM-Fork
+ * trennen oder ganz auf Postgres ziehen.
  */
 object TestDatabase {
 
@@ -63,6 +72,10 @@ object TestDatabase {
                 username = container.username
                 password = container.password
                 driverClassName = "org.postgresql.Driver"
+                // Serielle Ausführung → meist 1 Verbindung gleichzeitig. 4 gibt Luft für die
+                // Write-Write-Konflikt-Tests (#57/#68/#105, ≥2 Verbindungen) und WS-Tests, die eine
+                // Verbindung halten. Braucht ein künftiger Nebenläufigkeits-Test >4 gleichzeitige
+                // Verbindungen, hängt er an der Pool-Acquisition statt klar zu scheitern → dann erhöhen.
                 maximumPoolSize = 4
                 isAutoCommit = false
                 // Prod-Isolation spiegeln (DatabaseFactory) — so laufen die REPEATABLE_READ-sensitiven
@@ -85,7 +98,13 @@ object TestDatabase {
      */
     fun useAsCurrent(): Database {
         ensureStarted()
-        db = Database.connect(dataSource)
+        // Nur wenn eine andere DB vorn steht (z. B. ein zwischenzeitlicher H2-Service-Test) neu
+        // registrieren — sonst würde jeder Aufruf ein neues Database-Objekt anlegen (Exposed dedupt
+        // nur identische Objekte), was über die ganze Suite Registrierungen aufstaute. So bleibt es bei
+        // einem Re-Connect je echtem DB-Wechsel.
+        if (TransactionManager.defaultDatabase !== db) {
+            db = Database.connect(dataSource)
+        }
         return db
     }
 
