@@ -15,11 +15,13 @@ import com.homebase.db.dbQuery
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.util.UUID
 
 internal const val VISIBILITY_SHARED = "SHARED"
 internal const val VISIBILITY_PRIVATE = "PRIVATE"
 private const val DEFAULT_LIST_VISIBILITY = VISIBILITY_SHARED
+private val SERVER_ZONE: ZoneId = ZoneId.systemDefault()
 private val VALID_TODO_STATUSES = setOf("INBOX", "PLANNED", "DONE")
 private val VALID_TODO_PRIORITIES = setOf("LOW", "MEDIUM", "HIGH")
 private val VALID_LIST_VISIBILITIES = setOf(VISIBILITY_SHARED, VISIBILITY_PRIVATE)
@@ -151,7 +153,15 @@ class TodoService(
 
     // ---- Todos -----------------------------------------------------------
 
-    suspend fun listTodos(username: String): List<TodoDto> = dbQuery {
+    /**
+     * Lists the todos visible to [username]. When [doneSince] is set, completed (DONE) todos whose
+     * `done_at` falls before that day (server-zone local date) are dropped in SQL, so the endpoint no
+     * longer ships the full DONE history the clients only window locally afterwards (#559). Open todos
+     * (INBOX/PLANNED) are always returned regardless of age. [doneSince] == null keeps the historical
+     * "return everything" behaviour, so a client that omits the param (or its "show all" mode) is
+     * unaffected.
+     */
+    suspend fun listTodos(username: String, doneSince: LocalDate? = null): List<TodoDto> = dbQuery {
         // Hide todos that live in someone else's private list — filtered in SQL (#548) instead of
         // loading the whole table and dropping rows in Kotlin.
         val hiddenListIds = TodoListsTable.selectAll()
@@ -161,6 +171,13 @@ class TodoService(
         val query = TodosTable.selectAll()
         if (hiddenListIds.isNotEmpty()) {
             query.andWhere { TodosTable.listId.isNull() or (TodosTable.listId notInList hiddenListIds) }
+        }
+        if (doneSince != null) {
+            // A DONE todo is kept only if it was completed on/after the cutoff day; everything not DONE
+            // stays. The cutoff is the start of [doneSince] in the server zone — the same local-day basis
+            // the clients (and the CSV export/forecast) use, so the window boundary lines up (#356/#559).
+            val cutoff = doneSince.atStartOfDay(SERVER_ZONE).toInstant()
+            query.andWhere { (TodosTable.status neq "DONE") or (TodosTable.doneAt greaterEq cutoff) }
         }
         val rows = query.toList()
         if (rows.isEmpty()) return@dbQuery emptyList()

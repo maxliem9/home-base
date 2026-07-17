@@ -1395,4 +1395,72 @@ class TodoRouteTest {
             Json.parseToJsonElement(response.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
         )
     }
+
+    // --- server-side "Erledigt" window: GET /todos?doneSince= (#559) --------
+
+    /** Backdates a todo to DONE with an explicit doneAt so the window boundary can be exercised. */
+    private fun markDoneAt(id: String, at: Instant) = transaction {
+        TodosTable.update({ TodosTable.id eq UUID.fromString(id) }) {
+            it[status] = "DONE"
+            it[doneAt] = at
+        }
+    }
+
+    private suspend fun ApplicationTestBuilder.createTitled(token: String, title: String): String {
+        val res = client.post("/api/v1/todos") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody("""{"title":"$title"}""")
+        }
+        return Json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+    }
+
+    @Test
+    fun `GET todos with doneSince drops DONE todos completed before the cutoff`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val open = createTitled(token, "still open")
+        val recentDone = createTitled(token, "recent done")
+        val oldDone = createTitled(token, "old done")
+        markDoneAt(recentDone, Instant.now().minus(java.time.Duration.ofDays(3)))
+        markDoneAt(oldDone, Instant.now().minus(java.time.Duration.ofDays(60)))
+
+        val cutoff = java.time.LocalDate.now().minusDays(14)
+        val ids = Json.parseToJsonElement(
+            client.get("/api/v1/todos?doneSince=$cutoff") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }.toSet()
+
+        // open + in-window DONE are kept; the out-of-window DONE is dropped
+        assertTrue(open in ids)
+        assertTrue(recentDone in ids)
+        assertTrue(oldDone !in ids)
+    }
+
+    @Test
+    fun `GET todos without doneSince returns the full DONE history`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val oldDone = createTitled(token, "old done")
+        markDoneAt(oldDone, Instant.now().minus(java.time.Duration.ofDays(365)))
+
+        val ids = Json.parseToJsonElement(
+            client.get("/api/v1/todos") { bearerAuth(token) }.bodyAsText()
+        ).jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }.toSet()
+
+        assertTrue(oldDone in ids)
+    }
+
+    @Test
+    fun `GET todos with malformed doneSince returns 400`() = testApplication {
+        configureTestApplication()
+        val token = loginAndGetToken()
+
+        val response = client.get("/api/v1/todos?doneSince=notadate") { bearerAuth(token) }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(
+            "INVALID_DATE",
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content,
+        )
+    }
 }

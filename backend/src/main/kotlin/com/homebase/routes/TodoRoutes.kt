@@ -9,6 +9,7 @@ import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import java.time.LocalDate
 
 private const val TODO_WS_CHANNEL = "todos"
 private const val VISIBILITY_PRIVATE = "PRIVATE"
@@ -69,7 +70,17 @@ fun Route.todoRoutes() {
         }
 
         get {
-            call.respond(service.listTodos(call.username()))
+            // Optional server-side "Erledigt"-window (#559): `?doneSince=YYYY-MM-DD` drops DONE todos
+            // completed before that day so the full history isn't shipped every refetch. Absent → the
+            // historical full-collection behaviour (backward compatible for clients that don't send it).
+            val doneSince = call.request.queryParameters["doneSince"]?.let {
+                runCatching { LocalDate.parse(it) }.getOrNull()
+                    ?: return@get call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorResponse("INVALID_DATE", "doneSince must be a date in YYYY-MM-DD format"),
+                    )
+            }
+            call.respond(service.listTodos(call.username(), doneSince))
         }
 
         post {
