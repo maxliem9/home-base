@@ -233,10 +233,12 @@ class ShoppingCategoryRouteTest {
             setBody("""{"listId":"$listId","items":[{"name":"Mehl","amount":500,"unit":"g"},{"name":"Tomaten","amount":3}]}""")
         }
 
+        // #554: items are stored under the bare name (quantity split into its own field), so category
+        // resolution keys off "Mehl"/"Tomaten", not the old composite label.
         val byName = Json.parseToJsonElement(client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText())
             .jsonArray.associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject["category"]?.jsonPrimitive?.content }
-        assertEquals("PANTRY", byName["500 g Mehl"])
-        assertEquals("PRODUCE", byName["3 Tomaten"])
+        assertEquals("PANTRY", byName["Mehl"])
+        assertEquals("PRODUCE", byName["Tomaten"])
     }
 
     // ---- Editable category catalog (#411) ----

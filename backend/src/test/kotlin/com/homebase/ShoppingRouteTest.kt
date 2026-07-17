@@ -422,8 +422,18 @@ class ShoppingRouteTest {
         Json.parseToJsonElement(client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText())
             .jsonArray.map { it.jsonObject["name"]!!.jsonPrimitive.content }
 
+    // #554: recipe ingredients are stored as bare name + quantity field, so batch tests assert the
+    // (name, quantity) pair. encodeDefaults=false omits a null quantity, hence the null coalesce.
+    private suspend fun ApplicationTestBuilder.itemNameQty(token: String): List<Pair<String, String?>> =
+        Json.parseToJsonElement(client.get("/api/v1/shopping") { bearerAuth(token) }.bodyAsText())
+            .jsonArray.map {
+                it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject["quantity"]?.jsonPrimitive?.content
+            }
+
     @Test
-    fun `POST shopping batch formats amount and unit into the item name`() = testApplication {
+    fun `POST shopping batch stores a bare name plus quantity field`() = testApplication {
+        // #554: the batch path writes like the web quick-add — bare name + a separate quantity field —
+        // instead of the old composite "200 g Mehl" label. Display stays identical on the clients.
         configureTestApplication()
         val token = loginAndGetToken()
         val listId = createList(token, "Wocheneinkauf")
@@ -434,9 +444,9 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(2, body["added"]!!.jsonPrimitive.int)
         assertEquals(0, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertTrue("200 g Mehl" in names)
-        assertTrue("2 Eier" in names)
+        val items = itemNameQty(token)
+        assertTrue("Mehl" to "200 g" in items)
+        assertTrue("Eier" to "2" in items)
     }
 
     @Test
@@ -451,9 +461,9 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(0, body["added"]!!.jsonPrimitive.int)
         assertEquals(1, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertEquals(1, names.size)
-        assertEquals("700 g Mehl", names[0])
+        val items = itemNameQty(token)
+        assertEquals(1, items.size)
+        assertEquals("Mehl" to "700 g", items[0])
     }
 
     @Test
@@ -464,10 +474,10 @@ class ShoppingRouteTest {
 
         batchAdd(token, """{"listId":"$listId","items":[{"name":"Zucker","amount":100,"unit":"g"},{"name":"Zucker","amount":1,"unit":"kg"}]}""")
 
-        val names = itemNames(token)
-        assertEquals(2, names.size)
-        assertTrue("100 g Zucker" in names)
-        assertTrue("1 kg Zucker" in names)
+        val items = itemNameQty(token)
+        assertEquals(2, items.size)
+        assertTrue("Zucker" to "100 g" in items)
+        assertTrue("Zucker" to "1 kg" in items)
     }
 
     @Test
@@ -481,9 +491,9 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(1, body["added"]!!.jsonPrimitive.int)
         assertEquals(1, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertEquals(1, names.size)
-        assertEquals("500 g Mehl", names[0])
+        val items = itemNameQty(token)
+        assertEquals(1, items.size)
+        assertEquals("Mehl" to "500 g", items[0])
     }
 
     @Test
@@ -498,9 +508,9 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(0, body["added"]!!.jsonPrimitive.int)
         assertEquals(1, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertEquals(1, names.size)
-        assertEquals("5 rote Paprika", names[0])
+        val items = itemNameQty(token)
+        assertEquals(1, items.size)
+        assertEquals("rote Paprika" to "5", items[0])
     }
 
     @Test
@@ -515,16 +525,16 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(0, body["added"]!!.jsonPrimitive.int)
         assertEquals(1, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertEquals(1, names.size)
-        assertEquals("10 stk Bio Eier", names[0])
+        val items = itemNameQty(token)
+        assertEquals(1, items.size)
+        assertEquals("Bio Eier" to "10 stk", items[0])
     }
 
     @Test
     fun `POST shopping batch keeps a short unknown unit as a separate line`() = testApplication {
-        // Only KNOWN_UNITS are re-parsed back out of a label; an unknown short unit ("Glas") stays
-        // part of the name, so the same ingredient lands on its own line instead of merging. This is
-        // the accepted fallback from issue #47 (priority:low) — pinned so it stays intentional.
+        // Only KNOWN_UNITS are recognised when reading a unit back out of the quantity label; an unknown
+        // short unit ("Glas") is not treated as a mergeable unit, so the same ingredient lands on its own
+        // line instead of merging. Accepted fallback from issue #47 (priority:low) — pinned intentional.
         configureTestApplication()
         val token = loginAndGetToken()
         val listId = createList(token, "Wocheneinkauf")
@@ -535,10 +545,10 @@ class ShoppingRouteTest {
         val body = Json.parseToJsonElement(res.bodyAsText()).jsonObject
         assertEquals(1, body["added"]!!.jsonPrimitive.int)
         assertEquals(0, body["merged"]!!.jsonPrimitive.int)
-        val names = itemNames(token)
-        assertEquals(2, names.size)
-        assertTrue("2 Glas Milch" in names)
-        assertTrue("1 Glas Milch" in names)
+        val items = itemNameQty(token)
+        assertEquals(2, items.size)
+        assertTrue("Milch" to "2 Glas" in items)
+        assertTrue("Milch" to "1 Glas" in items)
     }
 
     @Test

@@ -927,8 +927,9 @@ export class MockApi {
     }
 
     // Shopping: batch add recipe ingredients (mirrors POST /shopping/batch).
-    // Formats each line as a "200 g Mehl" label and merges quantities into an
-    // existing item with the same name + unit; matched before /shopping/{id}.
+    // #554: writes each line like the web quick-add — a bare name + a separate
+    // "200 g" quantity field — and merges amounts read from `quantity ?? parseQty(name)`
+    // (the name parse is only the legacy fallback). Matched before /shopping/{id}.
     if (path.endsWith('/shopping/batch') && method === 'POST') {
       const { listId, items = [] } = JSON.parse(req.postData() ?? '{}') as {
         listId?: string
@@ -938,6 +939,10 @@ export class MockApi {
       const fmtAmt = (v: number) => String(Math.round(v * 1000) / 1000)
       const fmt = (a: number | null | undefined, u: string | null | undefined, n: string) =>
         [a != null ? fmtAmt(a) : null, u && u.trim() ? u : null, n].filter(Boolean).join(' ').trim()
+      // "200 g" quantity label for the quantity field (null when there is no amount/unit).
+      const buildQty = (a: number | null | undefined, u: string | null | undefined) =>
+        [a != null ? fmtAmt(a) : null, u && u.trim() ? u : null].filter(Boolean).join(' ').trim() || undefined
+      // legacy fallback: pull amount/unit/name back out of a composite "200 g Mehl" name
       const parseQty = (label: string): { amount: number | null; unit: string | null; name: string } => {
         const t = label.trim().split(/\s+/).filter(Boolean)
         const a = t.length ? Number(t[0].replace(',', '.')) : NaN
@@ -952,7 +957,22 @@ export class MockApi {
         const name = t.slice(i).join(' ')
         return name ? { amount: a, unit, name } : { amount: null, unit: null, name: label.trim() }
       }
+      // parse a standalone "200 g" quantity label (KNOWN_UNITS gated, like the backend)
+      const parseQtyField = (q: string): { amount: number | null; unit: string | null } => {
+        const t = q.trim().split(/\s+/).filter(Boolean)
+        const a = t.length ? Number(t[0].replace(',', '.')) : NaN
+        if (!t.length || !Number.isFinite(a)) return { amount: null, unit: null }
+        const c = t[1]
+        return { amount: a, unit: c && UNITS.has(c.toLowerCase()) ? c : null }
+      }
+      // amount/unit/name for merge: quantity field wins, else the legacy composite name
+      const effective = (it: ShoppingItem): { amount: number | null; unit: string | null; name: string } => {
+        const q = it.quantity?.trim()
+        if (q) { const p = parseQtyField(q); return { amount: p.amount, unit: p.unit, name: it.name.trim() } }
+        return parseQty(it.name)
+      }
       const unitEq = (a: string | null, b: string | null | undefined) => (a ?? '').toLowerCase() === (b ?? '').toLowerCase()
+      const qtyEq = (a: string | undefined, b: string | undefined) => (a?.trim() ?? '').toLowerCase() === (b?.trim() ?? '').toLowerCase()
       const inList = () => this.shoppingItems.filter((it) => (it.listId ?? undefined) === (listId || undefined))
       const created: ShoppingItem[] = []
       const updated: ShoppingItem[] = []
@@ -962,26 +982,34 @@ export class MockApi {
         if (!name) continue
         const unit = line.unit && line.unit.trim() ? line.unit.trim() : undefined
         const amount = line.amount
+        const newQty = buildQty(amount, unit)
         const display = fmt(amount, unit, name)
         const target = amount != null
           ? inList().find((it) => {
-              const p = parseQty(it.name)
+              const p = effective(it)
               return p.amount != null && p.name.toLowerCase() === name.toLowerCase() && unitEq(p.unit, unit ?? null)
             })
           : undefined
         if (target) {
-          const p = parseQty(target.name)
-          target.name = fmt((p.amount ?? 0) + (amount ?? 0), p.unit ?? unit, p.name)
+          const p = effective(target)
+          target.name = p.name
+          target.quantity = buildQty((p.amount ?? 0) + (amount ?? 0), p.unit ?? unit)
           updated.push(target)
           continue
         }
-        if (inList().some((it) => it.name.toLowerCase() === display.toLowerCase())) {
+        const isDup = inList().some((it) =>
+          it.quantity != null
+            ? it.name.toLowerCase() === name.toLowerCase() && qtyEq(it.quantity, newQty)
+            : it.name.toLowerCase() === display.toLowerCase(),
+        )
+        if (isDup) {
           skipped++
           continue
         }
         const item: ShoppingItem = {
           id: `shop-${this.nextShopId++}`,
-          name: display,
+          name,
+          quantity: newQty,
           listId: listId || undefined,
           checked: false,
           createdBy: 'alice',

@@ -81,6 +81,20 @@ class ShoppingServiceTest {
     }
 
     @Test
+    fun `batch add writes a bare name plus quantity field, not a composite label`() = runBlocking {
+        // #554: recipe ingredients land like the web quick-add — name "Mehl" + quantity "200 g" — so
+        // clients that prefer the explicit quantity field render identically without name-parsing.
+        val list = service.createList("L", ownCategories = false, username = "alice")
+        val listId = UUID.fromString(list.id)
+
+        val res = service.batchAdd(listId, listOf(ShoppingLineInput("Mehl", amount = 200.0, unit = "g")), "alice")
+
+        val item = res?.created?.single()
+        assertEquals("Mehl", item?.name)
+        assertEquals("200 g", item?.quantity)
+    }
+
+    @Test
     fun `batch add merges a matching quantity line into the existing item`() = runBlocking {
         val list = service.createList("L", ownCategories = false, username = "alice")
         val listId = UUID.fromString(list.id)
@@ -91,9 +105,33 @@ class ShoppingServiceTest {
         val second = service.batchAdd(listId, listOf(ShoppingLineInput("Mehl", amount = 300.0, unit = "g")), "alice")
         assertEquals(0, second?.created?.size)
         assertEquals(1, second?.updated?.size)
-        assertEquals("500 g Mehl", second?.updated?.first()?.name)
+        // #554: summed into the bare name + quantity field (not a "500 g Mehl" composite name)
+        assertEquals("Mehl", second?.updated?.first()?.name)
+        assertEquals("500 g", second?.updated?.first()?.quantity)
 
         // still a single line on the list
+        assertEquals(1, service.listItems().size)
+    }
+
+    @Test
+    fun `batch add merges into a legacy composite-name row via the fallback parse`() = runBlocking {
+        // Acceptance (#554): an existing old-format row ("500 g Mehl" in the name, no quantity field)
+        // must still merge with a new bare-name + quantity add, summing to "700 g" and upgrading the
+        // row to the new representation. This exercises the KNOWN_UNITS legacy fallback path.
+        val list = service.createList("L", ownCategories = false, username = "alice")
+        val listId = UUID.fromString(list.id)
+        // Seed a legacy row: the composite label lives in the name, the quantity column is null — exactly
+        // what the pre-#554 batch path wrote.
+        val legacy = service.createItem("500 g Mehl", listId, quantity = null, username = "alice")
+        assertTrue(legacy is ShoppingService.CreateItemResult.Ok)
+        assertNull(legacy.item.quantity)
+
+        val res = service.batchAdd(listId, listOf(ShoppingLineInput("Mehl", amount = 200.0, unit = "g")), "alice")
+
+        assertEquals(0, res?.created?.size)
+        val merged = res?.updated?.single()
+        assertEquals("Mehl", merged?.name)
+        assertEquals("700 g", merged?.quantity)
         assertEquals(1, service.listItems().size)
     }
 
