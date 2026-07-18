@@ -11,12 +11,12 @@ import { errorText } from '../../i18n'
 import type { AbsenceState, AbsenceType, HalfDay } from '../../types'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { useErrorToast } from '../../ui/ErrorToast'
-import { eachDate, isWorkdayFor, normalizeAbsenceState } from './core'
+import { eachDate, isWorkdayFor, normalizeAbsenceState, type LoadedAbsenceState } from './core'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = `${WS_SCHEME}://${window.location.host}/api/v1/ws/absence`
 
-const EMPTY: AbsenceState = { users: [], absences: [], partTime: [], kitaClosures: [], customHolidays: [], settings: [] }
+const EMPTY: LoadedAbsenceState = { users: [], absences: [], partTime: [], kitaClosures: [], customHolidays: [], settings: [] }
 
 // Offline read-cache (#520, rolling out the shopping read-cache #517 to the absence planner): mirror the
 // last-loaded snapshot so a launch/reload while the API is unreachable shows the previous planner instead
@@ -24,7 +24,7 @@ const EMPTY: AbsenceState = { users: [], absences: [], partTime: [], kitaClosure
 // the service worker (#519); this covers the flaky-connection case + instant first paint.
 const CACHE_KEY = 'homebase_absence_cache'
 
-function loadAbsenceCache(): AbsenceState | null {
+function loadAbsenceCache(): LoadedAbsenceState | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return null
@@ -67,7 +67,7 @@ export function useAbsenceData(token: string, onLogout: () => void) {
   // Seed from the durable read-cache (#520) so a launch with a flaky/absent connection shows the last
   // known planner instead of an empty grid; a successful fetch replaces it below. Read once.
   const initialCache = useMemo(() => loadAbsenceCache(), [])
-  const [data, setData] = useState<AbsenceState>(initialCache ?? EMPTY)
+  const [data, setData] = useState<LoadedAbsenceState>(initialCache ?? EMPTY)
   // Skip the spinner when we already have a cached snapshot with users to show — refresh underneath.
   const [loading, setLoading] = useState(!(initialCache && initialCache.users.length > 0))
   const { flashError, errorToast } = useErrorToast()

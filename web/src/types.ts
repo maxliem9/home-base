@@ -98,7 +98,8 @@ export interface ShoppingTemplateItem {
 export interface ShoppingTemplate {
   id: string
   name: string
-  items: ShoppingTemplateItem[]
+  // Optional on the wire (#96/#597): encodeDefaults=false omits an empty list. Read with `?? []`.
+  items?: ShoppingTemplateItem[]
   createdBy: string
   createdAt: string
 }
@@ -253,8 +254,9 @@ export interface Recipe {
   prepTimeMinutes?: number
   cookTimeMinutes?: number
   category: RecipeCategory
-  ingredients: Ingredient[]
-  steps: RecipeStep[]
+  // Optional on the wire (#96/#597): encodeDefaults=false omits an empty list. Read with `?? []`.
+  ingredients?: Ingredient[]
+  steps?: RecipeStep[]
   // optional single cover image; omitted by the backend when the recipe has none
   image?: RecipeImage
   createdBy: string
@@ -356,13 +358,16 @@ export interface AbsSettings {
   kindKrankCap: number
 }
 
+// Every list here is optional on the wire: the backend's encodeDefaults=false drops a field whose
+// value is an empty list, so the type must match the draht (#96/#597). Read sites compensate with
+// `?? []`; keep that at every access.
 export interface AbsenceState {
-  users: string[]
-  absences: Absence[]
-  partTime: PartTimeRule[]
-  kitaClosures: KitaClosure[]
-  customHolidays: CustomHoliday[]
-  settings: AbsSettings[]
+  users?: string[]
+  absences?: Absence[]
+  partTime?: PartTimeRule[]
+  kitaClosures?: KitaClosure[]
+  customHolidays?: CustomHoliday[]
+  settings?: AbsSettings[]
 }
 
 // A household member (2 fixed users). From GET /api/v1/users — used to resolve
