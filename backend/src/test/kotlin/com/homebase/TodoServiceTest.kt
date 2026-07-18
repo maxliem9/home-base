@@ -16,6 +16,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlin.test.BeforeTest
@@ -217,6 +218,47 @@ class TodoServiceTest {
         assertEquals(listOf("alice", "bob"), byTitle.getValue("B").assignees)
         assertEquals(listOf("a1"), byTitle.getValue("A").subtasks.map { it.title })
         assertEquals(listOf("b1", "b2"), byTitle.getValue("B").subtasks.map { it.title })
+    }
+
+    // ---- listTodos: doneSince window (#356/#559/#595) --------------------
+
+    // Insert a todo row directly so status + done_at can be set precisely (createTodo/complete
+    // always stamp done_at = now, which can't reproduce the legacy NULL-done_at case).
+    private fun insertTodoRow(title: String, status: String, doneAt: Instant?): Unit = transaction {
+        TodosTable.insert {
+            it[id] = UUID.randomUUID()
+            it[TodosTable.title] = title
+            it[TodosTable.status] = status
+            it[createdBy] = "alice"
+            it[createdAt] = Instant.now()
+            it[TodosTable.doneAt] = doneAt
+        }
+    }
+
+    @Test
+    fun `listTodos doneSince keeps a DONE row with NULL done_at instead of dropping it`() = runBlocking {
+        // Legacy/imported/hand-edited DONE row without a done_at stamp.
+        insertTodoRow("legacy done", status = "DONE", doneAt = null)
+        // A normal old DONE row falls outside the window; an open one always stays.
+        insertTodoRow("old done", status = "DONE", doneAt = Instant.parse("2000-01-01T00:00:00Z"))
+        insertTodoRow("open", status = "INBOX", doneAt = null)
+
+        val titles = service.listTodos("alice", doneSince = LocalDate.now().plusDays(1)).map { it.title }.toSet()
+
+        // NULL-done_at DONE row must survive the window filter (#595); the stamped old one is filtered out.
+        assertEquals(setOf("legacy done", "open"), titles)
+    }
+
+    @Test
+    fun `listTodos doneSince boundary keeps completion exactly at start-of-day and drops one just before`() = runBlocking {
+        val since = LocalDate.of(2026, 6, 15)
+        val cutoff = since.atStartOfDay(ZoneId.systemDefault()).toInstant() // same basis as the service
+        insertTodoRow("at cutoff", status = "DONE", doneAt = cutoff)
+        insertTodoRow("just before", status = "DONE", doneAt = cutoff.minusSeconds(1))
+
+        val titles = service.listTodos("alice", doneSince = since).map { it.title }.toSet()
+
+        assertEquals(setOf("at cutoff"), titles)
     }
 
     // ---- subtasks --------------------------------------------------------

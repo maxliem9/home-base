@@ -176,8 +176,15 @@ class TodoService(
             // A DONE todo is kept only if it was completed on/after the cutoff day; everything not DONE
             // stays. The cutoff is the start of [doneSince] in the server zone — the same local-day basis
             // the clients (and the CSV export/forecast) use, so the window boundary lines up (#356/#559).
+            //
+            // A DONE row with a NULL done_at is kept too (#595): `done_at >= cutoff` is NULL for it, so
+            // without the isNull() branch `(false OR NULL) = NULL` would silently drop such rows from
+            // every windowed fetch. Normal writes always stamp done_at on the DONE transition, so this
+            // only shields legacy/imported/hand-edited DONE rows from vanishing.
             val cutoff = doneSince.atStartOfDay(SERVER_ZONE).toInstant()
-            query.andWhere { (TodosTable.status neq "DONE") or (TodosTable.doneAt greaterEq cutoff) }
+            query.andWhere {
+                (TodosTable.status neq "DONE") or TodosTable.doneAt.isNull() or (TodosTable.doneAt greaterEq cutoff)
+            }
         }
         val rows = query.toList()
         if (rows.isEmpty()) return@dbQuery emptyList()
