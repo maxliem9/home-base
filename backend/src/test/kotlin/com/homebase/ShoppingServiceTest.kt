@@ -136,6 +136,47 @@ class ShoppingServiceTest {
     }
 
     @Test
+    fun `batch add does not merge a bare-count line into an unknown-unit line (#596)`() = runBlocking {
+        // "Glas" is not a KNOWN_UNIT, so it lives invisibly in the quantity field. A following bare
+        // count ("1", no unit) must NOT merge into "Milch 2 Glas" and drop the "Glas" — the two stay
+        // separate, mirroring the #47 invariant that "2 Glas" + "1 Glas" also stays two lines.
+        val list = service.createList("L", ownCategories = false, username = "alice")
+        val listId = UUID.fromString(list.id)
+
+        val res = service.batchAdd(
+            listId,
+            listOf(
+                ShoppingLineInput("Milch", amount = 2.0, unit = "Glas"),
+                ShoppingLineInput("Milch", amount = 1.0), // bare count, no unit
+            ),
+            "alice",
+        )
+
+        assertEquals(2, res?.created?.size)
+        assertEquals(0, res?.updated?.size)
+        val quantities = service.listItems().map { it.quantity }.toSet()
+        assertEquals(setOf("2 Glas", "1"), quantities) // "Glas" preserved, not folded into "3"
+    }
+
+    @Test
+    fun `batch add skips an identical unknown-unit line instead of adding a duplicate (#596)`() = runBlocking {
+        // Guards the new-format duplicate-skip branch (w.quantity != null): re-adding the exact same
+        // "Milch 2 Glas" line must skip, not create a third row (the existing dup test only covered the
+        // quantity == null legacy branch).
+        val list = service.createList("L", ownCategories = false, username = "alice")
+        val listId = UUID.fromString(list.id)
+
+        val first = service.batchAdd(listId, listOf(ShoppingLineInput("Milch", amount = 2.0, unit = "Glas")), "alice")
+        assertEquals(1, first?.created?.size)
+
+        val second = service.batchAdd(listId, listOf(ShoppingLineInput("Milch", amount = 2.0, unit = "Glas")), "alice")
+        assertEquals(0, second?.created?.size)
+        assertEquals(0, second?.updated?.size)
+        assertEquals(1, second?.skipped)
+        assertEquals(1, service.listItems().size)
+    }
+
+    @Test
     fun `batch add into an unknown list returns null (404)`() = runBlocking {
         val r = service.batchAdd(UUID.randomUUID(), listOf(ShoppingLineInput("Mehl")), "alice")
         assertNull(r)
