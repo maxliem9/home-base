@@ -605,13 +605,20 @@ private fun parseItem(name: String, quantity: String?): ParsedQty {
  * Split a standalone "200 g" quantity label into amount + unit. A leading number (comma decimals
  * allowed) is the amount; a following known unit (KNOWN_UNITS) is the unit. Without a leading number
  * there is no numeric amount (e.g. "2×"), so the line is not numerically mergeable.
+ *
+ * A leading number followed by an *unknown* unit token (e.g. "2 Glas") is NOT numerically mergeable
+ * either (returns amount null): the unknown unit lives invisibly in the quantity field, so treating
+ * such a row as a bare count would let a unit-less "1" line merge into it and silently drop the unit
+ * (#596). Only a truly bare "2" (no trailing token) or "2 <known unit>" is mergeable — mirroring the
+ * #47 invariant that "2 Glas" + "1 Glas" stays two lines.
  */
 private fun parseQuantityField(quantity: String): Pair<Double?, String?> {
     val tokens = quantity.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
     if (tokens.isEmpty()) return null to null
     val amount = tokens[0].replace(',', '.').toDoubleOrNull() ?: return null to null
-    val unit = tokens.getOrNull(1)?.takeIf { it.lowercase() in KNOWN_UNITS }
-    return amount to unit
+    val second = tokens.getOrNull(1) ?: return amount to null // truly bare count → mergeable
+    if (second.lowercase() in KNOWN_UNITS) return amount to second // known unit → mergeable per unit
+    return null to null // unknown-unit token present → not mergeable, unit must be preserved
 }
 
 /** Build the "200 g" quantity label written to the quantity column (#445/#554); null when empty. */
