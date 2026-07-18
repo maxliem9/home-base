@@ -35,6 +35,9 @@ data class ShoppingCategoriesUiState(
 class ShoppingCategoriesViewModel(
     private val repository: ShoppingRepository,
     private val token: String,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingCategoriesUiState())
@@ -57,13 +60,13 @@ class ShoppingCategoriesViewModel(
     private suspend fun fetchCategories() {
         repository.getCategories()
             .onSuccess { cats -> _uiState.update { it.copy(categories = cats) } }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
     }
 
     private suspend fun fetchRules() {
         repository.getCategoryRules()
             .onSuccess { rules -> _uiState.update { it.copy(rules = rules) } }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
     }
 
     // --- Categories: add / rename / change emoji / reorder / delete -----------------------------
@@ -84,7 +87,7 @@ class ShoppingCategoriesViewModel(
             }
             result
                 .onSuccess { fetchCategories() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -94,7 +97,7 @@ class ShoppingCategoriesViewModel(
             _uiState.update { it.copy(error = null) }
             repository.deleteCategory(key)
                 .onSuccess { fetchCategories() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -110,7 +113,7 @@ class ShoppingCategoriesViewModel(
             _uiState.update { it.copy(error = null) }
             val ra = repository.updateCategory(a.key, UpdateShoppingCategoryRequest(sortOrder = b.sortOrder))
             val rb = repository.updateCategory(b.key, UpdateShoppingCategoryRequest(sortOrder = a.sortOrder))
-            val error = ra.exceptionOrNull()?.message ?: rb.exceptionOrNull()?.message
+            val error = ra.exceptionOrNull()?.let(errorText) ?: rb.exceptionOrNull()?.let(errorText)
             if (error != null) _uiState.update { it.copy(error = error) }
             fetchCategories()
         }
@@ -136,7 +139,7 @@ class ShoppingCategoriesViewModel(
                     }
                     fetchRules()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -145,7 +148,7 @@ class ShoppingCategoriesViewModel(
             _uiState.update { it.copy(error = null) }
             repository.deleteCategoryRule(displayName)
                 .onSuccess { fetchRules() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

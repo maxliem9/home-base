@@ -445,6 +445,7 @@ class MainActivity : AppCompatActivity() {
                 container.configRepository,
                 token,
                 snapshotStore = container.todoSnapshotStore,
+                errorText = container.errorText,
             ) as T
         }
     }
@@ -459,6 +460,7 @@ class MainActivity : AppCompatActivity() {
                 networkAvailable = container.connectivityObserver.onAvailable,
                 viewPrefs = container.shoppingViewPrefs,
                 snapshotStore = container.shoppingSnapshotStore,
+                errorText = container.errorText,
             ) as T
         }
     }
@@ -472,6 +474,7 @@ class MainActivity : AppCompatActivity() {
                 pendingStore = container.notesPendingStore,
                 networkAvailable = container.connectivityObserver.onAvailable,
                 snapshotStore = container.notesSnapshotStore,
+                errorText = container.errorText,
             ) as T
         }
     }
@@ -479,42 +482,42 @@ class MainActivity : AppCompatActivity() {
     private fun timeFactory(token: String, username: String?) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return TimeViewModel(container.timeRepository, token, username, snapshotStore = container.timeSnapshotStore) as T
+            return TimeViewModel(container.timeRepository, token, username, snapshotStore = container.timeSnapshotStore, errorText = container.errorText) as T
         }
     }
 
     private fun recipesFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return RecipesViewModel(container.recipesRepository, token, snapshotStore = container.recipesSnapshotStore) as T
+            return RecipesViewModel(container.recipesRepository, token, snapshotStore = container.recipesSnapshotStore, errorText = container.errorText) as T
         }
     }
 
     private fun absenceFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return AbsenceViewModel(container.absenceRepository, token, snapshotStore = container.absenceSnapshotStore) as T
+            return AbsenceViewModel(container.absenceRepository, token, snapshotStore = container.absenceSnapshotStore, errorText = container.errorText) as T
         }
     }
 
     private fun mealPlanFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return MealPlanViewModel(container.mealPlanRepository, token, snapshotStore = container.mealPlanSnapshotStore) as T
+            return MealPlanViewModel(container.mealPlanRepository, token, snapshotStore = container.mealPlanSnapshotStore, errorText = container.errorText) as T
         }
     }
 
     private fun calendarFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return FamilienkalenderViewModel(container.calendarRepository, token, snapshotStore = container.calendarSnapshotStore) as T
+            return FamilienkalenderViewModel(container.calendarRepository, token, snapshotStore = container.calendarSnapshotStore, errorText = container.errorText) as T
         }
     }
 
     private fun shoppingCategoriesFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return ShoppingCategoriesViewModel(container.shoppingCategoriesRepository, token) as T
+            return ShoppingCategoriesViewModel(container.shoppingCategoriesRepository, token, errorText = container.errorText) as T
         }
     }
 

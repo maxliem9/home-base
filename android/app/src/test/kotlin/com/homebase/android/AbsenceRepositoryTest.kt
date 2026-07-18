@@ -2,7 +2,7 @@ package com.homebase.android
 
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.repository.AbsenceRepository
-import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import io.mockk.coEvery
 import io.mockk.every
@@ -55,9 +55,8 @@ class AbsenceRepositoryTest {
         val result = repository.updateKita("k1", "2026-01-01", null)
 
         assertTrue(result.isFailure)
-        val msg = result.exceptionOrNull()?.message
-        assertEquals("Kita-Schließtag konnte nicht gespeichert werden.", msg)
-        assertFalse("must not leak the raw HTTP message", msg?.contains("HTTP") == true)
+        assertEquals(AppError.KITA_SAVE_FAILED, result.appError())
+        assertFalse("must not leak a raw HTTP message", result.exceptionOrNull()?.message?.contains("HTTP") == true)
     }
 
     @Test
@@ -67,7 +66,7 @@ class AbsenceRepositoryTest {
         val result = repository.addKita("not-a-date", "Brückentag")
 
         assertTrue(result.isFailure)
-        assertEquals("Kita-Schließtag konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.KITA_SAVE_FAILED, result.appError())
     }
 
     @Test
@@ -77,9 +76,8 @@ class AbsenceRepositoryTest {
         val result = repository.updateCustomHoliday("h1", 12, 24, true, null)
 
         assertTrue(result.isFailure)
-        val msg = result.exceptionOrNull()?.message
-        assertEquals("Eigener Feiertag konnte nicht gespeichert werden.", msg)
-        assertFalse("must not leak the raw HTTP message", msg?.contains("HTTP") == true)
+        assertEquals(AppError.HOLIDAY_SAVE_FAILED, result.appError())
+        assertFalse("must not leak a raw HTTP message", result.exceptionOrNull()?.message?.contains("HTTP") == true)
     }
 
     @Test
@@ -89,6 +87,6 @@ class AbsenceRepositoryTest {
         val result = repository.addCustomHoliday(12, 24, true, "Heiligabend")
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 }

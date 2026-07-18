@@ -48,6 +48,9 @@ class MealPlanViewModel(
      * shopping lists are week-independent. null in tests → no read-cache.
      */
     private val snapshotStore: SnapshotStore<MealPlanSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MealPlanUiState(isLoading = true))
@@ -77,7 +80,7 @@ class MealPlanViewModel(
                 .onFailure { e ->
                     // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
                     // entries or recipes on screen a failed refresh stays silent — offline we show the old state.
-                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.entries.isEmpty() && s.recipes.isEmpty()) e.message else null) }
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.entries.isEmpty() && s.recipes.isEmpty()) errorText(e) else null) }
                 }
         }
     }
@@ -152,7 +155,7 @@ class MealPlanViewModel(
                         s.copy(entries = s.entries.filterNot { it.date == entry.date && it.slot == entry.slot } + entry)
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -169,7 +172,7 @@ class MealPlanViewModel(
                     val stillGone = s.entries.none { it.date == date && it.slot == slot }
                     s.copy(
                         entries = if (removed != null && stillGone) s.entries + removed else s.entries,
-                        error = e.message,
+                        error = errorText(e),
                     )
                 }
             }
@@ -198,7 +201,7 @@ class MealPlanViewModel(
         viewModelScope.launch {
             repository.addToShopping(listId, lines)
                 .onSuccess { res -> onResult(res.added, res.merged) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

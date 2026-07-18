@@ -75,6 +75,9 @@ class TimeViewModel(
      * and mirrored on every change. null in tests → no read-cache.
      */
     private val snapshotStore: SnapshotStore<TimeSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TimeUiState(isLoading = true))
@@ -102,7 +105,7 @@ class TimeViewModel(
             val targets = repository.getTargets()
             // Credits span the loaded entries (#31); skipped when entries failed to load.
             val credits = entries.getOrNull()?.let { fetchCreditsFor(it) }
-            val error = projects.exceptionOrNull()?.message ?: entries.exceptionOrNull()?.message
+            val error = projects.exceptionOrNull()?.let(errorText) ?: entries.exceptionOrNull()?.let(errorText)
             if (error == null) hasServerData = true // critical reads landed → the cache seed must not clobber (#520)
             _uiState.update { state ->
                 val nextProjects = projects.getOrDefault(state.projects)
@@ -167,7 +170,7 @@ class TimeViewModel(
         viewModelScope.launch {
             repository.startTimer(projectId, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
                 .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -176,7 +179,7 @@ class TimeViewModel(
         viewModelScope.launch {
             repository.stopTimer(userId)
                 .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -185,7 +188,7 @@ class TimeViewModel(
         viewModelScope.launch {
             repository.createEntry(projectId, startedAt, stoppedAt, description?.trim()?.takeIf { it.isNotEmpty() }, userId)
                 .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -199,7 +202,7 @@ class TimeViewModel(
         viewModelScope.launch {
             repository.updateEntry(id, request)
                 .onSuccess { entry -> upsertEntry(entry); refreshForecast() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Konnte nicht gespeichert werden.") } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -207,7 +210,7 @@ class TimeViewModel(
         viewModelScope.launch {
             repository.deleteEntry(id)
                 .onSuccess { removeEntry(id); refreshForecast() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -223,7 +226,7 @@ class TimeViewModel(
                     upsertEntry(halves.second)
                     refreshForecast()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message ?: "Eintrag konnte nicht gesplittet werden.") } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -295,7 +298,7 @@ class TimeViewModel(
                         else state.copy(projects = state.projects + project)
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -309,7 +312,7 @@ class TimeViewModel(
                         state.copy(projects = state.projects.map { if (it.id == project.id) project else it })
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -321,7 +324,7 @@ class TimeViewModel(
                         state.copy(projects = state.projects.map { if (it.id == project.id) project else it })
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

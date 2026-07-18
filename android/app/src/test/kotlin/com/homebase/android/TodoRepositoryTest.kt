@@ -4,8 +4,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateTodoRequest
 import com.homebase.android.data.model.TodoDto
 import com.homebase.android.data.model.UpdateTodoRequest
-import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
-import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import io.mockk.coEvery
@@ -58,7 +57,7 @@ class TodoRepositoryTest {
         val result = repository.getTodos()
 
         assertTrue(result.isFailure)
-        assertEquals(GENERIC_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.GENERIC, result.appError())
     }
 
     @Test
@@ -68,7 +67,7 @@ class TodoRepositoryTest {
         val result = repository.getTodos()
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 
     @Test

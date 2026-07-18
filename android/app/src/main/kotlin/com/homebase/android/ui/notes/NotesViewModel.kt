@@ -101,6 +101,9 @@ class NotesViewModel(
      * no read-cache (behaves exactly as before).
      */
     private val snapshotStore: SnapshotStore<NotesSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotesUiState(isLoading = true))
@@ -192,7 +195,7 @@ class NotesViewModel(
                     // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
                     // notes on screen a failed refresh stays silent — offline we show the old state; the
                     // reconnect/backstop resync restores correctness.
-                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.notes.isEmpty()) e.message else null) }
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.notes.isEmpty()) errorText(e) else null) }
                 }
         }
     }
@@ -239,7 +242,7 @@ class NotesViewModel(
                 hasServerData = true
                 _uiState.update { it.copy(notes = notes, error = null) }
             }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
     }
 
     /**
@@ -303,7 +306,7 @@ class NotesViewModel(
             }
             result
                 .onSuccess { note -> upsert(note) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -575,7 +578,7 @@ class NotesViewModel(
                     }
                     NoteFlushDecision.DROP_TERMINAL -> {
                         setEditorStatus(SaveStatus.ERROR)
-                        _uiState.update { it.copy(error = e.message) }
+                        _uiState.update { it.copy(error = errorText(e)) }
                     }
                 }
                 false
@@ -755,7 +758,7 @@ class NotesViewModel(
                 .onSuccess {
                     _uiState.update { state -> state.copy(notes = state.notes.filter { it.id != id }) }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -763,7 +766,7 @@ class NotesViewModel(
         viewModelScope.launch {
             repository.uploadImage(noteId, bytes, filename, contentType)
                 .onSuccess { note -> upsert(note) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -780,7 +783,7 @@ class NotesViewModel(
             for (item in items) {
                 repository.uploadImage(noteId, item.bytes, item.filename, item.contentType)
                     .onSuccess { note -> upsert(note) }
-                    .onFailure { e -> if (firstError == null) firstError = e.message }
+                    .onFailure { e -> if (firstError == null) firstError = errorText(e) }
             }
             firstError?.let { msg -> _uiState.update { it.copy(error = msg) } }
         }
@@ -790,7 +793,7 @@ class NotesViewModel(
         viewModelScope.launch {
             repository.deleteImage(noteId, imageId)
                 .onSuccess { note -> upsert(note) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -809,7 +812,7 @@ class NotesViewModel(
             for (item in items) {
                 repository.uploadAttachment(noteId, item.bytes, item.filename, item.contentType)
                     .onSuccess { note -> upsert(note) }
-                    .onFailure { e -> if (firstError == null) firstError = e.message }
+                    .onFailure { e -> if (firstError == null) firstError = errorText(e) }
             }
             firstError?.let { msg -> _uiState.update { it.copy(error = msg) } }
         }
@@ -819,7 +822,7 @@ class NotesViewModel(
         viewModelScope.launch {
             repository.deleteAttachment(noteId, attachmentId)
                 .onSuccess { note -> upsert(note) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

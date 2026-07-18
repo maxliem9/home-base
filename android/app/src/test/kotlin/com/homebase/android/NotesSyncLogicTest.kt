@@ -5,6 +5,7 @@ import com.homebase.android.data.notes.NoteFlushDecision
 import com.homebase.android.data.notes.PendingNote
 import com.homebase.android.data.notes.PendingNoteQueue
 import com.homebase.android.data.notes.classifyNoteFlush
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ApiException
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -37,7 +38,7 @@ class NotesSyncLogicTest {
 
     @Test
     fun `network error wrapped in ApiException is kept and retried`() {
-        val wrapped = ApiException("Keine Verbindung", IOException("dns"))
+        val wrapped = ApiException(AppError.NETWORK, IOException("dns"))
         assertEquals(NoteFlushDecision.KEEP_RETRY, classifyNoteFlush(wrapped))
     }
 
@@ -61,7 +62,7 @@ class NotesSyncLogicTest {
 
     @Test
     fun `HttpException wrapped in ApiException is unwrapped and classified by code`() {
-        assertEquals(NoteFlushDecision.DROP_TERMINAL, classifyNoteFlush(ApiException("Serverfehler", http(400))))
+        assertEquals(NoteFlushDecision.DROP_TERMINAL, classifyNoteFlush(ApiException(AppError.GENERIC, http(400))))
     }
 
     @Test

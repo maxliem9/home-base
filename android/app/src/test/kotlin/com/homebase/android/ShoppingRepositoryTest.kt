@@ -4,7 +4,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateShoppingItemRequest
 import com.homebase.android.data.model.ShoppingItemDto
 import com.homebase.android.data.model.UpdateShoppingItemRequest
-import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import io.mockk.coEvery
@@ -56,7 +56,7 @@ class ShoppingRepositoryTest {
         val result = repository.getItems()
 
         assertTrue(result.isFailure)
-        assertEquals(GENERIC_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.GENERIC, result.appError())
     }
 
     @Test

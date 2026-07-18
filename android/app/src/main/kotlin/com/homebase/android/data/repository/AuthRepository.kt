@@ -79,7 +79,7 @@ class AuthRepository(
     }
 
     suspend fun login(username: String, password: String): Result<String> = withContext(Dispatchers.IO) {
-        apiCatching(mapHttpError = ::germanLoginError) {
+        apiCatching(mapHttpError = ::loginError) {
             val response = api.login(LoginRequest(username, password))
             prefs.edit().putString(KEY_TOKEN, response.token).commit()
             onTokenChange(response.token)
@@ -96,7 +96,7 @@ class AuthRepository(
     suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             apiCatching(mapHttpError = {
-                if (it.code() == 400) "Aktuelles Passwort ist falsch." else "Passwort konnte nicht geändert werden."
+                if (it.code() == 400) AppError.PASSWORD_WRONG else AppError.PASSWORD_SAVE_FAILED
             }) { api.changePassword(ChangePasswordRequest(currentPassword, newPassword)) }
         }
 

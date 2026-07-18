@@ -21,7 +21,7 @@ class ConfigRepository(private val api: HomeBaseApi) {
      */
     suspend fun updateHouseholdName(name: String): Result<String> =
         apiCatching(mapHttpError = {
-            if (it.code() == 400) "Name muss 1–60 Zeichen lang sein." else "Name konnte nicht gespeichert werden."
+            if (it.code() == 400) AppError.HOUSEHOLD_NAME_INVALID else AppError.HOUSEHOLD_NAME_SAVE_FAILED
         }) { api.updateConfig(UpdateConfigRequest(name)).householdName }
 
     /** The household members' usernames (from GET /users), for assignee chips etc. Falls back gracefully. */
@@ -47,7 +47,7 @@ class ConfigRepository(private val api: HomeBaseApi) {
      */
     suspend fun setMyAvatarColor(hue: Int?): Result<Unit> =
         apiCatching(mapHttpError = {
-            if (it.code() == 400) "Ungültige Farbe." else "Farbe konnte nicht gespeichert werden."
+            if (it.code() == 400) AppError.INVALID_COLOR else AppError.AVATAR_COLOR_SAVE_FAILED
         }) { api.setAvatarColor(SetAvatarColorRequest(hue)) }
 
     /**
@@ -118,7 +118,7 @@ class ConfigRepository(private val api: HomeBaseApi) {
      */
     suspend fun updateDoneWindow(days: Int): Result<DoneWindowConfigResponse> =
         apiCatching(mapHttpError = {
-            if (it.code() == 400) "Wert muss zwischen 1 und 3650 liegen." else "Wert konnte nicht gespeichert werden."
+            if (it.code() == 400) AppError.DONE_WINDOW_INVALID else AppError.DONE_WINDOW_SAVE_FAILED
         }) { api.updateDoneWindow(DoneWindowConfigResponse(days = days)) }
 }
 
@@ -127,5 +127,5 @@ class ConfigRepository(private val api: HomeBaseApi) {
  * an invalid time (sections are always sent straight from the server's availableSections, so
  * INVALID_SECTION can't happen from here), hence the time-specific wording.
  */
-private fun digestSaveError(e: HttpException): String =
-    if (e.code() == 400) "Ungültige Uhrzeit (Format HH:MM)." else "Einstellungen konnten nicht gespeichert werden."
+private fun digestSaveError(e: HttpException): AppError =
+    if (e.code() == 400) AppError.DIGEST_TIME_INVALID else AppError.SETTINGS_SAVE_FAILED

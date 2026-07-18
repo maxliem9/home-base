@@ -53,7 +53,7 @@ class NotesRepository(
         bytes: ByteArray,
         filename: String,
         contentType: String,
-    ): Result<NoteDto> = apiCatching(mapHttpError = ::germanAttachmentUploadError) {
+    ): Result<NoteDto> = apiCatching(mapHttpError = ::attachmentUploadError) {
         val part = MultipartBody.Part.createFormData(
             name = "file",
             filename = filename,
@@ -70,14 +70,14 @@ class NotesRepository(
         apiCatching { api.downloadNoteAttachment(noteId, attachmentId).use { it.bytes() } }
 
     /**
-     * Map a failed attachment upload to German text. The backend rejects oversize files with
+     * Map a failed attachment upload to a typed [AppError]. The backend rejects oversize files with
      * 413/`ATTACHMENT_TOO_LARGE` and disallowed types with 415/`UNSUPPORTED_TYPE` (#431); branch on
-     * the stable HTTP status (more robust than the body code). Wording mirrors web `notes.attachment*`.
+     * the stable HTTP status (more robust than the body code). The UI resolves the code to text.
      */
-    private fun germanAttachmentUploadError(e: HttpException): String = when (e.code()) {
-        413 -> "Datei ist zu groß (max. 10 MB)."
-        415 -> "Dateityp nicht erlaubt (PDF, Text, Office …)."
-        else -> "Upload fehlgeschlagen."
+    private fun attachmentUploadError(e: HttpException): AppError = when (e.code()) {
+        413 -> AppError.ATTACHMENT_TOO_LARGE
+        415 -> AppError.ATTACHMENT_TYPE
+        else -> AppError.ATTACHMENT_UPLOAD_FAILED
     }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)
