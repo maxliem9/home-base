@@ -124,13 +124,13 @@ jobs:
     # green with nothing built); on a real cancel the job still stops.
     if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
-    # The unit suite builds its schema from Exposed via SchemaUtils on H2, bypassing Flyway
-    # and the Postgres-specific types entirely — which is exactly how three schema/code-drift
-    # bugs reached production (a fresh DB couldn't migrate, and todo writes 500'd; see the
-    # V2/V7/V10 migrations). MigrationIntegrationTest runs the real migrations against this
-    # throwaway Postgres and exercises the writes H2 can't, so that class of drift fails CI
-    # instead of the NAS. It lives in the same suite (gated on a Postgres DB_URL), so a single
-    # `gradle test` covers both layers — no second JDK/Gradle setup or recompile for it.
+    # Test-DB-Landschaft (#555): Die ROUTEN-Tests laufen über Testcontainers gegen ein echtes
+    # Postgres 16 (der ubuntu-Runner stellt Docker; Testcontainers autodetektiert den Socket) — sie
+    # sehen also das echte Flyway-Schema statt einer abweichenden H2. Nur die isolierten Service-/
+    # Logik-Unit-Tests nutzen weiterhin eine eigene minimale H2. MigrationIntegrationTest läuft
+    # zusätzlich (DB_URL-gated) gegen den unten deklarierten Postgres-SERVICE-Container und übt den
+    # kalten Migrations-/Deploy-Pfad, den früher drei Schema/Code-Drift-Bugs in die Produktion
+    # brachten (V2/V7/V10). Ein einziges `gradle test` deckt alle Schichten ab.
     services:
       postgres:
         image: postgres:16
@@ -159,11 +159,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      # One run, both layers. The unit tests use their own hardcoded H2 (TestHelpers builds a
-      # MapApplicationConfig and bypasses DatabaseFactory, so DB_URL is irrelevant to them),
-      # while MigrationIntegrationTest reads DB_URL from the env and migrates the real Postgres
-      # service. Pointing DB_URL at the service is what makes the migration IT execute here
-      # instead of self-skipping; the verify step below fails the job if it ever doesn't.
+      # One run, all layers. Route tests spin their own Testcontainers Postgres (DB_URL irrelevant to
+      # them); the isolated service tests use their own H2; MigrationIntegrationTest reads DB_URL and
+      # migrates the real Postgres service. Pointing DB_URL at the service is what makes the migration
+      # IT execute here instead of self-skipping; the verify step below fails the job if it ever doesn't.
       - name: Run tests
         working-directory: backend
         env:

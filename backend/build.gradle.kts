@@ -62,7 +62,14 @@ dependencies {
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
     testImplementation("io.ktor:ktor-client-websockets:$ktorVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.0")
+    // H2 bleibt nur noch für die isolierten Service-/Logik-Unit-Tests (TodoServiceTest,
+    // TimeServiceTest … — je eine minimale SchemaUtils-Schema). Die ROUTEN-Tests laufen über
+    // TestDatabase gegen echtes Postgres (#555), damit die Prod-Handler nicht mehr gegen ein von
+    // H2 abweichendes Schema getestet werden (Hand-Kaskaden, CHECKs, REPEATABLE_READ).
     testImplementation("com.h2database:h2:2.2.224")
+    // Testcontainers-Postgres für die Routen-Test-Suite (#555). Ein geteilter Container für die
+    // ganze Suite (siehe TestDatabase) — braucht eine laufende Docker-Engine lokal wie in CI.
+    testImplementation("org.testcontainers:postgresql:1.20.4")
     testImplementation("io.mockk:mockk:1.13.10")
 }
 

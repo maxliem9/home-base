@@ -1,55 +1,21 @@
 package com.homebase
 
-import com.homebase.db.AbsSettingsTable
-import com.homebase.db.AbsencesTable
-import com.homebase.db.AppSettingsTable
-import com.homebase.db.CalendarEventsTable
-import com.homebase.db.CustomHolidaysTable
-import com.homebase.db.IngredientsTable
-import com.homebase.db.KitaClosuresTable
-import com.homebase.db.MealPlanEntriesTable
-import com.homebase.db.NoteAttachmentsTable
-import com.homebase.db.NoteImagesTable
-import com.homebase.db.NotesTable
-import com.homebase.db.PartTimeRulesTable
-import com.homebase.db.ProjectsTable
-import com.homebase.db.PushSubscriptionsTable
-import com.homebase.db.RecipeImagesTable
-import com.homebase.db.RecipeStepsTable
-import com.homebase.db.RecipesTable
-import com.homebase.db.ShoppingCategoriesTable
-import com.homebase.db.ShoppingCategoryRulesTable
-import com.homebase.db.ShoppingItemStatsTable
-import com.homebase.db.ShoppingItemsTable
-import com.homebase.db.ShoppingListsTable
-import com.homebase.db.ShoppingTemplateItemsTable
-import com.homebase.db.ShoppingTemplatesTable
-import com.homebase.db.TimeEntriesTable
-import com.homebase.db.TimeWorkTargetsTable
-import com.homebase.db.TodoAssigneesTable
-import com.homebase.db.TodoListsTable
-import com.homebase.db.TodoSubtasksTable
-import com.homebase.db.TodosTable
-import com.homebase.db.UserPrefsTable
-import com.homebase.db.UsersTable
 import com.homebase.plugins.*
-import com.homebase.security.Passwords
-import com.homebase.shopping.ShoppingCatalog
 import io.ktor.server.config.*
 import io.ktor.server.testing.*
-import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.SchemaUtils
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Instant
-import java.util.UUID
 
 /**
- * Configures a test Ktor application with an H2 in-memory database and seeded users.
- * Bypasses DatabaseFactory (which requires a running PostgreSQL instance) and Flyway
- * (which uses Postgres-specific SQL). Tables are created via Exposed SchemaUtils.
+ * Configures a test Ktor application against the shared Testcontainers PostgreSQL ([TestDatabase])
+ * and seeds the baseline state (2 fixed users + editable shopping-category catalog).
+ *
+ * The schema comes from the real Flyway migrations — the same one production deploys against —
+ * instead of the old per-test H2 + Exposed SchemaUtils build, which silently diverged from prod
+ * (missing FK cascades, CHECK constraints, partial unique indexes; only approximate isolation).
+ * One shared container serves the whole suite; each test resets the data via TRUNCATE + re-seed
+ * (see [TestDatabase.reset]) rather than standing a new DB up.
  *
  * [extraConfig] appends/overrides config entries for tests that exercise optional
  * settings (e.g. "app.domain" for the CORS origin pinning).
@@ -58,6 +24,8 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
     // Each test gets its own throwaway upload directory; a low size cap keeps the
     // "too large" test cheap (just over 1 MB rather than just over 10 MB).
     val uploadDir = Files.createTempDirectory("homebase-test-uploads")
+    // Fresh data + seed on the shared Postgres before the app handles any request.
+    TestDatabase.reset()
     environment {
         config = MapApplicationConfig(
             "jwt.secret" to "test-secret-key-for-testing-only",
@@ -70,39 +38,15 @@ fun ApplicationTestBuilder.configureTestApplication(vararg extraConfig: Pair<Str
         )
     }
     application {
-        Database.connect(
-            url = "jdbc:h2:mem:homebase_test_${System.nanoTime()};DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-            driver = "org.h2.Driver",
-        )
-        transaction {
-            SchemaUtils.create(
-                AppSettingsTable, UserPrefsTable,
-                UsersTable, TodoListsTable, TodosTable, TodoSubtasksTable, TodoAssigneesTable, ShoppingListsTable, ShoppingItemsTable,
-                ShoppingItemStatsTable, ShoppingCategoriesTable, ShoppingCategoryRulesTable, ShoppingTemplatesTable, ShoppingTemplateItemsTable,
-                NotesTable, NoteImagesTable, NoteAttachmentsTable,
-                ProjectsTable, TimeEntriesTable, TimeWorkTargetsTable,
-                RecipesTable, IngredientsTable, RecipeStepsTable, RecipeImagesTable,
-                MealPlanEntriesTable,
-                AbsencesTable, PartTimeRulesTable, KitaClosuresTable, CustomHolidaysTable, AbsSettingsTable,
-                CalendarEventsTable,
-                PushSubscriptionsTable,
-            )
-            UsersTable.insert {
-                it[id] = UUID.fromString("00000000-0000-0000-0000-000000000001")
-                it[username] = "alice"
-                it[passwordHash] = Passwords.hash("password123")
-                it[createdAt] = Instant.now()
-            }
-            UsersTable.insert {
-                it[id] = UUID.fromString("00000000-0000-0000-0000-000000000002")
-                it[username] = "bob"
-                it[passwordHash] = Passwords.hash("password456")
-                it[createdAt] = Instant.now()
-            }
+        // Re-assert Postgres as the current Exposed DB for this app's handlers (last-connect-wins),
+        // in case an interleaved H2 service test made its own DB current after reset() ran.
+        TestDatabase.useAsCurrent()
+        // Fail loudly if this app would not resolve to the seeded test DB: a route test asserting an
+        // *empty* result could otherwise pass green against the wrong (empty) DB. dbQuery binds to
+        // TransactionManager.defaultDatabase, so that must be our shared Postgres now.
+        check(TransactionManager.defaultDatabase === TestDatabase.db) {
+            "Test-App ist nicht an die geteilte Postgres-Test-DB gebunden — DB-Reihenfolge verletzt"
         }
-        // Seed the editable shopping category catalog (#411) into the fresh H2 schema, mirroring the
-        // prod startup so route tests resolve/validate against real categories.
-        ShoppingCatalog.seedIfEmpty()
         configureSerialization()
         configureAuthentication(environment.config)
         configureWebSockets()
