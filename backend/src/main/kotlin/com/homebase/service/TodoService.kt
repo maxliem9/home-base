@@ -138,15 +138,9 @@ class TodoService(
         if (existing[TodoListsTable.visibility] == VISIBILITY_PRIVATE && existing[TodoListsTable.createdBy] != username) {
             return@dbQuery DeleteListResult.NotFound
         }
-        // delete the list's todos and their subtasks (mirrors ON DELETE CASCADE for the H2 test DB,
-        // which models list_id without a FK; real Postgres cascades via V7)
-        val todoIds = TodosTable.selectAll().where { TodosTable.listId eq id }
-            .map { it[TodosTable.id] }
-        if (todoIds.isNotEmpty()) {
-            TodoSubtasksTable.deleteWhere { TodoSubtasksTable.todoId inList todoIds }
-            TodoAssigneesTable.deleteWhere { TodoAssigneesTable.todoId inList todoIds }
-            TodosTable.deleteWhere { TodosTable.listId eq id }
-        }
+        // Deleting the list cascades in the DB (#599): todos.list_id → todo_lists ON DELETE CASCADE (V7),
+        // and that in turn cascades todo_subtasks.todo_id (V10) + todo_assignees.todo_id (V39). The route
+        // tests run on real Postgres now (#555), so the FK chain fires — no hand-rolled cascade needed.
         TodoListsTable.deleteWhere { TodoListsTable.id eq id }
         DeleteListResult.Ok(existing.toListDto())
     }

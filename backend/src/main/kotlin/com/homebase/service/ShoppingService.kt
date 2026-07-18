@@ -64,9 +64,10 @@ class ShoppingService {
     suspend fun deleteList(id: UUID): ShoppingListDto? = dbQuery {
         val existing = ShoppingListsTable.selectAll().where { ShoppingListsTable.id eq id }.singleOrNull()
             ?: return@dbQuery null
-        // explicit cascade (mirrors ON DELETE CASCADE for the H2 test DB)
-        ShoppingItemsTable.deleteWhere { ShoppingItemsTable.listId eq id }
-        ShoppingCategoriesTable.deleteWhere { ShoppingCategoriesTable.listId eq id } // #412: own categories
+        // items (V3) and own categories (V41) both reference shopping_lists(id) ON DELETE CASCADE, so
+        // deleting the list drops them in the DB (#599; route tests run on real Postgres now, #555).
+        // The list_scope cleanups below stay: list_scope is a plain UUID column with an all-zeros
+        // "shared" sentinel (V42/V43), NOT a foreign key, so nothing cascades those own-scope rows.
         ShoppingItemStatsTable.deleteWhere { ShoppingItemStatsTable.listScope eq id } // #501: own-scope usage stats (shared-scope rows stay)
         ShoppingCategoryRulesTable.deleteWhere { ShoppingCategoryRulesTable.listScope eq id } // #501: own-scope rules (shared dictionary stays)
         ShoppingListsTable.deleteWhere { ShoppingListsTable.id eq id }
