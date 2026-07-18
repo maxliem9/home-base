@@ -301,20 +301,20 @@ class TodoService(
             // capture the pre-update visibility so the broadcast can translate transitions
             val wasShared = listIsShared(existing[TodosTable.listId])
             val nextStatus = req.status ?: existing[TodosTable.status]
-            // optional text fields follow the listId convention (#265): null = unchanged,
-            // "" = clear to null, else set. `if present, blank->null` captures all three.
-            val nextDescription = if (req.description != null) req.description.ifBlank { null } else existing[TodosTable.description]
+            // Optional text fields follow the #265 tri-state String convention (null=keep, ""=clear,
+            // else set), now expressed by Patch<T>/asPatch() instead of a hand-rolled if per field.
+            val nextDescription = req.description.asPatch().resolve(existing[TodosTable.description])
             // assignees (V39): null = unchanged (keep the current set), [] = clear, non-empty = replace
             val nextAssignees = if (req.assignees != null) normalizeAssignees(req.assignees) else loadTodoAssignees(id)
-            val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
+            val nextDueDate = req.dueDate.asPatch().resolve(existing[TodosTable.dueDate]?.toString())
             // due_time follows the #265 string convention; reminder uses negative = clear. Both
             // are meaningless without a date, so clearing the date cascades them to null (also
             // keeps the DB CHECKs satisfied).
-            val rawNextDueTime = if (req.dueTime != null) req.dueTime.ifBlank { null } else existing[TodosTable.dueTime]?.toString()
+            val rawNextDueTime = req.dueTime.asPatch().resolve(existing[TodosTable.dueTime]?.toString())
             val rawNextReminder = if (req.reminderLeadMinutes != null) req.reminderLeadMinutes.takeIf { it >= 0 } else existing[TodosTable.reminderLeadMinutes]
             val nextDueTime = if (nextDueDate == null) null else rawNextDueTime
             val nextReminderLead = if (nextDueDate == null) null else rawNextReminder
-            val nextPriority = if (req.priority != null) req.priority.ifBlank { null } else existing[TodosTable.priority]
+            val nextPriority = req.priority.asPatch().resolve(existing[TodosTable.priority])
             // merge the recurrence rule: absent = unchanged, freq "NONE" = clear, else set/replace
             val (nextRecFreq, nextRecInterval) = when {
                 req.recurrence == null -> existing[TodosTable.recurrence] to existing[TodosTable.recurrenceInterval]
