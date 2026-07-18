@@ -150,9 +150,13 @@ das Recurring-Safety-Net läuft immer — es braucht keine externen Credentials.
 `WsSessionManager` (Session-Registry), `LoginThrottler` (IP-Buckets) und die Scheduler leben im
 Prozess-Speicher. Eine zweite Replika würde **still** kaputtgehen: Sync-Events erreichten nur die
 „eigenen“ Sessions, das Login-Throttling verwässerte, Digests/Reminder kämen doppelt.
-`docker-compose.yml` betreibt deshalb bewusst genau einen `backend`-Container — **nicht** skalieren.
+`docker-compose.yml` betreibt deshalb bewusst genau einen `backend`-Container — **nicht** skalieren
+(Betriebs-Invariante auch in [DEPLOYMENT.md](DEPLOYMENT.md#6-start-the-stack-container-manager)).
 Falls je nötig: WS-Fanout über Redis/pg `NOTIFY`, Throttler-State in die DB, Scheduler mit
-Leader-Election (→ Issue #557, dort auch die Broadcast-Härtung).
+Leader-Election. Der Single-Node-Fall selbst ist gehärtet (#557): der `WsSessionManager`-Broadcast
+sendet pro Session **parallel mit Timeout** und wirft erkennbar tote Sessions sofort raus (statt
+seriell zu blockieren, bis der Ping-Timeout greift); `maxFrameSize` ist auf 64 KiB begrenzt (Clients
+senden nur Close/Pong). `LoginThrottler` bleibt bewusst In-Memory (Restart vergisst Lockouts).
 
 ## Serialisierung (Verweis)
 

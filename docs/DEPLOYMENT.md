@@ -249,6 +249,17 @@ stack itself only listens on `localhost:3000`.
 >   backend -R 10001:10001 /data/uploads
 > ```
 
+> **Operational invariant — run exactly ONE backend (#557).** The backend is deliberately
+> **single-instance**: the WebSocket session registry (`WsSessionManager`), the login throttler
+> (`LoginThrottler`, IP buckets) and the schedulers (Digest / Reminder / Recurring) all live in
+> **process memory**. A second replica would break **silently** — sync events would reach only the
+> sessions on the replica that broadcast them, login throttling would be diluted across instances, and
+> digests/reminders would fire twice. So **do not** run `docker compose up --scale backend=N`, add a
+> second `backend` service, or put the backend behind a load balancer with more than one upstream.
+> `docker-compose.yml` ships one `backend` on purpose. A future scale-out would first have to move the
+> WS fan-out to a shared bus (Redis pub/sub or Postgres `LISTEN`/`NOTIFY`), the throttler state into the
+> DB, and give the schedulers leader-election. Full rationale: [architecture.md → single-instance](architecture.md#single-instance).
+
 ---
 
 ## 7. FRITZ!Box: DynDNS + port forwarding
