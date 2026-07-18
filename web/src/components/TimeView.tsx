@@ -1040,7 +1040,10 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
     () =>
       entries
         .filter((e) => e.projectId === project.id && e.stoppedAt)
-        .sort((a, b) => (b.stoppedAt ?? '').localeCompare(a.stoppedAt ?? '')),
+        // Sort by startedAt (like the main "recent" list) so the day separators stay in
+        // chronological order under groupByDay's startedAt bucketing (#544) — a cross-midnight
+        // entry sorted by stoppedAt could otherwise push its (earlier) start-day group out of order.
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
     [entries, project.id],
   )
 
