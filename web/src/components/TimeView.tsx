@@ -7,6 +7,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
+import { groupByDay } from './timeGrouping'
 import { liveSecondsSinceSnapshot } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -946,27 +947,6 @@ function PartnerTimer({ user, running, projectsById, nowMs, projects, eta, onSto
       )}
     </Card>
   )
-}
-
-// Group stopped entries (already sorted newest-first) into day buckets with a
-// separator label and per-day total.
-function groupByDay(entries: TimeEntry[]) {
-  const groups: { key: string; label: string; seconds: number; entries: TimeEntry[] }[] = []
-  const map = new Map<string, (typeof groups)[number]>()
-  for (const e of entries) {
-    const iso = e.stoppedAt ?? e.startedAt
-    const d = new Date(iso)
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-    let g = map.get(key)
-    if (!g) {
-      g = { key, label: dayGroupLabel(iso), seconds: 0, entries: [] }
-      map.set(key, g)
-      groups.push(g)
-    }
-    g.entries.push(e)
-    g.seconds += e.durationSeconds ?? 0
-  }
-  return groups
 }
 
 // Actions are offered on every entry — also the partner's (the household manages
