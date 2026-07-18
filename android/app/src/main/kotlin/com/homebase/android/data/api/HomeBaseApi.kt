@@ -76,8 +76,10 @@ interface HomeBaseApi {
 
     // --- Todos ---
 
+    // Optional server-side "Erledigt"-window (#591/#559): `doneSince=YYYY-MM-DD` drops DONE todos
+    // completed before that day server-side (open todos always come back). Null = full history.
     @GET("todos")
-    suspend fun getTodos(): List<TodoDto>
+    suspend fun getTodos(@Query("doneSince") doneSince: String? = null): List<TodoDto>
 
     @POST("todos")
     suspend fun createTodo(@Body request: CreateTodoRequest): TodoDto

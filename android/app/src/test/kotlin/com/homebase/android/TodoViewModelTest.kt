@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.*
+import java.time.LocalDate
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -98,7 +99,7 @@ class TodoViewModelTest {
 
     @Test
     fun `initial load populates todos`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo()))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo()))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -110,7 +111,7 @@ class TodoViewModelTest {
 
     @Test
     fun `initial load failure sets error`() = runTest {
-        coEvery { repository.getTodos() } returns Result.failure(RuntimeException("Network error"))
+        coEvery { repository.getTodos(any()) } returns Result.failure(RuntimeException("Network error"))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -121,7 +122,7 @@ class TodoViewModelTest {
 
     @Test
     fun `addTodo prepends new todo to list`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         val newTodo = todo(id = "2", title = "Buy milk")
         coEvery { repository.createTodo(CreateTodoRequest("Buy milk")) } returns Result.success(newTodo)
 
@@ -137,7 +138,7 @@ class TodoViewModelTest {
 
     @Test
     fun `addTodo with blank title does nothing`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
@@ -153,7 +154,7 @@ class TodoViewModelTest {
     fun `toggleDone marks an open todo done`() = runTest {
         val original = todo(id = "1", status = "INBOX")
         val updated = original.copy(status = "DONE")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
         coEvery { repository.updateTodo("1", UpdateTodoRequest(status = "DONE")) } returns Result.success(updated)
 
         val vm = createVm()
@@ -167,7 +168,7 @@ class TodoViewModelTest {
 
     @Test
     fun `deleteTodo removes it from list`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1")))
         coEvery { repository.deleteTodo("1") } returns Result.success(Unit)
 
         val vm = createVm()
@@ -181,7 +182,7 @@ class TodoViewModelTest {
 
     @Test
     fun `clearError removes error from state`() = runTest {
-        coEvery { repository.getTodos() } returns Result.failure(RuntimeException("oops"))
+        coEvery { repository.getTodos(any()) } returns Result.failure(RuntimeException("oops"))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -195,7 +196,7 @@ class TodoViewModelTest {
 
     @Test
     fun `addTodo failure sets the global error`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Quick-add kaputt"))
 
         val vm = createVm()
@@ -210,7 +211,7 @@ class TodoViewModelTest {
     @Test
     fun `toggleDone failure sets the global error`() = runTest {
         val original = todo(id = "1", status = "INBOX")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
         coEvery { repository.updateTodo("1", any()) } returns Result.failure(RuntimeException("Abhaken kaputt"))
 
         val vm = createVm()
@@ -224,7 +225,7 @@ class TodoViewModelTest {
 
     @Test
     fun `deleteTodo failure sets the global error`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1")))
         coEvery { repository.deleteTodo("1") } returns Result.failure(RuntimeException("Löschen kaputt"))
 
         val vm = createVm()
@@ -238,7 +239,7 @@ class TodoViewModelTest {
 
     @Test
     fun `subtask mutation failure sets the global error`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1")))
         coEvery { repository.addSubtask("1", "Sub") } returns Result.failure(RuntimeException("Subtask kaputt"))
 
         val vm = createVm()
@@ -255,7 +256,7 @@ class TodoViewModelTest {
 
     @Test
     fun `createTodo failure returns the message without setting the global error`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Sheet kaputt"))
 
         val vm = createVm()
@@ -270,7 +271,7 @@ class TodoViewModelTest {
     @Test
     fun `saveTodo failure returns the message without setting the global error`() = runTest {
         val original = todo(id = "1", status = "INBOX")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
         coEvery { repository.updateTodo("1", any()) } returns Result.failure(RuntimeException("Sheet-Save kaputt"))
 
         val vm = createVm()
@@ -287,7 +288,7 @@ class TodoViewModelTest {
     @Test
     fun `inbox shows status-INBOX todos from lists plus all list-less todos`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(
+        coEvery { repository.getTodos(any()) } returns Result.success(
             listOf(
                 todo(id = "1", status = "INBOX", listId = "a"), // unplanned list todo → in the inbox
                 todo(id = "2", status = "PLANNED", listId = "a"), // planned list todo → not in the inbox
@@ -309,7 +310,7 @@ class TodoViewModelTest {
     @Test
     fun `inbox badge counts only status-INBOX todos`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(
+        coEvery { repository.getTodos(any()) } returns Result.success(
             listOf(
                 todo(id = "1", status = "INBOX", listId = "a"), // counts although it sits in a list
                 todo(id = "2", status = "INBOX"),
@@ -325,7 +326,7 @@ class TodoViewModelTest {
 
     @Test
     fun `inbox is the default tab when no lists exist`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1")))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -339,7 +340,7 @@ class TodoViewModelTest {
     @Test
     fun `first list is the default tab and no longer surfaces list-less todos`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(
+        coEvery { repository.getTodos(any()) } returns Result.success(
             listOf(
                 todo(id = "1", listId = "a"),
                 todo(id = "2"), // list-less → only reachable via the inbox tab now
@@ -358,7 +359,7 @@ class TodoViewModelTest {
     @Test
     fun `addTodo in the inbox tab posts without listId`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "2", title = "Neu"))
 
         val vm = createVm()
@@ -374,7 +375,7 @@ class TodoViewModelTest {
     @Test
     fun `addTodo in a list tab posts with that listId`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "2", title = "Neu", listId = "a"))
 
         val vm = createVm()
@@ -391,7 +392,7 @@ class TodoViewModelTest {
     @Test
     fun `addPlannedTodo sends the Details fields in one create and returns true`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         val created = todo(id = "2", title = "Steuer", status = "PLANNED", listId = "a", dueDate = "2026-07-01")
         coEvery { repository.createTodo(any()) } returns Result.success(created)
 
@@ -422,7 +423,7 @@ class TodoViewModelTest {
 
     @Test
     fun `addPlannedTodo blank or empty Details collapse to a title-only inbox create`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "2", title = "Neu"))
 
         val vm = createVm()
@@ -437,7 +438,7 @@ class TodoViewModelTest {
 
     @Test
     fun `addPlannedTodo failure surfaces the global error and returns false`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.failure(RuntimeException("Quick-add kaputt"))
 
         val vm = createVm()
@@ -454,7 +455,7 @@ class TodoViewModelTest {
     @Test
     fun `moving a todo to another list sends the picked listId`() = runTest {
         val existing = todo(id = "1", listId = "a")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val slot = slot<UpdateTodoRequest>()
         coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(listId = "b")) }
         val vm = createVm()
@@ -471,7 +472,7 @@ class TodoViewModelTest {
     @Test
     fun `moving a listed todo to the inbox clears listId with an empty string`() = runTest {
         val existing = todo(id = "1", listId = "a")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val slot = slot<UpdateTodoRequest>()
         coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(listId = null)) }
         val vm = createVm()
@@ -489,7 +490,7 @@ class TodoViewModelTest {
         // The picker stays on the open-time list ⇒ listId is omitted, so a concurrent partner move
         // isn't clobbered by a later unrelated auto-save (#509, web's listIdOriginal guard).
         val existing = todo(id = "1", title = "Old", listId = "a")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val slot = slot<UpdateTodoRequest>()
         coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers { Result.success(existing.copy(title = "New")) }
         val vm = createVm()
@@ -507,7 +508,7 @@ class TodoViewModelTest {
     fun `moving a list-less todo into a list removes it from the inbox`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
         val existing = todo(id = "1", status = "INBOX") // list-less ⇒ shown in the inbox
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         coEvery { repository.updateTodo("1", any()) } returns
             Result.success(existing.copy(status = "PLANNED", assignees = listOf("alice"), listId = "a"))
         val vm = createVm()
@@ -525,7 +526,7 @@ class TodoViewModelTest {
 
     @Test
     fun `WS TodoCreated event adds todo`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
@@ -541,7 +542,7 @@ class TodoViewModelTest {
     @Test
     fun `WS TodoCreated event does not add duplicate`() = runTest {
         val existing = todo(id = "1")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -555,7 +556,7 @@ class TodoViewModelTest {
     @Test
     fun `WS TodoUpdated event updates todo in place`() = runTest {
         val original = todo(id = "1", title = "Old")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -569,7 +570,7 @@ class TodoViewModelTest {
     @Test
     fun `WS TodoDeleted event removes todo`() = runTest {
         val original = todo(id = "1")
-        coEvery { repository.getTodos() } returns Result.success(listOf(original))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -584,14 +585,14 @@ class TodoViewModelTest {
 
     @Test
     fun `WS reconnect refetches lists and todos`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
         // load() fetched once; the first onConnected re-sync overlaps it (cheap), so allow >=2.
-        coVerify(atLeast = 1) { repository.getTodos() }
+        coVerify(atLeast = 1) { repository.getTodos(any()) }
 
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "remote", title = "Von Web")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "remote", title = "Von Web")))
         fireWsReconnect()
         advanceUntilIdle()
 
@@ -601,7 +602,7 @@ class TodoViewModelTest {
 
     @Test
     fun `WS reconnect re-sync keeps existing todos on a transient failure`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1", title = "Da")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1", title = "Da")))
 
         val vm = createVm()
         advanceUntilIdle()
@@ -609,7 +610,7 @@ class TodoViewModelTest {
 
         // Socket reconnects but the refetch fails (still flaky) — must not blank the list or error.
         coEvery { repository.getLists() } returns Result.failure(RuntimeException("down"))
-        coEvery { repository.getTodos() } returns Result.failure(RuntimeException("down"))
+        coEvery { repository.getTodos(any()) } returns Result.failure(RuntimeException("down"))
         fireWsReconnect()
         advanceUntilIdle()
 
@@ -619,12 +620,12 @@ class TodoViewModelTest {
 
     @Test
     fun `ensureConnected reconnects and re-syncs from the server`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
 
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "bg", title = "Im Hintergrund")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "bg", title = "Im Hintergrund")))
         vm.ensureConnected()
         advanceUntilIdle()
 
@@ -635,12 +636,12 @@ class TodoViewModelTest {
 
     @Test
     fun `refresh refetches without ever setting the loading flag`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
 
         val vm = createVm()
         advanceUntilIdle()
 
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "r", title = "Neu")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "r", title = "Neu")))
         vm.refresh()
         advanceUntilIdle()
 
@@ -650,7 +651,7 @@ class TodoViewModelTest {
 
     @Test
     fun `VM registers a reconnect callback on construction`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         createVm()
         advanceUntilIdle()
 
@@ -684,7 +685,7 @@ class TodoViewModelTest {
 
     private fun smartVm(): TodoViewModel {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a"), list("b")))
-        coEvery { repository.getTodos() } returns Result.success(smartTodos())
+        coEvery { repository.getTodos(any()) } returns Result.success(smartTodos())
         return createVm()
     }
 
@@ -762,7 +763,7 @@ class TodoViewModelTest {
     @Test
     fun `Erledigt tab includes a done todo from inside the window but before today`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(
+        coEvery { repository.getTodos(any()) } returns Result.success(
             listOf(
                 todo(id = "recent", status = "DONE", listId = "a", doneAt = doneInstant(2)), // 2 days ago, in-window
                 todo(id = "old", status = "DONE", listId = "a", doneAt = doneInstant((DONE_WINDOW_DAYS + 1).toLong())),
@@ -793,7 +794,7 @@ class TodoViewModelTest {
     @Test
     fun `a smart tab stays active even when there are no lists`() = runTest {
         // No lists → Inbox is normally the default, but an explicit smart tab must win (deep-link).
-        coEvery { repository.getTodos() } returns Result.success(
+        coEvery { repository.getTodos(any()) } returns Result.success(
             listOf(todo(id = "t", status = "PLANNED", dueDate = todayIso)),
         )
         val vm = createVm()
@@ -856,7 +857,7 @@ class TodoViewModelTest {
     @Test
     fun `editing an existing todo auto-saves after the debounce`() = runTest {
         val existing = todo(id = "1", title = "Old", status = "INBOX")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val slot = slot<UpdateTodoRequest>()
         coEvery { repository.updateTodo(eq("1"), capture(slot)) } answers {
             Result.success(existing.copy(title = slot.captured.title ?: existing.title))
@@ -882,7 +883,7 @@ class TodoViewModelTest {
     @Test
     fun `editing to a blank title holds the auto-save`() = runTest {
         val existing = todo(id = "1", title = "Old", status = "INBOX")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val vm = createVm()
         advanceUntilIdle()
 
@@ -899,7 +900,7 @@ class TodoViewModelTest {
         // Legacy value with seconds; the sheet pushes the normalized "HH:mm" for the same time, so the
         // baseline must normalize too (else opening alone would look dirty and auto-save — the fix).
         val existing = todo(id = "1", title = "T", status = "PLANNED", dueDate = "2026-07-10").copy(dueTime = "14:30:00")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         val vm = createVm()
         advanceUntilIdle()
 
@@ -912,7 +913,7 @@ class TodoViewModelTest {
 
     @Test
     fun `createTodoFromDraft creates the todo with all fields (never auto-created)`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         val slot = slot<CreateTodoRequest>()
         coEvery { repository.createTodo(capture(slot)) } answers {
             Result.success(todo(id = "c1", title = slot.captured.title))
@@ -936,7 +937,7 @@ class TodoViewModelTest {
     @Test
     fun `closeTodoEditor flushes the last edit without waiting for the debounce`() = runTest {
         val existing = todo(id = "e1", title = "Old", status = "INBOX")
-        coEvery { repository.getTodos() } returns Result.success(listOf(existing))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(existing))
         coEvery { repository.updateTodo(eq("e1"), any()) } returns Result.success(existing.copy(title = "New"))
         val vm = createVm()
         advanceUntilIdle()
@@ -953,7 +954,7 @@ class TodoViewModelTest {
 
     @Test
     fun `discardTodoEditor deletes an already-created todo`() = runTest {
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.deleteTodo("x1") } returns Result.success(Unit)
         val vm = createVm()
         advanceUntilIdle()
@@ -972,7 +973,7 @@ class TodoViewModelTest {
     fun `cold start with no connection seeds the cached lists and todos`() = runTest {
         // The fetch fails (no signal) but a previous session cached the screen.
         coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
-        coEvery { repository.getTodos() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getTodos(any()) } returns Result.failure(java.io.IOException("offline"))
         val cache = FakeSnapshotStore(
             TodoSnapshot(lists = listOf(list("a")), todos = listOf(todo(id = "1", title = "Milch kaufen"))),
         )
@@ -991,7 +992,7 @@ class TodoViewModelTest {
     fun `a successful fetch wins over the cached snapshot`() = runTest {
         // Cache holds a stale todo; the server returns fresh data — the fresh data must win.
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "2", title = "Frisch", listId = "a")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "2", title = "Frisch", listId = "a")))
         val cache = FakeSnapshotStore(TodoSnapshot(todos = listOf(todo(id = "1", title = "STALE", listId = "a"))))
 
         val vm = createVm(snapshotStore = cache)
@@ -1003,7 +1004,7 @@ class TodoViewModelTest {
     @Test
     fun `a successful load is mirrored into the cache`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(listOf(todo(id = "1", title = "Milch", listId = "a")))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(todo(id = "1", title = "Milch", listId = "a")))
         val cache = FakeSnapshotStore()
 
         val vm = createVm(snapshotStore = cache)
@@ -1016,7 +1017,7 @@ class TodoViewModelTest {
     @Test
     fun `an optimistic add is mirrored into the cache`() = runTest {
         coEvery { repository.getLists() } returns Result.success(listOf(list("a")))
-        coEvery { repository.getTodos() } returns Result.success(emptyList())
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
         coEvery { repository.createTodo(any()) } returns Result.success(todo(id = "9", title = "Brot", listId = "a"))
         val cache = FakeSnapshotStore()
 
@@ -1032,7 +1033,7 @@ class TodoViewModelTest {
     @Test
     fun `an offline cold start does not overwrite the cache with an empty snapshot`() = runTest {
         coEvery { repository.getLists() } returns Result.failure(java.io.IOException("offline"))
-        coEvery { repository.getTodos() } returns Result.failure(java.io.IOException("offline"))
+        coEvery { repository.getTodos(any()) } returns Result.failure(java.io.IOException("offline"))
         val cached = TodoSnapshot(lists = listOf(list("a")), todos = listOf(todo(id = "1")))
         val cache = FakeSnapshotStore(cached)
 
@@ -1041,5 +1042,53 @@ class TodoViewModelTest {
 
         assertEquals("cache survives an offline launch", cached.todos.map { it.id }, cache.data?.todos?.map { it.id })
         assertEquals(cached.lists.map { it.id }, cache.data?.lists?.map { it.id })
+    }
+
+    // --- #591: server-side "Erledigt"-window (the /todos fetch carries ?doneSince=) ---
+
+    @Test
+    fun `windowed load fetches todos with the doneSince window bound`() = runTest {
+        val captured = mutableListOf<String?>()
+        coEvery { repository.getTodos(captureNullable(captured)) } returns Result.success(emptyList())
+
+        createVm()
+        advanceUntilIdle()
+
+        // Default window (14d): today minus 13 days, local ISO date — the same cutoff isDoneInWindow
+        // uses. Open todos always come back; the param only trims the DONE tail server-side.
+        val expected = LocalDate.now().minusDays((DONE_WINDOW_DAYS - 1).toLong()).toString()
+        assertTrue("expected a windowed fetch with doneSince=$expected, got $captured", captured.contains(expected))
+        assertFalse("a windowed load must not fetch the full history (null)", captured.contains(null))
+    }
+
+    @Test
+    fun `toggling Alle anzeigen refetches the full history without a window`() = runTest {
+        val captured = mutableListOf<String?>()
+        coEvery { repository.getTodos(captureNullable(captured)) } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+        captured.clear()
+
+        vm.toggleDoneShowAll()
+        advanceUntilIdle()
+
+        // "Alle anzeigen" drops the param so the server returns every DONE todo, not just the window.
+        assertEquals(listOf<String?>(null), captured.distinct())
+    }
+
+    @Test
+    fun `a wider configured window refetches with the wider doneSince bound`() = runTest {
+        coEvery { configRepository.getDoneWindow() } returns Result.success(DoneWindowConfigResponse(30))
+        val captured = mutableListOf<String?>()
+        coEvery { repository.getTodos(captureNullable(captured)) } returns Result.success(emptyList())
+
+        createVm()
+        advanceUntilIdle()
+
+        // The cold load uses the default 14d bound; once the 30d config lands the VM refetches with it,
+        // so older DONE todos in the [30d..14d) tail aren't silently capped off the Erledigt tab.
+        val wide = LocalDate.now().minusDays(29L).toString()
+        assertTrue("expected a refetch with the 30d bound $wide, got $captured", captured.contains(wide))
     }
 }

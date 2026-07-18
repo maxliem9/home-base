@@ -21,7 +21,9 @@ class TodoRepository(
 
     // --- Todos ---
 
-    suspend fun getTodos(): Result<List<TodoDto>> = apiCatching { api.getTodos() }
+    // [doneSince] (YYYY-MM-DD, #591) windows the DONE todos server-side; null loads the full history.
+    suspend fun getTodos(doneSince: String? = null): Result<List<TodoDto>> =
+        apiCatching { api.getTodos(doneSince) }
 
     // Surface the backend's ErrorResponse.code as German text instead of a raw
     // "HTTP 400/404" so the edit sheet's in-sheet failure banner is understandable
