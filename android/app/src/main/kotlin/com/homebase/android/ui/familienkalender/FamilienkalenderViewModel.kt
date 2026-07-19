@@ -112,6 +112,9 @@ class FamilienkalenderViewModel(
      * in tests → no read-cache.
      */
     private val snapshotStore: SnapshotStore<CalendarSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FamilienkalenderUiState(isLoading = true))
@@ -196,7 +199,7 @@ class FamilienkalenderViewModel(
             // Belt-and-braces against out-of-order completion: if the user navigated to a different
             // month while this was in flight, drop the result (the newer load owns the state now).
             if (!_uiState.value.monthAnchor.isEqual(anchor)) return@launch
-            val error = listOf(todos, absence, meals, events).firstNotNullOfOrNull { it.exceptionOrNull()?.message }
+            val error = listOf(todos, absence, meals, events).firstNotNullOfOrNull { it.exceptionOrNull()?.let(errorText) }
             if (error == null) hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
             _uiState.update { s ->
                 val nextTodos = todos.getOrNull() ?: s.todos

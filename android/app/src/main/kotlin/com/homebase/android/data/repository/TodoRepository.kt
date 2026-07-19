@@ -21,16 +21,18 @@ class TodoRepository(
 
     // --- Todos ---
 
-    suspend fun getTodos(): Result<List<TodoDto>> = apiCatching { api.getTodos() }
+    // [doneSince] (YYYY-MM-DD, #591) windows the DONE todos server-side; null loads the full history.
+    suspend fun getTodos(doneSince: String? = null): Result<List<TodoDto>> =
+        apiCatching { api.getTodos(doneSince) }
 
-    // Surface the backend's ErrorResponse.code as German text instead of a raw
+    // Surface the backend's ErrorResponse.code as a typed [AppError] instead of a raw
     // "HTTP 400/404" so the edit sheet's in-sheet failure banner is understandable
     // (e.g. a validation 400, or a 404 if the partner deleted the todo mid-edit).
     suspend fun createTodo(request: CreateTodoRequest): Result<TodoDto> =
-        apiCatching(mapHttpError = ::germanTodoError) { api.createTodo(request) }
+        apiCatching(mapHttpError = ::todoError) { api.createTodo(request) }
 
     suspend fun updateTodo(id: String, request: UpdateTodoRequest): Result<TodoDto> =
-        apiCatching(mapHttpError = ::germanTodoError) { api.updateTodo(id, request) }
+        apiCatching(mapHttpError = ::todoError) { api.updateTodo(id, request) }
 
     suspend fun deleteTodo(id: String): Result<Unit> =
         apiCatching { api.deleteTodo(id) }
@@ -59,19 +61,19 @@ class TodoRepository(
         apiCatching { api.deleteSubtask(todoId, subtaskId) }
 
     /**
-     * Map a failed todo create/update response to German text via its ErrorResponse.code
-     * (wording mirrors the web errors map, web/src/i18n/de.ts). Without this an HTTP 4xx/5xx
-     * would surface in the edit sheet as the raw English "HTTP 400 Bad Request".
+     * Map a failed todo create/update response to a typed [AppError] via its ErrorResponse.code.
+     * The UI resolves the code to text (strings.xml). Without this an HTTP 4xx/5xx would surface in
+     * the edit sheet as the raw English "HTTP 400 Bad Request".
      */
-    private fun germanTodoError(e: HttpException): String = when (errorCodeOf(e)) {
-        "INVALID_TODO" -> "Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben."
-        "INVALID_STATUS" -> "Ungültiger Status."
-        "INVALID_PRIORITY" -> "Ungültige Priorität."
-        "INVALID_DUE_DATE" -> "Ungültiges Fälligkeitsdatum."
-        "INVALID_RECURRENCE" -> "Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben."
-        "INVALID_ID" -> "Ungültige Liste."
-        "NOT_FOUND" -> "Aufgabe nicht gefunden – bitte neu laden."
-        else -> "Aufgabe konnte nicht gespeichert werden."
+    private fun todoError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "INVALID_TODO" -> AppError.TODO_INVALID
+        "INVALID_STATUS" -> AppError.TODO_INVALID_STATUS
+        "INVALID_PRIORITY" -> AppError.TODO_INVALID_PRIORITY
+        "INVALID_DUE_DATE" -> AppError.TODO_INVALID_DUE_DATE
+        "INVALID_RECURRENCE" -> AppError.TODO_INVALID_RECURRENCE
+        "INVALID_ID" -> AppError.TODO_INVALID_LIST
+        "NOT_FOUND" -> AppError.TODO_NOT_FOUND
+        else -> AppError.TODO_SAVE_FAILED
     }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)

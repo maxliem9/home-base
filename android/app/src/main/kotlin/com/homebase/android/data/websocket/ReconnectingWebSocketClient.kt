@@ -4,10 +4,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -48,8 +49,15 @@ abstract class ReconnectingWebSocketClient<E>(
     /** Parse one text frame into an event, or `null` to ignore it. Thrown exceptions are swallowed. */
     protected abstract fun parse(text: String): E?
 
-    private val eventChannel = Channel<E>(Channel.BUFFERED)
-    val events: Flow<E> = eventChannel.receiveAsFlow()
+    // Multi-consumer event pipe (#553): a SharedFlow fans every parsed frame out to *all* collectors, so
+    // one client can back several repositories on the same channel (Todo+Calendar, Shopping screen+
+    // settings, Recipe+MealPlan+Calendar) instead of each holding its own socket. A plain
+    // Channel.receiveAsFlow() was single-consumer — two collectors would have stolen frames from each
+    // other. replay=0 + a 64-slot buffer mirrors the old Channel.BUFFERED; a frame missed in the tiny
+    // subscribe-before-connect window is recovered by the resync-on-(re)connect (onConnected → refetch,
+    // #269). DROP_OLDEST keeps the OkHttp callback thread from ever suspending in tryEmit.
+    private val _events = MutableSharedFlow<E>(extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val events: Flow<E> = _events.asSharedFlow()
 
     /**
      * Invoked every time a socket finishes (re)connecting — a "server is reachable again" signal,
@@ -65,9 +73,16 @@ abstract class ReconnectingWebSocketClient<E>(
     private var reconnectJob: Job? = null
     private var attempt = 0
     private var closedByUs = false
+    // How many consumers currently hold this (shared, #553) client open. connect() increments,
+    // disconnect() decrements; the socket is only torn down when it hits zero.
+    private var refCount = 0
 
-    /** Open the channel for [token]. A later [disconnect] is required to stop reconnecting. */
+    /** Open the channel for [token]. A matching [disconnect] per consumer is required to stop reconnecting. */
     fun connect(token: String) = synchronized(lock) {
+        refCount++
+        // Already connected on this token by another consumer (#553): share the live socket, don't churn
+        // it. A fresh token (re-login) or a down socket falls through to a real (re)open below.
+        if (webSocket != null && this.token == token && !closedByUs) return@synchronized
         this.token = token
         closedByUs = false
         reconnectJob?.cancel()
@@ -90,8 +105,14 @@ abstract class ReconnectingWebSocketClient<E>(
         openLocked()
     }
 
-    /** Close the channel and stop reconnecting until the next [connect]. */
+    /**
+     * Release one consumer's hold on the channel (#553). Only the **last** consumer to leave actually
+     * tears the socket down and stops reconnecting, so one repository navigating away or logging out
+     * can't drop a socket another repository still needs.
+     */
     fun disconnect() = synchronized(lock) {
+        if (refCount > 0) refCount--
+        if (refCount > 0) return@synchronized
         closedByUs = true
         reconnectJob?.cancel()
         reconnectJob = null
@@ -141,7 +162,7 @@ abstract class ReconnectingWebSocketClient<E>(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            runCatching { parse(text)?.let { eventChannel.trySend(it) } }
+            runCatching { parse(text)?.let { _events.tryEmit(it) } }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = synchronized(lock) {

@@ -128,6 +128,9 @@ class ShoppingViewModel(
      * change. null in tests that don't exercise it → no read-cache (behaves exactly as before).
      */
     private val snapshotStore: SnapshotStore<ShoppingSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))
@@ -281,7 +284,7 @@ class ShoppingViewModel(
     private suspend fun syncFromServer(surfaceError: Boolean = false) {
         val listsResult = repository.getLists()
         val itemsResult = repository.getItems()
-        val error = listsResult.exceptionOrNull()?.message ?: itemsResult.exceptionOrNull()?.message
+        val error = listsResult.exceptionOrNull()?.let(errorText) ?: itemsResult.exceptionOrNull()?.let(errorText)
         if (error != null) {
             if (surfaceError) _uiState.update { it.copy(error = error) }
             return
@@ -317,7 +320,7 @@ class ShoppingViewModel(
         _uiState.update { it.copy(isLoading = true, error = null) }
         val lists = repository.getLists()
         val items = repository.getItems()
-        val error = lists.exceptionOrNull()?.message ?: items.exceptionOrNull()?.message
+        val error = lists.exceptionOrNull()?.let(errorText) ?: items.exceptionOrNull()?.let(errorText)
         if (error == null) hasServerData = true
         _uiState.update { state ->
             val nextLists = lists.getOrDefault(state.lists)
@@ -394,7 +397,7 @@ class ShoppingViewModel(
                     loadCategories()
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
+                    _uiState.update { it.copy(error = errorText(e)) }
                     syncFromServer()
                 }
         }
@@ -446,7 +449,7 @@ class ShoppingViewModel(
             } else {
                 repository.createCategory(label = label.trim(), emoji = safeEmoji, listId = listId)
             }
-            result.onSuccess { afterManageChange() }.onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            result.onSuccess { afterManageChange() }.onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -454,7 +457,7 @@ class ShoppingViewModel(
         viewModelScope.launch {
             repository.deleteCategory(key)
                 .onSuccess { afterManageChange() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -466,7 +469,7 @@ class ShoppingViewModel(
         viewModelScope.launch {
             val ra = repository.updateCategory(a.key, UpdateShoppingCategoryRequest(sortOrder = b.sortOrder))
             val rb = repository.updateCategory(b.key, UpdateShoppingCategoryRequest(sortOrder = a.sortOrder))
-            val error = ra.exceptionOrNull()?.message ?: rb.exceptionOrNull()?.message
+            val error = ra.exceptionOrNull()?.let(errorText) ?: rb.exceptionOrNull()?.let(errorText)
             if (error != null) _uiState.update { it.copy(error = error) }
             afterManageChange()
         }
@@ -506,7 +509,7 @@ class ShoppingViewModel(
                     }
                     loadManageRules()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -515,7 +518,7 @@ class ShoppingViewModel(
         viewModelScope.launch {
             repository.deleteCategoryRule(displayName, listId)
                 .onSuccess { loadManageRules() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -541,7 +544,7 @@ class ShoppingViewModel(
             val parts = ShoppingQuantity.splitQuantity(name.trim(), requireUnit = true)
             repository.createItem(parts.title, listId, parts.detail)
                 .onSuccess { upsertItem(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -561,7 +564,7 @@ class ShoppingViewModel(
             )
                 .onSuccess { upsertItem(it) }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
+                    _uiState.update { it.copy(error = errorText(e)) }
                     syncFromServer()
                 }
         }
@@ -602,7 +605,7 @@ class ShoppingViewModel(
             repository.updateItem(item.id, UpdateShoppingItemRequest(category = category))
                 .onSuccess { upsertItem(it) }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
+                    _uiState.update { it.copy(error = errorText(e)) }
                     syncFromServer()
                 }
         }
@@ -634,7 +637,7 @@ class ShoppingViewModel(
                         s.copy(lists = lists, activeListId = list.id)
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
                 .getOrNull()?.id
         }
     }
@@ -669,7 +672,7 @@ class ShoppingViewModel(
                     // Resync from the server like the web does (ShoppingView.handleDelete), then
                     // surface the error (after the reload, which clears it, so it survives).
                     reload()
-                    _uiState.update { it.copy(error = e.message) }
+                    _uiState.update { it.copy(error = errorText(e)) }
                 }
         }
     }
@@ -713,7 +716,7 @@ class ShoppingViewModel(
                     onResult(resp.added, resp.merged)
                 }
                 .onFailure { e ->
-                    _uiState.update { it.copy(error = e.message) }
+                    _uiState.update { it.copy(error = errorText(e)) }
                     onResult(0, 0)
                 }
         }
@@ -753,7 +756,7 @@ class ShoppingViewModel(
                     upsertTemplate(template)
                     onDone()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -766,7 +769,7 @@ class ShoppingViewModel(
                     upsertTemplate(template)
                     onDone()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -777,7 +780,7 @@ class ShoppingViewModel(
                     _uiState.update { s -> s.copy(templates = s.templates.filter { it.id != id }) }
                     onDone()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -816,7 +819,7 @@ class ShoppingViewModel(
                         loadCategories()
                         loadSuggestions()
                     }
-                    .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                    .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
             } finally {
                 isCreatingList = false
             }

@@ -7,6 +7,7 @@ import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
 import com.homebase.android.data.model.UserDto
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ConfigRepository
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -53,7 +54,7 @@ class ConfigRepositoryTest {
         val result = repository.updateHouseholdName("")
 
         assertTrue(result.isFailure)
-        assertEquals("Name muss 1–60 Zeichen lang sein.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.HOUSEHOLD_NAME_INVALID, result.appError())
     }
 
     // GET maps every field the digest cards drive (#189): time, the in-app on/off flag, the
@@ -112,7 +113,7 @@ class ConfigRepositoryTest {
         val result = repository.updateDigest("99:99", enabled = true, sections = emptyList())
 
         assertTrue(result.isFailure)
-        assertEquals("Ungültige Uhrzeit (Format HH:MM).", result.exceptionOrNull()?.message)
+        assertEquals(AppError.DIGEST_TIME_INVALID, result.appError())
     }
 
     @Test
@@ -168,7 +169,7 @@ class ConfigRepositoryTest {
         val result = repository.updateRecurring("99:99")
 
         assertTrue(result.isFailure)
-        assertEquals("Ungültige Uhrzeit (Format HH:MM).", result.exceptionOrNull()?.message)
+        assertEquals(AppError.DIGEST_TIME_INVALID, result.appError())
     }
 
     // Avatar-colour roster (Teil von #100): GET /users carries avatarHue; getAvatarHues

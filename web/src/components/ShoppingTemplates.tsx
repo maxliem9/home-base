@@ -86,7 +86,7 @@ export function TemplatesSheet({
       ) : (
         <div className="hb-list">
           {templates.map((tpl) => {
-            const n = tpl.items.length
+            const n = (tpl.items ?? []).length
             return (
               <div key={tpl.id} className="hb-row" style={{ padding: '11px 4px' }}>
                 <div className="hb-row__main">
@@ -145,7 +145,7 @@ function TemplateEditorSheet({
 }) {
   const { t } = useTranslation()
   const [name, setName] = useState(template?.name ?? '')
-  const [items, setItems] = useState<string[]>(template ? template.items.map((i) => i.name) : [])
+  const [items, setItems] = useState<string[]>(template ? (template.items ?? []).map((i) => i.name) : [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -247,19 +247,19 @@ export function ApplyTemplateSheet({
   onApply: (listId: string, names: string[]) => void
 }) {
   const { t } = useTranslation()
-  const [sel, setSel] = useState<boolean[]>(() => template.items.map(() => true))
+  const [sel, setSel] = useState<boolean[]>(() => (template.items ?? []).map(() => true))
   // default to the currently active list, falling back to the first one
   const [listId, setListId] = useState(
     activeListId && lists.some((l) => l.id === activeListId) ? activeListId : lists[0]?.id ?? '',
   )
   const count = sel.filter(Boolean).length
-  const total = template.items.length
+  const total = (template.items ?? []).length
   const allOn = count === total
   const toggle = (i: number) => setSel((s) => s.map((v, j) => (j === i ? !v : v)))
 
   const add = () => {
     if (!listId) return
-    const names = template.items.filter((_, i) => sel[i]).map((it) => it.name)
+    const names = (template.items ?? []).filter((_, i) => sel[i]).map((it) => it.name)
     if (names.length) onApply(listId, names)
   }
 
@@ -291,12 +291,12 @@ export function ApplyTemplateSheet({
           )}
           <div className="hb-picker-head">
             <span className="hb-muted">{count} / {total} {t('shopping.templates.selected')}</span>
-            <button className="hb-link" onClick={() => setSel(template.items.map(() => !allOn))}>
+            <button className="hb-link" onClick={() => setSel((template.items ?? []).map(() => !allOn))}>
               {allOn ? t('shopping.templates.none') : t('shopping.templates.all')}
             </button>
           </div>
           <div className="hb-picklist">
-            {template.items.map((it, i) => (
+            {(template.items ?? []).map((it, i) => (
               <div key={it.id} className="hb-ingpick" onClick={() => toggle(i)}>
                 <Checkbox checked={sel[i]} onChange={() => toggle(i)} />
                 <span className="hb-ingpick__name">{it.name}</span>

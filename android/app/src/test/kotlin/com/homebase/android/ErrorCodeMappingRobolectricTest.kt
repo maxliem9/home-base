@@ -1,10 +1,11 @@
 package com.homebase.android
 
-import android.app.Application
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.CreateTodoRequest
 import com.homebase.android.data.model.UpdateTimeEntryRequest
 import com.homebase.android.data.repository.AbsenceRepository
+import com.homebase.android.data.repository.ApiException
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
@@ -13,6 +14,7 @@ import com.homebase.android.data.websocket.AbsenceWebSocketClient
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
+import com.homebase.android.ui.errorText
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -26,31 +28,31 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import retrofit2.HttpException
 import retrofit2.Response
+import android.app.Application
 
 /**
- * Exercises the repositories' `german*Error` code→German-text maps under a *real* `org.json`
- * (issue #319). In a plain-JVM unit test `org.json.JSONObject` is the empty `android.jar` stub,
- * so [errorCodeOf] always returns null and every mapper falls into its `else` branch — meaning
- * the code-specific branches (INVALID_TEMPLATE → "Der Name darf nicht leer sein.", NOT_FOUND →
- * "… nicht gefunden – bitte neu laden.", …) were never asserted on Android. The plain-JVM repo
- * tests (e.g. ShoppingTemplateRepositoryTest, AbsenceRepositoryTest) deliberately pin that
- * fallback; this Robolectric class is the missing layer that pins the resolved per-code text.
+ * Exercises the repositories' HTTP-code → [AppError] maps under a *real* `org.json` (issue #319/#558).
+ * In a plain-JVM unit test `org.json.JSONObject` is the empty `android.jar` stub, so [errorCodeOf]
+ * always returns null and every mapper falls into its `else` branch — meaning the code-specific
+ * branches (INVALID_TEMPLATE → NAME_REQUIRED, NOT_FOUND → …) were never asserted on Android. The
+ * plain-JVM repo tests deliberately pin the fallback code; this Robolectric class is the missing layer
+ * that pins the resolved per-code result — and, crucially now, the code → `strings.xml` text mapping
+ * ([resolvesEveryCodeToItsGermanText]) that the UI layer owns after the #558 migration.
  *
  * The mappers are `private`, so each is driven through the public repository method that wires it
- * (`apiCatching(mapHttpError = ::german*Error)`): we stub the api call to throw an [HttpException]
- * carrying the `{ "code": … }` body and assert the German message on the failed [Result].
- * Mirrors the web `api.test.ts` code→text coverage.
+ * (`apiCatching(mapHttpError = ::x)`): we stub the api call to throw an [HttpException] carrying the
+ * `{ "code": … }` body and assert the [AppError] on the failed [Result].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-// Plain Application, NOT the manifest's HomeBaseApplication: the latter's onCreate builds the
-// whole AppContainer graph (incl. AuthRepository), which fires a Dispatchers.IO coroutine into the
-// Android Keystore — unavailable under Robolectric, so it throws uncaught and poisons the next
-// runTest ("uncaught exceptions before the test started"). We only need real org.json here, no app
-// graph. Same override as LogoutTeardownComposeTest.
+// Plain Application, NOT the manifest's HomeBaseApplication: the latter's onCreate builds the whole
+// AppContainer graph (incl. AuthRepository), which fires a Dispatchers.IO coroutine into the Android
+// Keystore — unavailable under Robolectric, so it throws uncaught and poisons the next runTest. We
+// only need real org.json + resources here, no app graph. Same override as LogoutTeardownComposeTest.
 @Config(sdk = [34], application = Application::class)
 class ErrorCodeMappingRobolectricTest {
 
@@ -99,149 +101,232 @@ class ErrorCodeMappingRobolectricTest {
         assertNull(errorCodeOf(rawHttpException("")))
     }
 
-    // --- TodoRepository.germanTodoError (via createTodo) ---
+    // --- TodoRepository.todoError (via createTodo) ---
 
     @Test
-    fun `germanTodoError maps every known code, unknown and missing-code to the fallback`() = runTest {
+    fun `todoError maps every known code, unknown and missing-code to the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = TodoRepository(api, relaxedTodoWs())
         val req = CreateTodoRequest(title = "Test")
         val cases = mapOf(
-            "INVALID_TODO" to "Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.",
-            "INVALID_STATUS" to "Ungültiger Status.",
-            "INVALID_PRIORITY" to "Ungültige Priorität.",
-            "INVALID_DUE_DATE" to "Ungültiges Fälligkeitsdatum.",
-            "INVALID_RECURRENCE" to "Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben.",
-            "INVALID_ID" to "Ungültige Liste.",
-            "NOT_FOUND" to "Aufgabe nicht gefunden – bitte neu laden.",
+            "INVALID_TODO" to AppError.TODO_INVALID,
+            "INVALID_STATUS" to AppError.TODO_INVALID_STATUS,
+            "INVALID_PRIORITY" to AppError.TODO_INVALID_PRIORITY,
+            "INVALID_DUE_DATE" to AppError.TODO_INVALID_DUE_DATE,
+            "INVALID_RECURRENCE" to AppError.TODO_INVALID_RECURRENCE,
+            "INVALID_ID" to AppError.TODO_INVALID_LIST,
+            "NOT_FOUND" to AppError.TODO_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.createTodo(any()) } throws httpException(code)
-            assertEquals(text, repo.createTodo(req).exceptionOrNull()?.message)
+            assertEquals(expected, repo.createTodo(req).appError())
         }
         // unknown code → fallback
         coEvery { api.createTodo(any()) } throws httpException("WAT")
-        assertEquals("Aufgabe konnte nicht gespeichert werden.", repo.createTodo(req).exceptionOrNull()?.message)
+        assertEquals(AppError.TODO_SAVE_FAILED, repo.createTodo(req).appError())
         // missing code key (errorCodeOf → null) → fallback
         coEvery { api.createTodo(any()) } throws rawHttpException("""{"message":"x"}""")
-        assertEquals("Aufgabe konnte nicht gespeichert werden.", repo.createTodo(req).exceptionOrNull()?.message)
+        assertEquals(AppError.TODO_SAVE_FAILED, repo.createTodo(req).appError())
     }
 
-    // --- TimeRepository.germanTimeError (via updateEntry) ---
+    // --- TimeRepository.timeError (via updateEntry) ---
 
     @Test
-    fun `germanTimeError maps every known code plus the fallback`() = runTest {
+    fun `timeError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = TimeRepository(api, relaxedTimeWs())
         val req = UpdateTimeEntryRequest()
         val cases = mapOf(
-            "PROJECT_ARCHIVED" to "Das Projekt ist archiviert.",
-            "INVALID_RANGE" to "Das Ende muss nach dem Start liegen.",
-            "INVALID_DATE" to "Ungültiges Datum.",
-            "NOT_FOUND" to "Eintrag nicht gefunden – bitte neu laden.",
+            "PROJECT_ARCHIVED" to AppError.TIME_PROJECT_ARCHIVED,
+            "INVALID_RANGE" to AppError.TIME_INVALID_RANGE,
+            "INVALID_DATE" to AppError.INVALID_DATE,
+            "NOT_FOUND" to AppError.TIME_ENTRY_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.updateTimeEntry("e1", any()) } throws httpException(code)
-            assertEquals(text, repo.updateEntry("e1", req).exceptionOrNull()?.message)
+            assertEquals(expected, repo.updateEntry("e1", req).appError())
         }
         coEvery { api.updateTimeEntry("e1", any()) } throws httpException("WAT")
-        assertEquals("Konnte nicht gespeichert werden.", repo.updateEntry("e1", req).exceptionOrNull()?.message)
+        assertEquals(AppError.SAVE_FAILED, repo.updateEntry("e1", req).appError())
     }
 
-    // --- TimeRepository.germanProjectError (via updateProject) ---
+    // --- TimeRepository.projectError (via updateProject) ---
 
     @Test
-    fun `germanProjectError maps every known code plus the fallback`() = runTest {
+    fun `projectError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = TimeRepository(api, relaxedTimeWs())
         val cases = mapOf(
-            "INVALID_PROJECT" to "Der Name darf nicht leer sein.",
-            "INVALID_COLOR" to "Ungültige Farbe.",
-            "NOT_FOUND" to "Projekt nicht gefunden – bitte neu laden.",
+            "INVALID_PROJECT" to AppError.NAME_REQUIRED,
+            "INVALID_COLOR" to AppError.INVALID_COLOR,
+            "NOT_FOUND" to AppError.PROJECT_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.updateProject(eq("p1"), any()) } throws httpException(code)
-            assertEquals(text, repo.updateProject("p1", "Name", "#fff").exceptionOrNull()?.message)
+            assertEquals(expected, repo.updateProject("p1", "Name", "#fff").appError())
         }
         coEvery { api.updateProject(eq("p1"), any()) } throws httpException("WAT")
-        assertEquals("Projekt konnte nicht gespeichert werden.", repo.updateProject("p1", "Name", "#fff").exceptionOrNull()?.message)
+        assertEquals(AppError.PROJECT_SAVE_FAILED, repo.updateProject("p1", "Name", "#fff").appError())
     }
 
-    // --- TimeRepository.germanSplitError (via splitEntry) ---
+    // --- TimeRepository.splitError (via splitEntry) ---
 
     @Test
-    fun `germanSplitError maps every known code plus the fallback`() = runTest {
+    fun `splitError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = TimeRepository(api, relaxedTimeWs())
         val cases = mapOf(
-            "ENTRY_RUNNING" to "Laufende Timer können nicht gesplittet werden — erst stoppen.",
-            "INVALID_RANGE" to "Das Ende muss nach dem Start liegen.",
-            "INVALID_DATE" to "Ungültiges Datum.",
-            "NOT_FOUND" to "Eintrag nicht gefunden – bitte neu laden.",
+            "ENTRY_RUNNING" to AppError.SPLIT_ENTRY_RUNNING,
+            "INVALID_RANGE" to AppError.TIME_INVALID_RANGE,
+            "INVALID_DATE" to AppError.INVALID_DATE,
+            "NOT_FOUND" to AppError.TIME_ENTRY_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.splitTimeEntry("e1", any()) } throws httpException(code)
-            assertEquals(text, repo.splitEntry("e1", "2026-01-01T12:00:00Z", null).exceptionOrNull()?.message)
+            assertEquals(expected, repo.splitEntry("e1", "2026-01-01T12:00:00Z", null).appError())
         }
         coEvery { api.splitTimeEntry("e1", any()) } throws httpException("WAT")
-        assertEquals("Eintrag konnte nicht gesplittet werden.", repo.splitEntry("e1", "2026-01-01T12:00:00Z", null).exceptionOrNull()?.message)
+        assertEquals(AppError.SPLIT_FAILED, repo.splitEntry("e1", "2026-01-01T12:00:00Z", null).appError())
     }
 
-    // --- ShoppingRepository.germanTemplateError (via createTemplate) ---
+    // --- ShoppingRepository.templateError (via createTemplate) ---
 
     @Test
-    fun `germanTemplateError maps every known code plus the fallback`() = runTest {
+    fun `templateError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = ShoppingRepository(api, relaxedShoppingWs())
         val cases = mapOf(
-            "INVALID_TEMPLATE" to "Der Name darf nicht leer sein.",
-            "NOT_FOUND" to "Vorlage nicht gefunden – bitte neu laden.",
+            "INVALID_TEMPLATE" to AppError.NAME_REQUIRED,
+            "NOT_FOUND" to AppError.TEMPLATE_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.createShoppingTemplate(any()) } throws httpException(code)
-            assertEquals(text, repo.createTemplate("Wocheneinkauf", emptyList()).exceptionOrNull()?.message)
+            assertEquals(expected, repo.createTemplate("Wocheneinkauf", emptyList()).appError())
         }
         coEvery { api.createShoppingTemplate(any()) } throws httpException("WAT")
-        assertEquals("Vorlage konnte nicht gespeichert werden.", repo.createTemplate("Wocheneinkauf", emptyList()).exceptionOrNull()?.message)
+        assertEquals(AppError.TEMPLATE_SAVE_FAILED, repo.createTemplate("Wocheneinkauf", emptyList()).appError())
     }
 
-    // --- AbsenceRepository.germanKitaError (via addKita) ---
+    // --- AbsenceRepository.kitaError (via addKita) ---
 
     @Test
-    fun `germanKitaError maps every known code plus the fallback`() = runTest {
+    fun `kitaError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = AbsenceRepository(api, relaxedAbsenceWs())
         val cases = mapOf(
-            "DATE_CONFLICT" to "Für dieses Datum gibt es schon einen Eintrag.",
-            "INVALID_DATE" to "Ungültiges Datum.",
-            "RANGE_TOO_LARGE" to "Der Zeitraum ist zu lang.",
-            "NOT_FOUND" to "Nicht gefunden – bitte neu laden.",
+            "DATE_CONFLICT" to AppError.DATE_CONFLICT,
+            "INVALID_DATE" to AppError.INVALID_DATE,
+            "RANGE_TOO_LARGE" to AppError.RANGE_TOO_LARGE,
+            "NOT_FOUND" to AppError.ABSENCE_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.createKita(any()) } throws httpException(code)
-            assertEquals(text, repo.addKita("2026-01-01", null).exceptionOrNull()?.message)
+            assertEquals(expected, repo.addKita("2026-01-01", null).appError())
         }
         coEvery { api.createKita(any()) } throws httpException("WAT")
-        assertEquals("Kita-Schließtag konnte nicht gespeichert werden.", repo.addKita("2026-01-01", null).exceptionOrNull()?.message)
+        assertEquals(AppError.KITA_SAVE_FAILED, repo.addKita("2026-01-01", null).appError())
     }
 
-    // --- AbsenceRepository.germanHolidayError (via addCustomHoliday) ---
+    // --- AbsenceRepository.holidayError (via addCustomHoliday) ---
 
     @Test
-    fun `germanHolidayError maps every known code plus the fallback`() = runTest {
+    fun `holidayError maps every known code plus the fallback`() = runTest {
         val api = mockk<HomeBaseApi>()
         val repo = AbsenceRepository(api, relaxedAbsenceWs())
         val cases = mapOf(
-            "DATE_CONFLICT" to "Für dieses Datum gibt es schon einen Eintrag.",
-            "INVALID_DATE" to "Ungültiges Datum.",
-            "NOT_FOUND" to "Nicht gefunden – bitte neu laden.",
+            "DATE_CONFLICT" to AppError.DATE_CONFLICT,
+            "INVALID_DATE" to AppError.INVALID_DATE,
+            "NOT_FOUND" to AppError.ABSENCE_NOT_FOUND,
         )
-        for ((code, text) in cases) {
+        for ((code, expected) in cases) {
             coEvery { api.createCustomHoliday(any()) } throws httpException(code)
-            assertEquals(text, repo.addCustomHoliday(12, 24, true, null).exceptionOrNull()?.message)
+            assertEquals(expected, repo.addCustomHoliday(12, 24, true, null).appError())
         }
         coEvery { api.createCustomHoliday(any()) } throws httpException("WAT")
-        assertEquals("Eigener Feiertag konnte nicht gespeichert werden.", repo.addCustomHoliday(12, 24, true, null).exceptionOrNull()?.message)
+        assertEquals(AppError.HOLIDAY_SAVE_FAILED, repo.addCustomHoliday(12, 24, true, null).appError())
+    }
+
+    // --- UI resolution: code → strings.xml (the layer that replaced the repos' German text, #558) ---
+
+    @Test
+    fun `resolves every AppError code to its German strings-xml text`() {
+        // Robolectric defaults to an English locale (→ values-en); force German so this pins the
+        // default `values/` catalog (German is the app's default). "de" has no values-de → default.
+        RuntimeEnvironment.setQualifiers("de")
+        val ctx = RuntimeEnvironment.getApplication()
+        // The full DE catalog — a wrong AppError.stringRes() wiring or a missing/renamed strings.xml
+        // entry fails here. Texts are identical to the pre-#558 hardcoded repository strings.
+        val de = mapOf(
+            AppError.NETWORK to "Keine Verbindung – bitte später erneut versuchen.",
+            AppError.GENERIC to "Serverfehler – bitte später erneut versuchen.",
+            AppError.DATE_CONFLICT to "Für dieses Datum gibt es schon einen Eintrag.",
+            AppError.INVALID_DATE to "Ungültiges Datum.",
+            AppError.INVALID_COLOR to "Ungültige Farbe.",
+            AppError.NAME_REQUIRED to "Der Name darf nicht leer sein.",
+            AppError.SAVE_FAILED to "Konnte nicht gespeichert werden.",
+            AppError.LOGIN_FAILED to "Login fehlgeschlagen.",
+            AppError.LOGIN_THROTTLED to "Zu viele Versuche – bitte später erneut versuchen.",
+            AppError.PASSWORD_WRONG to "Aktuelles Passwort ist falsch.",
+            AppError.PASSWORD_SAVE_FAILED to "Passwort konnte nicht geändert werden.",
+            AppError.TODO_INVALID to "Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.",
+            AppError.TODO_INVALID_STATUS to "Ungültiger Status.",
+            AppError.TODO_INVALID_PRIORITY to "Ungültige Priorität.",
+            AppError.TODO_INVALID_DUE_DATE to "Ungültiges Fälligkeitsdatum.",
+            AppError.TODO_INVALID_RECURRENCE to "Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben.",
+            AppError.TODO_INVALID_LIST to "Ungültige Liste.",
+            AppError.TODO_NOT_FOUND to "Aufgabe nicht gefunden – bitte neu laden.",
+            AppError.TODO_SAVE_FAILED to "Aufgabe konnte nicht gespeichert werden.",
+            AppError.TIME_PROJECT_ARCHIVED to "Das Projekt ist archiviert.",
+            AppError.TIME_INVALID_RANGE to "Das Ende muss nach dem Start liegen.",
+            AppError.TIME_ENTRY_NOT_FOUND to "Eintrag nicht gefunden – bitte neu laden.",
+            AppError.PROJECT_NOT_FOUND to "Projekt nicht gefunden – bitte neu laden.",
+            AppError.PROJECT_SAVE_FAILED to "Projekt konnte nicht gespeichert werden.",
+            AppError.SPLIT_ENTRY_RUNNING to "Laufende Timer können nicht gesplittet werden — erst stoppen.",
+            AppError.SPLIT_FAILED to "Eintrag konnte nicht gesplittet werden.",
+            AppError.TEMPLATE_NOT_FOUND to "Vorlage nicht gefunden – bitte neu laden.",
+            AppError.TEMPLATE_SAVE_FAILED to "Vorlage konnte nicht gespeichert werden.",
+            AppError.CATEGORY_PROTECTED to "Diese Kategorie kann nicht gelöscht werden.",
+            AppError.CATEGORY_INVALID to "Bezeichnung und Emoji dürfen nicht leer sein.",
+            AppError.CATEGORY_NOT_FOUND to "Kategorie nicht gefunden – bitte neu laden.",
+            AppError.CATEGORY_SAVE_FAILED to "Kategorie konnte nicht gespeichert werden.",
+            AppError.RULE_INVALID to "Der Artikelname darf nicht leer sein.",
+            AppError.RULE_INVALID_CATEGORY to "Unbekannte Kategorie – bitte neu laden.",
+            AppError.RULE_NOT_FOUND to "Regel nicht gefunden – bitte neu laden.",
+            AppError.RULE_SAVE_FAILED to "Regel konnte nicht gespeichert werden.",
+            AppError.RANGE_TOO_LARGE to "Der Zeitraum ist zu lang.",
+            AppError.ABSENCE_NOT_FOUND to "Nicht gefunden – bitte neu laden.",
+            AppError.KITA_SAVE_FAILED to "Kita-Schließtag konnte nicht gespeichert werden.",
+            AppError.HOLIDAY_SAVE_FAILED to "Eigener Feiertag konnte nicht gespeichert werden.",
+            AppError.ATTACHMENT_TOO_LARGE to "Datei ist zu groß (max. 10 MB).",
+            AppError.ATTACHMENT_TYPE to "Dateityp nicht erlaubt (PDF, Text, Office …).",
+            AppError.ATTACHMENT_UPLOAD_FAILED to "Upload fehlgeschlagen.",
+            AppError.RECIPE_IMPORT_NO_DATA to "Auf dieser Seite wurden keine Rezeptdaten gefunden.",
+            AppError.RECIPE_IMPORT_FAILED to "Import fehlgeschlagen – bitte URL prüfen.",
+            AppError.HOUSEHOLD_NAME_INVALID to "Name muss 1–60 Zeichen lang sein.",
+            AppError.HOUSEHOLD_NAME_SAVE_FAILED to "Name konnte nicht gespeichert werden.",
+            AppError.AVATAR_COLOR_SAVE_FAILED to "Farbe konnte nicht gespeichert werden.",
+            AppError.DONE_WINDOW_INVALID to "Wert muss zwischen 1 und 3650 liegen.",
+            AppError.DONE_WINDOW_SAVE_FAILED to "Wert konnte nicht gespeichert werden.",
+            AppError.DIGEST_TIME_INVALID to "Ungültige Uhrzeit (Format HH:MM).",
+            AppError.SETTINGS_SAVE_FAILED to "Einstellungen konnten nicht gespeichert werden.",
+            AppError.CALENDAR_FEED_INVALID to "Ungültige Auswahl.",
+        )
+        // Exhaustiveness: every enum value must be covered so a newly-added code can't slip through.
+        assertEquals(AppError.entries.toSet(), de.keys)
+        for ((code, text) in de) {
+            assertEquals("resolve $code", text, ctx.errorText(ApiException(code, RuntimeException())))
+        }
+    }
+
+    @Test
+    fun `resolves codes to English under an English locale (values-en)`() {
+        RuntimeEnvironment.setQualifiers("en")
+        val ctx = RuntimeEnvironment.getApplication()
+        // Spot-check the EN catalog the #558 migration added (full parity guarded implicitly by the
+        // exhaustive DE test + the shared AppError.stringRes wiring).
+        assertEquals("No connection – please try again later.", ctx.errorText(ApiException(AppError.NETWORK, RuntimeException())))
+        assertEquals("Task not found – please reload.", ctx.errorText(ApiException(AppError.TODO_NOT_FOUND, RuntimeException())))
+        assertEquals("The name must not be empty.", ctx.errorText(ApiException(AppError.NAME_REQUIRED, RuntimeException())))
     }
 
     // --- relaxed WS mocks (the repos read `wsClient.events` in their constructors) ---

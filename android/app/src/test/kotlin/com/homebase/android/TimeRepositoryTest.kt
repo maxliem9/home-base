@@ -4,7 +4,7 @@ import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.ProjectDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UpdateTimeEntryRequest
-import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import io.mockk.coEvery
@@ -67,10 +67,10 @@ class TimeRepositoryTest {
         val result = repository.updateEntry("e1", UpdateTimeEntryRequest(stoppedAt = "2026-06-03T06:00:00Z"))
 
         // In unit tests org.json is the android.jar stub, so the body's code cannot be
-        // parsed and germanTimeError falls back to its else branch — still German, which
+        // parsed and timeError falls back to its else branch — still German, which
         // is exactly what this pins: HttpException never surfaces as raw "HTTP 409".
         assertTrue(result.isFailure)
-        assertEquals("Konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.SAVE_FAILED, result.appError())
     }
 
     @Test
@@ -81,7 +81,7 @@ class TimeRepositoryTest {
         val result = repository.updateEntry("e1", UpdateTimeEntryRequest(stoppedAt = "2026-06-03T08:00:00Z"))
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 
     @Test
@@ -91,7 +91,7 @@ class TimeRepositoryTest {
         val result = repository.splitEntry("e1", "2026-06-03T07:30:00Z", null)
 
         assertTrue(result.isFailure)
-        assertEquals("Eintrag konnte nicht gesplittet werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.SPLIT_FAILED, result.appError())
     }
 
     @Test
@@ -101,7 +101,7 @@ class TimeRepositoryTest {
         val result = repository.startTimer("p1", null)
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 
     // --- Projekt-Verwaltung (#175) ---
@@ -127,9 +127,9 @@ class TimeRepositoryTest {
         val result = repository.updateProject("p1", "", "#3F7C8C")
 
         // org.json is the android.jar stub in unit tests, so the body's code can't be parsed
-        // and germanProjectError falls back to its else branch — still German, never raw "HTTP 400".
+        // and projectError falls back to its else branch — still German, never raw "HTTP 400".
         assertTrue(result.isFailure)
-        assertEquals("Projekt konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.PROJECT_SAVE_FAILED, result.appError())
     }
 
     @Test
@@ -139,7 +139,7 @@ class TimeRepositoryTest {
         val result = repository.updateProject("p1", "Neu", "#3F7C8C")
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 
     @Test
@@ -162,6 +162,6 @@ class TimeRepositoryTest {
         val result = repository.exportCsv(null, null, null)
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 }

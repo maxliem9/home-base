@@ -1,5 +1,6 @@
 package com.homebase.recurrence
 
+import com.homebase.model.RecurrenceFreq
 import java.time.LocalDate
 
 /**
@@ -8,14 +9,13 @@ import java.time.LocalDate
  * the previous due date, not to the completion date, so "every Monday" / "the 1st" stays stable.
  */
 object Recurrence {
-    const val DAILY = "DAILY"
-    const val WEEKLY = "WEEKLY"
-    const val MONTHLY = "MONTHLY"
+    // Wire/DB frequency strings, sourced from the typed [com.homebase.model.RecurrenceFreq] enum (#556)
+    // so the valid set lives in one place. The date-math `when` below still switches on the string.
+    val DAILY = RecurrenceFreq.DAILY.name
+    val WEEKLY = RecurrenceFreq.WEEKLY.name
+    val MONTHLY = RecurrenceFreq.MONTHLY.name
 
-    /** Valid frequencies on a stored/created recurrence. */
-    val FREQUENCIES = setOf(DAILY, WEEKLY, MONTHLY)
-
-    /** Sentinel a client may send on an update to remove a todo's recurrence. */
+    /** Sentinel a client may send on an update to remove a todo's recurrence. NOT a frequency. */
     const val CLEAR = "NONE"
 
     /** Upper bound on the every-N interval — a sane guard against absurd values. */

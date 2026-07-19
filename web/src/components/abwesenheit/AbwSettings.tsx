@@ -31,7 +31,7 @@ export function AbwSettings({ ctx, data, api, userIds, year }: {
   const [rVon, setRVon] = useState(`${year}-07-27`)
   const [rBis, setRBis] = useState(`${year}-08-07`)
   const [rLabel, setRLabel] = useState(t('abwesenheit.kitaDefaultLabel'))
-  const kita = [...data.kitaClosures].sort((a, b) => a.date.localeCompare(b.date))
+  const kita = [...(data.kitaClosures ?? [])].sort((a, b) => a.date.localeCompare(b.date))
   const wd = t('abwesenheit.weekdaysShort', { returnObjects: true })
 
   // Eigene Feiertage (#51): recurring by month+day. The date input's year is purely a
@@ -40,7 +40,7 @@ export function AbwSettings({ ctx, data, api, userIds, year }: {
   const [hHalf, setHHalf] = useState(true)
   const [hLabel, setHLabel] = useState('')
   // `data` is normalised in fetchState (#54): every snapshot list is a real array here.
-  const holidays = [...data.customHolidays].sort((a, b) => a.month - b.month || a.day - b.day)
+  const holidays = [...(data.customHolidays ?? [])].sort((a, b) => a.month - b.month || a.day - b.day)
   // MM-DD of a custom holiday → a YYYY-MM-DD value the date input understands (year = the
   // currently viewed year, just a carrier).
   const holDateValue = (h: { month: number; day: number }): string => `${year}-${C.pad(h.month)}-${C.pad(h.day)}`
@@ -53,7 +53,7 @@ export function AbwSettings({ ctx, data, api, userIds, year }: {
     <div className="abw-set-page">
       {userIds.map((uid) => {
         const s = ctx.settings[uid]
-        const rules = data.partTime.filter((r) => r.userId === uid)
+        const rules = (data.partTime ?? []).filter((r) => r.userId === uid)
         return (
           <div key={uid} className="abw-set-person">
             <div className="abw-set-person__head"><Avatar user={uid} size={28} /><span>{nameOf(uid)}</span></div>

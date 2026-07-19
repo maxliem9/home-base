@@ -68,28 +68,28 @@ class ShoppingRepository(
     suspend fun getTemplates(): Result<List<ShoppingTemplateDto>> = apiCatching { api.getShoppingTemplates() }
 
     suspend fun createTemplate(name: String, itemNames: List<String>): Result<ShoppingTemplateDto> =
-        apiCatching(mapHttpError = ::germanTemplateError) {
+        apiCatching(mapHttpError = ::templateError) {
             api.createShoppingTemplate(CreateShoppingTemplateRequest(name.trim(), itemNames.toInputs()))
         }
 
     /** Rename and replace the item set wholesale (web/recipe parity); both fields always sent. */
     suspend fun updateTemplate(id: String, name: String, itemNames: List<String>): Result<ShoppingTemplateDto> =
-        apiCatching(mapHttpError = ::germanTemplateError) {
+        apiCatching(mapHttpError = ::templateError) {
             api.updateShoppingTemplate(id, UpdateShoppingTemplateRequest(name.trim(), itemNames.toInputs()))
         }
 
     suspend fun deleteTemplate(id: String): Result<Unit> =
-        apiCatching(mapHttpError = ::germanTemplateError) { api.deleteShoppingTemplate(id) }
+        apiCatching(mapHttpError = ::templateError) { api.deleteShoppingTemplate(id) }
 
     /** Drop blank names (a template item is just a name; an empty one is meaningless — backend does the same). */
     private fun List<String>.toInputs(): List<TemplateItemInput> =
         mapNotNull { it.trim().ifBlank { null } }.map { TemplateItemInput(it) }
 
     /** Map a failed template create/update/delete to German text via its ErrorResponse.code. */
-    private fun germanTemplateError(e: HttpException): String = when (errorCodeOf(e)) {
-        "INVALID_TEMPLATE" -> "Der Name darf nicht leer sein."
-        "NOT_FOUND" -> "Vorlage nicht gefunden – bitte neu laden."
-        else -> "Vorlage konnte nicht gespeichert werden."
+    private fun templateError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "INVALID_TEMPLATE" -> AppError.NAME_REQUIRED
+        "NOT_FOUND" -> AppError.TEMPLATE_NOT_FOUND
+        else -> AppError.TEMPLATE_SAVE_FAILED
     }
 
     // --- Categories (editable catalog, #411) ---
@@ -101,23 +101,23 @@ class ShoppingRepository(
 
     /** [listId] (#412): create the category in that list's own set instead of the shared catalog. */
     suspend fun createCategory(label: String, emoji: String, sortOrder: Int? = null, listId: String? = null): Result<ShoppingCategoryDto> =
-        apiCatching(mapHttpError = ::germanCategoryError) {
+        apiCatching(mapHttpError = ::categoryError) {
             api.createShoppingCategory(CreateShoppingCategoryRequest(label.trim(), emoji.trim(), sortOrder), listId)
         }
 
     suspend fun updateCategory(key: String, request: UpdateShoppingCategoryRequest): Result<ShoppingCategoryDto> =
-        apiCatching(mapHttpError = ::germanCategoryError) { api.updateShoppingCategory(key, request) }
+        apiCatching(mapHttpError = ::categoryError) { api.updateShoppingCategory(key, request) }
 
     suspend fun deleteCategory(key: String): Result<Unit> =
-        apiCatching(mapHttpError = ::germanCategoryError) { api.deleteShoppingCategory(key) }
+        apiCatching(mapHttpError = ::categoryError) { api.deleteShoppingCategory(key) }
 
     /** Map a failed category create/update/delete to German text via its ErrorResponse.code. */
-    private fun germanCategoryError(e: HttpException): String = when (errorCodeOf(e)) {
+    private fun categoryError(e: HttpException): AppError = when (errorCodeOf(e)) {
         // OTHER's delete is hidden in the UI, so this is a backstop for the protected fallback.
-        "CATEGORY_PROTECTED" -> "Diese Kategorie kann nicht gelöscht werden."
-        "INVALID_CATEGORY" -> "Bezeichnung und Emoji dürfen nicht leer sein."
-        "NOT_FOUND" -> "Kategorie nicht gefunden – bitte neu laden."
-        else -> "Kategorie konnte nicht gespeichert werden."
+        "CATEGORY_PROTECTED" -> AppError.CATEGORY_PROTECTED
+        "INVALID_CATEGORY" -> AppError.CATEGORY_INVALID
+        "NOT_FOUND" -> AppError.CATEGORY_NOT_FOUND
+        else -> AppError.CATEGORY_SAVE_FAILED
     }
 
     // --- Category rules (auto-resolve dictionary, #411) ---
@@ -129,19 +129,19 @@ class ShoppingRepository(
     /** Upsert a rule (keyed by the normalized displayName). [icon] omitted = keep/default per backend.
      *  [listId] (#501) scopes the rule to a list's own dictionary. */
     suspend fun upsertCategoryRule(displayName: String, category: String, icon: String? = null, listId: String? = null): Result<ShoppingCategoryRuleDto> =
-        apiCatching(mapHttpError = ::germanRuleError) {
+        apiCatching(mapHttpError = ::ruleError) {
             api.upsertShoppingCategoryRule(UpsertCategoryRuleRequest(displayName.trim(), category, icon?.trim()?.ifBlank { null }), listId)
         }
 
     suspend fun deleteCategoryRule(displayName: String, listId: String? = null): Result<Unit> =
-        apiCatching(mapHttpError = ::germanRuleError) { api.deleteShoppingCategoryRule(displayName, listId) }
+        apiCatching(mapHttpError = ::ruleError) { api.deleteShoppingCategoryRule(displayName, listId) }
 
     /** Map a failed rule upsert/delete to German text via its ErrorResponse.code. */
-    private fun germanRuleError(e: HttpException): String = when (errorCodeOf(e)) {
-        "INVALID_RULE" -> "Der Artikelname darf nicht leer sein."
-        "INVALID_CATEGORY" -> "Unbekannte Kategorie – bitte neu laden."
-        "NOT_FOUND" -> "Regel nicht gefunden – bitte neu laden."
-        else -> "Regel konnte nicht gespeichert werden."
+    private fun ruleError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "INVALID_RULE" -> AppError.RULE_INVALID
+        "INVALID_CATEGORY" -> AppError.RULE_INVALID_CATEGORY
+        "NOT_FOUND" -> AppError.RULE_NOT_FOUND
+        else -> AppError.RULE_SAVE_FAILED
     }
 
     fun connectWebSocket(token: String) = wsClient.connect(token)

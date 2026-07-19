@@ -39,10 +39,10 @@ class TimeRepository(
 
     /** Rename / recolour a project (PUT). Both fields are always sent (web parity). */
     suspend fun updateProject(id: String, name: String, color: String): Result<ProjectDto> =
-        apiCatching(mapHttpError = ::germanProjectError) { api.updateProject(id, UpdateProjectRequest(name, color)) }
+        apiCatching(mapHttpError = ::projectError) { api.updateProject(id, UpdateProjectRequest(name, color)) }
 
     suspend fun setArchived(id: String, archived: Boolean): Result<ProjectDto> =
-        apiCatching(mapHttpError = ::germanProjectError) { api.archiveProject(id, ArchiveProjectRequest(archived)) }
+        apiCatching(mapHttpError = ::projectError) { api.archiveProject(id, ArchiveProjectRequest(archived)) }
 
     suspend fun getEntries(): Result<List<TimeEntryDto>> = apiCatching { api.getTimeEntries() }
 
@@ -67,7 +67,7 @@ class TimeRepository(
     // Surface the backend's ErrorResponse.code as German text instead of a
     // raw "HTTP 409" so the edit sheet's failure toast is understandable.
     suspend fun updateEntry(id: String, request: UpdateTimeEntryRequest): Result<TimeEntryDto> =
-        apiCatching(mapHttpError = ::germanTimeError) { api.updateTimeEntry(id, request) }
+        apiCatching(mapHttpError = ::timeError) { api.updateTimeEntry(id, request) }
 
     suspend fun deleteEntry(id: String): Result<Unit> = apiCatching { api.deleteTimeEntry(id) }
 
@@ -76,7 +76,7 @@ class TimeRepository(
      * both halves come back in one response (part one keeps the id).
      */
     suspend fun splitEntry(id: String, splitAt: String, breakMinutes: Int?): Result<SplitTimeEntryResponse> =
-        apiCatching(mapHttpError = ::germanSplitError) { api.splitTimeEntry(id, SplitTimeEntryRequest(splitAt, breakMinutes)) }
+        apiCatching(mapHttpError = ::splitError) { api.splitTimeEntry(id, SplitTimeEntryRequest(splitAt, breakMinutes)) }
 
     // --- Wochensoll & Forecast (#31 / #55) ---
 
@@ -147,29 +147,29 @@ class TimeRepository(
         wsClient.onConnected = onConnected
     }
 
-    /** Map a failed entry-update response to German text via its ErrorResponse.code. */
-    private fun germanTimeError(e: HttpException): String = when (errorCodeOf(e)) {
-        "PROJECT_ARCHIVED" -> "Das Projekt ist archiviert."
-        "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
-        "INVALID_DATE" -> "Ungültiges Datum."
-        "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
-        else -> "Konnte nicht gespeichert werden."
+    /** Map a failed entry-update response to a typed [AppError] via its ErrorResponse.code. */
+    private fun timeError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "PROJECT_ARCHIVED" -> AppError.TIME_PROJECT_ARCHIVED
+        "INVALID_RANGE" -> AppError.TIME_INVALID_RANGE
+        "INVALID_DATE" -> AppError.INVALID_DATE
+        "NOT_FOUND" -> AppError.TIME_ENTRY_NOT_FOUND
+        else -> AppError.SAVE_FAILED
     }
 
-    /** Map a failed project create/update/archive to German text (web parity: t.time.saveFailed / archiveFailed). */
-    private fun germanProjectError(e: HttpException): String = when (errorCodeOf(e)) {
-        "INVALID_PROJECT" -> "Der Name darf nicht leer sein."
-        "INVALID_COLOR" -> "Ungültige Farbe."
-        "NOT_FOUND" -> "Projekt nicht gefunden – bitte neu laden."
-        else -> "Projekt konnte nicht gespeichert werden."
+    /** Map a failed project create/update/archive to a typed [AppError]. */
+    private fun projectError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "INVALID_PROJECT" -> AppError.NAME_REQUIRED
+        "INVALID_COLOR" -> AppError.INVALID_COLOR
+        "NOT_FOUND" -> AppError.PROJECT_NOT_FOUND
+        else -> AppError.PROJECT_SAVE_FAILED
     }
 
-    /** Same for a failed split (#66) — wording mirrors the web errors map (de.ts). */
-    private fun germanSplitError(e: HttpException): String = when (errorCodeOf(e)) {
-        "ENTRY_RUNNING" -> "Laufende Timer können nicht gesplittet werden — erst stoppen."
-        "INVALID_RANGE" -> "Das Ende muss nach dem Start liegen."
-        "INVALID_DATE" -> "Ungültiges Datum."
-        "NOT_FOUND" -> "Eintrag nicht gefunden – bitte neu laden."
-        else -> "Eintrag konnte nicht gesplittet werden."
+    /** Same for a failed split (#66). */
+    private fun splitError(e: HttpException): AppError = when (errorCodeOf(e)) {
+        "ENTRY_RUNNING" -> AppError.SPLIT_ENTRY_RUNNING
+        "INVALID_RANGE" -> AppError.TIME_INVALID_RANGE
+        "INVALID_DATE" -> AppError.INVALID_DATE
+        "NOT_FOUND" -> AppError.TIME_ENTRY_NOT_FOUND
+        else -> AppError.SPLIT_FAILED
     }
 }

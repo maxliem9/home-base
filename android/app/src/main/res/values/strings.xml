@@ -770,4 +770,60 @@
     <string name="cd_move_to_category">In Kategorie verschieben</string>
     <!-- Familienkalender: iCal-Feed abonnieren (#488/#499, spiegelt web familienkalender.subscribe) -->
     <string name="family_calendar_subscribe">Abonnieren</string>
+
+    <!-- Repository-Fehlercodes (#558): der Daten-Layer liefert AppError-Codes, das UI löst sie hier
+         auf. DE-Texte identisch zur früheren hartkodierten Fassung. Auflösung: ui/ErrorText.kt. -->
+    <string name="error_network">Keine Verbindung – bitte später erneut versuchen.</string>
+    <string name="error_generic">Serverfehler – bitte später erneut versuchen.</string>
+    <string name="error_date_conflict">Für dieses Datum gibt es schon einen Eintrag.</string>
+    <string name="error_invalid_date">Ungültiges Datum.</string>
+    <string name="error_invalid_color">Ungültige Farbe.</string>
+    <string name="error_name_required">Der Name darf nicht leer sein.</string>
+    <string name="error_save_failed">Konnte nicht gespeichert werden.</string>
+    <string name="error_login_failed">Login fehlgeschlagen.</string>
+    <string name="error_login_throttled">Zu viele Versuche – bitte später erneut versuchen.</string>
+    <string name="error_password_wrong">Aktuelles Passwort ist falsch.</string>
+    <string name="error_password_save_failed">Passwort konnte nicht geändert werden.</string>
+    <string name="error_todo_invalid">Aufgabe unvollständig – Titel oder Zuständige:r/Fälligkeit angeben.</string>
+    <string name="error_todo_invalid_status">Ungültiger Status.</string>
+    <string name="error_todo_invalid_priority">Ungültige Priorität.</string>
+    <string name="error_todo_invalid_due_date">Ungültiges Fälligkeitsdatum.</string>
+    <string name="error_todo_invalid_recurrence">Ungültige Wiederholung – für eine Wiederholung ein Fälligkeitsdatum angeben.</string>
+    <string name="error_todo_invalid_list">Ungültige Liste.</string>
+    <string name="error_todo_not_found">Aufgabe nicht gefunden – bitte neu laden.</string>
+    <string name="error_todo_save_failed">Aufgabe konnte nicht gespeichert werden.</string>
+    <string name="error_time_project_archived">Das Projekt ist archiviert.</string>
+    <string name="error_time_invalid_range">Das Ende muss nach dem Start liegen.</string>
+    <string name="error_time_entry_not_found">Eintrag nicht gefunden – bitte neu laden.</string>
+    <string name="error_project_not_found">Projekt nicht gefunden – bitte neu laden.</string>
+    <string name="error_project_save_failed">Projekt konnte nicht gespeichert werden.</string>
+    <string name="error_split_entry_running">Laufende Timer können nicht gesplittet werden — erst stoppen.</string>
+    <string name="error_split_failed">Eintrag konnte nicht gesplittet werden.</string>
+    <string name="error_template_not_found">Vorlage nicht gefunden – bitte neu laden.</string>
+    <string name="error_template_save_failed">Vorlage konnte nicht gespeichert werden.</string>
+    <string name="error_category_protected">Diese Kategorie kann nicht gelöscht werden.</string>
+    <string name="error_category_invalid">Bezeichnung und Emoji dürfen nicht leer sein.</string>
+    <string name="error_category_not_found">Kategorie nicht gefunden – bitte neu laden.</string>
+    <string name="error_category_save_failed">Kategorie konnte nicht gespeichert werden.</string>
+    <string name="error_rule_invalid">Der Artikelname darf nicht leer sein.</string>
+    <string name="error_rule_invalid_category">Unbekannte Kategorie – bitte neu laden.</string>
+    <string name="error_rule_not_found">Regel nicht gefunden – bitte neu laden.</string>
+    <string name="error_rule_save_failed">Regel konnte nicht gespeichert werden.</string>
+    <string name="error_range_too_large">Der Zeitraum ist zu lang.</string>
+    <string name="error_absence_not_found">Nicht gefunden – bitte neu laden.</string>
+    <string name="error_kita_save_failed">Kita-Schließtag konnte nicht gespeichert werden.</string>
+    <string name="error_holiday_save_failed">Eigener Feiertag konnte nicht gespeichert werden.</string>
+    <string name="error_attachment_too_large">Datei ist zu groß (max. 10 MB).</string>
+    <string name="error_attachment_type">Dateityp nicht erlaubt (PDF, Text, Office …).</string>
+    <string name="error_attachment_upload_failed">Upload fehlgeschlagen.</string>
+    <string name="error_recipe_import_no_data">Auf dieser Seite wurden keine Rezeptdaten gefunden.</string>
+    <string name="error_recipe_import_failed">Import fehlgeschlagen – bitte URL prüfen.</string>
+    <string name="error_household_name_invalid">Name muss 1–60 Zeichen lang sein.</string>
+    <string name="error_household_name_save_failed">Name konnte nicht gespeichert werden.</string>
+    <string name="error_avatar_color_save_failed">Farbe konnte nicht gespeichert werden.</string>
+    <string name="error_done_window_invalid">Wert muss zwischen 1 und 3650 liegen.</string>
+    <string name="error_done_window_save_failed">Wert konnte nicht gespeichert werden.</string>
+    <string name="error_digest_time_invalid">Ungültige Uhrzeit (Format HH:MM).</string>
+    <string name="error_settings_save_failed">Einstellungen konnten nicht gespeichert werden.</string>
+    <string name="error_calendar_feed_invalid">Ungültige Auswahl.</string>
 </resources>

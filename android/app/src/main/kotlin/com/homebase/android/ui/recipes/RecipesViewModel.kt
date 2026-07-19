@@ -36,6 +36,9 @@ class RecipesViewModel(
      * mirrored on every change while no category filter is active. null in tests → no read-cache.
      */
     private val snapshotStore: SnapshotStore<RecipesSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RecipesUiState(isLoading = true))
@@ -62,7 +65,7 @@ class RecipesViewModel(
                 .onFailure { e ->
                     // Keep `error` only when there is nothing to show anyway (#520): with cached/prior
                     // recipes on screen a failed refresh stays silent — offline we show the old state.
-                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.recipes.isEmpty()) e.message else null) }
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.recipes.isEmpty()) errorText(e) else null) }
                 }
         }
     }
@@ -124,7 +127,7 @@ class RecipesViewModel(
                     upsert(recipe)
                     onSaved(recipe)
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -144,7 +147,7 @@ class RecipesViewModel(
                     _uiState.update { state -> state.copy(recipes = state.recipes.filter { it.id != id }) }
                     onDeleted()
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -165,7 +168,7 @@ class RecipesViewModel(
         viewModelScope.launch {
             repository.uploadImage(recipeId, bytes, filename, contentType)
                 .onSuccess { recipe -> upsert(recipe) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -173,7 +176,7 @@ class RecipesViewModel(
         viewModelScope.launch {
             repository.deleteImage(recipeId, imageId)
                 .onSuccess { recipe -> upsert(recipe) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

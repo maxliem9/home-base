@@ -249,16 +249,8 @@ class DtoStructureDriftTest {
             "SetAvatarColorRequest.hue",
             "ShoppingSuggestion.count",
             "ShoppingTemplateItem.sortOrder",
-            // Bucket 2 — Web required vs. wire-optionale Liste, per `?? []` kompensiert (#597)
-            "AbsenceState.absences",
-            "AbsenceState.customHolidays",
-            "AbsenceState.kitaClosures",
-            "AbsenceState.partTime",
-            "AbsenceState.settings",
-            "AbsenceState.users",
-            "Recipe.ingredients",
-            "Recipe.steps",
-            "ShoppingTemplate.items",
+            // Bucket 2 (Web required vs. wire-optionale Liste) ist mit #597 aufgelöst: die betroffenen
+            // Listen sind in web/src/types.ts jetzt `?` — kein Baseline-Eintrag mehr nötig.
         )
     }
 }

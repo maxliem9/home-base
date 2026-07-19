@@ -758,4 +758,60 @@
     <string name="cd_move_to_category">Move to category</string>
     <!-- Family calendar: subscribe to iCal feed (#488/#499, mirrors web familienkalender.subscribe) -->
     <string name="family_calendar_subscribe">Subscribe</string>
+
+    <!-- Repository error codes (#558): the data layer returns AppError codes, the UI resolves them
+         here. English counterparts of the German catalog. Resolution: ui/ErrorText.kt. -->
+    <string name="error_network">No connection – please try again later.</string>
+    <string name="error_generic">Server error – please try again later.</string>
+    <string name="error_date_conflict">There is already an entry for this date.</string>
+    <string name="error_invalid_date">Invalid date.</string>
+    <string name="error_invalid_color">Invalid colour.</string>
+    <string name="error_name_required">The name must not be empty.</string>
+    <string name="error_save_failed">Could not be saved.</string>
+    <string name="error_login_failed">Login failed.</string>
+    <string name="error_login_throttled">Too many attempts – please try again later.</string>
+    <string name="error_password_wrong">Current password is incorrect.</string>
+    <string name="error_password_save_failed">Password could not be changed.</string>
+    <string name="error_todo_invalid">Task incomplete – provide a title or an assignee/due date.</string>
+    <string name="error_todo_invalid_status">Invalid status.</string>
+    <string name="error_todo_invalid_priority">Invalid priority.</string>
+    <string name="error_todo_invalid_due_date">Invalid due date.</string>
+    <string name="error_todo_invalid_recurrence">Invalid recurrence – set a due date for a repeating task.</string>
+    <string name="error_todo_invalid_list">Invalid list.</string>
+    <string name="error_todo_not_found">Task not found – please reload.</string>
+    <string name="error_todo_save_failed">Task could not be saved.</string>
+    <string name="error_time_project_archived">The project is archived.</string>
+    <string name="error_time_invalid_range">The end must be after the start.</string>
+    <string name="error_time_entry_not_found">Entry not found – please reload.</string>
+    <string name="error_project_not_found">Project not found – please reload.</string>
+    <string name="error_project_save_failed">Project could not be saved.</string>
+    <string name="error_split_entry_running">Running timers cannot be split — stop it first.</string>
+    <string name="error_split_failed">Entry could not be split.</string>
+    <string name="error_template_not_found">Template not found – please reload.</string>
+    <string name="error_template_save_failed">Template could not be saved.</string>
+    <string name="error_category_protected">This category cannot be deleted.</string>
+    <string name="error_category_invalid">Label and emoji must not be empty.</string>
+    <string name="error_category_not_found">Category not found – please reload.</string>
+    <string name="error_category_save_failed">Category could not be saved.</string>
+    <string name="error_rule_invalid">The item name must not be empty.</string>
+    <string name="error_rule_invalid_category">Unknown category – please reload.</string>
+    <string name="error_rule_not_found">Rule not found – please reload.</string>
+    <string name="error_rule_save_failed">Rule could not be saved.</string>
+    <string name="error_range_too_large">The date range is too long.</string>
+    <string name="error_absence_not_found">Not found – please reload.</string>
+    <string name="error_kita_save_failed">Daycare closure could not be saved.</string>
+    <string name="error_holiday_save_failed">Custom holiday could not be saved.</string>
+    <string name="error_attachment_too_large">File is too large (max. 10 MB).</string>
+    <string name="error_attachment_type">File type not allowed (PDF, text, Office …).</string>
+    <string name="error_attachment_upload_failed">Upload failed.</string>
+    <string name="error_recipe_import_no_data">No recipe data found on this page.</string>
+    <string name="error_recipe_import_failed">Import failed – please check the URL.</string>
+    <string name="error_household_name_invalid">Name must be 1–60 characters long.</string>
+    <string name="error_household_name_save_failed">Name could not be saved.</string>
+    <string name="error_avatar_color_save_failed">Colour could not be saved.</string>
+    <string name="error_done_window_invalid">Value must be between 1 and 3650.</string>
+    <string name="error_done_window_save_failed">Value could not be saved.</string>
+    <string name="error_digest_time_invalid">Invalid time (format HH:MM).</string>
+    <string name="error_settings_save_failed">Settings could not be saved.</string>
+    <string name="error_calendar_feed_invalid">Invalid selection.</string>
 </resources>
