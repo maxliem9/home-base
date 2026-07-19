@@ -184,6 +184,17 @@ class RecurrenceSpawnerTest {
     fun `carries due time, reminder, priority and list onto the successor`() {
         val anchor = LocalDate.of(2026, 6, 8)
         val listId = UUID.randomUUID()
+        // todos.list_id is a real FK with ON DELETE CASCADE now (#599, mirrors V7 in the Exposed schema),
+        // so the successor's target list has to exist rather than being a bare random UUID.
+        transaction {
+            TodoListsTable.insert {
+                it[TodoListsTable.id] = listId
+                it[name] = "Haushalt"
+                it[visibility] = "SHARED"
+                it[createdBy] = "alice"
+                it[createdAt] = Instant.now()
+            }
+        }
         val src = insertSource(dueDate = anchor)
         val newId = transaction {
             spawner.spawn(
