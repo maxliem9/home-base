@@ -121,7 +121,15 @@ const mdOf = (dateStr: string): string => dateStr.slice(5)
 export type AbsenceSnapshot = Partial<AbsenceState>
 
 /** Fill every missing snapshot list with [] so downstream code can rely on real arrays. */
-export function normalizeAbsenceState(raw: AbsenceSnapshot): AbsenceState {
+/**
+ * An [AbsenceState] whose lists are all present (every field required). The wire type has them
+ * optional (encodeDefaults=false omits empty lists, #96/#597); [normalizeAbsenceState] is the single
+ * hydration point that fills every missing list with [], so everything downstream of it works with
+ * this guaranteed-full shape and needs no per-read `?? []`.
+ */
+export type LoadedAbsenceState = Required<AbsenceState>
+
+export function normalizeAbsenceState(raw: AbsenceSnapshot): LoadedAbsenceState {
   return {
     users: raw.users ?? [],
     absences: raw.absences ?? [],
