@@ -18,13 +18,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.util.UUID
 
-internal const val VISIBILITY_SHARED = "SHARED"
-internal const val VISIBILITY_PRIVATE = "PRIVATE"
-private const val DEFAULT_LIST_VISIBILITY = VISIBILITY_SHARED
+// The wire/DB visibility strings, sourced from the typed [ListVisibility] enum (#556) so there is one
+// authority for the valid values. Shared by todo lists and notes (NoteService reads these).
+internal val VISIBILITY_SHARED = ListVisibility.SHARED.name
+internal val VISIBILITY_PRIVATE = ListVisibility.PRIVATE.name
+private val DEFAULT_LIST_VISIBILITY = VISIBILITY_SHARED
 private val SERVER_ZONE: ZoneId = ZoneId.systemDefault()
-private val VALID_TODO_STATUSES = setOf("INBOX", "PLANNED", "DONE")
-private val VALID_TODO_PRIORITIES = setOf("LOW", "MEDIUM", "HIGH")
-private val VALID_LIST_VISIBILITIES = setOf(VISIBILITY_SHARED, VISIBILITY_PRIVATE)
 
 /**
  * A todo plus the visibility of its list before and after a mutation, so the route can pick the right
@@ -70,7 +69,7 @@ class TodoService(
             return CreateListResult.Invalid(ErrorResponse("INVALID_LIST", "name must not be blank"))
         }
         val visibility = req.visibility ?: DEFAULT_LIST_VISIBILITY
-        if (visibility !in VALID_LIST_VISIBILITIES) {
+        if (ListVisibility.parse(visibility) == null) {
             return CreateListResult.Invalid(ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
         }
         val list = dbQuery {
@@ -95,7 +94,7 @@ class TodoService(
     }
 
     suspend fun updateList(id: UUID, req: UpdateTodoListRequest, username: String): UpdateListResult {
-        if (req.visibility != null && req.visibility !in VALID_LIST_VISIBILITIES) {
+        if (req.visibility != null && ListVisibility.parse(req.visibility) == null) {
             return UpdateListResult.Invalid(ErrorResponse("INVALID_VISIBILITY", "visibility must be SHARED or PRIVATE"))
         }
         if (req.name != null && req.name.isBlank()) {
@@ -221,7 +220,7 @@ class TodoService(
         // the quick-add "all-at-once" flow create a planned todo in a single POST instead of a
         // POST-then-PUT dance.
         val assignees = normalizeAssignees(req.assignees)
-        val status = if (assignees.isNotEmpty() || !req.dueDate.isNullOrBlank()) "PLANNED" else "INBOX"
+        val status = if (assignees.isNotEmpty() || !req.dueDate.isNullOrBlank()) TodoStatus.PLANNED.name else TodoStatus.INBOX.name
         validateTodoInput(
             title = req.title,
             status = status,
@@ -301,20 +300,20 @@ class TodoService(
             // capture the pre-update visibility so the broadcast can translate transitions
             val wasShared = listIsShared(existing[TodosTable.listId])
             val nextStatus = req.status ?: existing[TodosTable.status]
-            // optional text fields follow the listId convention (#265): null = unchanged,
-            // "" = clear to null, else set. `if present, blank->null` captures all three.
-            val nextDescription = if (req.description != null) req.description.ifBlank { null } else existing[TodosTable.description]
+            // Optional text fields follow the #265 tri-state String convention (null=keep, ""=clear,
+            // else set), now expressed by Patch<T>/asPatch() instead of a hand-rolled if per field.
+            val nextDescription = req.description.asPatch().resolve(existing[TodosTable.description])
             // assignees (V39): null = unchanged (keep the current set), [] = clear, non-empty = replace
             val nextAssignees = if (req.assignees != null) normalizeAssignees(req.assignees) else loadTodoAssignees(id)
-            val nextDueDate = if (req.dueDate != null) req.dueDate.ifBlank { null } else existing[TodosTable.dueDate]?.toString()
+            val nextDueDate = req.dueDate.asPatch().resolve(existing[TodosTable.dueDate]?.toString())
             // due_time follows the #265 string convention; reminder uses negative = clear. Both
             // are meaningless without a date, so clearing the date cascades them to null (also
             // keeps the DB CHECKs satisfied).
-            val rawNextDueTime = if (req.dueTime != null) req.dueTime.ifBlank { null } else existing[TodosTable.dueTime]?.toString()
+            val rawNextDueTime = req.dueTime.asPatch().resolve(existing[TodosTable.dueTime]?.toString())
             val rawNextReminder = if (req.reminderLeadMinutes != null) req.reminderLeadMinutes.takeIf { it >= 0 } else existing[TodosTable.reminderLeadMinutes]
             val nextDueTime = if (nextDueDate == null) null else rawNextDueTime
             val nextReminderLead = if (nextDueDate == null) null else rawNextReminder
-            val nextPriority = if (req.priority != null) req.priority.ifBlank { null } else existing[TodosTable.priority]
+            val nextPriority = req.priority.asPatch().resolve(existing[TodosTable.priority])
             // merge the recurrence rule: absent = unchanged, freq "NONE" = clear, else set/replace
             val (nextRecFreq, nextRecInterval) = when {
                 req.recurrence == null -> existing[TodosTable.recurrence] to existing[TodosTable.recurrenceInterval]
@@ -348,7 +347,7 @@ class TodoService(
             // null = unchanged keeps the old list; "" cleared it (targetListId == null)
             val newListId = if (req.listId != null) targetListId else existing[TodosTable.listId]
             // a recurring todo spawns its successor the moment it first transitions into DONE
-            val becomingDone = req.status == "DONE" && existing[TodosTable.status] != "DONE"
+            val becomingDone = req.status == TodoStatus.DONE.name && existing[TodosTable.status] != TodoStatus.DONE.name
             val spawnNext = becomingDone && nextRecFreq != null
 
             TodosTable.update({ TodosTable.id eq id }) {
@@ -580,10 +579,10 @@ private fun validateTodoInput(
     recurrenceInterval: Int? = null,
 ): ErrorResponse? {
     if (title.isBlank()) return ErrorResponse("INVALID_TODO", "title must not be blank")
-    if (status !in VALID_TODO_STATUSES) {
+    if (TodoStatus.parse(status) == null) {
         return ErrorResponse("INVALID_STATUS", "status must be INBOX, PLANNED or DONE")
     }
-    if (priority != null && priority !in VALID_TODO_PRIORITIES) {
+    if (priority != null && TodoPriority.parse(priority) == null) {
         return ErrorResponse("INVALID_PRIORITY", "priority must be LOW, MEDIUM or HIGH")
     }
     if (dueDate != null) {
@@ -615,7 +614,7 @@ private fun validateTodoInput(
     // matters now that an assignee/dueDate on create makes a todo PLANNED (so a recurring todo is
     // born PLANNED and would otherwise trip the PLANNED check first when its anchor is cleared).
     if (recurrenceFreq != null) {
-        if (recurrenceFreq !in Recurrence.FREQUENCIES) {
+        if (RecurrenceFreq.parse(recurrenceFreq) == null) {
             return ErrorResponse("INVALID_RECURRENCE", "recurrence.freq must be DAILY, WEEKLY or MONTHLY")
         }
         if (recurrenceInterval != null && recurrenceInterval !in 1..Recurrence.MAX_INTERVAL) {
@@ -625,7 +624,7 @@ private fun validateTodoInput(
             return ErrorResponse("INVALID_RECURRENCE", "a recurring todo needs a dueDate as its schedule anchor")
         }
     }
-    if (status == "PLANNED" && assignees.isEmpty() && dueDate.isNullOrBlank()) {
+    if (status == TodoStatus.PLANNED.name && assignees.isEmpty() && dueDate.isNullOrBlank()) {
         return ErrorResponse("INVALID_TODO", "PLANNED todos need an assignee or dueDate")
     }
     return null
