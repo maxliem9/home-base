@@ -28,6 +28,55 @@ berechnet.
   frühere Eigentümer-Beschränkung wurde für den 2-Personen-Haushalt bewusst
   aufgehoben.
 
+## Termine/Events (#434)
+Kalender-Termine (Arzt, Tierarzt, Geburtstage …) — eine eigene, vom Abwesenheitsplaner **getrennte**
+Domäne, die aber im selben Familienkalender-Overlay (#435) und im iCal-Feed (#427/#462) auftaucht,
+darum hier mitdokumentiert. **Kein Wiederholungsmodell:** jedes Event ist ein Einzeltermin an genau
+einem Datum (die im Feed sichtbare Wochen-`RRULE` gehört zu den Teilzeit-Regeln, nicht zu Events).
+
+### Datenmodell (`calendar_events`, Migration V35)
+`CalendarEvent`: id, title (≤ 200), type, date, all_day, start_time?, end_time?, location?, notes?,
+created_by, created_at.
+- **type** ist ein roher String aus einem festen Set (`EVENT_TYPES` in `EventRoutes.kt`):
+  `APPOINTMENT | BIRTHDAY | VET | OTHER`. `OTHER` ist der neutrale Default; unbekannter/leerer Typ
+  wird beim Schreiben auf `OTHER` normalisiert bzw. (wenn explizit falsch) mit 400 abgelehnt.
+- **Zeit-Invarianten** (per DB-CHECK gespiegelt, in `parseEvent` validiert): `all_day=true` trägt
+  **keine** Uhrzeit (start/end beide NULL); bei `all_day=false` ist `start_time` optional, `end_time`
+  nur mit `start_time` erlaubt und `end_time ≥ start_time`. Uhrzeiten als `HH:mm` (auch `HH:mm:ss`
+  akzeptiert).
+- `location`/`notes` werden getrimmt (blank → null) und längenbegrenzt (500 / 5000; 400 bei
+  Überschreitung).
+
+### API (`/api/v1/events`, `EventRoutes.kt`)
+Haushalts-geteilt — jeder sieht/erstellt/ändert/löscht jedes Event; **keine** Owner-Prüfung.
+`created_by`/`created_at` bleiben bei `PUT` als Herkunft der Erstanlage erhalten.
+- `GET /events?from=YYYY-MM-DD&to=YYYY-MM-DD` — Events im **inklusiven** Datumsbereich (das Kalender-Fenster
+  holt den sichtbaren Monat). Sortiert nach date, dann start_time (NULLs zuerst). Der Bereich ist auf
+  `MAX_RANGE_DAYS = 370` begrenzt (RANGE_TOO_LARGE), `from > to`/kaputte Daten → 400 (INVALID_RANGE).
+- `POST /events` → 201 mit dem angelegten `CalendarEventDto`; ungültige Eingabe → 400 (INVALID_EVENT).
+- `PUT /events/{id}` → ersetzt das Event komplett (kein Tri-State-Merge; das Request-DTO trägt das
+  ganze Objekt); fehlend → 404.
+- `DELETE /events/{id}` → 204; fehlend → 404.
+
+### WS-Sync (Kanal `events`)
+Type-only-Broadcast: **jede** Mutation sendet `{"type":"EVENT_CHANGED"}` **ohne Payload** (wie
+`absence`/`meal-plan`) über `WsSessionManager.broadcastSync(EVENTS_WS_CHANNEL, "EVENT_CHANGED")`; der
+Endpunkt hängt über `syncChannel("events")`. Clients laden bei Empfang den sichtbaren Bereich neu
+(kein inkrementeller Upsert wie bei todos/shopping — der Range-Fetch ist billig).
+
+### iCal-Feed (#462, `CalendarRoutes.kt`)
+Der `EVENTS`-Abschnitt des `/calendar.ics`-Feeds spiegelt die Events, sofern der Abonnent die Kategorie
+gewählt hat (`CalendarFeedSection.EVENTS`, per-User in `user_prefs`; unset = alle). Getimte Events werden
+zu einem echten `DTSTART/DTEND`-VEVENT (Server-Zeitzone), all-day/zeitlose zu einem Datums-Banner;
+`notes → DESCRIPTION`, `location → LOCATION`, ein Emoji-Prefix je Typ (`EVENT_EMOJI`).
+
+### Konsumenten
+- **Android:** `EventWebSocketClient` (parst nur `EVENT_CHANGED` → `WsEvent.Changed`) + `getEvents(from,to)`
+  in `CalendarRepository`; der `FamilienkalenderViewModel` re-fetcht den Monat. Der Offline-Cache
+  (`CalendarSnapshot`, #520) speichert die Events des aktuell sichtbaren Monats mit.
+- **Web:** `useCalendarData.ts` — `useWebSocket({ url: wsUrl('events') }, fetchEvents)` lädt bei jedem
+  `EVENT_CHANGED` (bzw. Reconnect) den Bereich neu.
+
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): der zuletzt geladene Planner-Snapshot wird durabel gecacht und beim
 (Kalt-)Start geseedet, damit ein Launch ohne Verbindung den letzten Stand zeigt statt eines leeren

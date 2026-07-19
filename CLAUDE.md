@@ -34,7 +34,7 @@ homebase/
 | Einkaufsliste / Offline-Abhaken | [docs/domain/shopping.md](docs/domain/shopping.md) |
 | Zeiterfassung, Wochensoll, Ende-Prognose | [docs/domain/time-tracking.md](docs/domain/time-tracking.md) |
 | Abwesenheit / Familienkalender | [docs/domain/absence.md](docs/domain/absence.md) |
-| Terminen/Events (#434 — Arzt, Geburtstage; Teil des Familienkalenders) | [docs/domain/absence.md](docs/domain/absence.md) — Events-Abschnitt dort noch dünn (#580) |
+| Terminen/Events (#434 — Arzt, Geburtstage; Teil des Familienkalenders) | [docs/domain/absence.md](docs/domain/absence.md) — Abschnitt „Termine/Events (#434)" |
 | Notizen (Modell + Editor-UX) | [docs/domain/notes.md](docs/domain/notes.md) |
 | Dashboard / „Heute"-View | [docs/domain/dashboard.md](docs/domain/dashboard.md) |
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
