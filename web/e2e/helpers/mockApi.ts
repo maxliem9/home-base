@@ -205,7 +205,7 @@ export class MockApi {
   }
 
   seedShoppingTemplates(templates: ShoppingTemplate[]): this {
-    this.shoppingTemplates = templates.map((tpl) => ({ ...tpl, items: tpl.items.map((i) => ({ ...i })) }))
+    this.shoppingTemplates = templates.map((tpl) => ({ ...tpl, items: (tpl.items ?? []).map((i) => ({ ...i })) }))
     return this
   }
 
@@ -1049,7 +1049,7 @@ export class MockApi {
         const tpl = this.buildTemplate(
           id,
           b.name != null ? b.name.trim() : prev.name,
-          b.items !== undefined ? b.items : prev.items.map((i) => ({ name: i.name })),
+          b.items !== undefined ? b.items : (prev.items ?? []).map((i) => ({ name: i.name })),
           prev,
         )
         this.shoppingTemplates[idx] = tpl
@@ -1252,7 +1252,7 @@ export class MockApi {
           body: '%PDF-1.4\nmock',
         })
       }
-      const lines = r.ingredients.map((i) => `- ${[i.amount, i.unit, i.name].filter(Boolean).join(' ')}`)
+      const lines = (r.ingredients ?? []).map((i) => `- ${[i.amount, i.unit, i.name].filter(Boolean).join(' ')}`)
       const md = `# ${r.title}\n\n## Zutaten\n\n${lines.join('\n')}\n`
       return route.fulfill({
         status: 200,
@@ -1320,7 +1320,7 @@ export class MockApi {
           return this.json(route, {
             ...r,
             servings: Number(servings),
-            ingredients: r.ingredients.map((i) => ({ ...i, amount: i.amount != null ? i.amount * factor : i.amount })),
+            ingredients: (r.ingredients ?? []).map((i) => ({ ...i, amount: i.amount != null ? i.amount * factor : i.amount })),
           })
         }
         return this.json(route, r)
