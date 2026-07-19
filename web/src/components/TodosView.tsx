@@ -242,6 +242,37 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   // Skip the full-screen spinner when we already have cached content to show — refresh happens underneath.
   const hasCachedContent = !!(initialCache && (initialCache.todos.length > 0 || initialCache.lists.length > 0))
 
+  // Household-configurable "Erledigt"-window length (#356, app_settings). Starts at the
+  // fallback and is replaced by the fetched value (effect below); "Alle anzeigen" still overrides it.
+  const [doneWindowDays, setDoneWindowDays] = useState(DONE_WINDOW_DAYS_DEFAULT)
+  // "Alle anzeigen" für die Erledigt-Historie (#340): per-device, lifts the windowed
+  // cap on the Erledigt tab + done-section. Seeded from localStorage; counts unchanged.
+  const [doneShowAll, setDoneShowAll] = useState(() => {
+    try {
+      return localStorage.getItem(DONE_SHOW_ALL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  // Inclusive lower bound of the done window: today minus (N-1) days, so a window of N days spans
+  // today and the previous N-1 calendar days. Local-date semantics (localDateIso), ISO YYYY-MM-DD
+  // strings compare lexically. Computed fresh each render (never memoized) so it can't go stale across
+  // midnight; feeds both the server-side fetch window (#591) and the local isDoneInWindow filter below.
+  const doneWindowStart = new Date()
+  doneWindowStart.setDate(doneWindowStart.getDate() - (doneWindowDays - 1))
+  const doneWindowStartIso = localDateIso(doneWindowStart)
+  // Server-side "Erledigt"-Fenster (#591/#559): hang the window start on the /todos fetch as
+  // ?doneSince=, so the backend drops DONE todos before that day before they hit the wire (open todos
+  // always come back). In "Alle anzeigen" mode we drop the param and refetch the full history. The
+  // string content is stable within a day, so useSyncedCollection's mount fetch (its `refresh` depends
+  // on `endpoint`) doesn't churn across renders — but it DOES re-run when the toggle flips or the
+  // configured window lands, which is exactly the refetch those transitions need. WS still pushes
+  // single DONE todos outside the window; the local upsert tolerates that (idempotent) and isDoneShown
+  // hides them from the view.
+  const todosEndpoint = doneShowAll
+    ? `${API_BASE}/todos`
+    : `${API_BASE}/todos?doneSince=${doneWindowStartIso}`
+
   // Todos + lists share the `todos` WS channel but are two independent collections, so they are two
   // useSyncedCollection instances (#550) on the same socket (one connection thanks to #551). The hook
   // owns fetch-on-mount, 401→logout, the transport toast and the standard upsert/delete reducers;
@@ -255,7 +286,7 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     refresh: refreshTodos,
   } = useSyncedCollection<Todo>({
     token,
-    endpoint: `${API_BASE}/todos`,
+    endpoint: todosEndpoint,
     wsUrl: WS_URL,
     events: { created: 'TODO_CREATED', updated: 'TODO_UPDATED', deleted: 'TODO_DELETED' },
     onLogout,
@@ -339,18 +370,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [subDrafts, setSubDrafts] = useState<Record<string, string>>({})
   const [doneOpen, setDoneOpen] = useState(false)
-  // Household-configurable "Erledigt"-window length (#356, app_settings). Starts at the
-  // fallback and is replaced by the fetched value; "Alle anzeigen" still overrides it.
-  const [doneWindowDays, setDoneWindowDays] = useState(DONE_WINDOW_DAYS_DEFAULT)
-  // "Alle anzeigen" für die Erledigt-Historie (#340): per-device, lifts the windowed
-  // cap on the Erledigt tab + done-section. Seeded from localStorage; counts unchanged.
-  const [doneShowAll, setDoneShowAll] = useState(() => {
-    try {
-      return localStorage.getItem(DONE_SHOW_ALL_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
   const [newListOpen, setNewListOpen] = useState(false)
   const [editListOpen, setEditListOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -771,12 +790,6 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
   const tomorrowDate = new Date()
   tomorrowDate.setDate(tomorrowDate.getDate() + 1)
   const tomorrowIso = localDateIso(tomorrowDate)
-  // Inclusive lower bound of the done window: today minus (N-1) days, so a window
-  // of N days spans today and the previous N-1 calendar days. Local-date semantics
-  // throughout (localDateIso), and ISO YYYY-MM-DD strings compare lexically.
-  const doneWindowStart = new Date()
-  doneWindowStart.setDate(doneWindowStart.getDate() - (doneWindowDays - 1))
-  const doneWindowStartIso = localDateIso(doneWindowStart)
   const isOverdue = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'over'
   const isDueToday = (x: Todo) => x.status !== 'DONE' && dueLabel(x.dueDate)?.tone === 'today'
   const isDueTomorrow = (x: Todo) => x.status !== 'DONE' && x.dueDate === tomorrowIso

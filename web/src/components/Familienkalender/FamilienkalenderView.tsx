@@ -94,8 +94,8 @@ export function FamilienkalenderView({ token, onLogout }: FamilienkalenderViewPr
       if (todo.status === 'DONE' || !todo.dueDate) continue
       ensure(todo.dueDate).todos.push(todo)
     }
-    for (const a of absence.absences) ensure(a.date).absences.push(a)
-    for (const k of absence.kitaClosures) ensure(k.date).kita = k
+    for (const a of (absence.absences ?? [])) ensure(a.date).absences.push(a)
+    for (const k of (absence.kitaClosures ?? [])) ensure(k.date).kita = k
     for (const m of meals) ensure(m.date).meals.push(m)
     for (const e of events) ensure(e.date).events.push(e)
     // stable order within a day

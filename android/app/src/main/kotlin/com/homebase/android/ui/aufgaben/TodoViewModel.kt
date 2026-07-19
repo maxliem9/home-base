@@ -189,8 +189,16 @@ internal fun isDoneToday(t: TodoDto): Boolean =
 internal fun isDoneInWindow(t: TodoDto, windowDays: Int = DONE_WINDOW_DAYS): Boolean {
     if (t.status != "DONE") return false
     val done = doneLocalDate(t.doneAt) ?: return false
-    return !done.isBefore(LocalDate.now().minusDays((windowDays - 1).toLong()))
+    return !done.isBefore(doneWindowStart(windowDays))
 }
+
+/**
+ * Inclusive lower bound of the done window: today minus (N-1) days, so a window of N days spans
+ * today and the previous N-1 calendar days (local date). Shared by the local [isDoneInWindow] filter
+ * and the server-side `?doneSince=` fetch bound (#591) so both use the identical cutoff.
+ */
+internal fun doneWindowStart(windowDays: Int = DONE_WINDOW_DAYS): LocalDate =
+    LocalDate.now().minusDays((windowDays - 1).toLong())
 
 /**
  * What the "Erledigt" tab and the cross-list/list done-section actually show: the
@@ -395,9 +403,26 @@ class TodoViewModel(
     private fun loadDoneWindow() {
         viewModelScope.launch {
             configRepository.getDoneWindow().onSuccess { cfg ->
+                val changed = _uiState.value.doneWindowDays != cfg.days
                 _uiState.update { it.copy(doneWindowDays = cfg.days) }
+                // The cold load() fetched with the default window (#591 `?doneSince=`). A configured
+                // window *larger* than the default would leave older DONE todos unfetched — refetch once
+                // with the real window so the Erledigt tab isn't silently capped. Skipped in "Alle
+                // anzeigen" mode (doneSince is null there — the window is irrelevant).
+                if (changed && !_uiState.value.doneShowAll) syncFromServer()
             }
         }
+    }
+
+    /**
+     * The `?doneSince=` window bound for the /todos fetch (#591): today minus (N-1) days as a local
+     * ISO date, matching [isDoneInWindow]/[doneWindowStart]. Null in "Alle anzeigen" mode so the server
+     * returns the full DONE history. Open todos always come back regardless. Reads live state so a
+     * refetch after a config/toggle change uses the current window.
+     */
+    private fun doneSinceParam(): String? {
+        val s = _uiState.value
+        return if (s.doneShowAll) null else doneWindowStart(s.doneWindowDays).toString()
     }
 
     fun load() {
@@ -419,7 +444,7 @@ class TodoViewModel(
     private suspend fun reload(showSpinner: Boolean) {
         if (showSpinner) _uiState.update { it.copy(isLoading = true, error = null) }
         val lists = repository.getLists()
-        val todos = repository.getTodos()
+        val todos = repository.getTodos(doneSinceParam())
         val error = lists.exceptionOrNull()?.let(errorText) ?: todos.exceptionOrNull()?.let(errorText)
         if (error == null) hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
         _uiState.update { state ->
@@ -448,7 +473,7 @@ class TodoViewModel(
     private fun syncFromServer() {
         viewModelScope.launch {
             val lists = repository.getLists()
-            val todos = repository.getTodos()
+            val todos = repository.getTodos(doneSinceParam())
             // A successful re-sync also counts as server data landing → the cache seed must not
             // clobber it (#520). Guard on both fetches succeeding (a partial failure keeps prior state).
             if (lists.isSuccess && todos.isSuccess) hasServerData = true
@@ -468,7 +493,14 @@ class TodoViewModel(
      * cap on the displayed DONE content. In-memory per-session view state (the counts
      * stay on "today"); mirrors the web toggle, which additionally persists per-device.
      */
-    fun toggleDoneShowAll() = _uiState.update { it.copy(doneShowAll = !it.doneShowAll) }
+    fun toggleDoneShowAll() {
+        _uiState.update { it.copy(doneShowAll = !it.doneShowAll) }
+        // The DONE set on the wire is server-windowed (#591): entering "Alle anzeigen" needs a
+        // param-less refetch to pull the full history; leaving it re-applies the window. Silent
+        // (no spinner), best-effort — a transient failure keeps the current todos and retries on
+        // the next resync. WS meanwhile keeps pushing single DONE todos idempotently.
+        syncFromServer()
+    }
 
     /**
      * Open the tab a dashboard stat tile deep-links to (#255/#256). Mirrors the web, where the

@@ -5,6 +5,7 @@ import com.homebase.android.data.websocket.ReconnectingWebSocketClient
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -142,5 +143,43 @@ class ReconnectingWebSocketClientTest {
         advanceTimeBy(1000)
         runCurrent()
         assertEquals("backoff reset to 1s after onOpen", 4, client.sockets.size)
+    }
+
+    // --- #553: multi-consumer SharedFlow + reference-counted lifecycle ---
+
+    @Test
+    fun `events fan out to every collector`() = runTest {
+        val client = newClient()
+        client.connect("tok")
+        val a = mutableListOf<String>()
+        val b = mutableListOf<String>()
+        backgroundScope.launch { client.events.collect { a += it } }
+        backgroundScope.launch { client.events.collect { b += it } }
+        runCurrent() // both must be subscribed before the emit (SharedFlow replay=0)
+
+        client.listener.onMessage(client.current(), "hello")
+        runCurrent()
+
+        // Single-consumer receiveAsFlow would have delivered "hello" to only one of them.
+        assertEquals(listOf("hello"), a)
+        assertEquals(listOf("hello"), b)
+    }
+
+    @Test
+    fun `a shared client stays open until the last consumer disconnects`() = runTest {
+        val client = newClient()
+        client.connect("tok") // consumer A
+        client.connect("tok") // consumer B — shares the same live socket, no second open
+        assertEquals("second consumer reuses the socket", 1, client.sockets.size)
+
+        client.disconnect() // A leaves; B still holds it → socket survives and keeps reconnecting
+        client.listener.onClosed(client.current(), 1006, "gone")
+        advanceUntilIdle()
+        assertEquals("reconnects while a consumer remains", 2, client.sockets.size)
+
+        client.disconnect() // B leaves; last consumer gone → tear down, no more reconnects
+        client.listener.onClosed(client.current(), 1000, "bye")
+        advanceUntilIdle()
+        assertEquals("no reconnect after the last consumer left", 2, client.sockets.size)
     }
 }

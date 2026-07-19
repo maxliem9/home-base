@@ -105,7 +105,9 @@ const emptyDraft = (): Draft => ({
   category: 'DINNER', sections: [emptySection()], steps: [''],
 })
 const draftFromRecipe = (r: Recipe): Draft => {
-  const groups = groupBySection(r.ingredients)
+  // ingredients/steps are wire-optional (#96/#597): the backend omits an empty list, so default here.
+  const steps = r.steps ?? []
+  const groups = groupBySection(r.ingredients ?? [])
   return {
     id: r.id,
     title: r.title,
@@ -120,7 +122,7 @@ const draftFromRecipe = (r: Recipe): Draft => {
           ingredients: g.items.map((i) => ({ name: i.name, amount: i.amount != null ? String(i.amount) : '', unit: i.unit ?? '' })),
         }))
       : [emptySection()],
-    steps: r.steps.length ? r.steps.map((s) => s.description) : [''],
+    steps: steps.length ? steps.map((s) => s.description) : [''],
   }
 }
 
@@ -597,10 +599,10 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
       </div>
 
       <div className="hb-recipe-body">
-        {recipe.ingredients.length > 0 && (
+        {(recipe.ingredients ?? []).length > 0 && (
           <div>
             <div className="hb-sectionlabel">{t('recipes.ingredients')}</div>
-            {groupBySection(recipe.ingredients).map((group, gi) => (
+            {groupBySection((recipe.ingredients ?? [])).map((group, gi) => (
               <div key={gi} className="hb-inggroup">
                 {group.section && <div className="hb-ingsubhead">{group.section}</div>}
                 <div className="hb-ingredients">
@@ -615,11 +617,11 @@ function RecipeDetail({ recipe, token, onBack, onEdit, onDelete, onExportError, 
             ))}
           </div>
         )}
-        {recipe.steps.length > 0 && (
+        {(recipe.steps ?? []).length > 0 && (
           <div>
             <div className="hb-sectionlabel">{t('recipes.preparation')}</div>
             <ol className="hb-steps">
-              {recipe.steps.map((step) => (
+              {(recipe.steps ?? []).map((step) => (
                 <li key={step.id} className="hb-step">
                   <span className="hb-step__n">{step.stepNumber}</span>
                   <span>{step.description}</span>
@@ -756,18 +758,18 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
   onAdd: (listId: string, items: { name: string; amount?: number; unit?: string }[]) => void
 }) {
   const { t } = useTranslation()
-  const [sel, setSel] = useState<boolean[]>(() => recipe.ingredients.map(() => true))
+  const [sel, setSel] = useState<boolean[]>(() => (recipe.ingredients ?? []).map(() => true))
   const [listId, setListId] = useState(lists[0]?.id ?? '')
   const effServings = servings > 0 ? servings : recipe.servings
   const factor = recipe.servings > 0 ? effServings / recipe.servings : 1
   const scale = (a: number) => Math.round(a * factor * 1000) / 1000
   const toggle = (i: number) => setSel((s) => s.map((v, j) => (j === i ? !v : v)))
   const count = sel.filter(Boolean).length
-  const allOn = count === recipe.ingredients.length
+  const allOn = count === (recipe.ingredients ?? []).length
 
   const add = () => {
     if (!listId) return
-    const items = recipe.ingredients
+    const items = (recipe.ingredients ?? [])
       .filter((_, i) => sel[i])
       .map((ing) => ({
         name: ing.name,
@@ -807,13 +809,13 @@ function IngredientPicker({ recipe, servings, lists, onClose, onAdd }: {
             </p>
           )}
           <div className="hb-picker-head">
-            <span className="hb-muted">{t('recipes.pickerSelected', { n: String(count), total: String(recipe.ingredients.length) })}</span>
-            <button className="hb-link" onClick={() => setSel(recipe.ingredients.map(() => !allOn))}>
+            <span className="hb-muted">{t('recipes.pickerSelected', { n: String(count), total: String((recipe.ingredients ?? []).length) })}</span>
+            <button className="hb-link" onClick={() => setSel((recipe.ingredients ?? []).map(() => !allOn))}>
               {allOn ? t('recipes.pickerNone') : t('recipes.pickerAll')}
             </button>
           </div>
           <div className="hb-picklist">
-            {recipe.ingredients.map((ing, i) => (
+            {(recipe.ingredients ?? []).map((ing, i) => (
               <div key={ing.id} className="hb-ingpick" onClick={() => toggle(i)}>
                 <Checkbox checked={sel[i]} onChange={() => toggle(i)} />
                 <span className="hb-ing__amt">{[ing.amount != null ? fmtAmount(scale(ing.amount)) : null, ing.unit].filter(Boolean).join(' ') || '·'}</span>

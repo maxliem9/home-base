@@ -85,6 +85,22 @@ class AppContainer(context: Context) {
         .build()
         .create(HomeBaseApi::class.java)
 
+    // One WebSocket client per channel (#553), shared by every repository that consumes the channel.
+    // The client's `events` is a SharedFlow (fans out to all collectors) and connect/disconnect are
+    // reference-counted, so a device holds a *single* socket per channel — previously Todo (todos+
+    // calendar), Shopping (screen+settings) and Recipe (recipes+meal-plan+calendar), plus Absence and
+    // MealPlan, each opened 2–3 duplicate sockets. Lifecycle is safe: a screen tearing down decrements
+    // the ref count and only the last consumer actually closes the socket (logout-teardown #180 too).
+    private val wsHttp = OkHttp(okHttpClient)
+    private val todoWsClient = TodoWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val shoppingWsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val absenceWsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val notesWsClient = NotesWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val timeWsClient = TimeWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+    private val eventWsClient = EventWebSocketClient(BuildConfig.BASE_URL, wsHttp)
+
     val authRepository = AuthRepository(context, api) { token -> currentToken = token }
 
     val configRepository = ConfigRepository(api)
@@ -94,7 +110,7 @@ class AppContainer(context: Context) {
 
     val todoRepository = TodoRepository(
         api = api,
-        wsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = todoWsClient,
     )
 
     /**
@@ -117,20 +133,20 @@ class AppContainer(context: Context) {
 
     val shoppingRepository = ShoppingRepository(
         api = api,
-        wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = shoppingWsClient,
     )
 
     /**
-     * Dedicated repo for the Einkaufskategorien settings subpage (#411). It shares the same REST API
-     * but gets its OWN shopping WebSocket instance: the "shopping" channel's event flow is a
-     * single-consumer channel and connect/disconnect is per-socket, so reusing [shoppingRepository]
-     * would make the settings VM and the shopping screen VM fight over events + the connection
-     * lifecycle (same reason the Wochenplan owns a separate recipe socket). A separate instance keeps
-     * the settings subpage self-contained.
+     * Dedicated repo for the Einkaufskategorien settings subpage (#411), sharing the REST API. Since
+     * #553 it shares the **same** [shoppingWsClient] as [shoppingRepository]: the client's `events` is
+     * now a multi-consumer SharedFlow (both repos' collectors get every frame) and connect/disconnect
+     * are reference-counted, so the settings VM and the shopping screen VM no longer need — or open — a
+     * second socket on the "shopping" channel. Only the shopping screen registers `onConnected`, so the
+     * single reconnect-resync hook isn't contended.
      */
     val shoppingCategoriesRepository = ShoppingRepository(
         api = api,
-        wsClient = ShoppingWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = shoppingWsClient,
     )
 
     /** Durable backing store for the shopping offline check-off queue (issue #170). */
@@ -155,7 +171,7 @@ class AppContainer(context: Context) {
 
     val notesRepository = NotesRepository(
         api = api,
-        wsClient = NotesWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = notesWsClient,
     )
 
     /** Durable backing store for the notes offline auto-save queue (issue #323). */
@@ -174,7 +190,7 @@ class AppContainer(context: Context) {
 
     val timeRepository = TimeRepository(
         api = api,
-        wsClient = TimeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = timeWsClient,
     )
 
     /** Durable "last-known time data" cache for the Zeiterfassung (#520); own prefs file. */
@@ -186,7 +202,7 @@ class AppContainer(context: Context) {
 
     val recipesRepository = RecipesRepository(
         api = api,
-        wsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = recipeWsClient,
     )
 
     /** Durable "last-known recipes" cache (#520); own prefs file, best-effort writes. */
@@ -198,7 +214,7 @@ class AppContainer(context: Context) {
 
     val absenceRepository = AbsenceRepository(
         api = api,
-        wsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        wsClient = absenceWsClient,
     )
 
     /** Durable "last-known planner snapshot" cache for the Familienkalender (#520). */
@@ -208,12 +224,12 @@ class AppContainer(context: Context) {
         prefsName = "homebase_absence_cache",
     )
 
-    // Wochenplan (#250): its own meal-plan socket + a dedicated recipe socket (a recipe delete
-    // cascades plan rows but only broadcasts on the recipes channel — the planner watches both).
+    // Wochenplan (#250): watches the meal-plan channel + the recipes channel (a recipe delete cascades
+    // plan rows but only broadcasts on the recipes channel). Both are the shared clients (#553).
     val mealPlanRepository = MealPlanRepository(
         api = api,
-        mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
-        recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        mealPlanWsClient = mealPlanWsClient,
+        recipeWsClient = recipeWsClient,
     )
 
     /** Durable "last-known plan" cache for the Wochenplan (#520); own prefs file, best-effort writes. */
@@ -223,16 +239,17 @@ class AppContainer(context: Context) {
         prefsName = "homebase_mealplan_cache",
     )
 
-    // Familienkalender (#435): read-only overlay of todos/absence/meals/events. Each WS client is a
-    // dedicated instance (separate from the feature screens') so connect/disconnect lifecycles don't
-    // collide; recipes is included for the meal-plan cascade-delete broadcast (see CalendarRepository).
+    // Familienkalender (#435): read-only overlay of todos/absence/meals/events. Shares the per-channel
+    // clients (#553) with the feature screens — the SharedFlow fans events out to both the overlay's
+    // collectors and the feature repos, and reference-counted connect/disconnect keeps the lifecycles
+    // from colliding. Recipes is included for the meal-plan cascade-delete broadcast (see CalendarRepository).
     val calendarRepository = CalendarRepository(
         api = api,
-        todoWsClient = TodoWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
-        absenceWsClient = AbsenceWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
-        mealPlanWsClient = MealPlanWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
-        recipeWsClient = RecipeWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
-        eventWsClient = EventWebSocketClient(BuildConfig.BASE_URL, OkHttp(okHttpClient)),
+        todoWsClient = todoWsClient,
+        absenceWsClient = absenceWsClient,
+        mealPlanWsClient = mealPlanWsClient,
+        recipeWsClient = recipeWsClient,
+        eventWsClient = eventWsClient,
     )
 
     /** Durable "last-known overlay" cache for the Familienkalender (#520); own prefs file. */
