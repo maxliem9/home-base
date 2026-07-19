@@ -109,7 +109,9 @@ object TodosTable : Table("todos") {
     val dueTime = time("due_time").nullable()
     val reminderLeadMinutes = integer("reminder_lead_minutes").nullable()
     val priority = varchar("priority", 10).nullable()
-    val listId = uuid("list_id").nullable()
+    // FK to the owning list with ON DELETE CASCADE (V7). Modelled here too — not just in Flyway — so the
+    // Exposed/H2 test schema (SchemaUtils.create) cascades identically and needs no hand-rolled delete (#599).
+    val listId = reference("list_id", TodoListsTable.id, onDelete = ReferenceOption.CASCADE).nullable()
     // Recurrence: frequency DAILY|WEEKLY|MONTHLY + every-N interval; both NULL = one-off.
     val recurrence = varchar("recurrence", 10).nullable()
     val recurrenceInterval = integer("recurrence_interval").nullable()
@@ -133,14 +135,16 @@ object TodosTable : Table("todos") {
  * todos.assignee column. `username` FKs users(username); the pair is unique (composite PK).
  */
 object TodoAssigneesTable : Table("todo_assignees") {
-    val todoId = uuid("todo_id")
+    // ON DELETE CASCADE off the todo (V39) — modelled here so the H2 test schema cascades too (#599).
+    val todoId = reference("todo_id", TodosTable.id, onDelete = ReferenceOption.CASCADE)
     val username = varchar("username", 50)
     override val primaryKey = PrimaryKey(todoId, username)
 }
 
 object TodoSubtasksTable : Table("todo_subtasks") {
     val id = uuid("id")
-    val todoId = uuid("todo_id")
+    // ON DELETE CASCADE off the todo (V10) — modelled here so the H2 test schema cascades too (#599).
+    val todoId = reference("todo_id", TodosTable.id, onDelete = ReferenceOption.CASCADE)
     val title = text("title")
     val done = bool("done")
     val sortOrder = integer("sort_order")
@@ -162,7 +166,8 @@ object ShoppingListsTable : Table("shopping_lists") {
 object ShoppingItemsTable : Table("shopping_items") {
     val id = uuid("id")
     val name = text("name")
-    val listId = uuid("list_id").nullable()
+    // ON DELETE CASCADE off the list (V3) — modelled here so the H2 test schema cascades too (#599).
+    val listId = reference("list_id", ShoppingListsTable.id, onDelete = ReferenceOption.CASCADE).nullable()
     val checked = bool("checked")
     val createdBy = varchar("created_by", 50)
     val createdAt = timestamp("created_at")
@@ -208,9 +213,9 @@ object ShoppingCategoriesTable : Table("shopping_categories") {
     val isBuiltin = bool("is_builtin")
     // Category scope (#412): NULL = the shared household catalog (#411, all pre-#412 rows); a list id =
     // that list's own categories. `key` stays the globally unique PK; OTHER stays the single shared row.
-    // Plain nullable uuid like ShoppingItemsTable.listId — the FK + ON DELETE CASCADE live in the
-    // migration (Postgres); the list-DELETE route cascades explicitly for the H2 test DB.
-    val listId = uuid("list_id").nullable()
+    // FK with ON DELETE CASCADE off the list (V41), modelled here as well as in Flyway so the Exposed/H2
+    // test schema cascades identically — no hand-rolled delete on the list-DELETE path (#599).
+    val listId = reference("list_id", ShoppingListsTable.id, onDelete = ReferenceOption.CASCADE).nullable()
     override val primaryKey = PrimaryKey(key)
 }
 
