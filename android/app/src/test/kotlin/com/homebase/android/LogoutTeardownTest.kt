@@ -53,7 +53,7 @@ class LogoutTeardownTest {
     private fun relaxedTodoRepository(): TodoRepository = mockk(relaxed = true) {
         every { incomingEvents } returns MutableSharedFlow()
         coEvery { getLists() } returns Result.success(emptyList())
-        coEvery { getTodos() } returns Result.success(emptyList())
+        coEvery { getTodos(any()) } returns Result.success(emptyList())
     }
 
     // The TodoViewModel now also reads the configurable done-window (#356) on init; a relaxed
