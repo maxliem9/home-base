@@ -6,7 +6,7 @@ import com.homebase.android.data.model.ShoppingTemplateDto
 import com.homebase.android.data.model.ShoppingTemplateItemDto
 import com.homebase.android.data.model.TemplateItemInput
 import com.homebase.android.data.model.UpdateShoppingTemplateRequest
-import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import io.mockk.coEvery
@@ -105,13 +105,13 @@ class ShoppingTemplateRepositoryTest {
     @Test
     fun `createTemplate maps an HttpException to German text (never raw HTTP n)`() = runTest {
         // org.json is the android.jar stub in unit tests, so the body code isn't parsed and
-        // germanTemplateError falls to its else branch — still German, which is what we pin.
+        // templateError falls to its else branch — still German, which is what we pin.
         coEvery { api.createShoppingTemplate(any()) } throws httpException(400, """{"code":"INVALID_TEMPLATE"}""")
 
         val result = repository.createTemplate("", emptyList())
 
         assertTrue(result.isFailure)
-        assertEquals("Vorlage konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.TEMPLATE_SAVE_FAILED, result.appError())
     }
 
     @Test
@@ -121,7 +121,7 @@ class ShoppingTemplateRepositoryTest {
         val result = repository.updateTemplate("gone", "X", emptyList())
 
         assertTrue(result.isFailure)
-        assertEquals("Vorlage konnte nicht gespeichert werden.", result.exceptionOrNull()?.message)
+        assertEquals(AppError.TEMPLATE_SAVE_FAILED, result.appError())
     }
 
     @Test
@@ -131,6 +131,6 @@ class ShoppingTemplateRepositoryTest {
         val result = repository.deleteTemplate("t1")
 
         assertTrue(result.isFailure)
-        assertEquals(NETWORK_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.NETWORK, result.appError())
     }
 }

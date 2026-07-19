@@ -65,7 +65,7 @@ class CalendarRepository(
      */
     suspend fun updateCalendarFeedConfig(sections: List<String>): Result<CalendarFeedConfigResponse> =
         apiCatching(mapHttpError = {
-            if (it.code() == 400) "Ungültige Auswahl." else "Konnte nicht gespeichert werden."
+            if (it.code() == 400) AppError.CALENDAR_FEED_INVALID else AppError.SAVE_FAILED
         }) { api.updateCalendarFeed(UpdateCalendarFeedRequest(sections)) }
 
     fun connectWebSocket(token: String) {

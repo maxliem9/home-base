@@ -304,6 +304,9 @@ class TodoViewModel(
      * null in tests that don't exercise it → no read-cache (behaves exactly as before).
      */
     private val snapshotStore: SnapshotStore<TodoSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodoUiState(isLoading = true))
@@ -442,7 +445,7 @@ class TodoViewModel(
         if (showSpinner) _uiState.update { it.copy(isLoading = true, error = null) }
         val lists = repository.getLists()
         val todos = repository.getTodos(doneSinceParam())
-        val error = lists.exceptionOrNull()?.message ?: todos.exceptionOrNull()?.message
+        val error = lists.exceptionOrNull()?.let(errorText) ?: todos.exceptionOrNull()?.let(errorText)
         if (error == null) hasServerData = true // a successful fetch landed → the cache seed must not clobber it (#520)
         _uiState.update { state ->
             val nextLists = lists.getOrDefault(state.lists)
@@ -519,7 +522,7 @@ class TodoViewModel(
     fun addTodo(title: String) {
         if (title.isBlank()) return
         viewModelScope.launch {
-            createTodo(title).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            createTodo(title).onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -571,7 +574,7 @@ class TodoViewModel(
     ): Boolean {
         if (title.isBlank()) return false
         return createTodo(title, description, assignees, dueDate, priority)
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
             .isSuccess
     }
 
@@ -583,7 +586,7 @@ class TodoViewModel(
      */
     fun updateTodo(id: String, request: UpdateTodoRequest) {
         viewModelScope.launch {
-            saveTodo(id, request).onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            saveTodo(id, request).onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -722,7 +725,7 @@ class TodoViewModel(
                 true
             },
             onFailure = { e ->
-                setEditorStatus(TodoSaveStatus.ERROR, e.message)
+                setEditorStatus(TodoSaveStatus.ERROR, errorText(e))
                 false
             },
         )
@@ -755,7 +758,7 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.deleteTodo(id)
                 .onSuccess { _uiState.update { s -> s.copy(todos = s.todos.filter { it.id != id }) } }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -769,7 +772,7 @@ class TodoViewModel(
                         s.copy(lists = lists, activeListId = list.id)
                     }
                 }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -780,7 +783,7 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.addSubtask(todoId, title.trim())
                 .onSuccess { upsertTodo(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -788,7 +791,7 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.updateSubtask(todoId, subtask.id, UpdateSubtaskRequest(done = !subtask.done))
                 .onSuccess { upsertTodo(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
@@ -796,7 +799,7 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.deleteSubtask(todoId, subtaskId)
                 .onSuccess { upsertTodo(it) }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 

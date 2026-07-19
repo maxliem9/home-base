@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import com.homebase.android.data.api.HomeBaseApi
 import com.homebase.android.data.model.LoginRequest
 import com.homebase.android.data.repository.ApiException
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.AuthRepository
 import com.homebase.android.testutil.leakSafeScope
 import io.mockk.coEvery
@@ -30,16 +31,16 @@ import retrofit2.HttpException
 import retrofit2.Response
 
 /**
- * Pins `germanLoginError` (ApiErrors.kt, issue #83) end-to-end through the **public** login path
+ * Pins `loginError` (ApiErrors.kt, issue #83) end-to-end through the **public** login path
  * `AuthRepository.login()` — the only Android error-mapper still without a test driving it through
  * its caller (test-gap #338, aus Review von PR #334 / #319).
  *
  * Unlike the seven `german*Error` body-parsing mappers (covered by [ErrorCodeMappingRobolectricTest],
  * which need Robolectric because the JVM `org.json` stub makes `errorCodeOf` return null),
- * `germanLoginError` branches on `e.code()` — the HTTP **status** — so it has no `org.json`
+ * `loginError` branches on `e.code()` — the HTTP **status** — so it has no `org.json`
  * dependency and is coverable by a **plain JVM** unit test (deliberately NO `@RunWith(Robolectric)`).
  *
- * The mapper is `private`-by-convention (wired via `apiCatching(mapHttpError = ::germanLoginError)`),
+ * The mapper is `private`-by-convention (wired via `apiCatching(mapHttpError = ::loginError)`),
  * so — mirroring the #334 pattern of driving private mappers through their public repository method —
  * we stub `HomeBaseApi.login` to throw an [HttpException] of the given status and assert the German
  * message on the failed [Result] returned by `AuthRepository.login()`.
@@ -116,32 +117,30 @@ class GermanLoginErrorTest {
         val cause = httpException(status)
         coEvery { api.login(any<LoginRequest>()) } throws cause
         val mapped = authRepository(api).login("user", "secret").exceptionOrNull()
-        // Every failure leaving the repo carries German UI text wrapped in ApiException; the
-        // original HttpException stays reachable as the cause.
+        // Every failure leaving the repo carries a typed AppError wrapped in ApiException; the
+        // original HttpException stays reachable as the cause. (The UI resolves the code to text.)
         assertTrue("status $status should map to ApiException, was $mapped", mapped is ApiException)
         assertSame("status $status must keep the HttpException as cause", cause, mapped?.cause)
         return mapped
     }
 
+    private val Throwable?.code: AppError get() = (this as ApiException).code
+
     @Test
-    fun `login 401 maps to the German failed-login text`() = runTest {
-        assertEquals("Login fehlgeschlagen.", loginFailure(401)?.message)
+    fun `login 401 maps to the LOGIN_FAILED code`() = runTest {
+        assertEquals(AppError.LOGIN_FAILED, loginFailure(401).code)
     }
 
     @Test
-    fun `login 429 maps to the German throttle text`() = runTest {
-        assertEquals("Zu viele Versuche – bitte später erneut versuchen.", loginFailure(429)?.message)
+    fun `login 429 maps to the LOGIN_THROTTLED code`() = runTest {
+        assertEquals(AppError.LOGIN_THROTTLED, loginFailure(429).code)
     }
 
     @Test
-    fun `login any other status falls back to the German failed-login text`() = runTest {
+    fun `login any other status falls back to the LOGIN_FAILED code`() = runTest {
         // The else-branch: anything that is not 401/429 (e.g. a 500 or an unexpected 400/403).
         for (status in listOf(400, 403, 404, 500, 503)) {
-            assertEquals(
-                "status $status should hit the else-branch",
-                "Login fehlgeschlagen.",
-                loginFailure(status)?.message,
-            )
+            assertEquals("status $status should hit the else-branch", AppError.LOGIN_FAILED, loginFailure(status).code)
         }
     }
 }

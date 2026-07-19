@@ -1,5 +1,6 @@
 package com.homebase.android
 
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ApiException
 import com.homebase.android.data.shopping.FlushDecision
 import com.homebase.android.data.shopping.PendingCheck
@@ -31,7 +32,7 @@ class ShoppingSyncLogicTest {
 
     @Test
     fun `network error wrapped in ApiException is kept and retried`() {
-        val wrapped = ApiException("Keine Verbindung", IOException("dns"))
+        val wrapped = ApiException(AppError.NETWORK, IOException("dns"))
         assertEquals(FlushDecision.KEEP_RETRY, classifyFlush(wrapped))
     }
 
@@ -63,7 +64,7 @@ class ShoppingSyncLogicTest {
 
     @Test
     fun `HttpException wrapped in ApiException is unwrapped and classified by code`() {
-        val wrapped = ApiException("Serverfehler", http(404))
+        val wrapped = ApiException(AppError.GENERIC, http(404))
         assertEquals(FlushDecision.DROP_TERMINAL, classifyFlush(wrapped))
     }
 

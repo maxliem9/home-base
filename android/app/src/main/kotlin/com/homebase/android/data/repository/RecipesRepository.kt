@@ -42,8 +42,8 @@ class RecipesRepository(
     suspend fun importRecipe(url: String): Result<RecipeDraftDto> =
         apiCatching(
             mapHttpError = { e ->
-                if (errorCodeOf(e) == "NO_RECIPE_DATA") RECIPE_IMPORT_NO_DATA_TEXT
-                else RECIPE_IMPORT_FAILED_TEXT
+                if (errorCodeOf(e) == "NO_RECIPE_DATA") AppError.RECIPE_IMPORT_NO_DATA
+                else AppError.RECIPE_IMPORT_FAILED
             },
         ) { api.importRecipe(ImportRecipeRequest(url)) }
 

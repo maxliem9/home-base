@@ -5,7 +5,7 @@ import com.homebase.android.data.model.CreateNoteRequest
 import com.homebase.android.data.model.NoteDto
 import com.homebase.android.data.model.NoteImageDto
 import com.homebase.android.data.model.UpdateNoteRequest
-import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.NotesRepository
 import com.homebase.android.data.websocket.NotesWebSocketClient
 import io.mockk.coEvery
@@ -80,7 +80,7 @@ class NotesRepositoryTest {
         val result = repository.getNotes()
 
         assertTrue(result.isFailure)
-        assertEquals(GENERIC_ERROR_TEXT, result.exceptionOrNull()?.message)
+        assertEquals(AppError.GENERIC, result.appError())
     }
 
     @Test

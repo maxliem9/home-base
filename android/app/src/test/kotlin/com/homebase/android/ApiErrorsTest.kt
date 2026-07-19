@@ -1,10 +1,9 @@
 package com.homebase.android
 
 import com.homebase.android.data.repository.ApiException
-import com.homebase.android.data.repository.GENERIC_ERROR_TEXT
-import com.homebase.android.data.repository.NETWORK_ERROR_TEXT
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.apiCatching
-import com.homebase.android.data.repository.germanLoginError
+import com.homebase.android.data.repository.loginError
 import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.JsonEncodingException
 import java.io.IOException
@@ -20,12 +19,18 @@ import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
 
-/** Pins the central repository error mapper (#73): no raw English exception messages. */
+/**
+ * Pins the central repository error mapper (#73/#558): a failure leaving a repository carries a typed
+ * [AppError] code, never user-facing text. The code→text resolution (strings.xml) is pinned separately
+ * in [ErrorCodeMappingRobolectricTest].
+ */
 class ApiErrorsTest {
 
     private fun httpException(code: Int = 409): HttpException = HttpException(
         Response.error<Any>(code, """{"code":"INVALID_RANGE"}""".toResponseBody("application/json".toMediaType())),
     )
+
+    private val Throwable?.code: AppError get() = (this as ApiException).code
 
     @Test
     fun `success passes through`() = runTest {
@@ -35,7 +40,7 @@ class ApiErrorsTest {
     }
 
     @Test
-    fun `IOException family maps to the German offline text`() = runTest {
+    fun `IOException family maps to the NETWORK code`() = runTest {
         val transportErrors = listOf<Throwable>(
             UnknownHostException("Unable to resolve host api.example.com"),
             ConnectException("Failed to connect to /10.0.2.2:8080"),
@@ -46,7 +51,7 @@ class ApiErrorsTest {
             val mapped = apiCatching<Unit> { throw e }.exceptionOrNull()
 
             assertTrue("$e should map to ApiException", mapped is ApiException)
-            assertEquals(NETWORK_ERROR_TEXT, mapped?.message)
+            assertEquals(AppError.NETWORK, mapped.code)
             assertSame(e, mapped?.cause)
         }
     }
@@ -61,21 +66,21 @@ class ApiErrorsTest {
     }
 
     @Test
-    fun `HttpException with mapper wraps the mapped German text and keeps the cause`() = runTest {
+    fun `HttpException with mapper wraps the mapped code and keeps the cause`() = runTest {
         val e = httpException()
 
-        val mapped = apiCatching<Unit>(mapHttpError = { "Das Ende muss nach dem Start liegen." }) {
+        val mapped = apiCatching<Unit>(mapHttpError = { AppError.TIME_INVALID_RANGE }) {
             throw e
         }.exceptionOrNull()
 
-        assertEquals("Das Ende muss nach dem Start liegen.", mapped?.message)
+        assertEquals(AppError.TIME_INVALID_RANGE, mapped.code)
         assertSame(e, mapped?.cause)
     }
 
     @Test
-    fun `Moshi parse errors map to the generic German fallback`() = runTest {
+    fun `Moshi parse errors map to the GENERIC code`() = runTest {
         // JsonEncodingException extends IOException — a malformed response must read as
-        // a server problem, not as "Keine Verbindung".
+        // a server problem (GENERIC), not as NETWORK ("offline").
         val parseErrors = listOf<Throwable>(
             JsonDataException("Expected a string but was BEGIN_OBJECT at path \$.title"),
             JsonEncodingException("Use JsonReader.setLenient(true) to accept malformed JSON"),
@@ -83,58 +88,58 @@ class ApiErrorsTest {
         for (e in parseErrors) {
             val mapped = apiCatching<Unit> { throw e }.exceptionOrNull()
 
-            assertEquals(GENERIC_ERROR_TEXT, mapped?.message)
+            assertEquals(AppError.GENERIC, mapped.code)
             assertSame(e, mapped?.cause)
         }
     }
 
     @Test
-    fun `unknown exceptions map to the generic German fallback`() = runTest {
+    fun `unknown exceptions map to the GENERIC code`() = runTest {
         val e = RuntimeException("boom")
 
         val mapped = apiCatching<Unit> { throw e }.exceptionOrNull()
 
         assertTrue(mapped is ApiException)
-        assertEquals(GENERIC_ERROR_TEXT, mapped?.message)
+        assertEquals(AppError.GENERIC, mapped.code)
         assertSame(e, mapped?.cause)
     }
 
     @Test
-    fun `login 401 maps to German text via germanLoginError`() = runTest {
+    fun `login 401 maps to LOGIN_FAILED via loginError`() = runTest {
         val e = httpException(401)
 
-        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+        val mapped = apiCatching<Unit>(mapHttpError = ::loginError) {
             throw e
         }.exceptionOrNull()
 
         assertTrue("should map to ApiException", mapped is ApiException)
-        assertEquals("Login fehlgeschlagen.", mapped?.message)
+        assertEquals(AppError.LOGIN_FAILED, mapped.code)
         assertSame(e, mapped?.cause)
     }
 
     @Test
-    fun `login 429 maps to German throttle text via germanLoginError`() = runTest {
+    fun `login 429 maps to LOGIN_THROTTLED via loginError`() = runTest {
         val e = httpException(429)
 
-        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+        val mapped = apiCatching<Unit>(mapHttpError = ::loginError) {
             throw e
         }.exceptionOrNull()
 
         assertTrue("should map to ApiException", mapped is ApiException)
-        assertEquals("Zu viele Versuche – bitte später erneut versuchen.", mapped?.message)
+        assertEquals(AppError.LOGIN_THROTTLED, mapped.code)
         assertSame(e, mapped?.cause)
     }
 
     @Test
-    fun `login unknown status maps to generic German fallback via germanLoginError`() = runTest {
+    fun `login unknown status maps to LOGIN_FAILED via loginError`() = runTest {
         val e = httpException(500)
 
-        val mapped = apiCatching<Unit>(mapHttpError = ::germanLoginError) {
+        val mapped = apiCatching<Unit>(mapHttpError = ::loginError) {
             throw e
         }.exceptionOrNull()
 
         assertTrue("should map to ApiException", mapped is ApiException)
-        assertEquals("Login fehlgeschlagen.", mapped?.message)
+        assertEquals(AppError.LOGIN_FAILED, mapped.code)
         assertSame(e, mapped?.cause)
     }
 

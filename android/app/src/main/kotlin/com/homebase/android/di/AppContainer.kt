@@ -41,6 +41,7 @@ import com.homebase.android.data.websocket.ShoppingWebSocketClient
 import com.homebase.android.data.websocket.TimeWebSocketClient
 import com.homebase.android.data.websocket.TodoWebSocketClient
 import com.homebase.android.notifications.ReminderScheduler
+import com.homebase.android.ui.errorText
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -58,6 +59,13 @@ class AppContainer(context: Context) {
     // Token holder written once after login; read by the OkHttp interceptor on each request.
     // Accessed from background threads (OkHttp dispatcher) — volatile is sufficient.
     @Volatile var currentToken: String? = null
+
+    /**
+     * Resolves a repository [AppError] (carried by an ApiException) to a localized string via
+     * strings.xml (#558). Injected into every ViewModel so the data layer stays presentation-free.
+     * Uses the application context (locale follows the system) — safe against Activity leaks.
+     */
+    val errorText: (Throwable) -> String = { context.applicationContext.errorText(it) }
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(AuthInterceptor { currentToken })

@@ -35,6 +35,10 @@ class AbsenceViewModel(
      * empty screen, and mirrored on every change. null in tests → no read-cache.
      */
     private val snapshotStore: SnapshotStore<AbsenceSnapshot>? = null,
+    // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
+    // The default keeps the raw exception message (for tests); MainActivity injects the Context-backed
+    // resolver so the data layer stays text-free.
+    private val errorText: (Throwable) -> String = { it.message ?: "" },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AbsenceUiState())
@@ -61,7 +65,7 @@ class AbsenceViewModel(
                 .onFailure { e ->
                     // Keep `error` only when there is nothing to show anyway (#520): with a cached/prior
                     // snapshot on screen a failed refresh stays silent — offline we show the old state.
-                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.data == AbsenceStateDto()) e.message else null) }
+                    _uiState.update { s -> s.copy(isLoading = false, error = if (s.data == AbsenceStateDto()) errorText(e) else null) }
                 }
         }
     }
@@ -108,14 +112,14 @@ class AbsenceViewModel(
     suspend fun refresh() {
         repository.getState()
             .onSuccess { snapshot -> _uiState.update { it.copy(data = snapshot, error = null) } }
-            .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+            .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
     }
 
     private fun mutate(block: suspend () -> Result<Unit>) {
         viewModelScope.launch {
             block()
                 .onSuccess { refetch() }
-                .onFailure { e -> _uiState.update { it.copy(error = e.message) } }
+                .onFailure { e -> _uiState.update { it.copy(error = errorText(e)) } }
         }
     }
 
