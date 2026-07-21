@@ -306,7 +306,7 @@ class TodoViewModel(
     private val snapshotStore: SnapshotStore<TodoSnapshot>? = null,
     // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
     // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
-    private val errorText: (Throwable) -> String = { it.message ?: "" },
+    private val errorText: (Throwable) -> String? = { it.message },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TodoUiState(isLoading = true))
@@ -725,7 +725,9 @@ class TodoViewModel(
                 true
             },
             onFailure = { e ->
-                setEditorStatus(TodoSaveStatus.ERROR, errorText(e))
+                // A suppressed session-expiry 401 (errorText → null, #614) leaves the editor as-is; the
+                // central logout tears the sheet down. A real error flips it to ERROR with its message.
+                errorText(e)?.let { setEditorStatus(TodoSaveStatus.ERROR, it) }
                 false
             },
         )

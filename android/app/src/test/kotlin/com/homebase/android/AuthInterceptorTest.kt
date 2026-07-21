@@ -61,6 +61,57 @@ class AuthInterceptorTest {
     }
 
     @Test
+    fun `does not duplicate an Authorization header the request already carries (WS handshake, hash615)`() {
+        // The WS handshake sets its own `Authorization: Bearer <token>`; OkHttp runs this interceptor
+        // for the handshake too, so it must NOT append a second identical header (#615).
+        val interceptor = AuthInterceptor({ "jwt-abc" }, {})
+        val chain = mockk<Interceptor.Chain>()
+        val outgoing = Request.Builder()
+            .url("https://hub.example/ws/todos")
+            .addHeader("Authorization", "Bearer jwt-abc")
+            .build()
+        every { chain.request() } returns outgoing
+        val proceeded = slot<Request>()
+        every { chain.proceed(capture(proceeded)) } answers {
+            Response.Builder()
+                .request(proceeded.captured)
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("")
+                .build()
+        }
+
+        interceptor.intercept(chain)
+
+        assertEquals("exactly one Authorization header", listOf("Bearer jwt-abc"), proceeded.captured.headers("Authorization"))
+    }
+
+    @Test
+    fun `still detects a 401 on a request that carried its own Authorization header`() {
+        // Skipping the duplicate header must not disable session-expiry detection on the WS handshake.
+        var fired = 0
+        val interceptor = AuthInterceptor({ "jwt-abc" }, { fired++ })
+        val chain = mockk<Interceptor.Chain>()
+        val outgoing = Request.Builder()
+            .url("https://hub.example/ws/todos")
+            .addHeader("Authorization", "Bearer jwt-abc")
+            .build()
+        every { chain.request() } returns outgoing
+        every { chain.proceed(any()) } answers {
+            Response.Builder()
+                .request(firstArg())
+                .protocol(Protocol.HTTP_1_1)
+                .code(401)
+                .message("")
+                .build()
+        }
+
+        interceptor.intercept(chain)
+
+        assertEquals(1, fired)
+    }
+
+    @Test
     fun `401 on an authenticated request fires onUnauthorized`() {
         var fired = 0
         runIntercept(token = "jwt-abc", status = 401) { fired++ }

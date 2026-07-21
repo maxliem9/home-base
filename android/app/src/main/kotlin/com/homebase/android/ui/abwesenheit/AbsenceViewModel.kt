@@ -38,7 +38,7 @@ class AbsenceViewModel(
     // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
     // The default keeps the raw exception message (for tests); MainActivity injects the Context-backed
     // resolver so the data layer stays text-free.
-    private val errorText: (Throwable) -> String = { it.message ?: "" },
+    private val errorText: (Throwable) -> String? = { it.message },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AbsenceUiState())

@@ -15,6 +15,7 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.repository.isUnauthorized
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.recipes.RecipesSnapshot
@@ -70,8 +71,14 @@ class AppContainer(context: Context) {
      * Resolves a repository [AppError] (carried by an ApiException) to a localized string via
      * strings.xml (#558). Injected into every ViewModel so the data layer stays presentation-free.
      * Uses the application context (locale follows the system) — safe against Activity leaks.
+     *
+     * Returns `null` for a session-expiry 401 (#614): that is handled centrally (AuthInterceptor →
+     * logout, #501), so the ViewModels must NOT toast it — the app slides to the login screen without
+     * an error flash, mirroring the web's `401 → onLogout()` early-return.
      */
-    val errorText: (Throwable) -> String = { context.applicationContext.errorText(it) }
+    val errorText: (Throwable) -> String? = { e ->
+        if (e.isUnauthorized()) null else context.applicationContext.errorText(e)
+    }
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(AuthInterceptor({ currentToken }, { onUnauthorized() }))
