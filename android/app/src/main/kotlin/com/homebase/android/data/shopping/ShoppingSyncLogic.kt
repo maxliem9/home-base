@@ -50,8 +50,9 @@ enum class FlushDecision {
  *
  * The repository surfaces a raw [HttpException] for non-2xx responses (no `mapHttpError` on the
  * shopping path) and wraps transport/parse failures in [ApiException]; we unwrap to find the real
- * cause. A 401 is treated as retryable here — the ViewModel re-checks auth separately and a token
- * refresh/re-login can make the retry land, so we must not silently drop the user's check.
+ * cause. A 401 is treated as retryable here — the AuthInterceptor turns it into a session-expiry
+ * logout (#501) and the queue survives in durable prefs, so a re-login makes the retry land; we must
+ * not silently drop the user's check.
  */
 fun classifyFlush(error: Throwable): FlushDecision {
     val http = error as? HttpException ?: (error as? ApiException)?.cause as? HttpException

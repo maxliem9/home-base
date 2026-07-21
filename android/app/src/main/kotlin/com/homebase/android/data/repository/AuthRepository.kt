@@ -106,6 +106,21 @@ class AuthRepository(
         _state.value = AuthState.LoggedOut
     }
 
+    /**
+     * Session-expiry signal (#501): a 401 on a request we authenticated with the stored JWT means the
+     * token is no longer accepted (expired / invalidated server-side). Drop it and return to the login
+     * screen — exactly what [logout] does — so the user can simply sign in again instead of being stuck
+     * behind failing calls. The Android analog of the web's `401 → onLogout()`.
+     *
+     * Called from the OkHttp interceptor on a background thread, so this only hops onto [scope]; it is a
+     * no-op once already logged out, so a burst of parallel 401s collapses to a single logout (and
+     * [logout] itself is idempotent, covering the race where several slip past the guard).
+     */
+    fun onUnauthorized() {
+        if (_state.value is AuthState.LoggedOut) return
+        scope.launch { logout() }
+    }
+
     private companion object {
         const val TAG = "AuthRepository"
         const val PREFS_NAME = "auth"
