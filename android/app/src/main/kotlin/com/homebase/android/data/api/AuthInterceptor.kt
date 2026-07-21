@@ -13,9 +13,11 @@ import okhttp3.Response
  * user is stuck on the main UI with no way to re-authenticate (the reported bug).
  *
  * Requests sent **without** a token (the login call itself, before any token exists) are excluded: a
- * wrong-password 401 there is a normal login failure, not a session expiry. OkHttp runs application
- * interceptors for the WebSocket handshake too, so a 401 rejecting a socket upgrade is caught here as
- * well — no per-channel handling needed.
+ * wrong-password 401 there is a normal login failure, not a session expiry. It also fires only while
+ * the token we *sent* is still the current one — a slow 401 from an already-replaced session (the user
+ * re-logged in while the request was in flight) must not bounce the freshly authenticated session.
+ * OkHttp runs application interceptors for the WebSocket handshake too, so a 401 rejecting a socket
+ * upgrade is caught here as well — no per-channel handling needed.
  *
  * [onUnauthorized] runs on an OkHttp dispatcher thread, so it must be thread-safe and non-blocking
  * (the wired [com.homebase.android.data.repository.AuthRepository.onUnauthorized] just hops onto a
@@ -35,7 +37,12 @@ class AuthInterceptor(
             chain.request()
         }
         val response = chain.proceed(request)
-        if (token != null && response.code == HTTP_UNAUTHORIZED) onUnauthorized()
+        // Re-read the live token holder: fire only if it still equals the token we sent. On a normal
+        // expiry it does → logout; after a re-login it is the new token (≠ ours) and after a logout it
+        // is null (≠ ours) → skip, so a stale in-flight 401 can't log the new/absent session out.
+        if (token != null && response.code == HTTP_UNAUTHORIZED && tokenProvider() == token) {
+            onUnauthorized()
+        }
         return response
     }
 

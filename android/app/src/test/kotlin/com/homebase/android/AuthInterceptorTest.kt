@@ -77,6 +77,34 @@ class AuthInterceptorTest {
     }
 
     @Test
+    fun `a stale 401 after the token was swapped (re-login) does NOT fire onUnauthorized`() {
+        // Request goes out with the old token; while it is in flight the user re-logs in, so the live
+        // token holder now returns a different value. The interceptor re-reads it and must NOT bounce
+        // the freshly authenticated session on this leftover 401. (PR #613 review, finding #1.)
+        var current: String? = "old-jwt"
+        var fired = 0
+        val interceptor = AuthInterceptor({ current }, { fired++ })
+        val chain = mockk<Interceptor.Chain>()
+        val outgoing = Request.Builder().url("https://hub.example/api/v1/todos").build()
+        every { chain.request() } returns outgoing
+        val proceeded = slot<Request>()
+        every { chain.proceed(capture(proceeded)) } answers {
+            current = "new-jwt" // re-login lands while the request is in flight
+            Response.Builder()
+                .request(proceeded.captured)
+                .protocol(Protocol.HTTP_1_1)
+                .code(401)
+                .message("")
+                .build()
+        }
+
+        interceptor.intercept(chain)
+
+        assertEquals("the request went out with the old token", "Bearer old-jwt", proceeded.captured.header("Authorization"))
+        assertEquals("a stale 401 must not log the re-logged-in session out", 0, fired)
+    }
+
+    @Test
     fun `a successful authenticated response does not fire onUnauthorized`() {
         var fired = 0
         runIntercept(token = "jwt-abc", status = 200) { fired++ }
