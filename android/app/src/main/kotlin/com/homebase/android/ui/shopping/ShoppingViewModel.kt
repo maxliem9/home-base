@@ -130,7 +130,7 @@ class ShoppingViewModel(
     private val snapshotStore: SnapshotStore<ShoppingSnapshot>? = null,
     // Resolves a repository AppError (carried by ApiException) to localized text via strings.xml (#558).
     // Default keeps the raw exception message (for tests); MainActivity injects the Context-backed one.
-    private val errorText: (Throwable) -> String = { it.message ?: "" },
+    private val errorText: (Throwable) -> String? = { it.message },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ShoppingUiState(isLoading = true))

@@ -15,6 +15,7 @@ import com.homebase.android.data.repository.ShoppingRepository
 import com.homebase.android.data.repository.ThemeRepository
 import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
+import com.homebase.android.data.repository.isUnauthorized
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.recipes.RecipesSnapshot
@@ -60,15 +61,27 @@ class AppContainer(context: Context) {
     // Accessed from background threads (OkHttp dispatcher) — volatile is sufficient.
     @Volatile var currentToken: String? = null
 
+    // Session-expiry hook (#501). The interceptor calls through this indirection because the cycle
+    // interceptor → okHttpClient → api → authRepository forbids referencing authRepository directly in
+    // the client builder; it is wired to AuthRepository.onUnauthorized once that exists (below).
+    // @Volatile: invoked from OkHttp dispatcher threads, like currentToken.
+    @Volatile private var onUnauthorized: () -> Unit = {}
+
     /**
      * Resolves a repository [AppError] (carried by an ApiException) to a localized string via
      * strings.xml (#558). Injected into every ViewModel so the data layer stays presentation-free.
      * Uses the application context (locale follows the system) — safe against Activity leaks.
+     *
+     * Returns `null` for a session-expiry 401 (#614): that is handled centrally (AuthInterceptor →
+     * logout, #501), so the ViewModels must NOT toast it — the app slides to the login screen without
+     * an error flash, mirroring the web's `401 → onLogout()` early-return.
      */
-    val errorText: (Throwable) -> String = { context.applicationContext.errorText(it) }
+    val errorText: (Throwable) -> String? = { e ->
+        if (e.isUnauthorized()) null else context.applicationContext.errorText(e)
+    }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor(AuthInterceptor { currentToken })
+        .addInterceptor(AuthInterceptor({ currentToken }, { onUnauthorized() }))
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
                     else HttpLoggingInterceptor.Level.NONE
@@ -102,6 +115,9 @@ class AppContainer(context: Context) {
     private val eventWsClient = EventWebSocketClient(BuildConfig.BASE_URL, wsHttp)
 
     val authRepository = AuthRepository(context, api) { token -> currentToken = token }
+        // Break the interceptor→client→api→repo cycle: the interceptor's onUnauthorized indirection
+        // (above) is pointed at the repo's session-expiry handler now that the repo exists (#501).
+        .also { repo -> onUnauthorized = repo::onUnauthorized }
 
     val configRepository = ConfigRepository(api)
 

@@ -52,6 +52,18 @@ internal fun mapApiError(e: Throwable, mapHttpError: ((HttpException) -> AppErro
 }
 
 /**
+ * Is this failure a `401 Unauthorized` — i.e. an expired/invalid session (#501/#614)? Unwraps the same
+ * way [classifyFlush] does: a repository surfaces a raw [HttpException] for un-mapped paths, or an
+ * [ApiException] whose [cause] is the [HttpException] for mapped paths. A 401 is handled centrally
+ * (AuthInterceptor → logout), so the UI uses this to suppress its error toast — the app slides to the
+ * login screen without an error flash instead.
+ */
+internal fun Throwable.isUnauthorized(): Boolean {
+    val http = this as? HttpException ?: (this as? ApiException)?.cause as? HttpException
+    return http?.code() == 401
+}
+
+/**
  * Read the backend `ErrorResponse.code` off a failed HTTP response (the body is
  * `{ "code", "message" }` — see backend model/Models.kt), so a `mapHttpError` can branch
  * on the stable code instead of the English `message`. Returns null when the body is empty
