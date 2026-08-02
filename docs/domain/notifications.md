@@ -97,5 +97,14 @@ Todo-Liste. Kein Google-Dienst, kein Server-Kanal, kein Extra-Endpunkt.
     explizites `handledTodoId` in `onSaveInstanceState` — nicht per `removeExtra`/`setIntent`: nach
     Prozesstod wird der ursprüngliche Intent unverändert erneut zugestellt und würde das Todo sonst
     Tage später wieder öffnen. Bei ausgeloggter App wartet der Link bis nach dem Login.
-  - Kein synthetischer Back-Stack (`TaskStackBuilder`): nach einem Cold-Start aus der Notification
-    führt Zurück aus der App heraus, nicht auf „Heute" — für die Single-Activity-App bewusst so.
+  - **Zurück nach Cold-Start (#622):** Kein synthetischer Back-Stack (`TaskStackBuilder`) — HomeBase
+    hat genau **eine** Activity und navigiert über `route`-State, ein synthetischer Stack würde nur
+    eine zweite MainActivity dahinterstapeln. Stattdessen wird der Zurück-Druck **in-app umgelenkt**:
+    Wurde die Activity *vom* Notification-Tap erzeugt (`isTaskRoot` in `onCreate` ⇒
+    `backToHeutePending`, über `onSaveInstanceState` rotations-/prozessfest), landet die erste
+    Zurück-Geste auf „Heute" statt aus der App zu führen; danach verhält sich Zurück wieder normal
+    (`DeepLinkBackToHeute`). „Danach" heißt: sobald „Heute" erreicht ist — auch wenn der Nutzer
+    selbst dorthin navigiert. Der Handler steht still, solange ein Overlay (Drawer/„Mehr"/
+    Einstellungen) offen ist, weil deren früher registrierte Handler sonst die Priorität verlören;
+    das Edit-Sheet wird später komponiert und gewinnt ohnehin. Ein Tap auf die **laufende** App
+    (`onNewIntent`) setzt die Umlenkung nicht — dort ist der bestehende Task noch hinter dem Ziel.
