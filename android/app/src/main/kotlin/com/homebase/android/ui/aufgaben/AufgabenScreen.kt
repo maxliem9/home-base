@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,7 +93,10 @@ import com.homebase.android.ui.theme.HbType
 import com.homebase.android.ui.util.Format
 import com.homebase.android.ui.components.HbRadius
 import com.homebase.android.ui.components.HbRadiusSm
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -108,6 +112,13 @@ private sealed interface AufgabenSheet {
     data object NewList : AufgabenSheet
 }
 
+/**
+ * How long a reminder-notification deep-link waits for its todo to turn up in the list before it
+ * gives up (cold start: the tap starts the app, so login + the first /todos fetch still have to
+ * complete). Generous — the screen stays fully usable while it waits.
+ */
+private const val DEEP_LINK_WAIT_MS = 15_000L
+
 @Composable
 fun AufgabenScreen(
     viewModel: TodoViewModel,
@@ -119,6 +130,10 @@ fun AufgabenScreen(
     // screen lands on the default tab instead of re-forcing the tile's tab.
     initialFocus: TodosFocus? = null,
     onFocusConsumed: () -> Unit = {},
+    // Deep-link from a tapped reminder notification: open this todo's edit sheet as soon as the
+    // todo is in the list; [onOpenTodoConsumed] then clears it (also when it never shows up).
+    openTodoId: String? = null,
+    onOpenTodoConsumed: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -132,6 +147,23 @@ fun AufgabenScreen(
     }
 
     var sheet by remember { mutableStateOf<AufgabenSheet?>(null) }
+
+    // Reminder-notification deep-link: open the todo's edit sheet. On a cold start the tap usually
+    // beats the first /todos response, so we wait (bounded) for the todo to appear instead of
+    // dropping the link. Also switches to the cross-list "Alle" tab so the todo is visible behind
+    // the sheet whatever list it lives in. Consumed either way — an unfindable id (deleted on
+    // another device, stale notification) must not leave the deep-link pending forever.
+    LaunchedEffect(openTodoId) {
+        val id = openTodoId ?: return@LaunchedEffect
+        val todo = withTimeoutOrNull(DEEP_LINK_WAIT_MS) {
+            snapshotFlow { state.todos.firstOrNull { it.id == id } }.filterNotNull().first()
+        }
+        if (todo != null) {
+            viewModel.applyFocus(TodosFocus.ALL)
+            sheet = AufgabenSheet.Edit(todo)
+        }
+        onOpenTodoConsumed()
+    }
     var expandedTaskId by remember { mutableStateOf<String?>(null) }
     var doneCollapsed by remember { mutableStateOf(true) }
 

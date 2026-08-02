@@ -1,6 +1,7 @@
 package com.homebase.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -50,6 +51,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homebase.android.data.repository.AuthState
+import com.homebase.android.notifications.ReminderWorker
 import com.homebase.android.ui.abwesenheit.AbsenceViewModel
 import com.homebase.android.ui.abwesenheit.AbwesenheitScreen
 import com.homebase.android.ui.aufgaben.AufgabenScreen
@@ -93,8 +95,17 @@ class MainActivity : AppCompatActivity() {
 
     private val container by lazy { (application as HomeBaseApplication).container }
 
+    /**
+     * Todo a reminder notification asked us to open (its content intent, see [ReminderWorker]).
+     * Compose state so it also lands when the app was already running (`onNewIntent`) — the logged-in
+     * scaffold navigates to Aufgaben and opens the todo, then clears it. Survives a logged-out start:
+     * the deep-link waits here until the session exists.
+     */
+    private var pendingTodoId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingTodoId = todoIdFrom(intent)
         enableEdgeToEdge()
         setContent {
             // Resolve the per-user theme choice (#244): the stored light|dark|system pref, with
@@ -139,6 +150,32 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * A reminder tap while the app is already running: `launchMode="singleTop"` delivers the content
+     * intent here instead of creating a second MainActivity, so the deep-link has to be picked up
+     * from the new intent (the original one from onCreate never changes on its own).
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        todoIdFrom(intent)?.let { pendingTodoId = it }
+    }
+
+    /** The deep-link todo id of a reminder-notification intent, or null for a plain app start. */
+    private fun todoIdFrom(intent: Intent?): String? =
+        intent?.takeIf { it.action == ReminderWorker.ACTION_OPEN_TODO }
+            ?.getStringExtra(ReminderWorker.EXTRA_TODO_ID)
+            ?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Deep-link handled (or given up on) — drop it from both the state and the sticky Activity
+     * intent, so an Activity recreation (rotation, theme change) doesn't re-open the todo.
+     */
+    private fun consumePendingTodoId() {
+        pendingTodoId = null
+        intent?.removeExtra(ReminderWorker.EXTRA_TODO_ID)
     }
 
     @Composable
@@ -284,6 +321,18 @@ class MainActivity : AppCompatActivity() {
         // HB-09 (#239): the "Mehr" overflow sheet of the bottom nav.
         var moreOpen by remember { mutableStateOf(false) }
 
+        // Reminder-notification deep-link: navigate to Aufgaben so the screen below can open the
+        // todo's edit sheet. Any overlay covering it (drawer, "Mehr", settings) is closed first —
+        // the tap came from outside the app, so whatever was open is stale context.
+        LaunchedEffect(pendingTodoId) {
+            if (pendingTodoId != null) {
+                drawerOpen = false
+                moreOpen = false
+                settingsOpen = false
+                route = HbRoute.AUFGABEN
+            }
+        }
+
         BackHandler(enabled = drawerOpen) { drawerOpen = false }
         BackHandler(enabled = moreOpen) { moreOpen = false }
 
@@ -321,6 +370,9 @@ class MainActivity : AppCompatActivity() {
                             // Deep-link target from a dashboard tile; cleared once the tab is selected.
                             initialFocus = pendingTodosFocus,
                             onFocusConsumed = { pendingTodosFocus = null },
+                            // Deep-link from a reminder notification: open this todo's edit sheet.
+                            openTodoId = pendingTodoId,
+                            onOpenTodoConsumed = { consumePendingTodoId() },
                         )
                         HbRoute.EINKAUF -> ShoppingScreen(
                             viewModel = shoppingVm,

@@ -63,4 +63,28 @@ VAPID ruht er komplett.
   in `main.tsx` registriert; Opt-in **pro Gerät** in `NotificationsSettings` („Browser-Benachrichtigungen").
   Helper in `web/src/lib/webpush.ts`. **Hinweis:** der eigentliche Subscribe-Flow (ServiceWorker + Push
   API) braucht einen echten Browser über HTTPS/localhost — Unit-Tests decken nur die Capability-Gate ab.
-- Offen: Android-Notifications (Phase 2c) — baut auf demselben Feuermodell/Seam auf.
+
+## Android-Erinnerungen (#429 Phase 2c) — gerätelokal
+Kein FCM/Push: die App plant die Erinnerung **selbst auf dem Gerät**, aus der ohnehin geladenen
+Todo-Liste. Kein Google-Dienst, kein Server-Kanal, kein Extra-Endpunkt.
+- **Planung:** `notifications/ReminderPlan` (rein, unit-getestet) spiegelt die Backend-Regel — nur
+  nicht-DONE Todos **mit Fälligkeits-Uhrzeit**, Feuerzeitpunkt = `dueTime` − `reminderLeadMinutes`,
+  Verwerfen ab > 12 h `CATCHUP`. `ReminderScheduler` macht die Android-I/O: pro Todo ein verzögerter
+  One-Shot-`ReminderWorker` (WorkManager, Unique-Name = Todo-Id, `REPLACE`), Cancel für Todos, die
+  aus dem Plan fallen. Die geplanten Ids liegen in SharedPreferences, damit ein Prozess-Tod keine
+  Waisen-Jobs hinterlässt; `cancelAll()` beim Logout.
+- **Trigger:** `MainActivity` ruft `reminderScheduler.sync(todos)` bei jeder Änderung der Liste
+  (Cold-Load, WS-Reload, Edit) — idempotent.
+- **Permission:** `POST_NOTIFICATIONS` wird nach dem Login einmal angefragt; eine Ablehnung degradiert
+  still (der Worker läuft, `notify()` entfällt).
+- **Tap → Deep-Link auf das Todo:** die Notification trägt einen Content-Intent auf `MainActivity`
+  (`ReminderWorker.openTodoIntent`, Action `…action.OPEN_TODO` + Extra `…extra.TODO_ID`). Die Activity
+  läuft als `launchMode="singleTop"`, der Intent kommt also bei laufender App über `onNewIntent` an
+  statt eine zweite Instanz zu stapeln. `MainActivity` hält die Id in Compose-State, navigiert nach
+  Aufgaben (schließt Drawer/„Mehr"/Einstellungen) und reicht sie an `AufgabenScreen` weiter; das
+  öffnet das Edit-Sheet, sobald das Todo in der Liste ist (Cold-Start: der Tap gewinnt gegen den
+  ersten `/todos`-Fetch — bounded Wait, `DEEP_LINK_WAIT_MS`) und schaltet auf den „Alle"-Tab, damit
+  das Todo hinter dem Sheet sichtbar ist. Bei Logout wartet der Deep-Link bis nach dem Login; wird
+  das Todo nicht gefunden (gelöscht, veraltete Notification), verfällt er nach dem Timeout.
+  Verbraucht wird er inkl. `removeExtra`, damit eine Activity-Recreation (Rotation) ihn nicht
+  erneut auslöst.
