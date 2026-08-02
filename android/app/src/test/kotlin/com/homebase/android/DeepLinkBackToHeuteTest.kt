@@ -3,6 +3,8 @@ package com.homebase.android
 import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -53,7 +55,12 @@ class DeepLinkBackToHeuteTest {
         }
     }
 
-    private fun host() = composeRule.setContent {
+    /**
+     * Hosts the rule the way MainScaffold does. [prelude] stands in for whatever is composed *before*
+     * it there — above all the deep-link effect that navigates to Aufgaben.
+     */
+    private fun host(prelude: @Composable () -> Unit = {}) = composeRule.setContent {
+        prelude()
         DeepLinkBackToHeute(
             pending = pending,
             route = route,
@@ -66,6 +73,28 @@ class DeepLinkBackToHeuteTest {
     private fun pressBack() {
         composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
         composeRule.waitForIdle()
+    }
+
+    /**
+     * The real cold-start sequence, and the one this rule exists for: MainScaffold starts on
+     * [HbRoute.HEUTE] and an *earlier*-composed effect (the deep-link) switches to Aufgaben only
+     * afterwards. A rule that settles on merely *observing* „Heute" would be spent before the user
+     * ever sees the Aufgaben screen — the handler would never arm and back would leave the app, i.e.
+     * exactly the bug this PR claims to fix. Hence: only the transition away-and-back counts.
+     */
+    @Test
+    fun `the redirect survives starting on Heute before the deep-link navigates away`() {
+        route = HbRoute.HEUTE
+        host(prelude = { LaunchedEffect(Unit) { route = HbRoute.AUFGABEN } })
+        composeRule.waitForIdle()
+        assertEquals(HbRoute.AUFGABEN, route)
+
+        pressBack()
+        assertEquals("the redirect must still be owed after the cold start", HbRoute.HEUTE, route)
+        assertEquals(0, fellThrough)
+
+        pressBack()
+        assertEquals("and be spent exactly once", 1, fellThrough)
     }
 
     @Test
