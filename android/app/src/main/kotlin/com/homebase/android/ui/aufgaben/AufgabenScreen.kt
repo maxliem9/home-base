@@ -64,12 +64,13 @@ import com.homebase.android.ui.components.HbAppBar
 import com.homebase.android.ui.components.HbAvatar
 import com.homebase.android.ui.components.HbAvatarRow
 import com.homebase.android.ui.components.HbBadge
-import com.homebase.android.ui.components.HbTone
 import com.homebase.android.ui.components.HbBottomSheet
 import com.homebase.android.ui.components.HbButton
 import com.homebase.android.ui.components.HbButtonSize
 import com.homebase.android.ui.components.HbButtonVariant
+import com.homebase.android.ui.components.HbCard
 import com.homebase.android.ui.components.HbCheck
+import com.homebase.android.ui.components.HbConfirmDialog
 import com.homebase.android.ui.components.HbEmpty
 import com.homebase.android.ui.components.HbFab
 import com.homebase.android.ui.components.HbField
@@ -105,6 +106,10 @@ import java.time.ZoneOffset
 private sealed interface AufgabenSheet {
     /** Edit an existing todo, or create a new one when [todo] is null. */
     data class Edit(val todo: TodoDto?) : AufgabenSheet
+    /** Quick-Edit aus der Zeile: nur Fälligkeit (Datum + Uhrzeit). */
+    data class DateEdit(val todo: TodoDto) : AufgabenSheet
+    /** Quick-Edit aus der Zeile: nur die Zuständigen. */
+    data class AssigneeEdit(val todo: TodoDto) : AufgabenSheet
     data object NewList : AufgabenSheet
 }
 
@@ -134,6 +139,10 @@ fun AufgabenScreen(
     var sheet by remember { mutableStateOf<AufgabenSheet?>(null) }
     var expandedTaskId by remember { mutableStateOf<String?>(null) }
     var doneCollapsed by remember { mutableStateOf(true) }
+    // Löschen aus der Zeile fragt nach — anders als im Web, wo der Papierkorb sofort löscht: auf
+    // Touch ist der Fehlgriff in einer scrollenden Liste deutlich wahrscheinlicher, und es gibt
+    // kein Undo. Entspricht der Android-Konvention (HbConfirmDialog, vgl. ShoppingCategoriesPage).
+    var confirmDelete by remember { mutableStateOf<TodoDto?>(null) }
 
     val smartTab = state.smartTab
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }
@@ -218,17 +227,27 @@ fun AufgabenScreen(
                     null
                 }
             }
-            val taskRow: @Composable (TodoDto) -> Unit = { todo ->
+            // `last` unterdrückt die Trennlinie der letzten Zeile einer Karte (mirrors web).
+            val taskRow: @Composable (TodoDto, Boolean) -> Unit = { todo, last ->
                 TaskRow(
                     todo = todo,
                     listName = rowListName(todo),
                     expanded = expandedTaskId == todo.id,
+                    showDivider = !last,
                     onToggleDone = { viewModel.toggleDone(todo) },
                     onToggleExpand = { expandedTaskId = if (expandedTaskId == todo.id) null else todo.id },
                     onOpenEdit = { sheet = AufgabenSheet.Edit(todo) },
                     onToggleSubtask = { sub -> viewModel.toggleSubtask(todo.id, sub) },
                     onAddSubtask = { sub -> viewModel.addSubtask(todo.id, sub) },
+                    onDeleteSubtask = { sub -> viewModel.deleteSubtask(todo.id, sub.id) },
+                    onEditDate = { sheet = AufgabenSheet.DateEdit(todo) },
+                    onEditAssignee = { sheet = AufgabenSheet.AssigneeEdit(todo) },
+                    onDelete = { confirmDelete = todo },
                 )
+            }
+            // Eine Karte pro Gruppe/Liste, Zeilen darin — wie web `<Card><div class="hb-list">`.
+            val taskCard: @Composable (List<TodoDto>) -> Unit = { items ->
+                TaskCard { items.forEachIndexed { i, t -> taskRow(t, i == items.lastIndex) } }
             }
 
             if (smartTab == TodosFocus.DONE) {
@@ -236,24 +255,29 @@ fun AufgabenScreen(
                 // first, windowed to the last N days (#263) — or the full history with "Alle anzeigen"
                 // (#340). The tab/tile COUNT stays "today".
                 if (doneTodos.isEmpty()) {
-                    HbEmpty(
-                        HbIcons.checkCircle,
-                        stringResource(R.string.todo_done_view_empty_title),
-                        if (state.doneShowAll) {
-                            stringResource(R.string.todo_done_view_empty_all_hint)
-                        } else {
-                            stringResource(R.string.todo_done_view_empty_hint, state.doneWindowDays)
-                        },
-                    )
-                    // even with nothing in the window, let the user flip to/from the full history
-                    Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                        DoneShowAllToggle(state.doneShowAll, state.doneWindowDays, viewModel::toggleDoneShowAll)
+                    HbCard(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), pad = false) {
+                        Column {
+                            HbEmpty(
+                                HbIcons.checkCircle,
+                                stringResource(R.string.todo_done_view_empty_title),
+                                if (state.doneShowAll) {
+                                    stringResource(R.string.todo_done_view_empty_all_hint)
+                                } else {
+                                    stringResource(R.string.todo_done_view_empty_hint, state.doneWindowDays)
+                                },
+                            )
+                            // even with nothing in the window, let the user flip to/from the full history
+                            Box(
+                                Modifier.fillMaxWidth().padding(bottom = 18.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                DoneShowAllToggle(state.doneShowAll, state.doneWindowDays, viewModel::toggleDoneShowAll)
+                            }
+                        }
                     }
                 } else {
                     DoneWindowNote(state.doneShowAll, state.doneWindowDays, viewModel::toggleDoneShowAll)
-                    Column(Modifier.padding(horizontal = 18.dp)) {
-                        doneTodos.sortedByDescending { it.doneAt ?: "" }.forEach { taskRow(it) }
-                    }
+                    taskCard(doneTodos.sortedByDescending { it.doneAt ?: "" })
                 }
             } else if (openTodos.isEmpty()) {
                 // hidden when a cross-list view holds only done todos (they show in the done section)
@@ -262,11 +286,9 @@ fun AufgabenScreen(
                 // single due-day → flat list, no due-bucket headers; bei gleichem Datum
                 // nach Priorität (hoch → niedrig), analog Buckets/Web.
                 Spacer(Modifier.size(16.dp))
-                Column(Modifier.padding(horizontal = 18.dp)) {
-                    openTodos
-                        .sortedWith(compareBy({ it.dueDate ?: "9999" }, { Format.prioRank(it.priority) }))
-                        .forEach { taskRow(it) }
-                }
+                taskCard(
+                    openTodos.sortedWith(compareBy({ it.dueDate ?: "9999" }, { Format.prioRank(it.priority) })),
+                )
             } else {
                 // Due-date groups, skipping empty ones. Innerhalb jeder Gruppe steht das
                 // früheste Fälligkeitsdatum oben (dueDate aufsteigend) — eine Gruppe wie
@@ -295,7 +317,9 @@ fun AufgabenScreen(
                     }
 
                     GroupLabel(stringResource(group.labelRes), items.size)
-                    Column(Modifier.padding(horizontal = 18.dp)) { items.forEach { taskRow(it) } }
+                    taskCard(items)
+                    // Luft zur nächsten Gruppe (web `marginBottom: 22`)
+                    Spacer(Modifier.size(8.dp))
                 }
             }
 
@@ -309,7 +333,7 @@ fun AufgabenScreen(
                     windowDays = state.doneWindowDays,
                     onToggle = { doneCollapsed = !doneCollapsed },
                     onToggleShowAll = viewModel::toggleDoneShowAll,
-                    onRestore = { viewModel.toggleDone(it) },
+                    rows = taskCard,
                 )
             }
         }
@@ -335,11 +359,40 @@ fun AufgabenScreen(
                     onCreate = { draft -> viewModel.createTodoFromDraft(draft).exceptionOrNull()?.message },
                 )
             }
+            is AufgabenSheet.DateEdit -> DateEditSheet(
+                todo = s.todo,
+                onDismiss = { sheet = null },
+                onSave = { date, time ->
+                    viewModel.quickEditDue(s.todo.id, date?.toString(), time?.let { Format.hhmm(it) })
+                    sheet = null
+                },
+            )
+            is AufgabenSheet.AssigneeEdit -> AssigneeEditSheet(
+                todo = s.todo,
+                householdUsers = householdUsers,
+                onDismiss = { sheet = null },
+                onSave = { assignees ->
+                    viewModel.quickEditAssignees(s.todo.id, assignees)
+                    sheet = null
+                },
+            )
             AufgabenSheet.NewList -> NewListSheet(
                 onDismiss = { sheet = null },
                 onCreate = { name, visibility -> viewModel.createList(name, visibility) },
             )
             null -> {}
+        }
+
+        confirmDelete?.let { todo ->
+            HbConfirmDialog(
+                message = stringResource(R.string.todo_delete_confirm, todo.title),
+                confirmLabel = stringResource(R.string.action_delete),
+                onConfirm = {
+                    viewModel.deleteTodo(todo.id)
+                    confirmDelete = null
+                },
+                onDismiss = { confirmDelete = null },
+            )
         }
 
         // Global error toast (#288): toggle-done / quick-add / delete / subtask mutations are
@@ -527,6 +580,19 @@ private fun GroupLabel(label: String, count: Int) {
 // Task row
 // ---------------------------------------------------------------------------
 
+/** Checkbox size + row gap — the indent that keeps meta/controls flush under the title. */
+private val TaskCheckSize = 24.dp
+private val TaskRowGap = 13.dp
+private val TaskIndent = TaskCheckSize + TaskRowGap
+
+/**
+ * Eine Todo-Zeile in der Mobile-Web-Form (`.hb-todo`, web `@media (max-width: 520px)`):
+ * Zeile 1 Checkbox + Titel über die volle Breite, darunter die Meta-Zeile, und die
+ * Steuer-Chips (Subtask-Toggle · Fälligkeit · Zuständige bzw. „Planen") rechtsbündig
+ * auf einer eigenen Zeile unter dem Titel eingerückt. Auf Phone-Breite hatte die
+ * frühere einzeilige Anordnung die Chips zusammengequetscht, bis Badge-Texte
+ * Buchstabe für Buchstabe untereinander umbrachen — genau das, was Web mit #37 löst.
+ */
 @Composable
 private fun TaskRow(
     todo: TodoDto,
@@ -536,106 +602,222 @@ private fun TaskRow(
     onOpenEdit: () -> Unit,
     onToggleSubtask: (SubtaskDto) -> Unit,
     onAddSubtask: (String) -> Unit,
+    onDeleteSubtask: (SubtaskDto) -> Unit,
+    // Quick-Edits direkt aus der Zeile (web `.hb-row__chip`): Tap auf das Fälligkeits-Badge
+    // ändert nur Datum/Uhrzeit, Tap auf die Avatare nur die Zuständigen.
+    onEditDate: () -> Unit,
+    onEditAssignee: () -> Unit,
+    onDelete: () -> Unit,
     // Herkunfts-Liste, im Inbox-Tab als Meta gezeigt, damit unverplante Listen-Todos
     // von listen-losen unterscheidbar sind (#71/#77).
     listName: String? = null,
+    // Die letzte Zeile einer Karte trägt keine Trennlinie — die Kartenkante schließt ab
+    // (web `.hb-todo:last-child { border-bottom: none }`).
+    showDivider: Boolean = true,
 ) {
-    val undated = todo.dueDate == null && todo.assignees.isEmpty()
+    val isDone = todo.status == "DONE"
+    // Ohne Datum UND ohne Zuständige gibt es statt der Avatare den „Planen"-Button;
+    // erledigte Todos bekommen ihn nie (mirrors web).
+    val showPlan = !isDone && todo.dueDate == null && todo.assignees.isEmpty()
+    // append the optional due time to the date badge, e.g. "Morgen · 14:30" (#429)
+    val badge = if (isDone) {
+        null
+    } else {
+        Format.dueBadge(todo.dueDate)?.let { b ->
+            Format.dueTimeShort(todo.dueTime)?.let { b.copy(label = "${b.label} · $it") } ?: b
+        }
+    }
     Column {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .clickable { onOpenEdit() }
-                .padding(horizontal = 2.dp, vertical = 13.dp),
-            horizontalArrangement = Arrangement.spacedBy(13.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 2.dp, vertical = 11.dp),
         ) {
-            HbCheck(checked = false, onCheckedChange = onToggleDone)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(TaskRowGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HbCheck(checked = isDone, onCheckedChange = onToggleDone, size = TaskCheckSize)
+                Text(
+                    todo.title,
+                    style = HbType.rowTitle,
+                    color = if (isDone) Hb.ink3 else Hb.ink,
+                    textDecoration = if (isDone) TextDecoration.LineThrough else null,
+                    modifier = Modifier.weight(1f),
+                )
+            }
 
-            Column(Modifier.weight(1f)) {
-                Text(todo.title, style = HbType.rowTitle, color = Hb.ink)
-                // append the optional due time to the date badge, e.g. "Morgen · 14:30" (#429)
-                val badge = Format.dueBadge(todo.dueDate)?.let { b ->
-                    Format.dueTimeShort(todo.dueTime)?.let { b.copy(label = "${b.label} · $it") } ?: b
-                }
-                val hasMeta = listName != null || todo.priority != null || badge != null ||
-                    todo.recurrence != null || !todo.description.isNullOrBlank()
-                if (hasMeta) {
-                    Row(
-                        Modifier.padding(top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        if (listName != null) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                HbIcon(HbIcons.folder, size = 12.dp, tint = Hb.ink3)
-                                Text(
-                                    listName,
-                                    style = HbType.meta,
-                                    color = Hb.ink3,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 140.dp),
-                                )
-                            }
-                        }
-                        HbPriority(todo.priority)
-                        badge?.let { HbBadge(it.label, it.tone) }
-                        todo.recurrence?.let { HbBadge("↻ ${recurrenceLabel(it)}", HbTone.Neutral) }
-                        // recurrenceLabel is @Composable (uses stringResource); see helper below.
-                        if (!todo.description.isNullOrBlank()) {
+            val hasMeta = listName != null || !todo.description.isNullOrBlank() ||
+                (!isDone && (todo.priority != null || todo.recurrence != null)) ||
+                (isDone && todo.doneAt != null)
+            if (hasMeta) {
+                // FlowRow statt Row: mehrere Meta-Angaben brechen in eine zweite Zeile um,
+                // statt sich gegenseitig auf Streifenbreite zu quetschen (web `flex-wrap`).
+                FlowRow(
+                    Modifier.padding(start = TaskIndent, top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    if (listName != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            HbIcon(HbIcons.folder, size = 12.dp, tint = Hb.ink3)
                             Text(
-                                todo.description!!,
+                                listName,
                                 style = HbType.meta,
                                 color = Hb.ink3,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier.widthIn(max = 160.dp),
+                            )
+                        }
+                    }
+                    if (!todo.description.isNullOrBlank()) {
+                        Text(
+                            todo.description!!,
+                            style = HbType.meta,
+                            color = Hb.ink3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 220.dp),
+                        )
+                    }
+                    if (!isDone) {
+                        HbPriority(todo.priority)
+                        // recurrenceLabel is @Composable (uses stringResource); see helper below.
+                        todo.recurrence?.let { rec ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                HbIcon(HbIcons.repeat, size = 12.dp, tint = Hb.ink3)
+                                Text(recurrenceLabel(rec), style = HbType.meta, color = Hb.ink3)
+                            }
+                        }
+                    } else {
+                        todo.doneAt?.let { done ->
+                            Text(
+                                "${stringResource(R.string.todo_meta_done)} · ${Format.relativeTime(done)}",
+                                style = HbType.meta,
+                                color = Hb.ink3,
                             )
                         }
                     }
                 }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            // Steuer-Chips auf eigener Zeile, rechtsbündig. Bewusst OHNE die Titel-Einrückung:
+            // die Gruppe ist rechtsbündig, links reservierter Platz sähe identisch aus, würde aber
+            // die nutzbare Breite um [TaskIndent] kürzen — und mit fünf Chips (Subtasks ·
+            // Fälligkeit · Zuständige · Bearbeiten · Löschen) reicht das auf schmalen Geräten
+            // nicht mehr. FlowRow als Sicherheitsnetz: lieber umbrechen als über den Rand laufen.
+            FlowRow(
+                Modifier.fillMaxWidth().padding(top = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                SubPill(
-                    done = todo.subtasks.count { it.done },
-                    total = todo.subtasks.size,
-                    open = expanded,
-                    onClick = onToggleExpand,
-                )
-                if (undated) {
+                val mid = Modifier.align(Alignment.CenterVertically)
+                Box(mid) {
+                    SubPill(
+                        done = todo.subtasks.count { it.done },
+                        total = todo.subtasks.size,
+                        open = expanded,
+                        onClick = onToggleExpand,
+                    )
+                }
+                // Tap aufs Badge = Fälligkeit ändern (erledigte Aufgaben haben keins).
+                badge?.let {
+                    Box(mid.clip(HbPill).clickable { onEditDate() }) { HbBadge(it.label, it.tone) }
+                }
+                if (showPlan) {
                     HbButton(
                         text = stringResource(R.string.todo_plan),
                         onClick = onOpenEdit,
                         variant = HbButtonVariant.Secondary,
                         size = HbButtonSize.Sm,
+                        modifier = mid,
                     )
+                } else if (isDone) {
+                    // Zuständige einer erledigten Aufgabe sind nur Anzeige — kein Klickziel, das
+                    // sie versehentlich wieder öffnen könnte (mirrors web).
+                    Box(mid) { HbAvatarRow(todo.assignees, size = 26.dp) }
                 } else {
-                    HbAvatarRow(todo.assignees, size = 26.dp)
+                    Box(mid.clip(HbPill).clickable { onEditAssignee() }) {
+                        HbAvatarRow(todo.assignees, size = 26.dp)
+                    }
+                }
+                if (!isDone) {
+                    Box(mid) {
+                        RowAction(HbIcons.edit, stringResource(R.string.cd_edit), onClick = onOpenEdit)
+                    }
+                }
+                Box(mid) {
+                    RowAction(
+                        HbIcons.trash,
+                        stringResource(R.string.cd_delete),
+                        tint = Hb.danger,
+                        onClick = onDelete,
+                    )
                 }
             }
         }
-        // hairline divider
-        Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
 
         if (expanded) {
             SubtasksPanel(
                 subtasks = todo.subtasks,
                 onToggle = onToggleSubtask,
                 onAdd = onAddSubtask,
+                onDelete = onDeleteSubtask,
             )
-            TaskMeta(todo, Modifier.padding(start = 38.dp, end = 2.dp, bottom = 12.dp))
+            TaskMeta(todo, Modifier.padding(start = TaskIndent + 2.dp, end = 2.dp, bottom = 12.dp))
         }
+
+        // hairline divider — unter dem gesamten Todo inkl. aufgeklapptem Panel (web `.hb-todo`)
+        if (showDivider) Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
     }
 }
 
+/**
+ * Karten-Container um eine Gruppe von [TaskRow]s — spiegelt das web `<Card className="hb-card--pad">`
+ * um jede Fälligkeits-Gruppe. Vorher lagen die Zeilen direkt auf dem Seitenhintergrund, während
+ * jeder andere Android-Screen (Heute, Abwesenheit …) bereits Karten nutzt.
+ */
+@Composable
+private fun TaskCard(content: @Composable () -> Unit) {
+    HbCard(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), pad = false) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) { content() }
+    }
+}
+
+/**
+ * Bearbeiten/Löschen-Icon in der Chip-Zeile (web `.hb-row__actions`; dort per
+ * `@media (hover: none)` auf Touch dauerhaft sichtbar — Android kennt gar keinen Hover, also
+ * immer sichtbar). Eigener, kompakter Treffer statt [HbIconButton]: dessen feste 44 dp sprengen
+ * zusammen mit Subtask-Pille, Fälligkeits-Badge und Avataren die Zeilenbreite eines Telefons.
+ */
+@Composable
+private fun RowAction(
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    tint: Color = Hb.ink3,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier.size(36.dp).clip(HbPill).clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) { HbIcon(icon, size = 17.dp, tint = tint, contentDescription = contentDescription) }
+}
+
+/**
+ * Subtask-Toggle als kompakte Pille (web `.hb-subtoggle`): Haken-Icon + „erledigt/gesamt" +
+ * Chevron. Das ausgeschriebene Wort „Unteraufgaben" fraß auf Phone-Breite den Platz, den
+ * Titel und Fälligkeits-Badge brauchen — es lebt nur noch als contentDescription weiter.
+ */
 @Composable
 private fun SubPill(done: Int, total: Int, open: Boolean, onClick: () -> Unit) {
     val empty = total == 0
@@ -645,26 +827,26 @@ private fun SubPill(done: Int, total: Int, open: Boolean, onClick: () -> Unit) {
         Modifier
             .clip(HbPill)
             .background(bg, HbPill)
-            .then(if (open) Modifier else Modifier.border(1.dp, Hb.line, HbPill))
+            .then(if (open) Modifier else Modifier.border(1.dp, if (empty) Hb.lineSoft else Hb.line, HbPill))
             .clickable { onClick() }
-            .padding(horizontal = 9.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        if (empty) {
-            Text(
-                stringResource(R.string.todo_subtasks),
-                style = HbType.small.copy(fontWeight = FontWeight.SemiBold),
-                color = fg,
-            )
-        } else {
+        HbIcon(
+            HbIcons.checkCircle,
+            size = 14.dp,
+            tint = fg,
+            contentDescription = stringResource(R.string.todo_subtasks),
+        )
+        if (!empty) {
             Text(
                 "$done/$total",
                 style = HbType.mono.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
                 color = fg,
             )
         }
-        HbIcon(if (open) HbIcons.chevronUp else HbIcons.chevronDown, size = 14.dp, tint = fg)
+        HbIcon(if (open) HbIcons.chevronUp else HbIcons.chevronDown, size = 13.dp, tint = fg)
     }
 }
 
@@ -673,12 +855,13 @@ private fun SubtasksPanel(
     subtasks: List<SubtaskDto>,
     onToggle: (SubtaskDto) -> Unit,
     onAdd: (String) -> Unit,
+    onDelete: (SubtaskDto) -> Unit,
 ) {
     var newSubtask by remember { mutableStateOf("") }
-    Column(Modifier.padding(start = 38.dp, end = 2.dp, top = 2.dp, bottom = 12.dp)) {
+    Column(Modifier.padding(start = TaskIndent + 2.dp, end = 2.dp, top = 2.dp, bottom = 12.dp)) {
         subtasks.sortedBy { it.sortOrder }.forEach { sub ->
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
@@ -689,6 +872,14 @@ private fun SubtasksPanel(
                     color = if (sub.done) Hb.ink3 else Hb.ink,
                     textDecoration = if (sub.done) TextDecoration.LineThrough else null,
                     modifier = Modifier.weight(1f),
+                )
+                // Eine Unteraufgabe ist einzeln entfernbar — direkt, ohne Rückfrage: sie trägt
+                // nur einen Titel und ist schnell neu getippt (der Elterneintrag fragt nach).
+                RowAction(
+                    HbIcons.trash,
+                    stringResource(R.string.cd_delete),
+                    tint = Hb.danger,
+                    onClick = { onDelete(sub) },
                 )
             }
         }
@@ -774,6 +965,11 @@ private fun TaskMeta(todo: TodoDto, modifier: Modifier = Modifier) {
 // Done section
 // ---------------------------------------------------------------------------
 
+/**
+ * Aufklappbarer „Erledigt"-Fuß. Die Zeilen darin rendert der Aufrufer über [rows] — dieselbe
+ * [TaskRow]/[TaskCard]-Kombination wie die offenen Todos, damit erledigte Einträge nicht in
+ * einer zweiten, abweichenden Zeilenform erscheinen (mirrors web `renderRow`).
+ */
 @Composable
 private fun DoneSection(
     collapsed: Boolean,
@@ -782,13 +978,13 @@ private fun DoneSection(
     windowDays: Int,
     onToggle: () -> Unit,
     onToggleShowAll: () -> Unit,
-    onRestore: (TodoDto) -> Unit,
+    rows: @Composable (List<TodoDto>) -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 18.dp)) {
+    Column {
         Row(
             Modifier
                 .clickable { onToggle() }
-                .padding(start = 2.dp, end = 2.dp, top = 22.dp, bottom = 6.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
@@ -824,28 +1020,10 @@ private fun DoneSection(
         }
         if (!collapsed) {
             // "Alle anzeigen" ↔ "Nur letzte N Tage" toggle, only while the section is open (#340).
-            Box(Modifier.padding(start = 2.dp, bottom = 8.dp)) {
+            Box(Modifier.padding(start = 20.dp, bottom = 8.dp)) {
                 DoneShowAllToggle(showAll, windowDays, onToggleShowAll)
             }
-            todos.forEach { todo ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 13.dp),
-                    horizontalArrangement = Arrangement.spacedBy(13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    HbCheck(checked = true, onCheckedChange = { onRestore(todo) })
-                    Text(
-                        todo.title,
-                        style = HbType.rowTitle,
-                        color = Hb.ink3,
-                        textDecoration = TextDecoration.LineThrough,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Box(Modifier.fillMaxWidth().size(1.dp).background(Hb.lineSoft))
-            }
+            rows(todos)
         }
     }
 }
@@ -1413,6 +1591,74 @@ private fun DueTimeField(value: LocalTime?, onChange: (LocalTime?) -> Unit) {
 }
 
 // ---------------------------------------------------------------------------
+// Quick-Edit sheets (row chips)
+// ---------------------------------------------------------------------------
+
+/**
+ * Quick-Edit „nur Fälligkeit", geöffnet über das Fälligkeits-Badge der Zeile (web: der
+ * `editDateTitle`-Dialog). Bewusst KEIN Auto-Save wie im großen Edit-Sheet — hier wird ein
+ * Feld gezielt geändert und mit „Speichern" übernommen; der Status wird VM-seitig neu
+ * berechnet ([TodoViewModel.quickEditDue]).
+ */
+@Composable
+private fun DateEditSheet(
+    todo: TodoDto,
+    onDismiss: () -> Unit,
+    onSave: (LocalDate?, LocalTime?) -> Unit,
+) {
+    var date by remember { mutableStateOf(Format.parseLocalDate(todo.dueDate)) }
+    var time by remember { mutableStateOf(Format.parseLocalTime(todo.dueTime)) }
+    BackHandler(enabled = true) { onDismiss() }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.todo_edit_date_title),
+        footer = {
+            Spacer(Modifier.weight(1f))
+            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
+            HbButton(stringResource(R.string.action_save), { onSave(date, time) }, variant = HbButtonVariant.Primary)
+        },
+    ) {
+        HbField(stringResource(R.string.todo_field_due)) {
+            DueDateField(date) { date = it }
+        }
+        // Eine Uhrzeit ohne Datum ist bedeutungslos — das Web deaktiviert das Feld dann, auf dem
+        // Telefon blenden wir es ganz aus (spart eine tote Zeile); Speichern löscht sie mit.
+        if (date != null) {
+            HbField(stringResource(R.string.todo_field_due_time)) {
+                DueTimeField(time) { time = it }
+            }
+        }
+    }
+}
+
+/** Quick-Edit „nur Zuständige", geöffnet über die Avatare der Zeile (web: `editAssigneeTitle`). */
+@Composable
+private fun AssigneeEditSheet(
+    todo: TodoDto,
+    householdUsers: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (List<String>) -> Unit,
+) {
+    var assignees by remember { mutableStateOf(todo.assignees) }
+    BackHandler(enabled = true) { onDismiss() }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = stringResource(R.string.todo_edit_assignee_title),
+        footer = {
+            Spacer(Modifier.weight(1f))
+            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
+            HbButton(stringResource(R.string.action_save), { onSave(assignees) }, variant = HbButtonVariant.Primary)
+        },
+    ) {
+        HbField(stringResource(R.string.todo_field_assignee)) {
+            AssigneeChips(assignees, householdUsers) { assignees = it }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // New-list sheet
 // ---------------------------------------------------------------------------
 
@@ -1483,6 +1729,15 @@ private fun smartTabLabelRes(focus: TodosFocus): Int = when (focus) {
 /** Empty state for a view with no open todos — Inbox, a smart tab, or a list (mirrors web copy). */
 @Composable
 private fun SmartEmpty(inboxActive: Boolean, smartTab: TodosFocus?) {
+    // In einer Karte wie im Web (`<Card className="hb-card--pad"><EmptyState …>`), damit der
+    // Leerzustand nicht nackt auf dem Seitenhintergrund steht.
+    HbCard(Modifier.padding(horizontal = 18.dp).fillMaxWidth(), pad = false) {
+        SmartEmptyBody(inboxActive, smartTab)
+    }
+}
+
+@Composable
+private fun SmartEmptyBody(inboxActive: Boolean, smartTab: TodosFocus?) {
     when {
         inboxActive -> HbEmpty(
             HbIcons.inbox,
