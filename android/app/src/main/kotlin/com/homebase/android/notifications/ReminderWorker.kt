@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -46,23 +47,10 @@ class ReminderWorker(
             return Result.success()
         }
 
-        val text = applicationContext.getString(R.string.reminder_notification_text, title, dueLabel)
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            // Tapping the notification opens the app *on this todo* (#429 follow-up): without a
-            // content intent the notification was inert — a tap only dismissed it.
-            .setContentIntent(openTodoPendingIntent(applicationContext, todoId))
-            .build()
-
         // A stable per-todo notification id so a re-fire for the same todo replaces rather than stacks.
         runCatching {
             NotificationManagerCompat.from(applicationContext)
-                .notify(notificationId(todoId), notification)
+                .notify(notificationId(todoId), buildNotification(applicationContext, title, dueLabel, todoId))
         }
         return Result.success()
     }
@@ -83,14 +71,40 @@ class ReminderWorker(
         fun notificationId(todoId: String): Int = todoId.hashCode() and 0x7FFFFFFF
 
         /**
+         * The reminder notification itself. Extracted from [doWork] so a test can assert what a tap
+         * actually does — the bug this fixes was a *missing* [NotificationCompat.Builder.setContentIntent],
+         * which no test of the intent helper alone would catch.
+         */
+        internal fun buildNotification(context: Context, title: String, dueLabel: String, todoId: String) =
+            NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle(title)
+                .setContentText(context.getString(R.string.reminder_notification_text, title, dueLabel))
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(context.getString(R.string.reminder_notification_text, title, dueLabel)),
+                )
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                // Tapping opens the app *on this todo*: without a content intent the notification was
+                // inert — a tap only dismissed it.
+                .setContentIntent(openTodoPendingIntent(context, todoId))
+                .build()
+
+        /**
          * The intent a notification tap delivers to [MainActivity]: open (or bring forward) the app
          * and deep-link to [todoId]. `SINGLE_TOP` + `CLEAR_TOP` together with the activity's
          * `launchMode="singleTop"` route it through `onNewIntent` on a running app instead of
          * stacking a second MainActivity; `NEW_TASK` covers the cold-start case.
+         *
+         * The `homebase://todo/<id>` data URI carries no routing meaning (the component is explicit) —
+         * it makes two todos' intents distinct under `Intent.filterEquals`, which ignores extras, so
+         * PendingIntent identity can never collapse two pending reminders onto one target.
          */
         fun openTodoIntent(context: Context, todoId: String): Intent =
             Intent(context, MainActivity::class.java).apply {
                 action = ACTION_OPEN_TODO
+                data = Uri.parse("homebase://todo/${Uri.encode(todoId)}")
                 putExtra(EXTRA_TODO_ID, todoId)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or

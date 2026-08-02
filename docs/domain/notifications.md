@@ -78,13 +78,24 @@ Todo-Liste. Kein Google-Dienst, kein Server-Kanal, kein Extra-Endpunkt.
 - **Permission:** `POST_NOTIFICATIONS` wird nach dem Login einmal angefragt; eine Ablehnung degradiert
   still (der Worker läuft, `notify()` entfällt).
 - **Tap → Deep-Link auf das Todo:** die Notification trägt einen Content-Intent auf `MainActivity`
-  (`ReminderWorker.openTodoIntent`, Action `…action.OPEN_TODO` + Extra `…extra.TODO_ID`). Die Activity
-  läuft als `launchMode="singleTop"`, der Intent kommt also bei laufender App über `onNewIntent` an
-  statt eine zweite Instanz zu stapeln. `MainActivity` hält die Id in Compose-State, navigiert nach
-  Aufgaben (schließt Drawer/„Mehr"/Einstellungen) und reicht sie an `AufgabenScreen` weiter; das
-  öffnet das Edit-Sheet, sobald das Todo in der Liste ist (Cold-Start: der Tap gewinnt gegen den
-  ersten `/todos`-Fetch — bounded Wait, `DEEP_LINK_WAIT_MS`) und schaltet auf den „Alle"-Tab, damit
-  das Todo hinter dem Sheet sichtbar ist. Bei Logout wartet der Deep-Link bis nach dem Login; wird
-  das Todo nicht gefunden (gelöscht, veraltete Notification), verfällt er nach dem Timeout.
-  Verbraucht wird er inkl. `removeExtra`, damit eine Activity-Recreation (Rotation) ihn nicht
-  erneut auslöst.
+  (`ReminderWorker.openTodoIntent`, Action `…action.OPEN_TODO`, Extra `…extra.TODO_ID`, dazu eine
+  Pro-Todo-Data-URI `homebase://todo/<id>` — `Intent.filterEquals` ignoriert Extras, sonst könnten
+  sich zwei PendingIntents einen Slot teilen). Die Activity läuft als `launchMode="singleTop"`, der
+  Intent kommt bei laufender App also über `onNewIntent` an statt eine zweite Instanz zu stapeln.
+  - **Besitzer des Deep-Links ist `MainActivity`** (`TodoDeepLink(todoId, seq)` in Compose-State):
+    sie schließt Drawer/„Mehr"/Einstellungen, navigiert nach Aufgaben und lässt den Link nach
+    `DEEP_LINK_WAIT_MS` (15 s) **verfallen**. Bewusst *nicht* im `AufgabenScreen` — der ist nur
+    komponiert, solange seine Route aktiv ist; ein Wegnavigieren während des Wartens würde dessen
+    Timeout mitcanceln und das Sheet später bei einem unbeteiligten Besuch aufpoppen lassen.
+  - `AufgabenScreen` wartet (unbounded, der Aufrufer canceled) auf das Todo in der Liste und öffnet
+    dann das Edit-Sheet — der Tap gewinnt beim Cold-Start gegen den ersten `/todos`-Fetch. Steht das
+    Todo nicht im aktiven Tab, wird auf „Alle" geschaltet, damit es nach dem Schließen sichtbar ist.
+    Ein bereits offener Editor eines **anderen** Todos wird vorher via `closeTodoEditor()` geflusht
+    (sonst verlöre man dessen Debounce-Draft) und dessen Teardown abgewartet.
+  - **Wiederholter Tap** auf dasselbe Todo ist eine neue Anfrage (`seq`), sonst bliebe der
+    Compose-State gleich und der Effekt liefe nicht erneut. **Verbraucht/verfallen** wird über ein
+    explizites `handledTodoId` in `onSaveInstanceState` — nicht per `removeExtra`/`setIntent`: nach
+    Prozesstod wird der ursprüngliche Intent unverändert erneut zugestellt und würde das Todo sonst
+    Tage später wieder öffnen. Bei ausgeloggter App wartet der Link bis nach dem Login.
+  - Kein synthetischer Back-Stack (`TaskStackBuilder`): nach einem Cold-Start aus der Notification
+    führt Zurück aus der App heraus, nicht auf „Heute" — für die Single-Activity-App bewusst so.

@@ -96,7 +96,6 @@ import com.homebase.android.ui.components.HbRadiusSm
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -112,13 +111,6 @@ private sealed interface AufgabenSheet {
     data object NewList : AufgabenSheet
 }
 
-/**
- * How long a reminder-notification deep-link waits for its todo to turn up in the list before it
- * gives up (cold start: the tap starts the app, so login + the first /todos fetch still have to
- * complete). Generous — the screen stays fully usable while it waits.
- */
-private const val DEEP_LINK_WAIT_MS = 15_000L
-
 @Composable
 fun AufgabenScreen(
     viewModel: TodoViewModel,
@@ -130,9 +122,11 @@ fun AufgabenScreen(
     // screen lands on the default tab instead of re-forcing the tile's tab.
     initialFocus: TodosFocus? = null,
     onFocusConsumed: () -> Unit = {},
-    // Deep-link from a tapped reminder notification: open this todo's edit sheet as soon as the
-    // todo is in the list; [onOpenTodoConsumed] then clears it (also when it never shows up).
+    // Deep-link from a tapped reminder notification: open this todo's edit sheet as soon as the todo
+    // is in the list, then [onOpenTodoConsumed]. [openTodoSeq] distinguishes two taps on the same
+    // todo; expiry is the caller's job (this screen isn't composed while another route is active).
     openTodoId: String? = null,
+    openTodoSeq: Int = 0,
     onOpenTodoConsumed: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -147,25 +141,30 @@ fun AufgabenScreen(
     }
 
     var sheet by remember { mutableStateOf<AufgabenSheet?>(null) }
-
-    // Reminder-notification deep-link: open the todo's edit sheet. On a cold start the tap usually
-    // beats the first /todos response, so we wait (bounded) for the todo to appear instead of
-    // dropping the link. Also switches to the cross-list "Alle" tab so the todo is visible behind
-    // the sheet whatever list it lives in. Consumed either way — an unfindable id (deleted on
-    // another device, stale notification) must not leave the deep-link pending forever.
-    LaunchedEffect(openTodoId) {
-        val id = openTodoId ?: return@LaunchedEffect
-        val todo = withTimeoutOrNull(DEEP_LINK_WAIT_MS) {
-            snapshotFlow { state.todos.firstOrNull { it.id == id } }.filterNotNull().first()
-        }
-        if (todo != null) {
-            viewModel.applyFocus(TodosFocus.ALL)
-            sheet = AufgabenSheet.Edit(todo)
-        }
-        onOpenTodoConsumed()
-    }
     var expandedTaskId by remember { mutableStateOf<String?>(null) }
     var doneCollapsed by remember { mutableStateOf(true) }
+
+    // Reminder-notification deep-link: open the todo's edit sheet. On a cold start the tap beats the
+    // first /todos response, so this waits for the todo to appear rather than dropping the link —
+    // unbounded here on purpose, the caller owns the expiry (and cancels us by clearing openTodoId).
+    LaunchedEffect(openTodoId, openTodoSeq) {
+        val id = openTodoId ?: return@LaunchedEffect
+        val todo = snapshotFlow { state.todos.firstOrNull { it.id == id } }.filterNotNull().first()
+        // Replacing an open editor would silently drop its debounced auto-save draft (openTodoEditor
+        // cancels the pending job), so flush the previous todo first — and await the teardown, or the
+        // close would clear the editor state the new sheet is about to install.
+        val openTodoInSheet = (sheet as? AufgabenSheet.Edit)?.todo
+        if (openTodoInSheet != null && openTodoInSheet.id != id) {
+            viewModel.closeTodoEditor()
+            viewModel.todoEditor.first { it == null }
+        }
+        // Only leave the user's tab when the todo isn't in it — from a list tab pointing elsewhere,
+        // "Alle" is the one tab guaranteed to show it once the sheet is closed again.
+        if (state.visibleTodos.none { it.id == id }) viewModel.applyFocus(TodosFocus.ALL)
+        expandedTaskId = id
+        sheet = AufgabenSheet.Edit(todo)
+        onOpenTodoConsumed()
+    }
 
     val smartTab = state.smartTab
     val openTodos = state.visibleTodos.filter { it.status != "DONE" }

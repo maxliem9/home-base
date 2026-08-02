@@ -81,8 +81,38 @@ import com.homebase.android.ui.theme.HomeBaseTheme
 import com.homebase.android.ui.theme.ThemePref
 import com.homebase.android.ui.time.TimeScreen
 import com.homebase.android.ui.time.TimeViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+
+/**
+ * A pending "open this todo" request from a tapped reminder notification (#429 Phase 2c follow-up).
+ * [seq] is what makes two taps on the *same* todo two distinct requests — without it the second tap
+ * would write an equal value into Compose state, and the keyed effects driving the deep-link would
+ * never re-run.
+ */
+internal data class TodoDeepLink(val todoId: String, val seq: Int)
+
+/**
+ * How long a reminder deep-link waits for its todo to turn up in the list before it is dropped.
+ * Generous, because a cold start out of the notification still has login + the first `/todos` fetch
+ * ahead of it; the app stays fully usable meanwhile. Expiry matters: a link that never resolves
+ * (todo deleted on the other device, stale notification) must not surface hours later.
+ */
+private const val DEEP_LINK_WAIT_MS = 15_000L
+
+/** `onSaveInstanceState` key for the deep-link that was already handled. */
+private const val STATE_HANDLED_TODO_ID = "handled_todo_id"
+
+/**
+ * The deep-link todo id of a reminder-notification intent, or null for a plain app start. Top-level
+ * and internal so the intent-shape contract with [com.homebase.android.notifications.ReminderWorker]
+ * is unit-testable without launching the Activity.
+ */
+internal fun todoIdFrom(intent: Intent?): String? =
+    intent?.takeIf { it.action == ReminderWorker.ACTION_OPEN_TODO }
+        ?.getStringExtra(ReminderWorker.EXTRA_TODO_ID)
+        ?.takeIf { it.isNotEmpty() }
 
 // AppCompatActivity (not a bare ComponentActivity) so AppCompatDelegate.setApplicationLocales(...)
 // applies the in-app de/en switch on API 26–32 too: pre-API-33 AppCompat only recreates locales for
@@ -96,16 +126,31 @@ class MainActivity : AppCompatActivity() {
     private val container by lazy { (application as HomeBaseApplication).container }
 
     /**
-     * Todo a reminder notification asked us to open (its content intent, see [ReminderWorker]).
-     * Compose state so it also lands when the app was already running (`onNewIntent`) — the logged-in
-     * scaffold navigates to Aufgaben and opens the todo, then clears it. Survives a logged-out start:
-     * the deep-link waits here until the session exists.
+     * The pending reminder deep-link (see [ReminderWorker]), or null. Compose state so a tap on an
+     * already-running app (`onNewIntent`) lands too; the logged-in scaffold navigates to Aufgaben,
+     * opens the todo and clears it. A logged-out start just parks it here until the session exists.
      */
-    private var pendingTodoId by mutableStateOf<String?>(null)
+    private var deepLink by mutableStateOf<TodoDeepLink?>(null)
+
+    /**
+     * How many deep-links this Activity instance has taken — the [TodoDeepLink.seq] source. Two taps
+     * on the *same* todo must be two distinct values, otherwise the second one wouldn't change state
+     * and the scaffold's keyed effect would never re-run.
+     */
+    private var deepLinkSeq = 0
+
+    /**
+     * The deep-link already handled, kept across recreation *and* process death. Neither
+     * `removeExtra` nor `setIntent` reliably survives both — the launching intent is re-delivered
+     * verbatim after a process kill, which would re-open the todo days later — so "handled" is
+     * tracked explicitly rather than by mutating the intent.
+     */
+    private var handledTodoId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pendingTodoId = todoIdFrom(intent)
+        handledTodoId = savedInstanceState?.getString(STATE_HANDLED_TODO_ID)
+        todoIdFrom(intent)?.takeIf { it != handledTodoId }?.let { deepLink = TodoDeepLink(it, deepLinkSeq++) }
         enableEdgeToEdge()
         setContent {
             // Resolve the per-user theme choice (#244): the stored light|dark|system pref, with
@@ -155,27 +200,31 @@ class MainActivity : AppCompatActivity() {
     /**
      * A reminder tap while the app is already running: `launchMode="singleTop"` delivers the content
      * intent here instead of creating a second MainActivity, so the deep-link has to be picked up
-     * from the new intent (the original one from onCreate never changes on its own).
+     * from the new intent (the original one from onCreate never changes on its own). A repeat tap on
+     * an already-handled todo is honoured again — hence the fresh [TodoDeepLink.seq].
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        todoIdFrom(intent)?.let { pendingTodoId = it }
+        todoIdFrom(intent)?.let {
+            handledTodoId = null
+            deepLink = TodoDeepLink(it, deepLinkSeq++)
+        }
     }
 
-    /** The deep-link todo id of a reminder-notification intent, or null for a plain app start. */
-    private fun todoIdFrom(intent: Intent?): String? =
-        intent?.takeIf { it.action == ReminderWorker.ACTION_OPEN_TODO }
-            ?.getStringExtra(ReminderWorker.EXTRA_TODO_ID)
-            ?.takeIf { it.isNotEmpty() }
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_HANDLED_TODO_ID, handledTodoId)
+    }
 
     /**
-     * Deep-link handled (or given up on) — drop it from both the state and the sticky Activity
-     * intent, so an Activity recreation (rotation, theme change) doesn't re-open the todo.
+     * Deep-link done — either opened, or given up on after [DEEP_LINK_WAIT_MS]. Only clears [link]
+     * itself, so a newer tap that arrived meanwhile isn't dropped along with it.
      */
-    private fun consumePendingTodoId() {
-        pendingTodoId = null
-        intent?.removeExtra(ReminderWorker.EXTRA_TODO_ID)
+    private fun consumeDeepLink(link: TodoDeepLink) {
+        if (deepLink != link) return
+        handledTodoId = link.todoId
+        deepLink = null
     }
 
     @Composable
@@ -324,13 +373,21 @@ class MainActivity : AppCompatActivity() {
         // Reminder-notification deep-link: navigate to Aufgaben so the screen below can open the
         // todo's edit sheet. Any overlay covering it (drawer, "Mehr", settings) is closed first —
         // the tap came from outside the app, so whatever was open is stale context.
-        LaunchedEffect(pendingTodoId) {
-            if (pendingTodoId != null) {
-                drawerOpen = false
-                moreOpen = false
-                settingsOpen = false
-                route = HbRoute.AUFGABEN
-            }
+        //
+        // The expiry lives HERE, not in AufgabenScreen: that screen is only composed while its route
+        // is active, so a user who navigates away mid-wait would cancel the screen's timeout and
+        // leave the link pending forever — to then have the sheet pop up on a later, unrelated visit.
+        // Owned by the scaffold, the link either resolves or expires no matter where the user goes,
+        // and re-entering Aufgaben before it expires simply retries.
+        val link = deepLink
+        LaunchedEffect(link) {
+            if (link == null) return@LaunchedEffect
+            drawerOpen = false
+            moreOpen = false
+            settingsOpen = false
+            route = HbRoute.AUFGABEN
+            delay(DEEP_LINK_WAIT_MS)
+            consumeDeepLink(link)
         }
 
         BackHandler(enabled = drawerOpen) { drawerOpen = false }
@@ -371,8 +428,10 @@ class MainActivity : AppCompatActivity() {
                             initialFocus = pendingTodosFocus,
                             onFocusConsumed = { pendingTodosFocus = null },
                             // Deep-link from a reminder notification: open this todo's edit sheet.
-                            openTodoId = pendingTodoId,
-                            onOpenTodoConsumed = { consumePendingTodoId() },
+                            // The seq makes a repeat tap on the same todo a new request (#620).
+                            openTodoId = link?.todoId,
+                            openTodoSeq = link?.seq ?: 0,
+                            onOpenTodoConsumed = { link?.let { consumeDeepLink(it) } },
                         )
                         HbRoute.EINKAUF -> ShoppingScreen(
                             viewModel = shoppingVm,
