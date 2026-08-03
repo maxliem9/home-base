@@ -212,6 +212,28 @@ test.describe('Todos', () => {
     expect(JSON.parse((await put).postData() ?? '{}').dueDate).toBe('2026-06-25')
   })
 
+  test('quick-edit on a recurring todo explains the anchor and blocks clearing the date (#628)', async ({ page }) => {
+    const mock = new MockApi(
+      [todo({ id: 't1', title: 'Müll', status: 'PLANNED', dueDate: '2026-06-20', listId: 'l1', recurrence: { freq: 'WEEKLY', interval: 1 } })],
+      [HAUSHALT],
+    )
+    await openApp(page, mock, TOKEN, PINNED)
+
+    await page.locator('.hb-row', { hasText: 'Müll' }).locator('.hb-row__chip').first().click()
+    const modal = page.locator('.hb-modal')
+    await expect(modal.getByText('Fälligkeit ändern')).toBeVisible()
+    // the hint says why the date can't go away — the backend would reject it (INVALID_RECURRENCE)
+    await expect(modal.locator('.hb-field__hint')).toContainText('Wiederholung')
+    // emptying the date disables Save instead of running into the rejected PUT
+    await modal.locator('input[type="date"]').fill('')
+    await expect(modal.getByRole('button', { name: 'Speichern' })).toBeDisabled()
+    // a real date is still savable
+    await modal.locator('input[type="date"]').fill('2026-06-27')
+    const put = page.waitForRequest((r) => /\/todos\/t1$/.test(r.url()) && r.method() === 'PUT')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+    expect(JSON.parse((await put).postData() ?? '{}').dueDate).toBe('2026-06-27')
+  })
+
   test('plans a todo with a due time and shows it on the row badge (#429)', async ({ page }) => {
     const mock = new MockApi([todo({ id: 't1', title: 'Zahnarzt', listId: 'l1' })], [HAUSHALT])
     await openApp(page, mock)

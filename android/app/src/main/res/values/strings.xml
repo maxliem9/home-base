@@ -232,6 +232,7 @@
     <string name="todo_recurrence_weeks">Wochen</string>
     <string name="todo_recurrence_months">Monate</string>
     <string name="todo_recurrence_needs_due">Für eine Wiederholung ein Fälligkeitsdatum angeben.</string>
+    <string name="todo_recurrence_keeps_due">Wiederkehrende Aufgabe: Das Datum ist der Anker der Wiederholung und kann nicht gelöscht werden — dafür zuerst im Bearbeiten-Sheet die Wiederholung entfernen.</string>
     <string name="todo_recurrence_short_daily">täglich</string>
     <string name="todo_recurrence_short_weekly">wöchentl.</string>
     <string name="todo_recurrence_short_monthly">monatl.</string>

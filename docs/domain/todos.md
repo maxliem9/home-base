@@ -47,8 +47,13 @@ Web-Push-Subscriptions) — die Zuständigen stehen nur informativ im Text, sie 
 Empfängerkreis. Multiselect-Chips (Web `AssigneePicker`, Android `AssigneeChips`); ein Klick auf
 Datum bzw. Zuständige einer Zeile öffnet einen Quick-Edit-Dialog (Web + Android, „Speichern") nur
 für dieses eine Feld. Der Dialog schließt **nur bei Erfolg** — schlägt der PUT fehl, bleibt er mit
-der Eingabe offen und zeigt den Grund inline (sonst geht die Eingabe verloren, etwa wenn das
-Löschen der Fälligkeit an einer wiederkehrenden Aufgabe mit `INVALID_RECURRENCE` abgelehnt wird).
+der Eingabe offen und zeigt den Grund inline (sonst geht die Eingabe verloren).
+**Wiederkehrende Aufgabe im Fälligkeits-Quick-Edit (#628):** Das Datum ist der Anker der
+Wiederholung, das Backend lehnt ein Löschen mit `INVALID_RECURRENCE` ab — der Quick-Edit lässt
+diese Sackgasse deshalb gar nicht erst zu: Hinweistext am Datumsfeld, „Speichern" ist bei leerem
+Datum deaktiviert, und **Android** blendet zusätzlich das ✕ am Datum aus (`DueDateField(clearable)`).
+Datum *ändern* bleibt möglich; wer die Fälligkeit loswerden will, entfernt zuerst im großen
+Edit-Sheet die Wiederholung.
 Der Status wird dabei wie im Plan-Sheet neu abgeleitet, der jeweils **andere** Anker aber live
 gelesen: eine erledigte Aufgabe bleibt erledigt, eine parallele Änderung wird nicht überschrieben.
 

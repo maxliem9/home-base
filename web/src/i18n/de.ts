@@ -235,6 +235,7 @@ export const de = {
     recurrence: 'Wiederholung',
     recurrenceNone: 'Keine',
     recurrenceNeedsDue: 'Für eine Wiederholung ein Fälligkeitsdatum angeben.',
+    recurrenceKeepsDue: 'Wiederkehrende Aufgabe: Das Datum ist der Anker der Wiederholung und kann nicht gelöscht werden — dafür zuerst im Bearbeiten-Sheet die Wiederholung entfernen.',
     recurrenceEvery: 'Alle', // rendered as "Alle {n} Wochen"
     recurrenceDaily: 'Täglich',
     recurrenceWeekly: 'Wöchentlich',

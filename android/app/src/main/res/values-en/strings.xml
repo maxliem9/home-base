@@ -220,6 +220,7 @@
     <string name="todo_recurrence_weeks">weeks</string>
     <string name="todo_recurrence_months">months</string>
     <string name="todo_recurrence_needs_due">Set a due date to repeat a task.</string>
+    <string name="todo_recurrence_keeps_due">Recurring todo: the date anchors the recurrence and cannot be cleared — remove the recurrence in the edit sheet first.</string>
     <string name="todo_recurrence_short_daily">daily</string>
     <string name="todo_recurrence_short_weekly">weekly</string>
     <string name="todo_recurrence_short_monthly">monthly</string>
