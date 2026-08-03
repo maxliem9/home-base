@@ -97,5 +97,27 @@ Todo-Liste. Kein Google-Dienst, kein Server-Kanal, kein Extra-Endpunkt.
     explizites `handledTodoId` in `onSaveInstanceState` — nicht per `removeExtra`/`setIntent`: nach
     Prozesstod wird der ursprüngliche Intent unverändert erneut zugestellt und würde das Todo sonst
     Tage später wieder öffnen. Bei ausgeloggter App wartet der Link bis nach dem Login.
-  - Kein synthetischer Back-Stack (`TaskStackBuilder`): nach einem Cold-Start aus der Notification
-    führt Zurück aus der App heraus, nicht auf „Heute" — für die Single-Activity-App bewusst so.
+  - **Zurück nach Cold-Start (#622):** Kein synthetischer Back-Stack (`TaskStackBuilder`) — HomeBase
+    hat genau **eine** Activity und navigiert über `route`-State, ein synthetischer Stack würde nur
+    eine zweite MainActivity dahinterstapeln. Stattdessen wird der Zurück-Druck **in-app umgelenkt**:
+    Wurde die Activity *vom* Notification-Tap erzeugt (`onCreate` mit Deep-Link-Intent **und**
+    `savedInstanceState == null` ⇒ `backToHeutePending`, über `onSaveInstanceState` rotations-/
+    prozessfest), landet die erste Zurück-Geste auf „Heute" statt aus der App zu führen; danach
+    verhält sich Zurück wieder normal (`DeepLinkBackToHeute`).
+    - „Danach" heißt: sobald „Heute" **wieder** erreicht ist — der Übergang zählt, nicht der
+      Zustand. Die Route startet auf `HEUTE` und der Deep-Link-Effekt schaltet erst danach auf
+      Aufgaben; ein Tilgen schon beim bloßen „Route ist HEUTE" hätte die Umlenkung beim Cold-Start
+      verbraucht, bevor der Nutzer den Aufgaben-Screen sieht (der Handler ginge nie an).
+    - Die Bundle-Bedingung beim Armieren ist kein Zierrat: eine Rotation im 15-s-Deep-Link-Fenster
+      durchläuft denselben Zweig mit demselben Intent und würde eine bereits verbrauchte Umlenkung
+      erneut setzen. (`isTaskRoot` unterscheidet die Fälle nicht — in einer Single-Activity-App ist
+      es in beiden `true`.)
+    - Der Handler steht still, solange ein Overlay (Drawer/„Mehr"/Einstellungen) offen ist: eine
+      unsichtbare Umlenkung hinter einem Overlay wäre schlechte UX, und Drawer/„Mehr" registrieren
+      ihre Handler zusätzlich *früher* und verlören sonst das Prioritätsrennen. Einstellungen und
+      das Edit-Sheet werden später komponiert und gewinnen ohnehin.
+    - Ein Tap auf die **laufende** App (`onNewIntent`) setzt die Umlenkung **nicht**: kompensiert
+      wird nur ein Einstieg, den wir selbst erzeugt haben — das Zurück-Verhalten einer bestehenden
+      Sitzung bleibt unangetastet. (Auch dort führt Zurück aus der App; einen In-App-Back-Stack hat
+      HomeBase generell nicht. Ob der Sprung aus der laufenden App ebenfalls eine Rückkehr auf die
+      vorherige Route verdient → #624.)

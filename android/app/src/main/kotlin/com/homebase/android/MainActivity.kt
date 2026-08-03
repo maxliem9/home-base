@@ -104,6 +104,9 @@ private const val DEEP_LINK_WAIT_MS = 15_000L
 /** `onSaveInstanceState` key for the deep-link that was already handled. */
 private const val STATE_HANDLED_TODO_ID = "handled_todo_id"
 
+/** `onSaveInstanceState` key for the pending „Zurück führt einmalig auf Heute"-Umlenkung (#622). */
+private const val STATE_BACK_TO_HEUTE = "back_to_heute"
+
 /**
  * The deep-link todo id of a reminder-notification intent, or null for a plain app start. Top-level
  * and internal so the intent-shape contract with [com.homebase.android.notifications.ReminderWorker]
@@ -147,10 +150,32 @@ class MainActivity : AppCompatActivity() {
      */
     private var handledTodoId: String? = null
 
+    /**
+     * True while a **Cold-Start aus der Notification** still owes the user one back press onto
+     * „Heute" (#622). Tapping a reminder with the app not running creates the task *at* the deep-link
+     * target, so there is nothing behind it: closing the edit sheet and pressing Zurück would leave
+     * the app. A synthetic back stack ([androidx.core.app.TaskStackBuilder]) is no help here — HomeBase
+     * is a single-Activity app that routes over `route`-State, so a synthetic stack would only put a
+     * second MainActivity behind this one. Instead the first system back is redirected in-app, see
+     * [DeepLinkBackToHeute]. Only armed when this instance was *created* by the tap — a tap on the
+     * already-running app (`onNewIntent`) is left alone: we only compensate for an entry we made.
+     */
+    private var backToHeutePending by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handledTodoId = savedInstanceState?.getString(STATE_HANDLED_TODO_ID)
-        todoIdFrom(intent)?.takeIf { it != handledTodoId }?.let { deepLink = TodoDeepLink(it, deepLinkSeq++) }
+        backToHeutePending = savedInstanceState?.getBoolean(STATE_BACK_TO_HEUTE) ?: false
+        todoIdFrom(intent)?.takeIf { it != handledTodoId }?.let {
+            deepLink = TodoDeepLink(it, deepLinkSeq++)
+            // A *fresh* instance carrying the tap (savedInstanceState == null) ⇒ the task was created
+            // at the deep-link target, nothing behind it (#622). Guarded on the bundle rather than on
+            // the intent alone: a rotation inside the 15 s deep-link window re-runs this branch with
+            // the same intent and would otherwise re-arm a redirect the user has already spent —
+            // there the saved value above is the truth. (`isTaskRoot` would not tell the two apart:
+            // in a single-Activity app it is true in either case.)
+            if (savedInstanceState == null) backToHeutePending = true
+        }
         enableEdgeToEdge()
         setContent {
             // Resolve the per-user theme choice (#244): the stored light|dark|system pref, with
@@ -215,6 +240,7 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(STATE_HANDLED_TODO_ID, handledTodoId)
+        outState.putBoolean(STATE_BACK_TO_HEUTE, backToHeutePending)
     }
 
     /**
@@ -392,6 +418,17 @@ class MainActivity : AppCompatActivity() {
 
         BackHandler(enabled = drawerOpen) { drawerOpen = false }
         BackHandler(enabled = moreOpen) { moreOpen = false }
+
+        // Cold-Start aus einer Reminder-Notification: die erste Zurück-Geste landet auf „Heute"
+        // statt aus der App zu führen (#622). Muss VOR dem Screen komponiert werden, damit dessen
+        // eigene Handler (Edit-Sheet, Overlays) den Zurück-Druck zuerst bekommen.
+        DeepLinkBackToHeute(
+            pending = backToHeutePending,
+            route = route,
+            overlayOpen = drawerOpen || moreOpen || settingsOpen,
+            onBackToHeute = { route = HbRoute.HEUTE },
+            onDone = { backToHeutePending = false },
+        )
 
         // Make the per-user avatar-hue overrides available to every HbAvatar below (Teil von #100).
         CompositionLocalProvider(LocalAvatarHues provides avatarHues) {
@@ -664,4 +701,48 @@ internal fun LogoutTeardownEffect(loggedIn: Boolean, viewModelStore: ViewModelSt
     LaunchedEffect(loggedIn) {
         if (!loggedIn) viewModelStore.clear()
     }
+}
+
+/**
+ * The one-shot „Zurück führt auf Heute"-Umlenkung nach einem Notification-Cold-Start (#622).
+ *
+ * Nach einem Tap auf die Reminder-Notification bei **nicht laufender App** entsteht der Task direkt
+ * am Deep-Link-Ziel (Aufgaben + Edit-Sheet). Hinter ihm liegt nichts, das System-Zurück würde die App
+ * verlassen. Ein synthetischer Back-Stack hilft nicht: HomeBase hat genau **eine** Activity und
+ * navigiert über `route`-State — ein `TaskStackBuilder` würde nur eine zweite MainActivity
+ * dahinterstapeln. Also wird der erste Zurück-Druck stattdessen **in-app** umgelenkt.
+ *
+ * Genau einmal: sobald „Heute" **wieder** erreicht ist — egal ob über diese Umlenkung oder weil der
+ * Nutzer selbst dorthin navigiert hat — meldet [onDone] die Schuld als beglichen und Zurück verlässt
+ * die App wieder normal. „Wieder" ist hier der Knackpunkt: die Route startet auf `HEUTE` und der
+ * Deep-Link-Effekt schaltet erst *danach* auf Aufgaben. Würde schon das bloße „Route ist HEUTE" die
+ * Schuld tilgen, wäre sie beim Cold-Start beglichen, bevor der Nutzer den Aufgaben-Screen überhaupt
+ * sieht — der Handler ginge nie an. Deshalb zählt erst der Übergang: einmal weg von „Heute", dann
+ * zurück.
+ *
+ * Der Handler ist deaktiviert, solange ein Overlay (Drawer/„Mehr"/Einstellungen) offen ist: eine
+ * unsichtbare Umlenkung hinter einem Overlay wäre schlechte UX, und Drawer/„Mehr" registrieren ihre
+ * Handler zudem *früher* und verlören sonst das Prioritätsrennen. (Einstellungen und das
+ * Todo-Edit-Sheet werden nach diesem Handler komponiert und gewinnen ohnehin.)
+ *
+ * Ausgelagert aus MainActivity, damit die Regel über eine echte Composition testbar ist.
+ */
+@Composable
+internal fun DeepLinkBackToHeute(
+    pending: Boolean,
+    route: HbRoute,
+    overlayOpen: Boolean,
+    onBackToHeute: () -> Unit,
+    onDone: () -> Unit,
+) {
+    // Überlebt die Rotation mit, sonst begänne die Übergangserkennung von vorn und die Schuld bliebe
+    // für den Rest der Sitzung offen.
+    var leftHeute by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(pending, route) {
+        if (!pending) return@LaunchedEffect
+        if (route != HbRoute.HEUTE) leftHeute = true else if (leftHeute) onDone()
+    }
+    // Auf „Heute" ist nichts umzulenken — ein dort verschluckter Zurück-Druck wäre wirkungslos und
+    // fühlte sich wie eine hängende App an.
+    BackHandler(enabled = pending && route != HbRoute.HEUTE && !overlayOpen) { onBackToHeute() }
 }
