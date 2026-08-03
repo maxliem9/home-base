@@ -16,6 +16,7 @@ homebase/
 ├── web/                      — React + Vite + TS Frontend (nginx: SPA + /api-Proxy)
 ├── android/                  — Jetpack Compose App
 ├── docs/                     — Feature-/Domänen-Docs (on demand, siehe Doc-Index)
+├── VERSION                   — Produktversion (Single Source für Backend, Web, Android; #626)
 ├── docker-compose.yml        — Produktion (Synology NAS, Images aus GHCR)
 ├── docker-compose.dev.yml    — Lokale Entwicklung (nur DB)
 ├── .env.example
@@ -40,6 +41,7 @@ homebase/
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
 | **env-Variablen** (vollständig, kommentiert) | [`.env.example`](.env.example) — Single Source of Truth |
 | **Deployment**, Docker, DSM/FRITZ!Box, Android-Build, Troubleshooting | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| **Versionierung** (VERSION-Datei bumpen, wo die Version herkommt/angezeigt wird) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Abschnitt „Versionierung (#626)" |
 | Security-Invarianten (nginx-Log-Masking, Login-Throttling #8) | [docs/security-invariants.md](docs/security-invariants.md) |
 
 ## Backlog & Out-of-Scope-Funde

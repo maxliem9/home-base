@@ -18,6 +18,7 @@ import com.homebase.routes.timeRoutes
 import com.homebase.routes.todoRoutes
 import com.homebase.routes.userPrefsRoutes
 import com.homebase.routes.userRoutes
+import com.homebase.routes.versionRoutes
 import com.homebase.security.LoginThrottler
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -64,6 +65,8 @@ fun Application.configureRouting() {
             healthRoutes()
             authRoutes(loginThrottler, trustedProxyCount)
             authenticate("auth-jwt") {
+                // Build-Version des Backends (#626) — die Clients zeigen sie in den Einstellungen.
+                versionRoutes()
                 configRoutes(householdName, digestDefaultTime, telegramEnabled, recurringDefaultTime, morningDigestDefaultTime)
                 userRoutes()
                 userPrefsRoutes()

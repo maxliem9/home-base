@@ -53,6 +53,8 @@ const PATHS: Record<string, string> = {
   glass: 'M5 3h14l-1.2 17a1 1 0 0 1-1 1H7.2a1 1 0 0 1-1-1L5 3Z M6.4 9h11.2',
   // "more" — horizontal three-dots for the mobile tab-bar overflow (HB-09)
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  // "info" — Einstellungen → Über (#626)
+  info: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z M12 11v5 M12 7.6h.01',
 }
 
 export type IconName = keyof typeof PATHS

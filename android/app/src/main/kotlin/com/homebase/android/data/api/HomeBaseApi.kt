@@ -10,6 +10,10 @@ interface HomeBaseApi {
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): TokenResponse
 
+    /** Build-Version des Backends (#626) — in den Einstellungen unter „Über" angezeigt. */
+    @GET("version")
+    suspend fun getVersion(): VersionResponse
+
     @GET("config")
     suspend fun getConfig(): AppConfigResponse
 

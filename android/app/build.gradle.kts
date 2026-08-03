@@ -24,6 +24,28 @@ val backendBaseUrl: String = (localProperties.getProperty("homebase.baseUrl")
 // in the generated BuildConfig — a fat-fingered URL can't silently break compilation.
 val backendBaseUrlLiteral: String = backendBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 
+// Produktversion (#626). Single Source of Truth ist die Datei VERSION im Repo-Root — dieselbe,
+// aus der Backend und Web ihre Version ziehen (rootProject ist hier android/). Fehlt sie, baut
+// die App als 0.0.0-dev statt den Build zu brechen.
+val appVersionName: String = rootProject.file("../VERSION").takeIf { it.isFile }
+    ?.readText()?.trim()?.takeIf { it.isNotEmpty() } ?: "0.0.0-dev"
+
+// versionCode muss bei jedem Update monoton wachsen, sonst verweigert Android die Installation.
+// Aus dem Semver abgeleitet: major*10000 + minor*100 + patch (1.1.0 → 10100). Damit reicht es,
+// die VERSION-Datei zu pflegen; ein Vorab-Suffix (1.2.0-rc1) wird für den Code ignoriert.
+val appVersionCode: Int = run {
+    val parts = appVersionName.substringBefore('-').split('.').mapNotNull { it.toIntOrNull() }
+    if (parts.size < 3) 1 else parts[0] * 10000 + parts[1] * 100 + parts[2]
+}
+
+// Kurz-SHA des Builds, rein informativ (in den Einstellungen unter „Über" sichtbar). Leer, wenn
+// ohne Git-Kontext gebaut wird.
+val gitSha: String = (System.getenv("GIT_SHA")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: runCatching {
+        providers.exec { commandLine("git", "rev-parse", "HEAD") }
+            .standardOutput.asText.get().trim()
+    }.getOrNull().orEmpty()).take(7)
+
 android {
     namespace = "com.homebase.android"
     compileSdk = 35
@@ -32,8 +54,8 @@ android {
         applicationId = "com.homebase.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -41,6 +63,8 @@ android {
         // local.properties / HOMEBASE_BASE_URL, else the example placeholder. Debug overrides
         // it to the emulator loopback below.
         buildConfigField("String", "BASE_URL", "\"$backendBaseUrlLiteral\"")
+        // Commit dieses Builds (#626) — neben VERSION_NAME in den Einstellungen sichtbar.
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
     buildTypes {

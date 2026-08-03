@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homebase.android.BuildConfig
 import com.homebase.android.R
 import com.homebase.android.data.model.DigestConfigResponse
 import com.homebase.android.data.model.ProjectDto
@@ -122,7 +123,7 @@ fun SettingsScreen(
     BackHandler { if (sub != null) sub = null else onClose() }
 
     when (sub) {
-        null -> SettingsRoot(onPick = { sub = it }, onClose = onClose)
+        null -> SettingsRoot(configRepository = configRepository, onPick = { sub = it }, onClose = onClose)
         SettingsSub.HOUSEHOLD -> HouseholdPage(
             configRepository = configRepository,
             initialName = householdName,
@@ -162,7 +163,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
+private fun SettingsRoot(configRepository: ConfigRepository, onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
     HbScreenScaffold(
         appBar = {
             HbAppBar(
@@ -221,9 +222,48 @@ private fun SettingsRoot(onPick: (SettingsSub) -> Unit, onClose: () -> Unit) {
             // Language switcher (Issue #6) — flips the per-app locale (de/en) immediately and
             // persists it. Inline radio-style card so it needs no own subpage.
             LanguageCard()
+            // Versionszeile (#626) — welcher Build läuft hier, App und Server. Abschluss der
+            // Liste statt eigener Unterseite: rein informativ, nichts zum Einstellen.
+            VersionFooter(configRepository)
         }
     }
 }
+
+/**
+ * Version dieses App-Builds + die des Backends (#626). Die App-Version kommt aus BuildConfig
+ * (gespeist aus der VERSION-Datei im Repo-Root), die Server-Version aus GET /version. Ein
+ * fehlgeschlagener Abruf zeigt „nicht erreichbar" statt einer leeren Zeile — die Zeile ist beim
+ * Debuggen genau dann interessant, wenn etwas nicht stimmt.
+ */
+@Composable
+private fun VersionFooter(configRepository: ConfigRepository) {
+    val unavailable = stringResource(R.string.settings_version_unavailable)
+    var backend by remember { mutableStateOf("…") }
+    LaunchedEffect(Unit) {
+        configRepository.getVersion()
+            .onSuccess { backend = formatVersion(it.version, it.commit) }
+            .onFailure { backend = unavailable }
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            stringResource(R.string.settings_version_app, formatVersion(BuildConfig.VERSION_NAME, BuildConfig.GIT_SHA)),
+            style = HbType.small.copy(fontSize = 12.5.sp),
+            color = Hb.ink3,
+        )
+        Text(
+            stringResource(R.string.settings_version_server, backend),
+            style = HbType.small.copy(fontSize = 12.5.sp),
+            color = Hb.ink3,
+        )
+    }
+}
+
+/** `1.1.0 (a1b2c3d)` bzw. nur `1.1.0`, wenn der Build keinen Commit kennt. */
+private fun formatVersion(version: String, commit: String): String =
+    if (commit.isBlank()) version else "$version ($commit)"
 
 /**
  * Sprache / Language switcher (Issue #6). Two options (Deutsch/English) wired to

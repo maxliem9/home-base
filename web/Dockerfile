@@ -3,6 +3,13 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 COPY . .
+# Build-Version (#626). Der Repo-Root (und damit die VERSION-Datei) liegt nicht im Build-Context
+# (context: ./web), deshalb reicht CI Version + Commit als Build-Args durch; ohne sie baut ein
+# lokales `docker build ./web` als 0.0.0-dev. Vite setzt die Werte fest ins Bundle ein.
+ARG APP_VERSION=""
+ARG GIT_SHA=""
+ENV APP_VERSION=$APP_VERSION
+ENV GIT_SHA=$GIT_SHA
 RUN npm run build
 
 # Unprivileged nginx (runs as uid 101, not root) to match the backend hardening

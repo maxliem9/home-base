@@ -6,7 +6,24 @@ plugins {
 }
 
 group = "com.homebase"
-version = "1.0.0"
+
+// Produktversion (#626). Single Source of Truth ist die Datei `VERSION` im Repo-Root — sie gilt
+// für Backend, Web und Android gemeinsam. Im Docker-Build liegt der Repo-Root nicht im
+// Build-Context (`context: ./backend`), deshalb reicht CI Version und Commit als Build-Args
+// via APP_VERSION/GIT_SHA durch; die env-Variablen haben darum Vorrang vor der Datei.
+val appVersion: String = System.getenv("APP_VERSION")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: file("../VERSION").takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
+    ?: "0.0.0-dev"
+
+// Kurz-SHA des Builds — aus dem CI-Build-Arg, sonst aus dem lokalen Checkout, sonst leer
+// (z. B. Build aus einem Tarball ohne .git). Rein informativ, nie build-entscheidend.
+val gitSha: String = (System.getenv("GIT_SHA")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: runCatching {
+        providers.exec { commandLine("git", "rev-parse", "HEAD") }
+            .standardOutput.asText.get().trim()
+    }.getOrNull().orEmpty()).take(7)
+
+version = appVersion
 
 application {
     mainClass.set("com.homebase.ApplicationKt")
@@ -106,6 +123,30 @@ ktor {
 // the "Smoke-test fat-jar migrations" step in .github/workflows/ci.yml).
 tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>().configureEach {
     mergeServiceFiles()
+}
+
+// Version + Commit als Ressource in den Jar backen (#626), damit `AppVersion` sie zur Laufzeit
+// lesen kann — auch aus dem Fat-Jar heraus, wo weder die VERSION-Datei noch .git existieren.
+val generateVersionProperties by tasks.registering {
+    val outFile = layout.buildDirectory.file("generated/version/version.properties")
+    // Als Task-Inputs deklariert, damit ein Versions-/Commit-Wechsel die Ressource neu schreibt
+    // (und ein reiner Rebuild sie up-to-date lässt).
+    inputs.property("version", appVersion)
+    inputs.property("commit", gitSha)
+    outputs.file(outFile)
+    doLast {
+        val f = outFile.get().asFile
+        f.parentFile.mkdirs()
+        f.writeText("version=$appVersion\ncommit=$gitSha\n")
+    }
+}
+
+sourceSets.main {
+    resources.srcDir(layout.buildDirectory.dir("generated/version"))
+}
+
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(generateVersionProperties)
 }
 
 tasks.test {

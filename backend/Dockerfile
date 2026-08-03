@@ -7,6 +7,14 @@ COPY gradlew settings.gradle.kts build.gradle.kts ./
 COPY gradle ./gradle
 RUN chmod +x ./gradlew && ./gradlew dependencies --no-daemon || true
 COPY src ./src
+# Build-Version (#626). Der Repo-Root (und damit die VERSION-Datei) liegt nicht im Build-Context
+# (context: ./backend), deshalb reicht CI Version + Commit als Build-Args durch; ohne sie baut ein
+# lokales `docker build ./backend` als 0.0.0-dev. Bewusst NACH dem Dependency-Layer, damit ein
+# neuer Commit-SHA den teuren Dependency-Cache nicht invalidiert.
+ARG APP_VERSION=""
+ARG GIT_SHA=""
+ENV APP_VERSION=$APP_VERSION
+ENV GIT_SHA=$GIT_SHA
 RUN ./gradlew buildFatJar --no-daemon
 
 FROM eclipse-temurin:21-jre

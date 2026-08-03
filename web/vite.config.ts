@@ -1,8 +1,42 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Build-Version (#626). Single Source of Truth ist die Datei VERSION im Repo-Root; im
+// Docker-Build liegt der Root nicht im Build-Context (context: ./web), deshalb reicht CI die
+// Werte als Build-Args → env APP_VERSION/GIT_SHA durch (env hat darum Vorrang vor der Datei).
+// Die Werte landen per `define` als Konstanten im Bundle — kein Runtime-Fetch nötig.
+function appVersion(): string {
+  const fromEnv = process.env.APP_VERSION?.trim()
+  if (fromEnv) return fromEnv
+  try {
+    return readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim() || '0.0.0-dev'
+  } catch {
+    return '0.0.0-dev'
+  }
+}
+
+function appCommit(): string {
+  const fromEnv = process.env.GIT_SHA?.trim()
+  if (fromEnv) return fromEnv.slice(0, 7)
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+      .slice(0, 7)
+  } catch {
+    // Build ohne Git-Kontext (Tarball, Docker) — Commit bleibt leer, rein informativ.
+    return ''
+  }
+}
+
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion()),
+    __APP_COMMIT__: JSON.stringify(appCommit()),
+  },
   server: {
     port: 5173,
     proxy: {

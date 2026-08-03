@@ -428,6 +428,38 @@ Don't delete either volume unless you intend to wipe that data.
 
 ---
 
+## 10a. Versionierung (#626)
+
+Die Datei [`VERSION`](../VERSION) im Repo-Root ist die **einzige** Quelle der Produktversion —
+Backend, Web und Android lesen sie beim Bauen. Eine neue Version ist also ein Ein-Zeilen-Commit
+auf `main`:
+
+```bash
+echo "1.2.0" > VERSION
+```
+
+Was daraus automatisch folgt:
+
+| Komponente | Wie sie die Version bekommt | Wo sie sichtbar ist |
+|---|---|---|
+| Backend | Gradle backt `version.properties` ins Jar (`AppVersion`) | erste Log-Zeile beim Start, `GET /api/v1/version` (mit JWT) |
+| Web | Vite setzt die Version zur Build-Zeit ins Bundle | Einstellungen → **Über** (dort auch die Backend-Version) |
+| Android | `versionName` aus `VERSION`, `versionCode` = `major*10000 + minor*100 + patch` | Einstellungen, letzte Zeile („App … / Server …") |
+
+Der **Commit-Kurz-SHA** steht in Klammern hinter der Version. Er kommt lokal aus dem Checkout,
+in CI aus dem Build-Arg `GIT_SHA` — die Docker-Build-Contexts sind `./backend` bzw. `./web`, dort
+liegt die `VERSION`-Datei nicht, deshalb reicht der Docker-Job Version und SHA als Build-Args
+durch. Ein Build ganz ohne Git und ohne Build-Args meldet sich als `0.0.0-dev`; das ist der
+Normalfall bei `./gradlew run` aus einem Tarball, kein Fehler.
+
+Zwei Nebensachen beim Bumpen:
+- `web/package.json` hat ein eigenes `version`-Feld — es wird **nicht** ausgewertet (npm-Pflichtfeld);
+  der Ordnung halber mitziehen.
+- Der `versionCode` von Android muss monoton wachsen: eine Version **kleiner** als die installierte
+  lässt sich auf dem Handy nicht drüber installieren (Semver rückwärts also nur mit Neuinstallation).
+
+---
+
 ## 10b. Helper scripts
 
 The scripts in [`scripts/`](../scripts) take the repetitive bits off your hands.

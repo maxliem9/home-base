@@ -7,9 +7,17 @@ import com.homebase.android.data.model.RecurringConfigResponse
 import com.homebase.android.data.model.SetAvatarColorRequest
 import com.homebase.android.data.model.UpdateConfigRequest
 import com.homebase.android.data.model.UpdateDigestRequest
+import com.homebase.android.data.model.VersionResponse
 import retrofit2.HttpException
 
 class ConfigRepository(private val api: HomeBaseApi) {
+
+    /**
+     * Build-Version des Backends (GET /version, #626) — für die Versionszeile in den
+     * Einstellungen. Fehler bleiben ein Result.failure; die UI zeigt dann „nicht erreichbar".
+     */
+    suspend fun getVersion(): Result<VersionResponse> =
+        apiCatching { api.getVersion() }
 
     /** Household display name (set in-app, default "Mäxchen"). Falls back gracefully. */
     suspend fun getHouseholdName(): Result<String> =
