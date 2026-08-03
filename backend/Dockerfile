@@ -9,8 +9,14 @@ RUN chmod +x ./gradlew && ./gradlew dependencies --no-daemon || true
 COPY src ./src
 # Build-Version (#626). Der Repo-Root (und damit die VERSION-Datei) liegt nicht im Build-Context
 # (context: ./backend), deshalb reicht CI Version + Commit als Build-Args durch; ohne sie baut ein
-# lokales `docker build ./backend` als 0.0.0-dev. Bewusst NACH dem Dependency-Layer, damit ein
-# neuer Commit-SHA den teuren Dependency-Cache nicht invalidiert.
+# lokales `docker build ./backend` als 0.0.0-dev.
+#
+# Cache-Kosten, bewusst in Kauf genommen: GIT_SHA ändert sich bei jedem Commit, damit ist der
+# Compile-Layer (buildFatJar) bei jedem Merge auf main kalt — auch wenn backend/ unverändert blieb.
+# Der teure Dependency-Layer darüber bleibt warm (deshalb stehen die ARGs hier unten und nicht
+# oben). Wer den Kompromiss anders setzen will: GIT_SHA aus dem Image-Build nehmen und stattdessen
+# zur Laufzeit als env in docker-compose.yml setzen — dann verliert allerdings das Web-Bundle
+# seinen Commit, der dort zur Build-Zeit fest eingesetzt wird.
 ARG APP_VERSION=""
 ARG GIT_SHA=""
 ENV APP_VERSION=$APP_VERSION

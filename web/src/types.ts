@@ -1,3 +1,11 @@
+// Build-Version des Backends (GET /version, #626). Hier deklariert statt inline im Consumer,
+// damit der DTO-Drift-Guard (#593, DtoStructureDriftTest) die Web-Seite mitprüft — er liest
+// ausschließlich diese Datei. `commit` fehlt, wenn ohne Git-Kontext gebaut wurde.
+export interface VersionResponse {
+  version: string
+  commit?: string
+}
+
 export type TodoStatus = 'INBOX' | 'PLANNED' | 'DONE'
 export type TodoPriority = 'LOW' | 'MEDIUM' | 'HIGH'
 export type RecurrenceFreq = 'DAILY' | 'WEEKLY' | 'MONTHLY'

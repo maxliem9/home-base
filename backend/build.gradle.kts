@@ -129,15 +129,19 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>().con
 // lesen kann — auch aus dem Fat-Jar heraus, wo weder die VERSION-Datei noch .git existieren.
 val generateVersionProperties by tasks.registering {
     val outFile = layout.buildDirectory.file("generated/version/version.properties")
+    // Lokale Kopien: die Task-Action darf keine Script-Properties einfangen, sonst ist der Task
+    // nicht configuration-cache-fähig ("cannot serialize Gradle script object references").
+    val version = appVersion
+    val commit = gitSha
     // Als Task-Inputs deklariert, damit ein Versions-/Commit-Wechsel die Ressource neu schreibt
     // (und ein reiner Rebuild sie up-to-date lässt).
-    inputs.property("version", appVersion)
-    inputs.property("commit", gitSha)
+    inputs.property("version", version)
+    inputs.property("commit", commit)
     outputs.file(outFile)
     doLast {
         val f = outFile.get().asFile
         f.parentFile.mkdirs()
-        f.writeText("version=$appVersion\ncommit=$gitSha\n")
+        f.writeText("version=$version\ncommit=$commit\n")
     }
 }
 

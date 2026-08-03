@@ -391,8 +391,9 @@ Smaller, optimized, and what you'd keep installed long-term.
    APK from (Settings → Apps → Special access).
 3. Tap the APK, install, open, and log in with a `SEED_USERS` account.
 
-To update later, bump `versionCode`/`versionName` in `build.gradle.kts`, rebuild,
-and reinstall (same signing key for Path B).
+To update later, bump the [`VERSION`](../VERSION) file in the repo root (see
+[§10a](#10a-versionierung-626) — `versionCode`/`versionName` are derived from it),
+rebuild, and reinstall (same signing key for Path B).
 
 ---
 

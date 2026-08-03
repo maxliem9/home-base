@@ -13,6 +13,7 @@ import com.homebase.android.data.model.UpdateShoppingCategoryRequest
 import com.homebase.android.data.model.UpdateShoppingItemRequest
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.model.UpsertCategoryRuleRequest
+import com.homebase.android.data.model.VersionResponse
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import org.junit.Assert.assertEquals
@@ -48,6 +49,19 @@ class MoshiRoundTripTest {
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
+
+    @Test
+    fun `VersionResponse parses when the backend drops an empty commit`() {
+        // GET /version (#626): `commit` is "" when the backend was built without a git context,
+        // and encodeDefaults=false then drops the field entirely. The settings version line must
+        // still parse — it renders the bare version in that case.
+        val version = moshi.adapter(VersionResponse::class.java).fromJson("""{"version":"1.1.0"}""")
+
+        assertNotNull("minimal VersionResponse payload must parse", version)
+        requireNotNull(version)
+        assertEquals("1.1.0", version.version)
+        assertEquals("omitted commit must default to empty, never null", "", version.commit)
+    }
 
     @Test
     fun `TodoDto parses from a minimal payload with all droppable fields omitted`() {

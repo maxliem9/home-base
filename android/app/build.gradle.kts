@@ -30,12 +30,21 @@ val backendBaseUrlLiteral: String = backendBaseUrl.replace("\\", "\\\\").replace
 val appVersionName: String = rootProject.file("../VERSION").takeIf { it.isFile }
     ?.readText()?.trim()?.takeIf { it.isNotEmpty() } ?: "0.0.0-dev"
 
-// versionCode muss bei jedem Update monoton wachsen, sonst verweigert Android die Installation.
-// Aus dem Semver abgeleitet: major*10000 + minor*100 + patch (1.1.0 → 10100). Damit reicht es,
-// die VERSION-Datei zu pflegen; ein Vorab-Suffix (1.2.0-rc1) wird für den Code ignoriert.
+// versionCode muss bei jedem Update monoton wachsen, sonst verweigert Android die Installation
+// („App not installed", ohne weitere Erklärung). Aus dem Semver abgeleitet:
+// major*10000 + minor*100 + patch (1.1.0 → 10100). Damit reicht es, die VERSION-Datei zu pflegen;
+// ein Vorab-Suffix (1.2.0-rc1) wird für den Code ignoriert — rc und Final teilen sich also einen
+// Code, und minor/patch müssen unter 100 bleiben, sonst kollidieren 1.0.100 und 1.1.0.
+//
+// Ein unlesbares VERSION bricht hier bewusst den Build: ein stillschweigend zu kleiner Code fällt
+// erst auf dem Handy auf, und dann ohne Hinweis auf die Ursache. Der Fallback 0.0.0-dev (fehlende
+// Datei) ergäbe Code 0, den AGP ablehnt — deshalb die untere Schranke 1.
 val appVersionCode: Int = run {
-    val parts = appVersionName.substringBefore('-').split('.').mapNotNull { it.toIntOrNull() }
-    if (parts.size < 3) 1 else parts[0] * 10000 + parts[1] * 100 + parts[2]
+    val parts = appVersionName.substringBefore('-').split('.').map {
+        it.toIntOrNull() ?: error("VERSION ist kein Semver: '$appVersionName' (erwartet major.minor.patch)")
+    }
+    require(parts.size == 3) { "VERSION ist kein Semver: '$appVersionName' (erwartet major.minor.patch)" }
+    (parts[0] * 10000 + parts[1] * 100 + parts[2]).coerceAtLeast(1)
 }
 
 // Kurz-SHA des Builds, rein informativ (in den Einstellungen unter „Über" sichtbar). Leer, wenn

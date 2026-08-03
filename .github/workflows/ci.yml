@@ -435,7 +435,11 @@ jobs:
       # ./backend bzw. ./web, dort liegt die Datei nicht — deshalb als Build-Arg durchreichen.
       - name: Read product version
         id: version
-        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          # Fehlt/leert die Datei, ginge das Build-Arg still leer durch und GHCR bekäme ein
+          # 0.0.0-dev-Image ohne jedes Signal — deshalb hier hart abbrechen.
+          test -s VERSION || { echo "::error::VERSION fehlt oder ist leer"; exit 1; }
+          echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0

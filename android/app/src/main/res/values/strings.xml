@@ -642,7 +642,7 @@
     <string name="settings_language_de">Deutsch</string>
     <string name="settings_language_en">English</string>
 
-    <!-- Versionszeile am Ende der Einstellungen (#626) — wording mirrors web settings.about* -->
+    <!-- Versionszeile am Ende der Einstellungen (#626) — Wortlaut wie im Web (settings.about*) -->
     <string name="settings_version_app">App %1$s</string>
     <string name="settings_version_server">Server %1$s</string>
     <string name="settings_version_unavailable">nicht erreichbar</string>

@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { API_BASE, safeFetch } from '../../api'
+import type { VersionResponse } from '../../types'
 import { APP_COMMIT, APP_VERSION, formatVersion } from '../../version'
 import { Card } from '../../ui/primitives'
 
@@ -24,8 +25,10 @@ export function AboutSettings({ token, onLogout }: { token: string; onLogout: ()
       if (result.ok && result.res.status === 401) return onLogout()
       if (!result.ok || !result.res.ok) return setBackend({ status: 'error' })
       // encodeDefaults=false (CLAUDE.md): `commit` fehlt, wenn der Build ohne Git-Kontext lief.
-      const data: { version?: string; commit?: string } = await result.res.json()
-      if (!data.version) return setBackend({ status: 'error' })
+      // `.json()` in try/catch: ein 200 mit Nicht-JSON-Body (Proxy-Interstitial) würde sonst
+      // unbehandelt werfen und die Zeile für immer auf „Lädt…" stehen lassen.
+      const data = await result.res.json().catch(() => null) as Partial<VersionResponse> | null
+      if (!data?.version) return setBackend({ status: 'error' })
       setBackend({ status: 'ok', version: data.version, commit: data.commit ?? '' })
     })
     return () => { alive = false }
