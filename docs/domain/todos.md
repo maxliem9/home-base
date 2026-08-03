@@ -45,8 +45,12 @@ Auf Rezept-/Kalender-/Reminder-Wegen werden die Zuständigen per Join geladen; A
 Username sortiert. **Benachrichtigungen bleiben haushaltsweit** (geteilter Telegram-Chat + alle
 Web-Push-Subscriptions) — die Zuständigen stehen nur informativ im Text, sie steuern nicht den
 Empfängerkreis. Multiselect-Chips (Web `AssigneePicker`, Android `AssigneeChips`); ein Klick auf
-Datum bzw. Zuständige einer Zeile öffnet einen Quick-Edit-Dialog (Web, „Speichern") nur für dieses
-eine Feld.
+Datum bzw. Zuständige einer Zeile öffnet einen Quick-Edit-Dialog (Web + Android, „Speichern") nur
+für dieses eine Feld. Der Dialog schließt **nur bei Erfolg** — schlägt der PUT fehl, bleibt er mit
+der Eingabe offen und zeigt den Grund inline (sonst geht die Eingabe verloren, etwa wenn das
+Löschen der Fälligkeit an einer wiederkehrenden Aufgabe mit `INVALID_RECURRENCE` abgelehnt wird).
+Der Status wird dabei wie im Plan-Sheet neu abgeleitet, der jeweils **andere** Anker aber live
+gelesen: eine erledigte Aufgabe bleibt erledigt, eine parallele Änderung wird nicht überschrieben.
 
 ## Wiederkehrende Todos
 Leichtgewichtige Wiederholung direkt am Todo (kein Template/Instanz-Split, keine RRULE):

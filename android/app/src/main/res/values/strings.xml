@@ -207,6 +207,10 @@
     <string name="due_group_no_date">Ohne Datum</string>
     <string name="todo_edit_title">Aufgabe bearbeiten</string>
     <string name="todo_new_title">Neue Aufgabe</string>
+    <!-- Quick-Edits + Löschen direkt aus der Aufgaben-Zeile (Web-Parität) -->
+    <string name="todo_edit_date_title">Fälligkeit ändern</string>
+    <string name="todo_edit_assignee_title">Zuständig ändern</string>
+    <string name="todo_delete_confirm">„%1$s“ löschen?</string>
     <string name="todo_autosave_saving">Speichert …</string>
     <string name="todo_autosave_saved">Gespeichert</string>
     <string name="todo_field_list">Liste</string>

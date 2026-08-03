@@ -58,8 +58,10 @@ class TodoViewModelTest {
         listId: String? = null,
         dueDate: String? = null,
         doneAt: String? = null,
+        assignees: List<String> = emptyList(),
     ) = TodoDto(
         id = id, title = title, status = status, listId = listId, dueDate = dueDate, doneAt = doneAt,
+        assignees = assignees,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
@@ -178,6 +180,218 @@ class TodoViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.uiState.value.todos.isEmpty())
+    }
+
+    // --- Zeilen-Quick-Edits (Web-Parität): nur Fälligkeit bzw. nur Zuständige ---
+    //
+    // Beide geben null bei Erfolg / die Meldung bei Fehlschlag zurück, damit das Sheet offen
+    // bleiben kann. Die Tests prüfen neben dem Status vor allem, dass KEIN anderes Feld mitfährt:
+    // bei der Tri-State-Semantik von UpdateTodoRequest (null = unverändert, "" = löschen) würde
+    // ein versehentlich gesetztes Feld still Daten löschen.
+
+    /** Every field the quick-edit must NOT touch — a stray value here would silently clear it. */
+    private fun assertOnlyDueFieldsTouched(r: UpdateTodoRequest) {
+        assertNull(r.title)
+        assertNull(r.description)
+        assertNull(r.priority)
+        assertNull(r.listId)
+        assertNull(r.recurrence)
+        assertNull(r.reminderLeadMinutes)
+        assertNull(r.assignees)
+    }
+
+    /** Setting a date on an unplanned todo promotes it out of the Inbox; the time rides along. */
+    @Test
+    fun `quickEditDue sets date and promotes an inbox todo to PLANNED`() = runTest {
+        val original = todo(id = "1", status = "INBOX")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.quickEditDue("1", "2026-03-04", "09:30"))
+
+        assertEquals("PLANNED", request.captured.status)
+        assertEquals("2026-03-04", request.captured.dueDate)
+        assertEquals("09:30", request.captured.dueTime)
+        assertOnlyDueFieldsTouched(request.captured)
+    }
+
+    /** Dropping only the time keeps the date and clears the time with the "" sentinel. */
+    @Test
+    fun `quickEditDue keeps the date and clears only the time`() = runTest {
+        val original = todo(id = "1", status = "PLANNED", dueDate = "2026-03-04")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditDue("1", "2026-03-04", null)
+
+        assertEquals("2026-03-04", request.captured.dueDate)
+        assertEquals("", request.captured.dueTime)
+    }
+
+    /** Clearing the date on a todo with nobody assigned drops it back into the Inbox. */
+    @Test
+    fun `quickEditDue clearing the date without an assignee falls back to INBOX`() = runTest {
+        val original = todo(id = "1", status = "PLANNED", dueDate = "2026-03-04")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditDue("1", null, null)
+
+        assertEquals("INBOX", request.captured.status)
+        // "" = clear (a date WAS set), and the time is force-cleared with it
+        assertEquals("", request.captured.dueDate)
+        assertEquals("", request.captured.dueTime)
+        assertOnlyDueFieldsTouched(request.captured)
+    }
+
+    /** The remaining anchor keeps it planned — an assignee alone is enough. */
+    @Test
+    fun `quickEditDue clearing the date keeps PLANNED when an assignee remains`() = runTest {
+        val original = todo(id = "1", status = "PLANNED", dueDate = "2026-03-04", assignees = listOf("alice"))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditDue("1", null, null)
+
+        assertEquals("PLANNED", request.captured.status)
+    }
+
+    /** A done todo stays done — the quick-edit must not silently reopen it. */
+    @Test
+    fun `quickEditDue leaves a DONE todo done`() = runTest {
+        val original = todo(id = "1", status = "DONE", dueDate = "2026-03-04")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditDue("1", "2026-03-05", null)
+
+        assertNull(request.captured.status)
+    }
+
+    /** A todo that never had a date must not send the clear sentinel (#468). */
+    @Test
+    fun `quickEditDue on a dateless todo omits dueDate instead of clearing`() = runTest {
+        val original = todo(id = "1", status = "INBOX")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditDue("1", null, null)
+
+        assertNull(request.captured.dueDate)
+    }
+
+    @Test
+    fun `quickEditAssignees replaces the set and promotes to PLANNED`() = runTest {
+        val original = todo(id = "1", status = "INBOX")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.quickEditAssignees("1", listOf("alice", "bob")))
+
+        assertEquals("PLANNED", request.captured.status)
+        assertEquals(listOf("alice", "bob"), request.captured.assignees)
+        // the date must ride along untouched — null, not the "" clear sentinel
+        assertNull(request.captured.dueDate)
+        assertNull(request.captured.dueTime)
+        assertNull(request.captured.title)
+        assertNull(request.captured.recurrence)
+    }
+
+    /** Clearing everyone on a dateless todo sends [] and returns it to the Inbox. */
+    @Test
+    fun `quickEditAssignees clearing everyone without a date falls back to INBOX`() = runTest {
+        val original = todo(id = "1", status = "PLANNED", assignees = listOf("alice"))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditAssignees("1", emptyList())
+
+        assertEquals("INBOX", request.captured.status)
+        assertEquals(emptyList<String>(), request.captured.assignees)
+    }
+
+    /** Symmetric to the due quick-edit: a done todo is never reopened by an assignee change. */
+    @Test
+    fun `quickEditAssignees leaves a DONE todo done`() = runTest {
+        val original = todo(id = "1", status = "DONE", assignees = listOf("alice"))
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        vm.quickEditAssignees("1", emptyList())
+
+        assertNull(request.captured.status)
+    }
+
+    /**
+     * On failure the message goes back to the CALLER (so the sheet stays open with the input) and
+     * the global error stays clear — otherwise the screen toast would double-notify (#277/#288).
+     * Real case: clearing the due date of a recurring todo → backend INVALID_RECURRENCE.
+     */
+    @Test
+    fun `a failed quickEdit returns the message and leaves the global error clear`() = runTest {
+        val original = todo(id = "1", status = "PLANNED", dueDate = "2026-03-04")
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        coEvery { repository.updateTodo("1", any()) } returns
+            Result.failure(RuntimeException("Eine wiederkehrende Aufgabe braucht ein Fälligkeitsdatum."))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertEquals(
+            "Eine wiederkehrende Aufgabe braucht ein Fälligkeitsdatum.",
+            vm.quickEditDue("1", null, null),
+        )
+        assertNull(vm.uiState.value.error)
+    }
+
+    /** Vanished under us (WS delete) → no request at all, rather than resurrecting it. */
+    @Test
+    fun `quickEdits on an unknown todo do nothing`() = runTest {
+        coEvery { repository.getTodos(any()) } returns Result.success(emptyList())
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.quickEditDue("ghost", "2026-03-04", null))
+        assertNull(vm.quickEditAssignees("ghost", listOf("alice")))
+
+        coVerify(exactly = 0) { repository.updateTodo(any(), any()) }
     }
 
     @Test

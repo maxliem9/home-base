@@ -195,6 +195,10 @@
     <string name="due_group_no_date">No date</string>
     <string name="todo_edit_title">Edit task</string>
     <string name="todo_new_title">New task</string>
+    <!-- Quick-edits + delete straight from the task row (web parity) -->
+    <string name="todo_edit_date_title">Edit due date</string>
+    <string name="todo_edit_assignee_title">Edit assignee</string>
+    <string name="todo_delete_confirm">Delete “%1$s”?</string>
     <string name="todo_autosave_saving">Saving …</string>
     <string name="todo_autosave_saved">Saved</string>
     <string name="todo_field_list">List</string>

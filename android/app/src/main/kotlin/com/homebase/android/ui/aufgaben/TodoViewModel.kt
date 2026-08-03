@@ -756,6 +756,63 @@ class TodoViewModel(
         updateTodo(todo.id, UpdateTodoRequest(status = newStatus))
     }
 
+    /**
+     * Quick-Edit aus der Zeile: **nur** Fälligkeit (Datum + optionale Uhrzeit). Der Status wird
+     * genauso neu berechnet wie im Plan-Sheet — nimmt man einer Aufgabe ohne Zuständige das Datum,
+     * fällt sie zurück in die Inbox. Der jeweils andere Anker und der DONE-Zustand werden **live**
+     * aus dem State gelesen (nicht aus einem Snapshot der Zeile), damit eine erledigte Aufgabe
+     * erledigt bleibt und eine parallel eingetroffene Zuständigen-Änderung nicht überschrieben
+     * wird. Spiegelt web `handleDateEdit`.
+     */
+    suspend fun quickEditDue(id: String, dueDate: String?, dueTime: String?): String? {
+        // unter uns verschwunden (WS-Delete) → nichts zu tun, Sheet einfach schließen
+        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return null
+        return quickSave(
+            id,
+            UpdateTodoRequest(
+                status = when {
+                    cur.status == "DONE" -> null
+                    dueDate != null || cur.assignees.isNotEmpty() -> "PLANNED"
+                    else -> "INBOX"
+                },
+                // "" löscht das Datum — nur senden, wenn vorher überhaupt eines gesetzt war (#468)
+                dueDate = dueDate ?: if (cur.dueDate != null) "" else null,
+                // eine Uhrzeit ohne Datum ist bedeutungslos → mit dem Datum zwangs-löschen
+                dueTime = if (dueDate != null) (dueTime ?: "") else "",
+            ),
+        )
+    }
+
+    /** Quick-Edit aus der Zeile: **nur** die Zuständigen; Live-Re-Read wie [quickEditDue]. */
+    suspend fun quickEditAssignees(id: String, assignees: List<String>): String? {
+        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return null
+        return quickSave(
+            id,
+            UpdateTodoRequest(
+                status = when {
+                    cur.status == "DONE" -> null
+                    assignees.isNotEmpty() || cur.dueDate != null -> "PLANNED"
+                    else -> "INBOX"
+                },
+                // [] leert die Menge (Listen-Analogon zu #265)
+                assignees = assignees,
+            ),
+        )
+    }
+
+    /**
+     * Speichert einen Quick-Edit und gibt `null` bei Erfolg bzw. die Fehlermeldung zurück, damit das
+     * aufrufende Sheet offen bleiben und den Grund inline zeigen kann (statt die Eingabe zu verlieren
+     * — genau das macht web mit `if (ok) setDateEdit(null)`). Setzt bewusst NICHT den globalen
+     * `error`: das Sheet zeigt die Meldung selbst, sonst doppelt es mit dem Screen-Toast (#277/#288).
+     *
+     * Ein echter Fall dafür: bei einer wiederkehrenden Aufgabe das Datum löschen — das Backend
+     * lehnt mit `INVALID_RECURRENCE` ab („a recurring todo needs a dueDate as its schedule anchor"),
+     * weil die Wiederholung ihren Anker verlöre.
+     */
+    private suspend fun quickSave(id: String, request: UpdateTodoRequest): String? =
+        saveTodo(id, request).exceptionOrNull()?.let { errorText(it) }
+
     fun deleteTodo(id: String) {
         viewModelScope.launch {
             repository.deleteTodo(id)
