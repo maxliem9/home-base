@@ -59,9 +59,10 @@ class TodoViewModelTest {
         dueDate: String? = null,
         doneAt: String? = null,
         assignees: List<String> = emptyList(),
+        recurrence: RecurrenceDto? = null,
     ) = TodoDto(
         id = id, title = title, status = status, listId = listId, dueDate = dueDate, doneAt = doneAt,
-        assignees = assignees,
+        assignees = assignees, recurrence = recurrence,
         createdBy = "alice", createdAt = "2026-01-01T00:00:00Z", updatedAt = "2026-01-01T00:00:00Z",
     )
 
@@ -254,6 +255,45 @@ class TodoViewModelTest {
         assertEquals("", request.captured.dueDate)
         assertEquals("", request.captured.dueTime)
         assertOnlyDueFieldsTouched(request.captured)
+    }
+
+    /**
+     * #628: a recurring todo needs its due date as the schedule anchor. The sheet hides the ✕, but the
+     * recurrence can arrive by WS while it is open — the VM re-reads it live and refuses without a PUT
+     * (the backend would answer INVALID_RECURRENCE anyway), returning the message for the inline slot.
+     */
+    @Test
+    fun `quickEditDue refuses to clear the date of a recurring todo`() = runTest {
+        val original = todo(
+            id = "1", status = "PLANNED", dueDate = "2026-03-04",
+            recurrence = RecurrenceDto("WEEKLY", 1),
+        )
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        // non-null = the sheet stays open and shows the reason
+        assertNotNull(vm.quickEditDue("1", null, null))
+        coVerify(exactly = 0) { repository.updateTodo(any(), any()) }
+    }
+
+    /** Changing (not clearing) the date of a recurring todo is fine — only the anchor must stay. */
+    @Test
+    fun `quickEditDue still moves the date of a recurring todo`() = runTest {
+        val original = todo(
+            id = "1", status = "PLANNED", dueDate = "2026-03-04",
+            recurrence = RecurrenceDto("WEEKLY", 1),
+        )
+        coEvery { repository.getTodos(any()) } returns Result.success(listOf(original))
+        val request = slot<UpdateTodoRequest>()
+        coEvery { repository.updateTodo("1", capture(request)) } returns Result.success(original)
+
+        val vm = createVm()
+        advanceUntilIdle()
+
+        assertNull(vm.quickEditDue("1", "2026-03-11", null))
+        assertEquals("2026-03-11", request.captured.dueDate)
     }
 
     /** The remaining anchor keeps it planned — an assignee alone is enough. */

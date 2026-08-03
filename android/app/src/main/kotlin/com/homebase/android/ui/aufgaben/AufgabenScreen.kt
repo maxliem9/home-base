@@ -1518,7 +1518,7 @@ private fun QuickAddBar(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
+private fun DueDateField(value: LocalDate?, clearable: Boolean = true, onChange: (LocalDate?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth(),
@@ -1543,7 +1543,7 @@ private fun DueDateField(value: LocalDate?, onChange: (LocalDate?) -> Unit) {
                 color = if (value == null) Hb.ink3 else Hb.ink,
             )
         }
-        if (value != null) {
+        if (value != null && clearable) {
             HbIconButton(
                 HbIcons.x,
                 onClick = { onChange(null) },
@@ -1652,15 +1652,28 @@ private fun DateEditSheet(
 ) {
     var date by remember { mutableStateOf(Format.parseLocalDate(todo.dueDate)) }
     var time by remember { mutableStateOf(Format.parseLocalTime(todo.dueTime)) }
+    // #628: eine wiederkehrende Aufgabe braucht ihre Fälligkeit als Anker — das Backend lehnt das
+    // Löschen mit INVALID_RECURRENCE ab. Statt in diese Sackgasse zu laufen, blenden wir hier das ✕
+    // aus (Datum bleibt änderbar) und sagen, wie man es doch loswird.
+    val recurring = todo.recurrence != null
     BackHandler(enabled = true) { onDismiss() }
 
     QuickEditSheet(
         title = stringResource(R.string.todo_edit_date_title),
         onDismiss = onDismiss,
+        // Belt-and-braces: ohne ✕ kann `date` gar nicht null werden, solange die Aufgabe wiederkehrt.
+        saveEnabled = !(recurring && date == null),
         onSave = { onSave(date, time) },
     ) {
         HbField(stringResource(R.string.todo_field_due)) {
-            DueDateField(date) { date = it }
+            DueDateField(date, clearable = !recurring) { date = it }
+        }
+        if (recurring) {
+            Text(
+                stringResource(R.string.todo_recurrence_keeps_due),
+                style = HbType.small,
+                color = Hb.ink2,
+            )
         }
         // Eine Uhrzeit ohne Datum ist bedeutungslos — das Web deaktiviert das Feld dann, auf dem
         // Telefon blenden wir es ganz aus (spart eine tote Zeile); Speichern löscht sie mit.
@@ -1706,6 +1719,7 @@ private fun QuickEditSheet(
     title: String,
     onDismiss: () -> Unit,
     onSave: suspend () -> String?,
+    saveEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -1720,9 +1734,9 @@ private fun QuickEditSheet(
             HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
             HbButton(
                 text = stringResource(R.string.action_save),
-                enabled = !saving,
+                enabled = !saving && saveEnabled,
                 onClick = {
-                    if (saving) return@HbButton
+                    if (saving || !saveEnabled) return@HbButton
                     saving = true
                     error = null
                     scope.launch {

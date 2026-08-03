@@ -238,6 +238,7 @@ export const en: Messages = {
     recurrence: 'Recurrence',
     recurrenceNone: 'None',
     recurrenceNeedsDue: 'Set a due date for a recurrence.',
+    recurrenceKeepsDue: 'Recurring todo: the date anchors the recurrence and cannot be cleared — remove the recurrence under “Plan” first.',
     recurrenceEvery: 'Every', // rendered as "Every {n} weeks"
     recurrenceDaily: 'Daily',
     recurrenceWeekly: 'Weekly',
