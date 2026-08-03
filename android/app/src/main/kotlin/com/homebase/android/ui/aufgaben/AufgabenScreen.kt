@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -362,19 +363,16 @@ fun AufgabenScreen(
             is AufgabenSheet.DateEdit -> DateEditSheet(
                 todo = s.todo,
                 onDismiss = { sheet = null },
+                // null = gespeichert; sonst bleibt das Sheet offen und zeigt die Meldung inline
                 onSave = { date, time ->
                     viewModel.quickEditDue(s.todo.id, date?.toString(), time?.let { Format.hhmm(it) })
-                    sheet = null
                 },
             )
             is AufgabenSheet.AssigneeEdit -> AssigneeEditSheet(
                 todo = s.todo,
                 householdUsers = householdUsers,
                 onDismiss = { sheet = null },
-                onSave = { assignees ->
-                    viewModel.quickEditAssignees(s.todo.id, assignees)
-                    sheet = null
-                },
+                onSave = { assignees -> viewModel.quickEditAssignees(s.todo.id, assignees) },
             )
             AufgabenSheet.NewList -> NewListSheet(
                 onDismiss = { sheet = null },
@@ -631,7 +629,12 @@ private fun TaskRow(
         Column(
             Modifier
                 .fillMaxWidth()
-                .clickable { onOpenEdit() }
+                // Erledigte Aufgaben öffnen das Edit-Sheet NICHT: dessen Auto-Save leitet den Status
+                // aus Datum/Zuständigen ab und würde die Aufgabe beim ersten Tastendruck wieder
+                // öffnen (doneAt fällt server-seitig weg). Web hat für DONE-Zeilen ebenfalls keinen
+                // Weg ins Plan-Sheet — weder Stift noch klickbare Zeile. Zum Wieder-Öffnen dient
+                // die Checkbox.
+                .then(if (isDone) Modifier else Modifier.clickable { onOpenEdit() })
                 .padding(horizontal = 2.dp, vertical = 11.dp),
         ) {
             Row(
@@ -729,9 +732,14 @@ private fun TaskRow(
                         onClick = onToggleExpand,
                     )
                 }
-                // Tap aufs Badge = Fälligkeit ändern (erledigte Aufgaben haben keins).
+                // Tap aufs Badge = Fälligkeit ändern (erledigte Aufgaben haben keins). Das Label
+                // benennt die AKTION — sonst liest TalkBack nur „Morgen" vor, ohne dass klar wird,
+                // dass das ein Bedienelement ist (web: `aria-label={t('todos.editDateTitle')}`).
+                val editDateLabel = stringResource(R.string.todo_edit_date_title)
                 badge?.let {
-                    Box(mid.clip(HbPill).clickable { onEditDate() }) { HbBadge(it.label, it.tone) }
+                    Box(mid.clip(HbPill).clickable(onClickLabel = editDateLabel) { onEditDate() }) {
+                        HbBadge(it.label, it.tone)
+                    }
                 }
                 if (showPlan) {
                     HbButton(
@@ -746,7 +754,11 @@ private fun TaskRow(
                     // sie versehentlich wieder öffnen könnte (mirrors web).
                     Box(mid) { HbAvatarRow(todo.assignees, size = 26.dp) }
                 } else {
-                    Box(mid.clip(HbPill).clickable { onEditAssignee() }) {
+                    // Ohne Zuständige ist das Ziel ein LEERER Kreis (HbAvatarRow → HbAvatar(null)),
+                    // also ohne jeden Text — ohne Label wäre es für TalkBack eine namenlose
+                    // Schaltfläche (web: `aria-label={t('todos.editAssigneeTitle')}`).
+                    val editAssigneeLabel = stringResource(R.string.todo_edit_assignee_title)
+                    Box(mid.clip(HbPill).clickable(onClickLabel = editAssigneeLabel) { onEditAssignee() }) {
                         HbAvatarRow(todo.assignees, size = 26.dp)
                     }
                 }
@@ -1604,20 +1616,17 @@ private fun DueTimeField(value: LocalTime?, onChange: (LocalTime?) -> Unit) {
 private fun DateEditSheet(
     todo: TodoDto,
     onDismiss: () -> Unit,
-    onSave: (LocalDate?, LocalTime?) -> Unit,
+    // suspend + Rückgabe: null = gespeichert (Sheet schließt), sonst die Meldung inline
+    onSave: suspend (LocalDate?, LocalTime?) -> String?,
 ) {
     var date by remember { mutableStateOf(Format.parseLocalDate(todo.dueDate)) }
     var time by remember { mutableStateOf(Format.parseLocalTime(todo.dueTime)) }
     BackHandler(enabled = true) { onDismiss() }
 
-    HbBottomSheet(
-        onDismiss = onDismiss,
+    QuickEditSheet(
         title = stringResource(R.string.todo_edit_date_title),
-        footer = {
-            Spacer(Modifier.weight(1f))
-            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
-            HbButton(stringResource(R.string.action_save), { onSave(date, time) }, variant = HbButtonVariant.Primary)
-        },
+        onDismiss = onDismiss,
+        onSave = { onSave(date, time) },
     ) {
         HbField(stringResource(R.string.todo_field_due)) {
             DueDateField(date) { date = it }
@@ -1638,23 +1647,78 @@ private fun AssigneeEditSheet(
     todo: TodoDto,
     householdUsers: List<String>,
     onDismiss: () -> Unit,
-    onSave: (List<String>) -> Unit,
+    onSave: suspend (List<String>) -> String?,
 ) {
     var assignees by remember { mutableStateOf(todo.assignees) }
     BackHandler(enabled = true) { onDismiss() }
 
-    HbBottomSheet(
-        onDismiss = onDismiss,
+    QuickEditSheet(
         title = stringResource(R.string.todo_edit_assignee_title),
-        footer = {
-            Spacer(Modifier.weight(1f))
-            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
-            HbButton(stringResource(R.string.action_save), { onSave(assignees) }, variant = HbButtonVariant.Primary)
-        },
+        onDismiss = onDismiss,
+        onSave = { onSave(assignees) },
     ) {
         HbField(stringResource(R.string.todo_field_assignee)) {
             AssigneeChips(assignees, householdUsers) { assignees = it }
         }
+    }
+}
+
+/**
+ * Gerüst der beiden Quick-Edit-Sheets: Abbrechen/Speichern, In-flight-Guard und die Inline-Meldung.
+ * Bewusst KEIN Auto-Save wie im großen Edit-Sheet — hier wird ein Feld gezielt geändert und explizit
+ * übernommen. Scheitert das Speichern, bleibt das Sheet mit der Eingabe offen und zeigt den Grund
+ * (web: `if (ok) setDateEdit(null)`); sonst ginge die Eingabe verloren, z. B. wenn das Backend das
+ * Löschen der Fälligkeit an einer wiederkehrenden Aufgabe mit `INVALID_RECURRENCE` ablehnt.
+ */
+@Composable
+private fun QuickEditSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    onSave: suspend () -> String?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    HbBottomSheet(
+        onDismiss = onDismiss,
+        title = title,
+        footer = {
+            Spacer(Modifier.weight(1f))
+            HbButton(stringResource(R.string.action_cancel), onDismiss, variant = HbButtonVariant.Secondary)
+            HbButton(
+                text = stringResource(R.string.action_save),
+                enabled = !saving,
+                onClick = {
+                    if (saving) return@HbButton
+                    saving = true
+                    error = null
+                    scope.launch {
+                        val message = onSave()
+                        saving = false
+                        if (message == null) onDismiss() else error = message
+                    }
+                },
+                variant = HbButtonVariant.Primary,
+            )
+        },
+    ) {
+        error?.let { msg ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(HbRadiusSm)
+                    .background(Hb.overBg, HbRadiusSm)
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HbIcon(HbIcons.x, size = 16.dp, tint = Hb.overInk)
+                Text(msg, style = HbType.small, color = Hb.overInk)
+            }
+        }
+        content()
     }
 }
 

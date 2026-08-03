@@ -764,10 +764,10 @@ class TodoViewModel(
      * erledigt bleibt und eine parallel eingetroffene Zuständigen-Änderung nicht überschrieben
      * wird. Spiegelt web `handleDateEdit`.
      */
-    fun quickEditDue(id: String, dueDate: String?, dueTime: String?) {
-        // unter uns verschwunden (WS-Delete) → nichts zu tun
-        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return
-        updateTodo(
+    suspend fun quickEditDue(id: String, dueDate: String?, dueTime: String?): String? {
+        // unter uns verschwunden (WS-Delete) → nichts zu tun, Sheet einfach schließen
+        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return null
+        return quickSave(
             id,
             UpdateTodoRequest(
                 status = when {
@@ -784,9 +784,9 @@ class TodoViewModel(
     }
 
     /** Quick-Edit aus der Zeile: **nur** die Zuständigen; Live-Re-Read wie [quickEditDue]. */
-    fun quickEditAssignees(id: String, assignees: List<String>) {
-        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return
-        updateTodo(
+    suspend fun quickEditAssignees(id: String, assignees: List<String>): String? {
+        val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return null
+        return quickSave(
             id,
             UpdateTodoRequest(
                 status = when {
@@ -799,6 +799,19 @@ class TodoViewModel(
             ),
         )
     }
+
+    /**
+     * Speichert einen Quick-Edit und gibt `null` bei Erfolg bzw. die Fehlermeldung zurück, damit das
+     * aufrufende Sheet offen bleiben und den Grund inline zeigen kann (statt die Eingabe zu verlieren
+     * — genau das macht web mit `if (ok) setDateEdit(null)`). Setzt bewusst NICHT den globalen
+     * `error`: das Sheet zeigt die Meldung selbst, sonst doppelt es mit dem Screen-Toast (#277/#288).
+     *
+     * Ein echter Fall dafür: bei einer wiederkehrenden Aufgabe das Datum löschen — das Backend
+     * lehnt mit `INVALID_RECURRENCE` ab („a recurring todo needs a dueDate as its schedule anchor"),
+     * weil die Wiederholung ihren Anker verlöre.
+     */
+    private suspend fun quickSave(id: String, request: UpdateTodoRequest): String? =
+        saveTodo(id, request).exceptionOrNull()?.let { errorText(it) }
 
     fun deleteTodo(id: String) {
         viewModelScope.launch {
