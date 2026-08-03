@@ -53,7 +53,10 @@ Wiederholung, das Backend lehnt ein Löschen mit `INVALID_RECURRENCE` ab — der
 diese Sackgasse deshalb gar nicht erst zu: Hinweistext am Datumsfeld, „Speichern" ist bei leerem
 Datum deaktiviert, und **Android** blendet zusätzlich das ✕ am Datum aus (`DueDateField(clearable)`).
 Datum *ändern* bleibt möglich; wer die Fälligkeit loswerden will, entfernt zuerst im großen
-Edit-Sheet die Wiederholung.
+Plan-/Edit-Sheet die Wiederholung. Beide Clients haben zusätzlich einen **Live-Guard** im
+Speicherpfad (`TodoViewModel.quickEditDue` bzw. `handleDateEdit`), der die Wiederholung frisch aus
+dem State liest — der Sheet-Zustand ist ein Zeilen-Snapshot und deckt den WS-Race nicht ab, dass die
+Wiederholung erst hinzukam, während der Quick-Edit offen war.
 Der Status wird dabei wie im Plan-Sheet neu abgeleitet, der jeweils **andere** Anker aber live
 gelesen: eine erledigte Aufgabe bleibt erledigt, eine parallele Änderung wird nicht überschrieben.
 

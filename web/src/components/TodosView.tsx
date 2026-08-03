@@ -615,9 +615,10 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     if (!dateEdit) return
     const cur = todos.find((x) => x.id === dateEdit.id)
     if (!cur) return setDateEdit(null) // vanished under us (WS delete) → just close
-    // #628: clearing the anchor of a recurring todo would be rejected (INVALID_RECURRENCE) — the
-    // Save button is disabled for this draft, this is the belt-and-braces guard.
-    if (cur.recurrence && !dateEdit.dueDate) return
+    // #628: clearing the anchor of a recurring todo would be rejected (INVALID_RECURRENCE). Save is
+    // already disabled for that draft; this guard catches the WS race (the recurrence arrived while
+    // the dialog was open) and says why instead of doing nothing.
+    if (cur.recurrence && !dateEdit.dueDate) return flashError(t('todos.recurrenceKeepsDue'))
     const hasAssignee = (cur.assignees?.length ?? 0) > 0
     const ok = await patchTodo(dateEdit.id, {
       status: cur.status === 'DONE' ? undefined : dateEdit.dueDate || hasAssignee ? 'PLANNED' : 'INBOX',

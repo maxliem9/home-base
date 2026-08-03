@@ -11,6 +11,8 @@ import com.homebase.android.data.model.UpdateSubtaskRequest
 import com.homebase.android.data.model.UpdateTodoRequest
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.cache.SnapshotStore
+import com.homebase.android.data.repository.ApiException
+import com.homebase.android.data.repository.AppError
 import com.homebase.android.data.repository.ConfigRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.websocket.TodoWebSocketClient
@@ -767,6 +769,13 @@ class TodoViewModel(
     suspend fun quickEditDue(id: String, dueDate: String?, dueTime: String?): String? {
         // unter uns verschwunden (WS-Delete) → nichts zu tun, Sheet einfach schließen
         val cur = _uiState.value.todos.firstOrNull { it.id == id } ?: return null
+        // #628: eine wiederkehrende Aufgabe braucht ihr Datum als Anker — das Backend lehnt das
+        // Löschen mit INVALID_RECURRENCE ab. Das Sheet bietet es gar nicht erst an (✕ ausgeblendet);
+        // dieser Guard liest die Wiederholung LIVE und greift, wenn sie erst hinzukam, während das
+        // Sheet offen war (WS-Race auf dem Zeilen-Snapshot). Meldung = dieselbe wie vom Backend.
+        if (dueDate == null && cur.recurrence != null) {
+            return errorText(ApiException(AppError.TODO_INVALID_RECURRENCE, IllegalStateException(id)))
+        }
         return quickSave(
             id,
             UpdateTodoRequest(
