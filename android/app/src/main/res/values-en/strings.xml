@@ -634,6 +634,11 @@
     <string name="settings_language_de">Deutsch</string>
     <string name="settings_language_en">English</string>
 
+    <!-- Version line at the end of the settings list (#626) — mirrors web settings.about* -->
+    <string name="settings_version_app">App %1$s</string>
+    <string name="settings_version_server">Server %1$s</string>
+    <string name="settings_version_unavailable">unavailable</string>
+
     <!-- Theme / Appearance (#244) — wording mirrors web settings.theme* -->
     <string name="settings_theme_title">Appearance</string>
     <string name="settings_theme_hint">Light, dark or follow the system. Only for you, applies instantly.</string>

@@ -10,6 +10,9 @@ import io.ktor.server.netty.*
 fun main(args: Array<String>) = EngineMain.main(args)
 
 fun Application.module() {
+    // Erste Log-Zeile beim Start: welcher Build läuft hier (#626) — beim Debuggen auf dem NAS
+    // die schnellste Antwort auf „ist das Deployment überhaupt durchgelaufen?".
+    log.info("HomeBase backend {} startet…", AppVersion.display)
     DatabaseFactory.init(environment.config)
     UserSeeder.seedFromConfig(environment.config)
     ShoppingCatalog.seedIfEmpty() // #411: seed the editable category catalog into the empty table

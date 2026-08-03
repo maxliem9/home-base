@@ -15,6 +15,13 @@ data class TokenResponse(val token: String)
 @JsonClass(generateAdapter = true)
 data class AppConfigResponse(val householdName: String)
 
+/**
+ * Build-Version des Backends (GET /version, #626). `commit` fehlt in der Antwort, wenn der
+ * Backend-Build ohne Git-Kontext lief (encodeDefaults = false) — deshalb mit Default.
+ */
+@JsonClass(generateAdapter = true)
+data class VersionResponse(val version: String, val commit: String = "")
+
 /** Body for PUT /config (#100/#101). The backend validates 1..60 chars. */
 @JsonClass(generateAdapter = true)
 data class UpdateConfigRequest(val householdName: String)

@@ -9,6 +9,11 @@ data class ErrorResponse(val code: String, val message: String)
 @Serializable
 data class HealthResponse(val status: String)
 
+// Build-Version des Backends (#626), GET /version. `commit` ist der Kurz-SHA und fehlt in der
+// Antwort, wenn beim Bauen kein Git-Kontext da war (encodeDefaults = false, siehe #96).
+@Serializable
+data class VersionResponse(val version: String, val commit: String = "")
+
 @Serializable
 data class AppConfigResponse(val householdName: String)
 

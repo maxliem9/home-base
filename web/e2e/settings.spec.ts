@@ -470,3 +470,37 @@ test.describe('Settings — Aufgaben (#356)', () => {
     expect(sawRequest).toBe(false)
   })
 })
+
+test.describe('Settings — Über (#626)', () => {
+  async function openAbout(page: Page, mock: MockApi) {
+    await openApp(page, mock)
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Über' }).click()
+    await expect(page.locator('.hb-settings-body').getByRole('heading', { name: 'Version' })).toBeVisible()
+  }
+
+  test('shows the web build version and the backend version from GET /version', async ({ page }) => {
+    await openAbout(page, new MockApi())
+    const body = page.locator('.hb-settings-body')
+
+    // Web: whatever Vite baked in — assert the shape (semver, optional commit), not the value,
+    // so a version bump doesn't break the spec.
+    await expect(body.getByTestId('about-web-version')).toHaveText(/^\d+\.\d+\.\d+\S*( \([0-9a-f]{7}\))?$/)
+    // Backend: the mock's fixed answer, rendered as "version (commit)".
+    await expect(body.getByTestId('about-backend-version')).toHaveText('9.9.9 (e2e1234)')
+  })
+
+  test('reports an unreachable backend instead of a blank value', async ({ page }) => {
+    const mock = new MockApi()
+    await mock.install(page)
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    // Fail only /version — everything else keeps working, so the hub still renders.
+    await page.route('**/api/v1/version', (route) => route.fulfill({ status: 500, body: '' }))
+    await page.goto('/')
+
+    await page.locator('.hb-sidebar').getByRole('button', { name: 'Einstellungen' }).click()
+    await page.locator('.hb-settings-nav').getByRole('button', { name: 'Über' }).click()
+    const body = page.locator('.hb-settings-body')
+    await expect(body.getByTestId('about-backend-version')).toHaveText('nicht erreichbar')
+  })
+})

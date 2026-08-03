@@ -600,6 +600,11 @@ export class MockApi {
       return route.fulfill({ status: 204, body: '' })
     }
 
+    // Build-Version des Backends (#626). Mirrors VersionRoutes: GET returns {version, commit?}.
+    if (path.endsWith('/version') && method === 'GET') {
+      return this.json(route, { version: '9.9.9', commit: 'e2e1234' })
+    }
+
     // App config — editable household name (#100). Mirrors ConfigRoutes: GET reads
     // the (in-memory) value, PUT trims + rejects blank with 400 INVALID_NAME.
     if (path.endsWith('/config') && method === 'GET') {
