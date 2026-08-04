@@ -73,6 +73,41 @@ jobs:
               - 'scripts/check-migration-versions.sh'
               - '.github/workflows/ci.yml'
 
+  version:
+    name: Compute release version
+    # Nur auf main: hier entsteht die Zahl, die dieser Merge veröffentlicht (#630). Sie wird
+    # ZUERST berechnet, damit der docker-Job die Images gleich damit taggt und der release-Job
+    # unten dieselbe Zahl committet — Datei, Git-Tag und GHCR-Image tragen so immer denselben
+    # Wert und pro Merge läuft genau ein Build. (Bumpte ein Bot erst NACH dem Merge, trügen
+    # ausgerechnet die Images dieses Merges noch die alte Version und der Bump-Commit löste
+    # eine zweite volle CI-Runde aus.) Auf PRs übersprungen — dort gibt es nichts zu releasen.
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.next.outputs.value }}
+    steps:
+      # fetch-depth: 0 + fetch-tags: die Basis ist der höchste vorhandene v*-Tag; ein
+      # Shallow-Checkout ohne Tags liefe still auf 0.0.0 und würde die Historie neu beginnen.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine next version
+        id: next
+        # Commit-Message per env, nicht per ${{ }} in den Skriptkörper: sie ist beliebiger,
+        # von außen wählbarer Text und würde dort als Shell-Code ausgeführt werden.
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          # Erst in eine Variable, dann prüfen: bei `echo "value=$(…)"` wäre der Exit-Code des
+          # Skripts der von `echo` — ein Abbruch (z. B. kaputte VERSION-Datei) ginge als leerer
+          # Output durch und der release-Job unten würde ein Tag `v` setzen.
+          next="$(bash scripts/next-version.sh)"
+          test -n "$next" || { echo "::error::next-version.sh lieferte keine Version"; exit 1; }
+          echo "value=$next" >> "$GITHUB_OUTPUT"
+
   icon-map-parity:
     name: Icon-Map Drift-Guard (Web ↔ Android)
     needs: changes
@@ -412,7 +447,10 @@ jobs:
 
   docker:
     name: Docker images build
-    needs: changes
+    # `version` liefert auf main die zu veröffentlichende Zahl; auf PRs wird der Job
+    # übersprungen und `needs.version.outputs.value` ist leer — dann greift unten der
+    # Fallback auf die VERSION-Datei (auf PRs wird ohnehin nichts gepusht).
+    needs: [changes, version]
     # On push to main: build and publish both deployment images to GHCR so the NAS pulls them.
     # On a PR: only validate that the Dockerfile(s) for the area(s) that actually changed still
     # build — nothing is pushed. A PR touching neither backend/, web/, nor the compose files
@@ -431,11 +469,19 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # Produktversion aus der VERSION-Datei im Repo-Root (#626). Die Build-Contexts sind
-      # ./backend bzw. ./web, dort liegt die Datei nicht — deshalb als Build-Arg durchreichen.
+      # Produktversion (#626). Die Build-Contexts sind ./backend bzw. ./web, dort liegt die
+      # VERSION-Datei nicht — deshalb als Build-Arg durchreichen. Auf main ist die Quelle der
+      # `version`-Job (die Zahl, die dieser Merge veröffentlicht, #630); auf PRs gibt es die
+      # noch nicht, dort zählt der Stand der Datei.
       - name: Read product version
         id: version
+        env:
+          COMPUTED: ${{ needs.version.outputs.value }}
         run: |
+          if [ -n "$COMPUTED" ]; then
+            echo "value=$COMPUTED" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Fehlt/leert die Datei, ginge das Build-Arg still leer durch und GHCR bekäme ein
           # 0.0.0-dev-Image ohne jedes Signal — deshalb hier hart abbrechen.
           test -s VERSION || { echo "::error::VERSION fehlt oder ist leer"; exit 1; }
@@ -465,9 +511,12 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
+          # Neben latest/<sha> auch das sprechende Versions-Tag (#630) — damit lässt sich auf
+          # der NAS gezielt auf eine Release zurückrollen, ohne SHAs nachschlagen zu müssen.
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+            ${{ env.BACKEND_IMAGE }}:${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -483,6 +532,7 @@ jobs:
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:${{ steps.version.outputs.value }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
@@ -493,3 +543,105 @@ jobs:
         run: |
           cp .env.example .env   # backend service declares env_file: .env
           docker compose config --quiet
+
+  release:
+    name: Release (VERSION-Bump + Tag)
+    # Läuft erst, wenn ALLE Prüf- und Build-Jobs dieses Merges grün sind: getaggt wird nur ein
+    # Stand, der auch gebaut und veröffentlicht wurde. `success()` ersetzt hier die sonst
+    # implizite needs-Erfolgs-Bedingung, die ein eigenes `if:` aushebeln würde.
+    needs: [version, icon-map-parity, migration-version-guard, backend, web, android, docker]
+    if: ${{ github.event_name == 'push' && success() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Bump-Commit + Tag auf main pushen
+    # Eigene Gruppe OHNE cancel-in-progress: die workflow-weite Gruppe oben cancelt auf main
+    # den laufenden Run, sobald der nächste Merge eintrifft — mitten im Release hieße das
+    # committet-aber-nicht-getaggt. Zwei Releases laufen hier stattdessen nacheinander.
+    concurrency:
+      group: release-main
+      cancel-in-progress: false
+    env:
+      NEXT_VERSION: ${{ needs.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Idempotenz. Zwei Fälle, beide führen zu einem sauberen Skip statt zu einem roten Job
+      # oder — schlimmer — einer zweiten Release für denselben Code:
+      #
+      #  a) main steht nicht mehr auf dem gebauten Commit. Entweder wurde dieser Run bereits
+      #     erfolgreich released (main zeigt jetzt auf den Bump-Commit) und jemand startet ihn
+      #     neu, oder inzwischen ist ein weiterer Merge gelandet — der bringt seine eigene
+      #     Release mit. In beiden Fällen ist hier nichts mehr zu tun. Ohne diesen Check würde
+      #     ein Re-Run den inzwischen existierenden Tag als Basis nehmen und munter die nächste
+      #     Version für unveränderten Code schneiden (3.0.0 → 3.0.1).
+      #  b) Der Tag existiert schon — Gürtel zum Hosenträger.
+      - name: Skip if already released
+        id: guard
+        run: |
+          set -euo pipefail
+          # Belt-and-suspenders gegen ein leeres Output aus dem version-Job: ohne diese Zeile
+          # entstünde ein Tag namens `v`.
+          case "$NEXT_VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::NEXT_VERSION ist kein X.Y.Z ('$NEXT_VERSION')"; exit 1 ;;
+          esac
+          git fetch --quiet origin main
+          head_of_main="$(git rev-parse FETCH_HEAD)"
+          if [ "$head_of_main" != "$GITHUB_SHA" ]; then
+            echo "main steht auf $head_of_main, gebaut wurde $GITHUB_SHA — bereits released oder überholt, nichts zu tun."
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/v$NEXT_VERSION" >/dev/null; then
+            echo "Tag v$NEXT_VERSION existiert bereits — nichts zu tun."
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # VERSION ist die einzige Quelle (#626); web/package.json führt sein version-Feld nur
+      # der Ordnung halber mit (npm-Pflichtfeld, wird nirgends ausgewertet — siehe
+      # DEPLOYMENT.md 10a), wird aber mitgezogen, damit die beiden nicht auseinanderlaufen.
+      - name: Write version
+        if: ${{ !steps.guard.outputs.done }}
+        run: |
+          set -euo pipefail
+          echo "$NEXT_VERSION" > VERSION
+          node -e '
+            const fs = require("fs");
+            const p = "web/package.json";
+            const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+            pkg.version = process.env.NEXT_VERSION;
+            // 2 Leerzeichen + Schluss-Newline = npms eigenes Format; sonst rauscht bei jedem
+            // Release die ganze Datei durch den Diff.
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+          '
+
+      # Der Tag zeigt auf DIESEN Bump-Commit, nicht auf den Code-Commit davor: nur so trägt
+      # ein `git checkout v1.2.3` auch wirklich VERSION=1.2.3. Die Images dieses Runs sind aus
+      # dem Eltern-Commit gebaut (ihr GIT_SHA), enthalten aber dieselbe APP_VERSION — die
+      # beiden Commits unterscheiden sich ausschließlich in genau diesen zwei Dateien.
+      #
+      # [skip ci] verhindert, dass der Bump-Commit eine zweite CI-Runde auslöst. Zusätzliche
+      # Absicherung: Pushes mit dem GITHUB_TOKEN lösen ohnehin keine neuen Workflow-Runs aus.
+      - name: Commit, tag and push
+        if: ${{ !steps.guard.outputs.done }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION web/package.json
+          if git diff --cached --quiet; then
+            # Kann legitim vorkommen: bei einem manuellen Vorab-Bump im Merge selbst steht die
+            # Zahl schon drin. Dann gibt es nichts zu committen — nur noch zu taggen.
+            echo "VERSION steht bereits auf $NEXT_VERSION — nur taggen."
+            git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
+          else
+            git commit -m "chore(release): v$NEXT_VERSION [skip ci]"
+            git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
+            # Kein --force-with-lease-Spiel: ist main inzwischen weitergelaufen, soll der Push
+            # scheitern und der Job rot werden, statt fremde Commits zu überschreiben. Die
+            # release-Concurrency-Gruppe oben macht diesen Fall ohnehin unwahrscheinlich.
+            git push origin HEAD:main
+          fi
+          git push origin "v$NEXT_VERSION"
+          echo "### Release \`v$NEXT_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
