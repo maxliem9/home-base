@@ -429,17 +429,46 @@ Don't delete either volume unless you intend to wipe that data.
 
 ---
 
-## 10a. Versionierung (#626)
+## 10a. Versionierung (#626, #630)
 
 Die Datei [`VERSION`](../VERSION) im Repo-Root ist die **einzige** Quelle der Produktversion —
-Backend, Web und Android lesen sie beim Bauen. Eine neue Version ist also ein Ein-Zeilen-Commit
-auf `main`:
+Backend, Web und Android lesen sie beim Bauen.
+
+**Du musst sie nicht selbst pflegen: jeder Merge auf `main` bumpt sie automatisch** (#630). Der
+`release`-Job in [`ci.yml`](../.github/workflows/ci.yml) schreibt die neue Zahl nach `VERSION` (und
+ins `version`-Feld von `web/package.json`), committet sie als `chore(release): vX.Y.Z [skip ci]`
+und setzt den Git-Tag `vX.Y.Z`. Er läuft erst, wenn alle Test-/Build-Jobs dieses Merges grün sind —
+getaggt wird nur ein Stand, der auch gebaut und nach GHCR veröffentlicht wurde.
+
+Wie groß der Bump ausfällt, entscheidet der **Titel des gemergten Commits** (bei Squash-Merge also
+der PR-Titel) nach Conventional Commits:
+
+| Commit-Titel | Bump | Beispiel |
+|---|---|---|
+| `feat!: …`, `feat(x)!: …` oder `BREAKING CHANGE` im Body | major | 1.2.3 → **2**.0.0 |
+| `feat: …`, `feat(scope): …` | minor | 1.2.3 → 1.**3**.0 |
+| alles andere (`fix`, `chore`, `docs`, `refactor`, `test`, …) | patch | 1.2.3 → 1.2.**4** |
+
+Die Logik steckt in [`scripts/next-version.sh`](../scripts/next-version.sh) und lässt sich lokal
+trocken durchspielen:
 
 ```bash
-echo "1.2.0" > VERSION
+COMMIT_MESSAGE="feat: neues Ding" bash scripts/next-version.sh
 ```
 
-Was daraus automatisch folgt:
+**Von Hand übersteuern** geht weiterhin: steht in `VERSION` beim Merge bereits eine **höhere**
+Version als der letzte Tag, gilt diese unverändert (kein Bump obendrauf). So schneidest du bewusst
+eine `2.0.0`, ohne auf den Commit-Titel angewiesen zu sein — der Ein-Zeilen-Commit im PR reicht:
+
+```bash
+echo "2.0.0" > VERSION
+```
+
+Basis für den automatischen Bump ist immer der höchste vorhandene `v*`-Tag, **nicht** der Stand der
+Datei. Ein versehentliches Herunterschreiben von `VERSION` kann eine Release also nicht rückwärts
+laufen lassen.
+
+Was aus der Version automatisch folgt:
 
 | Komponente | Wie sie die Version bekommt | Wo sie sichtbar ist |
 |---|---|---|
@@ -453,11 +482,16 @@ liegt die `VERSION`-Datei nicht, deshalb reicht der Docker-Job Version und SHA a
 durch. Ein Build ganz ohne Git und ohne Build-Args meldet sich als `0.0.0-dev`; das ist der
 Normalfall bei `./gradlew run` aus einem Tarball, kein Fehler.
 
+Die GHCR-Images tragen neben `latest` und `<sha>` auch das **Versions-Tag** (`…/homebase-backend:1.2.0`).
+Ein gezielter Rollback braucht also keine SHA-Recherche mehr — in `docker-compose.yml` das Tag
+eintragen und `scripts/deploy.sh` laufen lassen.
+
 Zwei Nebensachen beim Bumpen:
 - `web/package.json` hat ein eigenes `version`-Feld — es wird **nicht** ausgewertet (npm-Pflichtfeld);
-  der Ordnung halber mitziehen.
+  der `release`-Job zieht es automatisch mit, damit die beiden nicht auseinanderlaufen.
 - Der `versionCode` von Android muss monoton wachsen: eine Version **kleiner** als die installierte
   lässt sich auf dem Handy nicht drüber installieren (Semver rückwärts also nur mit Neuinstallation).
+  Der automatische Bump geht immer aufwärts, das ist also nur bei manueller Übersteuerung relevant.
 
 ---
 

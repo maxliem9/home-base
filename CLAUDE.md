@@ -41,7 +41,7 @@ homebase/
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
 | **env-Variablen** (vollständig, kommentiert) | [`.env.example`](.env.example) — Single Source of Truth |
 | **Deployment**, Docker, DSM/FRITZ!Box, Android-Build, Troubleshooting | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
-| **Versionierung** (VERSION-Datei bumpen, wo die Version herkommt/angezeigt wird) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Abschnitt „Versionierung (#626)" |
+| **Versionierung** (Auto-Bump je Merge, Conventional-Commit-Regeln, wo die Version herkommt/angezeigt wird) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Abschnitt „Versionierung (#626, #630)" |
 | Security-Invarianten (nginx-Log-Masking, Login-Throttling #8) | [docs/security-invariants.md](docs/security-invariants.md) |
 
 ## Backlog & Out-of-Scope-Funde
@@ -173,6 +173,14 @@ Proxy-Count). Vollständige, kommentierte Variablen-Liste → [`.env.example`](.
   geteilter Container für die ganze Suite, pro Test TRUNCATE + Re-Seed. Die isolierten Service-/
   Logik-Unit-Tests laufen weiter gegen ihre eigene H2 — dafür ist keine Engine nötig, für ein volles
   `./gradlew test` schon.
+
+## Commits & Releases (#630)
+PR-Titel nach **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`) —
+beim Squash-Merge wird der Titel zur Commit-Message auf `main`, und daraus leitet die Pipeline die
+neue Produktversion ab: `feat:` → minor, `feat!:`/`BREAKING CHANGE` → major, alles andere → patch.
+Der Merge bumpt `VERSION` selbst, committet und taggt `vX.Y.Z` — **nicht** von Hand bumpen, außer du
+willst bewusst übersteuern (Details → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), Abschnitt
+„Versionierung").
 
 ## Review
 Wenn du einen PR erstellt hast, starte einen neuen Agent, der das Review des PRs macht.
