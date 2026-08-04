@@ -16,7 +16,9 @@ homebase/
 ├── web/                      — React + Vite + TS Frontend (nginx: SPA + /api-Proxy)
 ├── android/                  — Jetpack Compose App
 ├── docs/                     — Feature-/Domänen-Docs (on demand, siehe Doc-Index)
-├── VERSION                   — Produktversion (Single Source für Backend, Web, Android; #626)
+├── VERSION                   — Produktversion (Single Source für Backend, Web, Android; #626).
+│                               Wird bei jedem Merge auf main automatisch gebumpt (#630) — nicht
+│                               von Hand editieren, siehe „Commits & Releases"
 ├── docker-compose.yml        — Produktion (Synology NAS, Images aus GHCR)
 ├── docker-compose.dev.yml    — Lokale Entwicklung (nur DB)
 ├── .env.example
@@ -175,12 +177,25 @@ Proxy-Count). Vollständige, kommentierte Variablen-Liste → [`.env.example`](.
   `./gradlew test` schon.
 
 ## Commits & Releases (#630)
-PR-Titel nach **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`) —
-beim Squash-Merge wird der Titel zur Commit-Message auf `main`, und daraus leitet die Pipeline die
-neue Produktversion ab: `feat:` → minor, `feat!:`/`BREAKING CHANGE` → major, alles andere → patch.
-Der Merge bumpt `VERSION` selbst, committet und taggt `vX.Y.Z` — **nicht** von Hand bumpen, außer du
-willst bewusst übersteuern (Details → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), Abschnitt
-„Versionierung").
+**Jeder Merge auf `main` schneidet automatisch eine Release**: der `release`-Job in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) bumpt `VERSION`, committet
+`chore(release): vX.Y.Z [skip ci]` und setzt den Git-Tag — erst wenn alle Test-/Build-Jobs grün
+sind. Vollständige Beschreibung → [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), Abschnitt „Versionierung".
+
+- **PR-Titel nach Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
+  Beim Squash-Merge wird der Titel zur Commit-Message auf `main` und **entscheidet die Bump-Größe**:
+  `feat:` → minor, `feat!:`/`BREAKING CHANGE` im Body → major, alles andere → patch. Ein Tippfehler
+  im Präfix ist damit kein Kosmetikproblem mehr, sondern eine falsche Versionsnummer.
+- **`VERSION` und das `version`-Feld in `web/package.json` gehören dem Bot** — in einem normalen PR
+  keins von beiden anfassen (sonst Konflikte mit dem Release-Commit, und der Auto-Bump überschreibt
+  es ohnehin). Einzige Ausnahme: du willst **bewusst übersteuern** (z. B. eine `2.0.0` erzwingen).
+  Dann eine höhere Version als der letzte Tag in `VERSION` schreiben — die gilt dann unverändert.
+- **`main` bewegt sich nach jedem Merge von selbst** um genau diesen einen Bot-Commit. Ein Branch,
+  der davor abgezweigt wurde, braucht ein `git pull`/Rebase; das ist kein fremder Push, sondern die
+  Release. (Die Basis für den nächsten Bump ist immer der höchste `v*`-Tag, nie der Stand der Datei.)
+- Die GHCR-Images tragen neben `latest`/`<sha>` das **Versions-Tag** (`homebase-backend:1.2.0`).
+- Ein weiterer Workflow, der auf `main` pusht, muss sich mit der Concurrency-Gruppe `release-main`
+  vertragen — sonst kollidiert er mit dem Release-Commit.
 
 ## Review
 Wenn du einen PR erstellt hast, starte einen neuen Agent, der das Review des PRs macht.
