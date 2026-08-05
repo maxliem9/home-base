@@ -1623,8 +1623,8 @@ private fun EditEntrySheet(
 }
 
 // ---------------------------------------------------------------------------
-// Split-entry sheet (#66) — cut a completed entry in two at a Trennzeit, with
-// an optional untracked break between the parts. Wording mirrors the web
+// Split-entry sheet (#66) — cut an entry in two at a Trennzeit, with an optional
+// untracked break between the parts; on a running entry part two keeps running (#634). Wording mirrors the web
 // (de.ts time.split*), UI reference: SplitEntryModal in TimeView.tsx.
 // ---------------------------------------------------------------------------
 

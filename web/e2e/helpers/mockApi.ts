@@ -87,6 +87,8 @@ const TINY_PNG = Buffer.from(
  */
 export class MockApi {
   private silent = false
+  /** null = use the real clock; set via pinNow() for time-sensitive endpoints. */
+  private nowMs: number | null = null
   private householdName = 'Mäxchen'
   private password = 'geheim'
   // Per-digest config (#100/#182): time, in-app on/off, content-section selection. Defaults
@@ -281,6 +283,14 @@ export class MockApi {
 
   seedEntries(entries: TimeEntry[]): this {
     this.entries = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  /** Pins the mock's "now" (route handlers run in Node, so `page.clock` does not reach
+   *  them). Needed wherever the mock validates against the current time — e.g. splitting
+   *  a running entry (#634). Pass the same instant as `page.clock.setFixedTime`. */
+  pinNow(now: Date): this {
+    this.nowMs = now.getTime()
     return this
   }
 
@@ -1777,7 +1787,7 @@ export class MockApi {
       const b = JSON.parse(req.postData() ?? '{}')
       const cut = Date.parse(b.splitAt)
       const started = Date.parse(e.startedAt)
-      const stopped = e.stoppedAt ? Date.parse(e.stoppedAt) : Date.now()
+      const stopped = e.stoppedAt ? Date.parse(e.stoppedAt) : (this.nowMs ?? Date.now())
       const secondStart = cut + (b.breakMinutes ?? 0) * 60000
       if (!(cut > started && cut < stopped) || !(secondStart < stopped) || (b.breakMinutes ?? 0) < 0) {
         return this.json(route, { code: 'INVALID_RANGE', message: 'bad cut' }, 400)

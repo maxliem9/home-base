@@ -596,8 +596,8 @@ data class UpdateTimeEntryRequest(
 )
 
 /**
- * Split a completed entry at [splitAt] into two (#62) — e.g. a forgotten lunch
- * break or a missed project switch. [breakMinutes] inserts a gap after the cut:
+ * Split an entry at [splitAt] into two (#62) — e.g. a forgotten lunch break or a
+ * missed project switch; on a running entry part two keeps running (#634). [breakMinutes] inserts a gap after the cut:
  * the second part starts that much later (the break is just untracked time, no
  * row of its own).
  */

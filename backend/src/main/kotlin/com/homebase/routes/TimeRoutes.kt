@@ -203,7 +203,8 @@ private fun Route.entryRoutes(service: TimeService) {
             }
         }
 
-        // Split a completed entry into two parts at a cut time, with an optional untracked gap (#62).
+        // Split an entry — completed or running (#634) — into two parts at a cut time, with an
+        // optional untracked gap (#62).
         post("/{id}/split") {
             val id = call.uuidParam() ?: return@post
             val req = call.receive<SplitTimeEntryRequest>()

@@ -285,7 +285,8 @@ interface HomeBaseApi {
     @DELETE("time/entries/{id}")
     suspend fun deleteTimeEntry(@Path("id") id: String)
 
-    // Split a completed entry at a cut time (#66): part one keeps the id, part two is new.
+    // Split an entry at a cut time (#66): part one keeps the id, part two is new (and keeps
+    // running when the entry was running, #634).
     @POST("time/entries/{id}/split")
     suspend fun splitTimeEntry(@Path("id") id: String, @Body request: SplitTimeEntryRequest): SplitTimeEntryResponse
 
