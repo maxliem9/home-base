@@ -23,15 +23,25 @@ description?, created_at, updated_at
   führendes `'` (CSV-Formel-Injection-Schutz; das Apostroph ist in Excel sichtbar —
   akzeptierter Tradeoff).
 - Eintrag splitten (#62): POST /api/v1/time/entries/{id}/split {splitAt,
-  breakMinutes?} teilt einen **abgeschlossenen** Eintrag atomar an der Trennzeit —
+  breakMinutes?} teilt einen Eintrag atomar an der Trennzeit —
   Teil 1 behält die id (Ende = splitAt), Teil 2 wird neu angelegt (Start =
   splitAt + Pause, erbt Projekt/Beschreibung). Die Pause ist bewusst nur eine
   unerfasste Lücke, kein eigener Datensatz. Validierung: Trennzeit strikt im
-  Eintrag, Pause endet vor dem Eintragsende (400 INVALID_RANGE), laufende Timer
-  → 409 ENTRY_RUNNING. Broadcasts: ENTRY_UPDATED (Teil 1) + ENTRY_CREATED (Teil 2).
+  Eintrag, Pause endet vor dem Eintragsende (400 INVALID_RANGE).
+  Broadcasts: ENTRY_UPDATED (Teil 1) + ENTRY_CREATED (Teil 2).
   Web: Scissors-Aktion an eigenen Einträgen (Liste + Projekt-Detail); Android analog
-  (Scissors an eigenen abgeschlossenen Einträgen, Sheet mit Trennzeit/Pause +
+  (Scissors an abgeschlossenen Einträgen, Sheet mit Trennzeit/Pause +
   Live-Vorschau beider Teile, #66).
+  - **Laufende Timer splitten (#634):** Der Split geht auch auf einem laufenden Eintrag —
+    genau der Fall „vergessen, für die Pause zu stoppen und neu zu starten". Teil 1 wird
+    abgeschlossen (Ende = Trennzeit), **Teil 2 läuft weiter** (`stoppedAt` bleibt null).
+    Das offene Ende übernimmt dabei die Rolle von `stoppedAt`: Trennzeit **und** Pausenende
+    müssen strikt vor `now` liegen, sonst 400 INVALID_RANGE (den früheren 409 ENTRY_RUNNING
+    gibt es nicht mehr — Code samt Client-Mappings ist entfernt). Die
+    Ein-laufender-Timer-pro-Person-Invariante hält, weil Teil 1 in derselben Transaktion
+    geschlossen wird. UI: Scheren-Aktion am Timer-Hero (Web `TimeView`, Android `RunningHero`);
+    der Split-Dialog rechnet gegen die tickende „jetzt"-Zeit, Vorschau zeigt für Teil 2
+    „Läuft" statt einer Endzeit, und Fehlertexte sagen „… und jetzt" statt „… und Ende".
 - created_by / user_id werden — wie im restlichen Projekt — als
   username (VARCHAR, FK users.username) gespeichert, nicht als UUID.
 

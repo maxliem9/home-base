@@ -384,6 +384,35 @@ test.describe('Time tracking', () => {
     await expect(page.locator('.hb-daysep__sum')).toHaveText('7 Std 30 Min')
   })
 
+  test('splits the running timer and keeps it running after the break', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedEntries([
+        // running since 06:00Z — with "now" pinned to 12:00Z a 09:00 local cut is
+        // inside the entry in UTC and Berlin alike
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-10T06:00:00Z', stoppedAt: undefined, durationSeconds: undefined }),
+      ])
+    await mock.install(page)
+    await page.clock.setFixedTime(new Date('2026-06-10T12:00:00Z'))
+    await page.addInitScript((t) => localStorage.setItem('homebase_token', t), TOKEN)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Zeiterfassung' }).click()
+
+    const hero = page.locator('.hb-timerhero')
+    await expect(hero).toHaveClass(/is-running/)
+    await hero.getByRole('button', { name: 'Laufenden Timer splitten' }).click()
+
+    const modal = page.locator('.hb-modal')
+    await modal.getByLabel('Trennzeit').fill('2026-06-10T09:00')
+    await modal.getByLabel('Pause in Minuten (optional)').fill('30')
+    await modal.getByRole('button', { name: 'Speichern' }).click()
+
+    // part one is a completed row now, and the timer keeps running (part two)
+    await expect(modal).toBeHidden()
+    await expect(hero).toHaveClass(/is-running/)
+    await expect(page.locator('.hb-list .hb-row')).toHaveCount(1)
+  })
+
   test('rejects a cut outside the entry inline', async ({ page }) => {
     const mock = new MockApi()
       .seedProjects([ARBEIT])

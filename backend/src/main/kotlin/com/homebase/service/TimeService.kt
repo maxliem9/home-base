@@ -210,25 +210,45 @@ class TimeService {
         data class Invalid(val error: ErrorResponse) : SplitResult
     }
 
-    /** Caller has parsed [splitAt] and checked breakMinutes>=0. */
+    /**
+     * Caller has parsed [splitAt] and checked breakMinutes>=0.
+     *
+     * Works on completed **and** running entries (#62/#634): a running timer is cut into a closed
+     * part one and a part two that keeps running (stoppedAt stays null) — the "forgot to stop for
+     * the break" case. Its open end acts as `now` for the range checks, so the cut and the break
+     * must both lie in the past; the one-running-timer-per-user invariant holds because part one
+     * is closed in the same transaction.
+     */
     suspend fun splitEntry(id: UUID, splitAt: Instant, breakMinutes: Int): SplitResult = dbQuery {
         val existing = TimeEntriesTable.selectAll()
             .where { TimeEntriesTable.id eq id }
             .forUpdate(ForUpdateOption.ForUpdate)
             .singleOrNull() ?: return@dbQuery SplitResult.NotFound
+        val now = Instant.now()
         val stopped = existing[TimeEntriesTable.stoppedAt]
-            ?: return@dbQuery SplitResult.Invalid(ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first"))
+        val effectiveEnd = stopped ?: now
         val started = existing[TimeEntriesTable.startedAt]
-        if (!splitAt.isAfter(started) || !stopped.isAfter(splitAt)) {
-            return@dbQuery SplitResult.Invalid(ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt"))
+        if (!splitAt.isAfter(started) || !effectiveEnd.isAfter(splitAt)) {
+            return@dbQuery SplitResult.Invalid(
+                ErrorResponse(
+                    "INVALID_RANGE",
+                    if (stopped != null) "splitAt must lie strictly between startedAt and stoppedAt"
+                    else "splitAt must lie strictly between startedAt and now",
+                ),
+            )
         }
         // computed only after the range check — the cut is inside a real entry here, so adding the
         // break cannot overflow Instant (DateTimeException)
         val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
-        if (!stopped.isAfter(secondStart)) {
-            return@dbQuery SplitResult.Invalid(ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt"))
+        if (!effectiveEnd.isAfter(secondStart)) {
+            return@dbQuery SplitResult.Invalid(
+                ErrorResponse(
+                    "INVALID_RANGE",
+                    if (stopped != null) "the break must end before the entry's stoppedAt"
+                    else "the break must end before now",
+                ),
+            )
         }
-        val now = Instant.now()
         TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
             it[stoppedAt] = splitAt
             it[updatedAt] = now

@@ -14,7 +14,6 @@ import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.withLiveExtra
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -246,7 +245,11 @@ class TimeMathTest {
             Instant.parse("2026-06-03T12:00:00Z"),
             defaultSplitAt("2026-06-03T11:59:00Z", "2026-06-03T12:02:01Z"),
         )
-        assertNull(defaultSplitAt(start, null))
+        // a running entry has no end — the midpoint is taken against "now" (#634)
+        assertEquals(
+            Instant.parse("2026-06-03T15:33:00Z"),
+            defaultSplitAt(start, null, now = Instant.parse("2026-06-03T19:03:00Z")),
+        )
     }
 
     @Test
@@ -300,9 +303,22 @@ class TimeMathTest {
     }
 
     @Test
-    fun `checkSplit treats a running entry as an invalid range`() {
-        val check = checkSplit(start, null, Instant.parse("2026-06-03T15:33:00Z"), "")
-        assertEquals(R.string.time_split_err_range, (check as SplitCheck.Invalid).messageRes)
+    fun `checkSplit cuts a running entry against now`() {
+        val now = Instant.parse("2026-06-03T19:03:00Z")
+        val check = checkSplit(start, null, Instant.parse("2026-06-03T15:33:00Z"), "45", now = now)
+        assertTrue(check is SplitCheck.Valid)
+        assertEquals(Instant.parse("2026-06-03T16:18:00Z"), (check as SplitCheck.Valid).secondStart)
+
+        // a cut in the future (or the break reaching into it) is out of range, with
+        // its own "…und jetzt" wording (#634)
+        assertEquals(
+            R.string.time_split_err_range_running,
+            (checkSplit(start, null, now.plusSeconds(60), "", now = now) as SplitCheck.Invalid).messageRes,
+        )
+        assertEquals(
+            R.string.time_split_err_break_overrun_running,
+            (checkSplit(start, null, now.minusSeconds(60), "30", now = now) as SplitCheck.Invalid).messageRes,
+        )
     }
 
     @Test

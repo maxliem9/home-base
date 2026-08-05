@@ -529,6 +529,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         <SplitEntryModal
           key={splitEntry.id}
           entry={splitEntry}
+          nowMs={nowMs}
           onSave={splitEntryAction}
           onClose={() => setSplitEntry(null)}
         />
@@ -595,6 +596,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
               <span className="hb-pdot" style={{ background: runningProject?.color ?? 'var(--ink-3)' }} />
               {runningProject?.name ?? t('time.project')}
               <IconButton icon="edit" label={t('time.editRunning')} size={16} onClick={() => setEditEntry(running)} />
+              {/* split the *running* timer: part one closes, the timer keeps running
+                  after the break — for the forgotten break (#634) */}
+              <IconButton icon="scissors" label={t('time.splitRunning')} size={16} onClick={() => setSplitEntry(running)} />
             </div>
             <input
               className="hb-timerhero__desc"
@@ -1388,21 +1392,23 @@ function EditEntryModal({ entry, projects, onSave, onClose }: {
   )
 }
 
-// Split a completed entry at a cut time into two parts, optionally with an
-// untracked break between them (#62) — the break is just a gap, no row of its
-// own. Typical uses: a forgotten lunch break, or a missed project switch
-// (split, then edit part two). Shows a live preview of both resulting parts;
-// same inline-error convention as the other modals.
-function SplitEntryModal({ entry, onSave, onClose }: {
+// Split an entry at a cut time into two parts, optionally with an untracked
+// break between them (#62) — the break is just a gap, no row of its own.
+// Typical uses: a forgotten lunch break, or a missed project switch (split,
+// then edit part two). Works on a *running* timer too (#634): part one closes
+// at the cut, part two keeps running — so the cut and the break must lie in the
+// past (`nowMs` takes the place of the missing stoppedAt). Shows a live preview
+// of both resulting parts; same inline-error convention as the other modals.
+function SplitEntryModal({ entry, nowMs, onSave, onClose }: {
   entry: TimeEntry
+  nowMs: number
   onSave: (id: string, body: object) => Promise<string | null>
   onClose: () => void
 }) {
   const { t } = useTranslation()
   const startMs = new Date(entry.startedAt).getTime()
-  // the split action is only offered on completed entries (lists filter on
-  // stoppedAt); a running entry would make stopMs NaN and every cut invalid
-  const stopMs = new Date(entry.stoppedAt!).getTime()
+  const isRunning = !entry.stoppedAt
+  const stopMs = entry.stoppedAt ? new Date(entry.stoppedAt).getTime() : nowMs
   // default cut: the entry's midpoint, snapped to the full minute
   const [cut, setCut] = useState(() => toLocalInput(new Date(Math.floor((startMs + stopMs) / 2 / 60000) * 60000).toISOString()))
   const [breakMin, setBreakMin] = useState('')
@@ -1420,9 +1426,9 @@ function SplitEntryModal({ entry, onSave, onClose }: {
 
   const submit = async () => {
     if (submitRef.current) return
-    if (!cutValid) return setError(t('time.splitInvalidCut'))
+    if (!cutValid) return setError(t(isRunning ? 'time.splitInvalidCutRunning' : 'time.splitInvalidCut'))
     if (!breakParses) return setError(t('time.splitInvalidBreak'))
-    if (!breakValid) return setError(t('time.splitBreakTooLong'))
+    if (!breakValid) return setError(t(isRunning ? 'time.splitBreakTooLongRunning' : 'time.splitBreakTooLong'))
     submitRef.current = true
     setError(null)
     // On failure the modal stays open; re-enable submit and show the reason.
@@ -1454,7 +1460,7 @@ function SplitEntryModal({ entry, onSave, onClose }: {
         </>
       }
     >
-      <p className="hb-muted" style={{ marginTop: 0 }}>{t('time.splitHint')}</p>
+      <p className="hb-muted" style={{ marginTop: 0 }}>{t(isRunning ? 'time.splitHintRunning' : 'time.splitHint')}</p>
       <Field label={t('time.splitAtLabel')}>
         <TextInput type="datetime-local" value={cut} onChange={setCut} />
       </Field>
@@ -1465,7 +1471,7 @@ function SplitEntryModal({ entry, onSave, onClose }: {
         <p className="hb-mono hb-muted" style={{ fontSize: 13.5, margin: 0 }}>
           {t('time.splitPart1')} {clockTime(entry.startedAt)}–{clockTime(new Date(cutMs).toISOString())}
           {' · '}
-          {t('time.splitPart2')} {clockTime(new Date(secondStartMs).toISOString())}–{clockTime(entry.stoppedAt!)}
+          {t('time.splitPart2')} {clockTime(new Date(secondStartMs).toISOString())}–{entry.stoppedAt ? clockTime(entry.stoppedAt) : t('time.running')}
         </p>
       )}
       {error && <p style={{ color: 'oklch(0.55 0.16 32)', fontSize: 13.5, margin: 0 }}>{error}</p>}

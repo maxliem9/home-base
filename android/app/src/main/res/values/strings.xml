@@ -455,12 +455,15 @@
     <string name="confirm_delete_partner_entry">Eintrag von %1$s löschen?</string>
     <string name="time_split_title">Eintrag splitten</string>
     <string name="time_split_hint">Teilt den Eintrag an der Trennzeit in zwei. Eine Pause bleibt als Lücke zwischen den Teilen unerfasst — danach lässt sich Teil 2 wie gewohnt bearbeiten (z. B. anderes Projekt).</string>
+    <string name="time_split_hint_running">Teilt den laufenden Timer an der Trennzeit: Teil 1 wird beendet, der Timer läuft nach der Pause weiter — für die vergessene Pause. Trennzeit und Pause müssen in der Vergangenheit liegen.</string>
     <string name="time_split_at">Trennzeit</string>
     <string name="time_split_break">Pause in Minuten (optional)</string>
     <string name="time_split_preview">Teil 1: %1$s–%2$s · Teil 2: %3$s–%4$s</string>
     <string name="time_split_err_range">Die Trennzeit muss zwischen Start und Ende liegen</string>
+    <string name="time_split_err_range_running">Die Trennzeit muss zwischen Start und jetzt liegen</string>
     <string name="time_split_err_break">Pause in Minuten angeben (z. B. 30)</string>
     <string name="time_split_err_break_overrun">Die Pause muss vor dem Ende des Eintrags enden</string>
+    <string name="time_split_err_break_overrun_running">Die Pause muss vor jetzt enden</string>
     <string name="time_detail_active_project">Aktives Projekt</string>
     <string name="time_detail_project">Projekt</string>
     <string name="time_fact_total">Gesamt</string>
@@ -772,6 +775,7 @@
     <string name="cd_increase">Erhöhen</string>
     <string name="cd_decrease">Verringern</string>
     <string name="cd_split_entry">Eintrag aufteilen</string>
+    <string name="cd_split_running">Laufenden Timer splitten</string>
     <string name="cd_record_time">Zeit erfassen</string>
     <string name="cd_switch_note">Notiz wechseln</string>
     <string name="cd_recipe_import">Rezept importieren</string>
@@ -807,7 +811,6 @@
     <string name="error_time_entry_not_found">Eintrag nicht gefunden – bitte neu laden.</string>
     <string name="error_project_not_found">Projekt nicht gefunden – bitte neu laden.</string>
     <string name="error_project_save_failed">Projekt konnte nicht gespeichert werden.</string>
-    <string name="error_split_entry_running">Laufende Timer können nicht gesplittet werden — erst stoppen.</string>
     <string name="error_split_failed">Eintrag konnte nicht gesplittet werden.</string>
     <string name="error_template_not_found">Vorlage nicht gefunden – bitte neu laden.</string>
     <string name="error_template_save_failed">Vorlage konnte nicht gespeichert werden.</string>

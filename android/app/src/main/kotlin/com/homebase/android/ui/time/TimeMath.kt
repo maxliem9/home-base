@@ -141,9 +141,10 @@ internal fun statWeekLabel(weekStart: LocalDate, today: LocalDate, locale: Local
 // ---------------------------------------------------------------------------
 
 /** Default cut: the entry's midpoint, snapped down to the full minute. */
-fun defaultSplitAt(startedAtIso: String, stoppedAtIso: String?): Instant? {
+fun defaultSplitAt(startedAtIso: String, stoppedAtIso: String?, now: Instant = Instant.now()): Instant? {
     val start = Format.parseInstant(startedAtIso) ?: return null
-    val stop = Format.parseInstant(stoppedAtIso) ?: return null
+    // a running entry (stoppedAt == null) is cut against "now" (#634)
+    val stop = (if (stoppedAtIso == null) now else Format.parseInstant(stoppedAtIso)) ?: return null
     val midMs = (start.toEpochMilli() + stop.toEpochMilli()) / 2
     return Instant.ofEpochMilli(midMs / 60_000 * 60_000)
 }
@@ -160,12 +161,22 @@ sealed interface SplitCheck {
  * Validate a split draft exactly like the web modal (#66): the cut must lie
  * strictly inside the entry, the break input may use a comma and is rounded to
  * whole minutes (empty = 0), and the break must end before the entry does.
+ *
+ * A running entry (stoppedAtIso == null, #634) is validated against [now] instead
+ * of a stop time — cut and break must lie in the past; its error wording says so.
  */
-fun checkSplit(startedAtIso: String, stoppedAtIso: String?, splitAt: Instant, breakText: String): SplitCheck {
+fun checkSplit(
+    startedAtIso: String,
+    stoppedAtIso: String?,
+    splitAt: Instant,
+    breakText: String,
+    now: Instant = Instant.now(),
+): SplitCheck {
+    val isRunning = stoppedAtIso == null
     val start = Format.parseInstant(startedAtIso)
-    val stop = Format.parseInstant(stoppedAtIso)
+    val stop = if (isRunning) now else Format.parseInstant(stoppedAtIso)
     if (start == null || stop == null || !splitAt.isAfter(start) || !stop.isAfter(splitAt)) {
-        return SplitCheck.Invalid(R.string.time_split_err_range)
+        return SplitCheck.Invalid(if (isRunning) R.string.time_split_err_range_running else R.string.time_split_err_range)
     }
     val raw = breakText.trim()
     val parsed = if (raw.isEmpty()) 0.0 else raw.replace(',', '.').toDoubleOrNull()
@@ -175,7 +186,9 @@ fun checkSplit(startedAtIso: String, stoppedAtIso: String?, splitAt: Instant, br
     }
     val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
     if (!stop.isAfter(secondStart)) {
-        return SplitCheck.Invalid(R.string.time_split_err_break_overrun)
+        return SplitCheck.Invalid(
+            if (isRunning) R.string.time_split_err_break_overrun_running else R.string.time_split_err_break_overrun,
+        )
     }
     return SplitCheck.Valid(splitAt, breakMinutes, secondStart)
 }

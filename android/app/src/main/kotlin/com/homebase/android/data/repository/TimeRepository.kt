@@ -72,7 +72,7 @@ class TimeRepository(
     suspend fun deleteEntry(id: String): Result<Unit> = apiCatching { api.deleteTimeEntry(id) }
 
     /**
-     * Split a completed entry at [splitAt] with an optional untracked break (#66) —
+     * Split an entry — completed or running (#634) — at [splitAt] with an optional untracked break (#66);
      * both halves come back in one response (part one keeps the id).
      */
     suspend fun splitEntry(id: String, splitAt: String, breakMinutes: Int?): Result<SplitTimeEntryResponse> =
@@ -166,7 +166,6 @@ class TimeRepository(
 
     /** Same for a failed split (#66). */
     private fun splitError(e: HttpException): AppError = when (errorCodeOf(e)) {
-        "ENTRY_RUNNING" -> AppError.SPLIT_ENTRY_RUNNING
         "INVALID_RANGE" -> AppError.TIME_INVALID_RANGE
         "INVALID_DATE" -> AppError.INVALID_DATE
         "NOT_FOUND" -> AppError.TIME_ENTRY_NOT_FOUND

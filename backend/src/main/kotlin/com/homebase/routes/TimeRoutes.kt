@@ -216,10 +216,7 @@ private fun Route.entryRoutes(service: TimeService) {
             when (val r = service.splitEntry(id, splitAt, breakMinutes)) {
                 TimeService.SplitResult.NotFound ->
                     call.respond(HttpStatusCode.NotFound, ErrorResponse("NOT_FOUND", "Time entry not found"))
-                is TimeService.SplitResult.Invalid -> call.respond(
-                    if (r.error.code == "ENTRY_RUNNING") HttpStatusCode.Conflict else HttpStatusCode.BadRequest,
-                    r.error,
-                )
+                is TimeService.SplitResult.Invalid -> call.respond(HttpStatusCode.BadRequest, r.error)
                 is TimeService.SplitResult.Ok -> {
                     broadcastTime(TimeWsMessage("ENTRY_UPDATED", entry = r.response.first))
                     broadcastTime(TimeWsMessage("ENTRY_CREATED", entry = r.response.second))

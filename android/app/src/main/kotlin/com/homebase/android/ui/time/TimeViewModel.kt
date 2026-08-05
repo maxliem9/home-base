@@ -215,7 +215,7 @@ class TimeViewModel(
     }
 
     /**
-     * Split a completed own entry at [splitAt] (#66): both halves come straight from
+     * Split an entry — completed or running (#634) — at [splitAt] (#66): both halves come straight from
      * the response (no waiting for the WS echo), then the forecast is reloaded.
      */
     fun splitEntry(id: String, splitAt: String, breakMinutes: Int?) {

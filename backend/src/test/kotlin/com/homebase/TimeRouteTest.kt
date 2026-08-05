@@ -5,8 +5,11 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TimeRouteTest {
@@ -668,7 +671,7 @@ class TimeRouteTest {
     }
 
     @Test
-    fun `split rejects a running timer and unknown ids`() = testApplication {
+    fun `split cuts a running timer, rejects a future cut and unknown ids`() = testApplication {
         configureTestApplication()
         val token = loginAndGetToken()
         val projectId = createProject(token)
@@ -679,14 +682,41 @@ class TimeRouteTest {
             setBody("""{"projectId":"$projectId"}""")
         }
         val runningId = Json.parseToJsonElement(started.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+        // backdate the running timer (it started "now") so a cut can lie in its past
+        val startedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).minusSeconds(4 * 3600)
+        client.put("/api/v1/time/entries/$runningId") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"startedAt":"$startedAt"}""")
+        }
 
+        // a cut in the future is out of range for a running timer (its open end acts as "now")
+        val future = client.post("/api/v1/time/entries/$runningId/split") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"splitAt":"${Instant.now().plusSeconds(600)}"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, future.status)
+        assertEquals("INVALID_RANGE", Json.parseToJsonElement(future.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+
+        // a cut in the past splits it: part one closes, part two keeps running (#634)
+        val cut = startedAt.plusSeconds(2 * 3600)
         val res = client.post("/api/v1/time/entries/$runningId/split") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody("""{"splitAt":"2026-06-03T12:00:00Z"}""")
+            setBody("""{"splitAt":"$cut","breakMinutes":30}""")
         }
-        assertEquals(HttpStatusCode.Conflict, res.status)
-        assertEquals("ENTRY_RUNNING", Json.parseToJsonElement(res.bodyAsText()).jsonObject["code"]?.jsonPrimitive?.content)
+        assertEquals(HttpStatusCode.OK, res.status)
+        val split = Json.parseToJsonElement(res.bodyAsText()).jsonObject
+        assertEquals(cut.toString(), split["first"]!!.jsonObject["stoppedAt"]?.jsonPrimitive?.content)
+        assertEquals(cut.plusSeconds(30 * 60).toString(), split["second"]!!.jsonObject["startedAt"]?.jsonPrimitive?.content)
+        // encodeDefaults=false: a running entry has no stoppedAt field at all (#96)
+        assertNull(split["second"]!!.jsonObject["stoppedAt"])
+        val running = client.get("/api/v1/time/running/all") { bearerAuth(token) }
+        assertEquals(
+            listOf(split["second"]!!.jsonObject["id"]!!.jsonPrimitive.content),
+            Json.parseToJsonElement(running.bodyAsText()).jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content },
+        )
 
         val missing = client.post("/api/v1/time/entries/00000000-0000-0000-0000-000000000099/split") {
             bearerAuth(token)

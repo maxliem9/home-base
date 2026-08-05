@@ -443,12 +443,15 @@
     <string name="confirm_delete_partner_entry">Delete %1$s\'s entry?</string>
     <string name="time_split_title">Split entry</string>
     <string name="time_split_hint">Splits the entry in two at the split time. A break stays as an untracked gap between the parts — afterwards you can edit part 2 as usual (e.g. another project).</string>
+    <string name="time_split_hint_running">Splits the running timer at the split time: part 1 ends there and the timer keeps running after the break — for the forgotten break. Split time and break must lie in the past.</string>
     <string name="time_split_at">Split time</string>
     <string name="time_split_break">Break in minutes (optional)</string>
     <string name="time_split_preview">Part 1: %1$s–%2$s · Part 2: %3$s–%4$s</string>
     <string name="time_split_err_range">The split time must lie between start and end</string>
+    <string name="time_split_err_range_running">The split time must lie between start and now</string>
     <string name="time_split_err_break">Enter the break in minutes (e.g. 30)</string>
     <string name="time_split_err_break_overrun">The break must end before the entry ends</string>
+    <string name="time_split_err_break_overrun_running">The break must end before now</string>
     <string name="time_detail_active_project">Active project</string>
     <string name="time_detail_project">Project</string>
     <string name="time_fact_total">Total</string>
@@ -760,6 +763,7 @@
     <string name="cd_increase">Increase</string>
     <string name="cd_decrease">Decrease</string>
     <string name="cd_split_entry">Split entry</string>
+    <string name="cd_split_running">Split running timer</string>
     <string name="cd_record_time">Record time</string>
     <string name="cd_switch_note">Switch note</string>
     <string name="cd_recipe_import">Import recipe</string>
@@ -795,7 +799,6 @@
     <string name="error_time_entry_not_found">Entry not found – please reload.</string>
     <string name="error_project_not_found">Project not found – please reload.</string>
     <string name="error_project_save_failed">Project could not be saved.</string>
-    <string name="error_split_entry_running">Running timers cannot be split — stop it first.</string>
     <string name="error_split_failed">Entry could not be split.</string>
     <string name="error_template_not_found">Template not found – please reload.</string>
     <string name="error_template_save_failed">Template could not be saved.</string>
