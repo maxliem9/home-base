@@ -210,25 +210,62 @@ class TimeService {
         data class Invalid(val error: ErrorResponse) : SplitResult
     }
 
-    /** Caller has parsed [splitAt] and checked breakMinutes>=0. */
-    suspend fun splitEntry(id: UUID, splitAt: Instant, breakMinutes: Int): SplitResult = dbQuery {
+    /**
+     * Caller has parsed [splitAt] and checked breakMinutes>=0.
+     *
+     * Works on completed **and** running entries (#62/#634): a running timer is cut into a closed
+     * part one and a part two that keeps running (stoppedAt stays null) — the "forgot to stop for
+     * the break" case. Its open end acts as `now` for the range checks, so the cut and the break
+     * must both lie in the past.
+     *
+     * Splitting a *running* entry inserts a new running row, so it has to serialize against
+     * [startTimer] through the same per-user monitor — otherwise a concurrent start can miss both
+     * halves under READ COMMITTED and trip the one-running-timer-per-user partial index. Like
+     * startTimer, the locked path uses a blocking `transaction {}` (a suspend call cannot cross a
+     * monitor) — the same deliberate #549 exception. A completed entry can never become running
+     * again, so the pre-read below cannot go stale in the direction that matters.
+     */
+    suspend fun splitEntry(id: UUID, splitAt: Instant, breakMinutes: Int): SplitResult {
+        val runningOwner = dbQuery {
+            TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.singleOrNull()
+                ?.takeIf { it[TimeEntriesTable.stoppedAt] == null }
+                ?.get(TimeEntriesTable.userId)
+        } ?: return dbQuery { splitEntryTx(id, splitAt, breakMinutes) }
+        val startLock = TIMER_START_LOCKS.computeIfAbsent(runningOwner) { Any() }
+        return synchronized(startLock) { transaction { splitEntryTx(id, splitAt, breakMinutes) } }
+    }
+
+    /** The split itself; runs inside a transaction opened by [splitEntry]. */
+    private fun splitEntryTx(id: UUID, splitAt: Instant, breakMinutes: Int): SplitResult {
         val existing = TimeEntriesTable.selectAll()
             .where { TimeEntriesTable.id eq id }
             .forUpdate(ForUpdateOption.ForUpdate)
-            .singleOrNull() ?: return@dbQuery SplitResult.NotFound
+            .singleOrNull() ?: return SplitResult.NotFound
+        val now = Instant.now()
         val stopped = existing[TimeEntriesTable.stoppedAt]
-            ?: return@dbQuery SplitResult.Invalid(ErrorResponse("ENTRY_RUNNING", "A running timer cannot be split — stop it first"))
+        val effectiveEnd = stopped ?: now
         val started = existing[TimeEntriesTable.startedAt]
-        if (!splitAt.isAfter(started) || !stopped.isAfter(splitAt)) {
-            return@dbQuery SplitResult.Invalid(ErrorResponse("INVALID_RANGE", "splitAt must lie strictly between startedAt and stoppedAt"))
+        if (!splitAt.isAfter(started) || !effectiveEnd.isAfter(splitAt)) {
+            return SplitResult.Invalid(
+                ErrorResponse(
+                    "INVALID_RANGE",
+                    if (stopped != null) "splitAt must lie strictly between startedAt and stoppedAt"
+                    else "splitAt must lie strictly between startedAt and now",
+                ),
+            )
         }
         // computed only after the range check — the cut is inside a real entry here, so adding the
         // break cannot overflow Instant (DateTimeException)
         val secondStart = splitAt.plusSeconds(breakMinutes * 60L)
-        if (!stopped.isAfter(secondStart)) {
-            return@dbQuery SplitResult.Invalid(ErrorResponse("INVALID_RANGE", "the break must end before the entry's stoppedAt"))
+        if (!effectiveEnd.isAfter(secondStart)) {
+            return SplitResult.Invalid(
+                ErrorResponse(
+                    "INVALID_RANGE",
+                    if (stopped != null) "the break must end before the entry's stoppedAt"
+                    else "the break must end before now",
+                ),
+            )
         }
-        val now = Instant.now()
         TimeEntriesTable.update({ TimeEntriesTable.id eq id }) {
             it[stoppedAt] = splitAt
             it[updatedAt] = now
@@ -244,7 +281,7 @@ class TimeService {
             it[createdAt] = now
             it[updatedAt] = now
         }
-        SplitResult.Ok(
+        return SplitResult.Ok(
             SplitTimeEntryResponse(
                 first = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq id }.single().toEntryDto(),
                 second = TimeEntriesTable.selectAll().where { TimeEntriesTable.id eq secondId }.single().toEntryDto(),

@@ -194,6 +194,7 @@ fun TimeScreen(
                         eta = state.forecastFor(running.userId)?.expectedEndAt,
                         onStop = { viewModel.stopTimer() },
                         onEdit = { editEntry = running },
+                        onSplit = { splitEntry = running },
                     )
                 } else {
                     IdleHero()
@@ -429,7 +430,14 @@ fun TimeScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String?, onStop: () -> Unit, onEdit: () -> Unit) {
+private fun RunningHero(
+    running: TimeEntryDto,
+    project: ProjectDto?,
+    eta: String?,
+    onStop: () -> Unit,
+    onEdit: () -> Unit,
+    onSplit: () -> Unit,
+) {
     val elapsed by produceState(Format.elapsedSeconds(running.startedAt), running.startedAt) {
         while (true) {
             value = Format.elapsedSeconds(running.startedAt)
@@ -454,6 +462,9 @@ private fun RunningHero(running: TimeEntryDto, project: ProjectDto?, eta: String
             )
             Spacer(Modifier.weight(1f))
             HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_edit))
+            // split the running timer (#634): part one closes, the timer keeps
+            // running after the break — for the forgotten break
+            HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_split_running))
         }
         // Project dot + name
         Row(
@@ -1311,7 +1322,7 @@ private fun EntryRow(
             // household manages them together); cross-person clicks are confirmed
             // upstream via the dialog in TimeScreen (#129/#140, web parity).
             HbIconButton(HbIcons.edit, onEdit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_edit))
-            // splitting needs a fixed end — only completed entries (#66)
+            // the list only holds completed entries; the running timer is split from the hero (#634)
             if (entry.stoppedAt != null) {
                 HbIconButton(HbIcons.scissors, onSplit, tint = Hb.ink3, iconSize = 18.dp, contentDescription = stringResource(R.string.cd_split_entry))
             }
@@ -1612,8 +1623,8 @@ private fun EditEntrySheet(
 }
 
 // ---------------------------------------------------------------------------
-// Split-entry sheet (#66) — cut a completed entry in two at a Trennzeit, with
-// an optional untracked break between the parts. Wording mirrors the web
+// Split-entry sheet (#66) — cut an entry in two at a Trennzeit, with an optional
+// untracked break between the parts; on a running entry part two keeps running (#634). Wording mirrors the web
 // (de.ts time.split*), UI reference: SplitEntryModal in TimeView.tsx.
 // ---------------------------------------------------------------------------
 
@@ -1623,10 +1634,11 @@ private fun SplitEntrySheet(
     onSave: (splitAt: String, breakMinutes: Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // the split action is only offered on completed entries; bail out defensively
-    val stoppedAt = entry.stoppedAt ?: return
+    // a running entry (stoppedAt == null, #634) is cut against "now": part one closes,
+    // part two keeps running
+    val stoppedAt = entry.stoppedAt
     val zone = ZoneId.systemDefault()
-    // default cut: the entry's midpoint, snapped to the full minute
+    // default cut: the midpoint between start and end (or now), snapped to the full minute
     val initialCut = remember(entry.id) {
         (defaultSplitAt(entry.startedAt, stoppedAt) ?: Instant.now()).atZone(zone)
     }
@@ -1669,7 +1681,7 @@ private fun SplitEntrySheet(
         },
     ) {
         Text(
-            stringResource(R.string.time_split_hint),
+            stringResource(if (stoppedAt == null) R.string.time_split_hint_running else R.string.time_split_hint),
             style = HbType.meta,
             color = Hb.ink3,
         )
@@ -1695,7 +1707,8 @@ private fun SplitEntrySheet(
                     Format.clockOfDay(entry.startedAt),
                     Format.clockOfDay(check.splitAt.toString()),
                     Format.clockOfDay(check.secondStart.toString()),
-                    Format.clockOfDay(stoppedAt),
+                    // part two of a running timer has no end yet
+                    stoppedAt?.let { Format.clockOfDay(it) } ?: stringResource(R.string.time_running),
                 ),
                 style = HbType.mono.copy(fontSize = 13.5.sp),
                 color = Hb.ink3,

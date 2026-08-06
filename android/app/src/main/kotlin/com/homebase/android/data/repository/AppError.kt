@@ -47,7 +47,6 @@ enum class AppError {
     TIME_ENTRY_NOT_FOUND,
     PROJECT_NOT_FOUND,
     PROJECT_SAVE_FAILED,
-    SPLIT_ENTRY_RUNNING,
     SPLIT_FAILED,
 
     // --- Shopping: templates / categories / rules ---

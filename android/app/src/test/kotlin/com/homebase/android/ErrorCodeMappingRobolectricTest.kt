@@ -176,7 +176,6 @@ class ErrorCodeMappingRobolectricTest {
         val api = mockk<HomeBaseApi>()
         val repo = TimeRepository(api, relaxedTimeWs())
         val cases = mapOf(
-            "ENTRY_RUNNING" to AppError.SPLIT_ENTRY_RUNNING,
             "INVALID_RANGE" to AppError.TIME_INVALID_RANGE,
             "INVALID_DATE" to AppError.INVALID_DATE,
             "NOT_FOUND" to AppError.TIME_ENTRY_NOT_FOUND,
@@ -281,7 +280,6 @@ class ErrorCodeMappingRobolectricTest {
             AppError.TIME_ENTRY_NOT_FOUND to "Eintrag nicht gefunden – bitte neu laden.",
             AppError.PROJECT_NOT_FOUND to "Projekt nicht gefunden – bitte neu laden.",
             AppError.PROJECT_SAVE_FAILED to "Projekt konnte nicht gespeichert werden.",
-            AppError.SPLIT_ENTRY_RUNNING to "Laufende Timer können nicht gesplittet werden — erst stoppen.",
             AppError.SPLIT_FAILED to "Eintrag konnte nicht gesplittet werden.",
             AppError.TEMPLATE_NOT_FOUND to "Vorlage nicht gefunden – bitte neu laden.",
             AppError.TEMPLATE_SAVE_FAILED to "Vorlage konnte nicht gespeichert werden.",

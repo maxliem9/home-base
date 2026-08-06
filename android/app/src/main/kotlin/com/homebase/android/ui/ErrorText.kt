@@ -37,7 +37,6 @@ fun AppError.stringRes(): Int = when (this) {
     AppError.TIME_ENTRY_NOT_FOUND -> R.string.error_time_entry_not_found
     AppError.PROJECT_NOT_FOUND -> R.string.error_project_not_found
     AppError.PROJECT_SAVE_FAILED -> R.string.error_project_save_failed
-    AppError.SPLIT_ENTRY_RUNNING -> R.string.error_split_entry_running
     AppError.SPLIT_FAILED -> R.string.error_split_failed
     AppError.TEMPLATE_NOT_FOUND -> R.string.error_template_not_found
     AppError.TEMPLATE_SAVE_FAILED -> R.string.error_template_save_failed

@@ -582,7 +582,7 @@ data class UpdateTimeEntryRequest(
     val description: String? = null,
 )
 
-/** Split a completed entry at a cut time (#66); breakMinutes = untracked gap before part two. */
+/** Split an entry — completed or running (#634) — at a cut time (#66); breakMinutes = untracked gap before part two. */
 @JsonClass(generateAdapter = true)
 data class SplitTimeEntryRequest(
     val splitAt: String,

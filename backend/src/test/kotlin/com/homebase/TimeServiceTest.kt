@@ -4,6 +4,7 @@ import com.homebase.db.ProjectsTable
 import com.homebase.db.TimeEntriesTable
 import com.homebase.db.TimeWorkTargetsTable
 import com.homebase.db.UsersTable
+import com.homebase.model.UpdateTimeEntryRequest
 import com.homebase.model.UpsertWorkTargetRequest
 import com.homebase.service.TimeService
 import kotlinx.coroutines.runBlocking
@@ -13,6 +14,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.BeforeTest
@@ -109,15 +111,46 @@ class TimeServiceTest {
     }
 
     @Test
-    fun `splitting a running timer is rejected`() = runBlocking {
+    fun `split cuts a running timer and keeps part two running`() = runBlocking {
         val project = newProject()
         val pid = UUID.fromString(project.id)
         val start = service.startTimer("alice", "alice", pid, null)
         assertTrue(start is TimeService.StartResult.Ok)
+        val id = UUID.fromString(start.started.id)
+        // backdate the running timer so a cut can lie in its past (it started "now")
+        val startedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).minusSeconds(4 * 3600)
+        service.updateEntry(id, UpdateTimeEntryRequest(), null, startedAt, null)
 
-        val r = service.splitEntry(UUID.fromString(start.started.id), Instant.now(), 0)
-        assertTrue(r is TimeService.SplitResult.Invalid)
-        assertEquals("ENTRY_RUNNING", r.error.code)
+        // cut two hours in, break 30 min — the forgotten-lunch-break case
+        val splitAt = startedAt.plusSeconds(2 * 3600)
+        val r = service.splitEntry(id, splitAt, breakMinutes = 30)
+        assertTrue(r is TimeService.SplitResult.Ok)
+        assertEquals(splitAt.toString(), r.response.first.stoppedAt)
+        assertEquals(splitAt.plusSeconds(30 * 60).toString(), r.response.second.startedAt)
+        assertNull(r.response.second.stoppedAt) // part two is still running
+        // and it is the only running timer of that user
+        val running = service.runningAll().filter { it.userId == "alice" }
+        assertEquals(listOf(r.response.second.id), running.map { it.id })
+    }
+
+    @Test
+    fun `splitting a running timer rejects a cut or break in the future`() = runBlocking {
+        val project = newProject()
+        val pid = UUID.fromString(project.id)
+        val start = service.startTimer("alice", "alice", pid, null)
+        assertTrue(start is TimeService.StartResult.Ok)
+        val id = UUID.fromString(start.started.id)
+        val startedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).minusSeconds(600)
+        service.updateEntry(id, UpdateTimeEntryRequest(), null, startedAt, null)
+
+        val future = service.splitEntry(id, Instant.now().plusSeconds(600), 0)
+        assertTrue(future is TimeService.SplitResult.Invalid)
+        assertEquals("INVALID_RANGE", future.error.code)
+
+        // cut is fine, but the break would end after now
+        val withBreak = service.splitEntry(id, startedAt.plusSeconds(60), breakMinutes = 60)
+        assertTrue(withBreak is TimeService.SplitResult.Invalid)
+        assertEquals("INVALID_RANGE", withBreak.error.code)
     }
 
     @Test

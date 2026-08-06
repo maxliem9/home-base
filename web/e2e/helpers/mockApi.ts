@@ -87,6 +87,8 @@ const TINY_PNG = Buffer.from(
  */
 export class MockApi {
   private silent = false
+  /** null = use the real clock; set via pinNow() for time-sensitive endpoints. */
+  private nowMs: number | null = null
   private householdName = 'Mäxchen'
   private password = 'geheim'
   // Per-digest config (#100/#182): time, in-app on/off, content-section selection. Defaults
@@ -281,6 +283,14 @@ export class MockApi {
 
   seedEntries(entries: TimeEntry[]): this {
     this.entries = entries.map((e) => ({ ...e }))
+    return this
+  }
+
+  /** Pins the mock's "now" (route handlers run in Node, so `page.clock` does not reach
+   *  them). Needed wherever the mock validates against the current time — e.g. splitting
+   *  a running entry (#634). Pass the same instant as `page.clock.setFixedTime`. */
+  pinNow(now: Date): this {
+    this.nowMs = now.getTime()
     return this
   }
 
@@ -1764,19 +1774,20 @@ export class MockApi {
       return this.jsonWithFrames(route, entry, 201, 'time', [{ type: 'ENTRY_CREATED', entry }])
     }
 
-    // Split a completed entry at a cut time with an optional untracked break,
-    // mirroring POST /time/entries/{id}/split (#62): part one keeps the id and
-    // ends at the cut, part two starts after the break and inherits the rest.
+    // Split an entry at a cut time with an optional untracked break, mirroring
+    // POST /time/entries/{id}/split (#62): part one keeps the id and ends at the
+    // cut, part two starts after the break and inherits the rest. On a *running*
+    // entry (#634) `now` takes the place of the missing stoppedAt and part two
+    // keeps running.
     const splitMatch = path.match(/\/time\/entries\/([^/]+)\/split$/)
     if (splitMatch && method === 'POST') {
       const idx = this.entries.findIndex((e) => e.id === splitMatch[1])
       if (idx === -1) return this.json(route, { code: 'NOT_FOUND', message: 'not found' }, 404)
       const e = this.entries[idx]
-      if (!e.stoppedAt) return this.json(route, { code: 'ENTRY_RUNNING', message: 'running' }, 409)
       const b = JSON.parse(req.postData() ?? '{}')
       const cut = Date.parse(b.splitAt)
       const started = Date.parse(e.startedAt)
-      const stopped = Date.parse(e.stoppedAt)
+      const stopped = e.stoppedAt ? Date.parse(e.stoppedAt) : (this.nowMs ?? Date.now())
       const secondStart = cut + (b.breakMinutes ?? 0) * 60000
       if (!(cut > started && cut < stopped) || !(secondStart < stopped) || (b.breakMinutes ?? 0) < 0) {
         return this.json(route, { code: 'INVALID_RANGE', message: 'bad cut' }, 400)
@@ -1787,7 +1798,8 @@ export class MockApi {
         ...e,
         id: `entry-${this.nextEntryId++}`,
         startedAt: new Date(secondStart).toISOString(),
-        durationSeconds: Math.floor((stopped - secondStart) / 1000),
+        // a running entry stays running: no stoppedAt, no duration
+        durationSeconds: e.stoppedAt ? Math.floor((stopped - secondStart) / 1000) : undefined,
         createdAt: ts,
         updatedAt: ts,
       }
