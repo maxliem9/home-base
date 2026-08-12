@@ -3,14 +3,16 @@
   Adaptive-Icon-Vordergrund — weißes Haus-Outline, 1:1-Port der Marke aus
   web/public/app-icon.svg. Dort steht die Figur auf einem 24er-Raster und wird per
   transform="translate(128,128) scale(10.6667)" in die 512er-Kachel gesetzt; hier ist
-  genau diese Transformation in die pathData eingerechnet (VectorDrawable-Konvention
-  dieser Datei seit #241), damit kein <group>-Scale die Strichstärke mitverzerrt.
+  genau diese Transformation in die pathData eingerechnet. Der Vorgänger-Mark nutzte
+  dafür zusätzlich ein <group android:scaleX/scaleY> — das skaliert aber auch die
+  Strichstärke mit, und die Figur ist jetzt eine Strich- statt einer Flächenfigur.
     stroke-width 2 * 10.6667 = 21.333
-    Eckpunkte: Giebel (256,160), Traufen (160/352, 234.667), Sockel y=352
+    Firstbogen-Scheitel (256, 149.3), Traufen (160/352, 234.667), Sockel y=352
 
   Safe zone: viewportWidth ist das native 512er-Raster. Der am weitesten außen
-  liegende gezeichnete Punkt sind die unteren Hausecken — Abstand zur Canvas-Mitte
-  ~132 (inkl. halber Strichstärke) gegen den 66dp-Safe-Kreis mit Radius 156.4 im
+  liegende gezeichnete Punkt liegt auf den unteren Rundungen — deren Bogenmittelpunkt
+  ist 105.6 von der Canvas-Mitte entfernt, plus Bogenradius 21.333 plus halbe
+  Strichstärke 10.667 = 137.6. Dagegen steht der 66dp-Safe-Kreis mit Radius 156.4 im
   512er-Raum. Nichts Wichtiges wird von einer Kreis-/Squircle-Maske beschnitten,
   ein zusätzlicher <group>-Inset ist deshalb nicht nötig.
 

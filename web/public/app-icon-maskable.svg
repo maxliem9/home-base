@@ -2,8 +2,9 @@
   <!--
     Maskable-Variante von app-icon.svg: randlose Kachel (keine eigene Rundung, kein
     Rand) — die Form macht die OS-Maske. Die Marke bleibt identisch positioniert und
-    liegt damit in der zentralen Safe-Zone: maximaler Abstand eines gezeichneten
-    Punktes vom Mittelpunkt sind die unteren Hausecken mit ~132px < 205px (80%-Kreis).
+    liegt damit in der zentralen Safe-Zone: der maximale Abstand eines gezeichneten
+    Punktes vom Mittelpunkt liegt auf den unteren Rundungen (Bogenmittelpunkt 105.6
+    + Radius 21.333 + halbe Strichstärke 10.667 = 137.6px) < 205px (80%-Kreis).
   -->
   <rect x="0" y="0" width="512" height="512" fill="#8C5A4E"></rect>
 

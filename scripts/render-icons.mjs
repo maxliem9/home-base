@@ -15,13 +15,21 @@
  * Nach jeder Änderung an einer der drei SVG-Quellen erneut laufen lassen und die
  * erzeugten PNGs mit committen.
  */
-import { chromium } from '../web/node_modules/playwright/index.mjs'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const WEB = join(ROOT, 'web/public')
+
+// `@playwright/test` ist die in web/package.json deklarierte Dependency (das flache
+// `playwright` liegt dort nur als gehoistete Transitive und ist kein Vertrag). Über
+// createRequire aus web/ heraus auflösen — gleiche Mechanik wie das NODE_PATH in
+// scripts/screenshots/render-web.sh, nur ohne Wrapper-Shell. Das Paket ist CJS,
+// deshalb require statt import().
+const webRequire = createRequire(join(ROOT, 'web', 'package.json'))
+const { chromium } = webRequire('@playwright/test')
 
 /** [SVG-Quelle, Zielpfad, Kantenlänge in px] */
 const TARGETS = [
@@ -47,18 +55,22 @@ const TARGETS = [
 ]
 
 const browser = await chromium.launch()
-const page = await browser.newPage({ deviceScaleFactor: 1 })
+try {
+  const page = await browser.newPage({ deviceScaleFactor: 1 })
 
-for (const [src, out, size] of TARGETS) {
-  const svg = readFileSync(join(WEB, src), 'utf8')
-  await page.setViewportSize({ width: size, height: size })
-  await page.setContent(
-    `<style>html,body{margin:0;padding:0;background:transparent}
-     svg{display:block;width:${size}px;height:${size}px}</style>${svg}`,
-  )
-  const png = await page.screenshot({ omitBackground: true })
-  writeFileSync(join(ROOT, out), png)
-  console.log(`${out.padEnd(56)} ${size}x${size}  ${png.length}B  <- ${src}`)
+  for (const [src, out, size] of TARGETS) {
+    const svg = readFileSync(join(WEB, src), 'utf8')
+    await page.setViewportSize({ width: size, height: size })
+    await page.setContent(
+      `<style>html,body{margin:0;padding:0;background:transparent}
+       svg{display:block;width:${size}px;height:${size}px}</style>${svg}`,
+    )
+    const png = await page.screenshot({ omitBackground: true })
+    writeFileSync(join(ROOT, out), png)
+    console.log(`${out.padEnd(56)} ${size}x${size}  ${png.length}B  <- ${src}`)
+  }
+} finally {
+  // Ohne finally bleibt bei jedem Fehler (fehlendes Browser-Binary, unlesbares SVG)
+  // ein Chromium-Prozess stehen.
+  await browser.close()
 }
-
-await browser.close()

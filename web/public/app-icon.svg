@@ -7,7 +7,7 @@
 
     Kachel: rx/Seite = 116/480 = 0.242 (Squircle-Anmutung wie bisher).
     Marke: Haus-Outline auf 24er-Raster, per transform auf die Mitte skaliert
-    (translate(128,128) scale(10.6667) => Glyphe 213x213px, ~42% der Kachel).
+    (translate(128,128) scale(10.6667) => Glyphe 213x213px, ~42% des Canvas).
     Weil die Gruppe skaliert, skaliert stroke-width mit: 2 * 10.6667 = 21.3px.
   -->
   <rect x="16" y="16" width="480" height="480" rx="116" fill="#8C5A4E"></rect>

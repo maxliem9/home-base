@@ -2,8 +2,8 @@
   <!--
     Favicon-Variante der Marke (app-icon.svg). Bewusst NICHT 1:1 herunterskaliert:
     bei 16px wäre der 4.2%-Strich des großen Icons unter 1px und würde weggrauen.
-    Deshalb hier Glyphe etwas größer (~48% statt ~42% der Kachel) und Strich dicker
-    (stroke-width 2.6 statt 2 auf dem 24er-Raster => ~6.9% der Kachel).
+    Deshalb hier Glyphe etwas größer (~55% statt ~42% des Canvas) und Strich dicker
+    (stroke-width 2.6 statt 2 auf dem 24er-Raster => ~6.9% des Canvas).
   -->
   <rect x="2" y="2" width="60" height="60" rx="14.5" fill="#8C5A4E"></rect>
 
