@@ -26,7 +26,10 @@
  * Served from /sw.js at the origin root so its scope covers the whole app.
  */
 
-const CACHE = 'homebase-shell-v1'
+// Version mitziehen, wenn sich eine der cache-first ausgelieferten Dateien aus
+// SHELL_URLS ändert — sonst behalten installierte Clients die alten Assets.
+// v2: neues App-Icon/Favicon (Haus-Outline auf Ton-Kachel).
+const CACHE = 'homebase-shell-v2'
 
 // Static files we can name up-front (all live in web/public/, copied to the dist root). index.html
 // is the SPA entry / navigation fallback. The hashed /assets/* are discovered at install time from

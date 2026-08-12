@@ -1,31 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="HomeBase">
-  <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="oklch(0.6 0.094 38)"></stop>
-      <stop offset="1" stop-color="oklch(0.48 0.088 32)"></stop>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"></stop>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"></stop>
-    </linearGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="oklch(0.3 0.05 35)" flood-opacity="0.28"></feDropShadow>
-    </filter>
-  </defs>
+  <!--
+    HomeBase App-Icon: flache Ton-Kachel + weißes Haus-Outline.
+    Ablösung des früheren "Zwei Dächer"-Marks (HB-06 / #240) — bewusst reduziert:
+    keine Verläufe, kein Schlagschatten, eine einzige Strichfigur. Das trägt bis
+    16px runter und bleibt in hell wie dunkel lesbar.
 
-  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#tile)"></rect>
-  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#sheen)"></rect>
-  <rect x="16.75" y="16.75" width="478.5" height="478.5" rx="115.25" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1.5"></rect>
+    Kachel: rx/Seite = 116/480 = 0.242 (Squircle-Anmutung wie bisher).
+    Marke: Haus-Outline auf 24er-Raster, per transform auf die Mitte skaliert
+    (translate(128,128) scale(10.6667) => Glyphe 213x213px, ~42% der Kachel).
+    Weil die Gruppe skaliert, skaliert stroke-width mit: 2 * 10.6667 = 21.3px.
+  -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="#8C5A4E"></rect>
 
-  <g filter="url(#soft)">
-    
-    <path d="M300 224 L360 284 L360 360 Q360 370 350 370 L266 370 L266 284 Z" fill="oklch(0.66 0.07 150)"></path>
-    
-    <path d="M202 188 L286 272 L286 360 Q286 370 276 370 L160 370 Q150 370 150 360 L150 272 Z" fill="oklch(0.965 0.018 95)"></path>
-    
-    <path d="M196 370 L196 322 Q196 300 218 300 Q240 300 240 322 L240 370 Z" fill="oklch(0.52 0.092 34)"></path>
+  <g transform="translate(128,128) scale(10.6666667)" fill="none" stroke="#FFFFFF"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
   </g>
-  
-  <rect x="150" y="386" width="216" height="20" rx="10" fill="oklch(0.965 0.018 95)" fill-opacity="0.55"></rect>
-  <rect x="182" y="418" width="104" height="14" rx="7" fill="oklch(0.965 0.018 95)" fill-opacity="0.3"></rect>
 </svg>

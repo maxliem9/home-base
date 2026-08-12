@@ -1,15 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="HomeBase">
-  <defs>
-    <linearGradient id="ft" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="oklch(0.6 0.094 38)"></stop>
-      <stop offset="1" stop-color="oklch(0.48 0.088 32)"></stop>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#ft)"></rect>
-  
-  <path d="M37 26 L45 34 L45 47 Q45 49 43 49 L33 49 L33 34 Z" fill="oklch(0.66 0.07 150)"></path>
-  
-  <path d="M16 22 L27 12 L38 22 L38 47 Q38 49 36 49 L18 49 Q16 49 16 47 Z" fill="oklch(0.965 0.018 95)"></path>
-  
-  <path d="M22 49 L22 39 Q22 34 27 34 Q32 34 32 39 L32 49 Z" fill="oklch(0.52 0.092 34)"></path>
+  <!--
+    Favicon-Variante der Marke (app-icon.svg). Bewusst NICHT 1:1 herunterskaliert:
+    bei 16px wäre der 4.2%-Strich des großen Icons unter 1px und würde weggrauen.
+    Deshalb hier Glyphe etwas größer (~48% statt ~42% der Kachel) und Strich dicker
+    (stroke-width 2.6 statt 2 auf dem 24er-Raster => ~6.9% der Kachel).
+  -->
+  <rect x="2" y="2" width="60" height="60" rx="14.5" fill="#8C5A4E"></rect>
+
+  <g transform="translate(11.6,11.6) scale(1.7)" fill="none" stroke="#FFFFFF"
+     stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+  </g>
 </svg>
