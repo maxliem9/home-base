@@ -1,62 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Adaptive-icon foreground layer — the "Zwei Dächer" mark (two houses + door + ground
-  bars), HB-06 / #240. Faithful 1:1 port of the <path>/<rect> geometry in
-  web/public/app-icon.svg (512x512 viewBox): the android:pathData below uses the SVG's
-  exact path coordinates. The rounded ground bars are translated to rounded-rect paths.
+  Adaptive-Icon-Vordergrund — weißes Haus-Outline, 1:1-Port der Marke aus
+  web/public/app-icon.svg. Dort steht die Figur auf einem 24er-Raster und wird per
+  transform="translate(128,128) scale(10.6667)" in die 512er-Kachel gesetzt; hier ist
+  genau diese Transformation in die pathData eingerechnet. Der Vorgänger-Mark nutzte
+  dafür zusätzlich ein <group android:scaleX/scaleY> — das skaliert aber auch die
+  Strichstärke mit, und die Figur ist jetzt eine Strich- statt einer Flächenfigur.
+    stroke-width 2 * 10.6667 = 21.333
+    Firstbogen-Scheitel (256, 149.3), Traufen (160/352, 234.667), Sockel y=352
 
-  Fill colors were oklch() in the SVG; converted to sRGB hex (validated against the
-  rendered web/public/maskable-512.png):
-    green back house oklch(0.66  0.07  150) -> #739F7C
-    cream front house oklch(0.965 0.018  95) -> #F7F4E6
-    door             oklch(0.52  0.092  34) -> #965445
-    ground bars      oklch(0.965 0.018  95) @ 0.55 / 0.30 alpha -> #F7F4E6 with alpha
-  (The SVG's soft drop-shadow filter is intentionally dropped — VectorDrawable has no
-  feDropShadow; the flat mark reads cleanly at launcher sizes.)
+  Safe zone: viewportWidth ist das native 512er-Raster. Der am weitesten außen
+  liegende gezeichnete Punkt liegt auf den unteren Rundungen — deren Bogenmittelpunkt
+  ist 105.6 von der Canvas-Mitte entfernt, plus Bogenradius 21.333 plus halbe
+  Strichstärke 10.667 = 137.6. Dagegen steht der 66dp-Safe-Kreis mit Radius 156.4 im
+  512er-Raum. Nichts Wichtiges wird von einer Kreis-/Squircle-Maske beschnitten,
+  ein zusätzlicher <group>-Inset ist deshalb nicht nötig.
 
-  Safe zone: viewport is the SVG's native 512 grid. The <group> scales the mark to 0.92
-  and recenters its content bounding box (x[150..366] y[188..432], center 258,310) onto
-  the canvas center (256,256). At 0.92 the full content half-diagonal is 149.9 < the
-  adaptive 66dp safe-circle radius (156.4 in 512-space) — nothing important is clipped by
-  a circle/squircle mask. The centered content lands at exactly (54dp,54dp) of the 108dp
-  canvas.
+  Wird zusätzlich als <monochrome> für die Themed Icons ab Android 13 verwendet
+  (das System tint't die Figur dort; die Strichfarbe hier ist dann irrelevant).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="512"
     android:viewportHeight="512">
-    <group
-        android:scaleX="0.92"
-        android:scaleY="0.92"
-        android:translateX="18.64"
-        android:translateY="-29.2">
-
-        <!-- green back house (roof + body) -->
-        <path
-            android:fillColor="#739F7C"
-            android:pathData="M300,224 L360,284 L360,360 Q360,370 350,370 L266,370 L266,284 Z" />
-
-        <!-- cream front house (roof + body) -->
-        <path
-            android:fillColor="#F7F4E6"
-            android:pathData="M202,188 L286,272 L286,360 Q286,370 276,370 L160,370 Q150,370 150,360 L150,272 Z" />
-
-        <!-- door (arched, in the front house) -->
-        <path
-            android:fillColor="#965445"
-            android:pathData="M196,370 L196,322 Q196,300 218,300 Q240,300 240,322 L240,370 Z" />
-
-        <!-- ground bar 1: rect x=150 y=386 w=216 h=20 rx=10, cream @ 55% -->
-        <path
-            android:fillColor="#F7F4E6"
-            android:fillAlpha="0.55"
-            android:pathData="M160,386 L356,386 Q366,386 366,396 Q366,406 356,406 L160,406 Q150,406 150,396 Q150,386 160,386 Z" />
-
-        <!-- ground bar 2: rect x=182 y=418 w=104 h=14 rx=7, cream @ 30% -->
-        <path
-            android:fillColor="#F7F4E6"
-            android:fillAlpha="0.3"
-            android:pathData="M189,418 L279,418 Q286,418 286,425 Q286,432 279,432 L189,432 Q182,432 182,425 Q182,418 189,418 Z" />
-    </group>
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="21.333"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M160,234.667 a21.333,21.333 0 0 1 7.563,-16.299 l74.667,-63.989 a21.333,21.333 0 0 1 27.541,0 l74.667,63.989 A21.333,21.333 0 0 1 352,234.667 V330.667 a21.333,21.333 0 0 1 -21.333,21.333 H181.333 a21.333,21.333 0 0 1 -21.333,-21.333 Z" />
 </vector>
