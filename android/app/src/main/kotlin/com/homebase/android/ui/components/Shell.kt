@@ -357,8 +357,13 @@ fun HbBottomSheet(
                 }
             }
             Column(
+                // weight(fill = false) always — not just for `full`: an unweighted scroll column is
+                // measured first and eats the sheet's whole height, leaving 0dp for the footer, so a
+                // long list (e.g. recipe ingredients) pushed the action buttons off-screen (#348-Falle
+                // in Sheet-Form). Weighted, the footer measures first and keeps its height; `fill =
+                // false` still lets a short sheet stay short.
                 Modifier
-                    .then(if (full) Modifier.weight(1f, fill = false) else Modifier)
+                    .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
