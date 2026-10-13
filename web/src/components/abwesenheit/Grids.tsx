@@ -55,7 +55,9 @@ export function AbwLegend({ userIds, pal }: { userIds: string[]; pal: Palette })
 export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
   const { t } = useTranslation()
   const year = ctx.year
-  const [uA, uB] = userIds
+  // One visible person (person filter) → both triangle halves show that person.
+  const [uA, uB = uA] = userIds
+  const single = uA === uB
   const months = C.MON_ABBR
   const cells: ReactNode[] = []
 
@@ -81,7 +83,7 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
       const custom = ctx.customHol[ds.slice(5)]
       const showCustom = custom && !ctx.holidays[uA][ds]
       const halfHol = a.holidayHalf
-      const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)} · ${nameOf(uB)}: ${statusLabel(b)}`
+      const title = `${ds} · ${nameOf(uA)}: ${statusLabel(a)}${single ? '' : ` · ${nameOf(uB)}: ${statusLabel(b)}`}`
         + (showCustom ? ` · ${custom.label}${custom.half ? ' (½)' : ''}` : '')
         + (kita ? ` · ${t('abwesenheit.kitaShort')}: ${kita.label}` : '')
       cells.push(
@@ -93,7 +95,7 @@ export function JahresRaster({ ctx, pal, userIds, today, onPick }: GridProps) {
           onClick={(e) => onPick(ds, e)}
         >
           {a.half ? <span className="abw-rcell__h abw-rcell__h--a">{a.half === 'vm' ? 'AM' : 'PM'}</span> : null}
-          {b.half ? <span className="abw-rcell__h abw-rcell__h--b">{b.half === 'vm' ? 'AM' : 'PM'}</span> : null}
+          {!single && b.half ? <span className="abw-rcell__h abw-rcell__h--b">{b.half === 'vm' ? 'AM' : 'PM'}</span> : null}
           {halfHol ? <span className="abw-rcell__half" aria-hidden="true">½</span> : null}
         </button>,
       )

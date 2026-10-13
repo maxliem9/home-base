@@ -1054,6 +1054,8 @@ export const de = {
     layoutAria: 'Ansicht', // aria-label des Jahr/Monat-Umschalters (role=tablist)
     layoutYear: 'Jahr',
     layoutMonth: 'Monat',
+    personFilterAria: 'Person', // aria-label des Personen-Filters (Alle / eine Person)
+    personFilterAll: 'Alle',
     period: 'Zeitraum',
     today: 'Heute',
     prevYear: 'Vorheriges Jahr',

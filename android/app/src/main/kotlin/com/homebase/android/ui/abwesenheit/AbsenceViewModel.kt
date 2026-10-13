@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.homebase.android.data.model.AbsenceStateDto
 import com.homebase.android.data.model.UpdateAbsSettingsRequest
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
+import com.homebase.android.data.abwesenheit.AbsenceViewPrefs
 import com.homebase.android.data.cache.SnapshotStore
 import com.homebase.android.data.repository.AbsenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,8 @@ data class AbsenceUiState(
     val data: AbsenceStateDto = AbsenceStateDto(),
     val isLoading: Boolean = true,
     val error: String? = null,
+    /** Person filter: null = everyone, else only that user's days (view-only, persisted per device). */
+    val personFilter: String? = null,
 )
 
 /**
@@ -39,6 +42,8 @@ class AbsenceViewModel(
     // The default keeps the raw exception message (for tests); MainActivity injects the Context-backed
     // resolver so the data layer stays text-free.
     private val errorText: (Throwable) -> String? = { it.message },
+    /** Persists the person filter across screen switches/restarts; null in tests → in-memory only. */
+    private val viewPrefs: AbsenceViewPrefs? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AbsenceUiState())
@@ -52,6 +57,17 @@ class AbsenceViewModel(
         load()
         observeWebSocket()
         restoreAndMirrorSnapshot()
+        viewPrefs?.let { prefs ->
+            viewModelScope.launch {
+                val saved = prefs.loadPersonFilter()
+                _uiState.update { it.copy(personFilter = saved) }
+            }
+        }
+    }
+
+    fun setPersonFilter(userId: String?) {
+        _uiState.update { it.copy(personFilter = userId) }
+        viewPrefs?.let { prefs -> viewModelScope.launch { prefs.savePersonFilter(userId) } }
     }
 
     fun load() {

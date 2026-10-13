@@ -1051,6 +1051,8 @@ export const en: Messages = {
     layoutAria: 'View', // aria-label for the year/month switcher (role=tablist)
     layoutYear: 'Year',
     layoutMonth: 'Month',
+    personFilterAria: 'Person', // aria-label for the person filter (all / one person)
+    personFilterAll: 'All',
     period: 'Period',
     today: 'Today',
     prevYear: 'Previous year',
