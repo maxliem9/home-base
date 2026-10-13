@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,6 +110,10 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
     var showRange by remember { mutableStateOf(false) }
     var rangePrefill by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    // Person filter: null = everyone, else only that person's days/summary. A stale id
+    // (user no longer in the household) falls back to everyone.
+    var personFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    val visibleIds = personFilter?.takeIf { it in userIds }?.let { listOf(it) } ?: userIds
 
     // Per-user avatar-hue overrides (Teil von #100): a chosen colour wins over the derived person
     // hue, so the calendar matches the avatars. Keyed into remember so it recolours on load.
@@ -141,6 +146,17 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                 modifier = Modifier.padding(horizontal = 18.dp),
             )
 
+            if (userIds.size > 1) {
+                Spacer(Modifier.size(10.dp))
+                val filterOptions = listOf<String?>(null) + userIds
+                HbSegmented(
+                    options = filterOptions.map { it?.let { uid -> displayName(uid) } ?: stringResource(R.string.absence_filter_all) },
+                    selectedIndex = filterOptions.indexOf(visibleIds.singleOrNull()),
+                    onSelect = { personFilter = filterOptions[it] },
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            }
+
             Spacer(Modifier.size(16.dp))
 
             when {
@@ -149,12 +165,12 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                 userIds.isEmpty() ->
                     Text(stringResource(R.string.absence_load_failed), style = HbType.meta, color = Hb.ink3, modifier = Modifier.padding(horizontal = 18.dp))
                 else -> {
-                    SummaryCard(ctx, userIds, today)
+                    SummaryCard(ctx, visibleIds, today)
                     Spacer(Modifier.size(16.dp))
 
                     if (isMonth) {
                         MonthGrid(
-                            ctx = ctx, userIds = userIds, today = today, year = year, month = month,
+                            ctx = ctx, userIds = visibleIds, today = today, year = year, month = month,
                             onMonth = { newM ->
                                 if (newM < 0) { month = 11; year -= 1 }
                                 else if (newM > 11) { month = 0; year += 1 }
@@ -164,25 +180,25 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                         )
                     } else {
                         YearGrid(
-                            ctx = ctx, userIds = userIds, today = today, year = year,
+                            ctx = ctx, userIds = visibleIds, today = today, year = year,
                             onYear = { year = it },
                             onPick = { editDs = it },
                         )
                     }
 
                     Spacer(Modifier.size(16.dp))
-                    Legend(userIds)
+                    Legend(visibleIds)
                 }
             }
         }
 
         // --- Sheets ---------------------------------------------------------
         editDs?.let { ds ->
-            DayEditorSheet(ctx = ctx, ds = ds, userIds = userIds, vm = viewModel, onDismiss = { editDs = null })
+            DayEditorSheet(ctx = ctx, ds = ds, userIds = visibleIds, vm = viewModel, onDismiss = { editDs = null })
         }
         if (showRange) {
             RangeSheet(
-                data = data, userIds = userIds, prefill = rangePrefill, vm = viewModel,
+                data = data, userIds = userIds, initialTargets = visibleIds, prefill = rangePrefill, vm = viewModel,
                 onDismiss = { showRange = false },
             )
         }
@@ -709,12 +725,15 @@ private fun ToggleSwitch(on: Boolean, onClick: () -> Unit) {
 private fun RangeSheet(
     data: AbsenceStateDto,
     userIds: List<String>,
+    // Preselected = the active person filter, so a period booked while viewing one person
+    // doesn't silently include the other. Everyone stays pickable.
+    initialTargets: List<String>,
     prefill: Pair<String, String>?,
     vm: AbsenceViewModel,
     onDismiss: () -> Unit,
 ) {
     val todayStr = AbwCal.ymd(LocalDate.now())
-    var targets by remember { mutableStateOf(userIds.toSet()) }
+    var targets by remember { mutableStateOf(initialTargets.toSet()) }
     var type by remember { mutableStateOf<String?>(AbsTypes.URLAUB) }
     var von by remember { mutableStateOf(prefill?.first ?: todayStr) }
     var bis by remember { mutableStateOf(prefill?.second ?: todayStr) }

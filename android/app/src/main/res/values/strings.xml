@@ -562,6 +562,7 @@
     <string name="absence_fab">Zeitraum</string>
     <string name="absence_view_year">Jahr</string>
     <string name="absence_view_month">Monat</string>
+    <string name="absence_filter_all">Alle</string>
     <string name="absence_load_failed">Kalender konnte nicht geladen werden.</string>
     <string name="absence_remaining">ÜBRIG</string>
     <string name="absence_summary_meta">%1$s · Anspruch %2$s</string>

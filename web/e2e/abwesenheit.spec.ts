@@ -91,6 +91,38 @@ test.describe('Abwesenheit', () => {
     await page.screenshot({ path: `${SHOTS}/abw-month.png`, fullPage: true })
   })
 
+  test('person filter shows only one person and survives a reload', async ({ page }) => {
+    await open(page, seeded())
+    const filter = page.getByRole('tablist', { name: 'Person' })
+    await filter.getByRole('tab', { name: 'Lea' }).click()
+    await expect(filter.getByRole('tab', { name: 'Lea' })).toHaveAttribute('aria-selected', 'true')
+    await expect(filter.getByRole('tab', { name: 'Alle' })).toHaveAttribute('aria-selected', 'false')
+
+    // only Lea's summary card; the year-grid tooltip no longer mentions Max
+    await expect(page.locator('.abw-sumcard__name', { hasText: 'Lea' })).toBeVisible()
+    await expect(page.locator('.abw-sumcard__name', { hasText: 'Max' })).toHaveCount(0)
+    await expect(page.locator('button.abw-rcell--day[title^="2026-03-16"]')).toHaveAttribute('title', /^2026-03-16 · Lea: [^·]+$/)
+    await page.mouse.move(0, 0)
+    await page.screenshot({ path: `${SHOTS}/abw-person-filter.png`, fullPage: true })
+
+    // day editor only offers Lea
+    await page.locator('button.abw-rcell--day[title^="2026-06-10"]').click()
+    const sheet = page.locator('.hb-sheet')
+    await expect(sheet.locator('.abw-ed-person')).toHaveCount(1)
+    await expect(sheet.locator('.abw-ed-person__name')).toHaveText('Lea')
+    await page.keyboard.press('Escape')
+
+    // per-viewer choice is remembered
+    await page.reload()
+    await page.getByRole('button', { name: 'Kalender', exact: true }).click()
+    await expect(page.getByRole('tablist', { name: 'Person' }).getByRole('tab', { name: 'Lea' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.abw-sumcard')).toHaveCount(1)
+
+    // "Alle" brings both back
+    await page.getByRole('tablist', { name: 'Person' }).getByRole('tab', { name: 'Alle' }).click()
+    await expect(page.locator('.abw-sumcard')).toHaveCount(2)
+  })
+
   test('opens the day editor and books vacation for a person', async ({ page }) => {
     await open(page, seeded())
 

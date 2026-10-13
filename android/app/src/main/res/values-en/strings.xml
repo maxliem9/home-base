@@ -550,6 +550,7 @@
     <string name="absence_fab">Period</string>
     <string name="absence_view_year">Year</string>
     <string name="absence_view_month">Month</string>
+    <string name="absence_filter_all">All</string>
     <string name="absence_load_failed">Calendar could not be loaded.</string>
     <string name="absence_remaining">LEFT</string>
     <string name="absence_summary_meta">%1$s · Entitlement %2$s</string>

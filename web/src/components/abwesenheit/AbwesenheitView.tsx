@@ -30,6 +30,16 @@ const ddmm = (ds?: string | null): string => {
   const d = C.parse(ds)
   return `${d.getDate()}.${d.getMonth() + 1}.`
 }
+// Person filter ("only Max's vacations"): a per-viewer convenience, so plain localStorage
+// (guarded — private mode / blocked storage just falls back to "all").
+const FILTER_KEY = 'homebase_absence_person_filter'
+const ALL = 'all'
+const readFilter = (): string => {
+  try { return localStorage.getItem(FILTER_KEY) ?? ALL } catch { return ALL }
+}
+const writeFilter = (v: string) => {
+  try { localStorage.setItem(FILTER_KEY, v) } catch { /* ignore */ }
+}
 const currentTheme = (): Theme => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light')
 
 interface ViewProps {
@@ -48,11 +58,18 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
   const [anchor, setAnchor] = useState<string | null>(null)
   const [rangeOpen, setRangeOpen] = useState(false)
   const [rangePrefill, setRangePrefill] = useState<{ von: string; bis: string } | null>(null)
+  const [personFilter, setPersonFilterState] = useState<string>(readFilter)
+  const setPersonFilter = (v: string) => { setPersonFilterState(v); writeFilter(v) }
   // --- derived --------------------------------------------------------------
   const theme = currentTheme()
   const pal = useMemo(() => palette(theme), [theme])
   const userIds = data.users
   const ctx = useMemo(() => buildContext(data, year, userIds), [data, year, userIds])
+  // A stale filter (user no longer in the household) silently falls back to everyone.
+  const visibleIds = useMemo(
+    () => (personFilter !== ALL && userIds.includes(personFilter) ? [personFilter] : userIds),
+    [personFilter, userIds],
+  )
   const today = C.ymd(new Date())
 
   // single click → day editor; shift-click after a first click → period editor
@@ -88,6 +105,17 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
               { value: 'monat', label: t('abwesenheit.layoutMonth') },
             ]}
           />
+          {userIds.length > 1 ? (
+            <SegmentedControl
+              value={visibleIds.length === 1 ? visibleIds[0] : ALL}
+              onChange={setPersonFilter}
+              ariaLabel={t('abwesenheit.personFilterAria')}
+              options={[
+                { value: ALL, label: t('abwesenheit.personFilterAll') },
+                ...userIds.map((uid) => ({ value: uid, label: nameOf(uid) })),
+              ]}
+            />
+          ) : null}
           <Button variant="secondary" icon="plus" onClick={openRange}>{t('abwesenheit.period')}</Button>
         </div>
       </div>
@@ -99,13 +127,13 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
       ) : (
         <>
           <div className="abw-sumgrid">
-            {userIds.map((uid) => (
+            {visibleIds.map((uid) => (
               <AbwSummaryCard key={uid} uid={uid} sum={summarize(ctx, uid, today)} hue={ctx.hue[uid]} pal={pal} />
             ))}
           </div>
 
           <div className="abw-legendrow">
-            <AbwLegend userIds={userIds} pal={pal} />
+            <AbwLegend userIds={visibleIds} pal={pal} />
             <div className="abw-legendrow__right">
               <span className="abw-hint">{t('abwesenheit.clickHint')}</span>
               {layout === 'monat' ? (
@@ -116,16 +144,16 @@ export function AbwesenheitView({ token, onLogout }: ViewProps) {
 
           <Card className="abw-gridcard">
             {layout === 'raster' ? (
-              <JahresRaster ctx={ctx} pal={pal} userIds={userIds} today={today} onPick={onPick} />
+              <JahresRaster ctx={ctx} pal={pal} userIds={visibleIds} today={today} onPick={onPick} />
             ) : (
-              <MonatsKalender ctx={ctx} pal={pal} userIds={userIds} today={today} onPick={onPick} month={month} setMonth={setMonth} />
+              <MonatsKalender ctx={ctx} pal={pal} userIds={visibleIds} today={today} onPick={onPick} month={month} setMonth={setMonth} />
             )}
           </Card>
         </>
       )}
 
-      {editDs ? <AbwDayEditor ctx={ctx} ds={editDs} api={api} userIds={userIds} onClose={() => setEditDs(null)} /> : null}
-      {rangeOpen ? <AbwRangeModal data={data} api={api} userIds={userIds} prefill={rangePrefill} onClose={() => setRangeOpen(false)} /> : null}
+      {editDs ? <AbwDayEditor ctx={ctx} ds={editDs} api={api} userIds={visibleIds} onClose={() => setEditDs(null)} /> : null}
+      {rangeOpen ? <AbwRangeModal data={data} api={api} userIds={userIds} initialTargets={visibleIds} prefill={rangePrefill} onClose={() => setRangeOpen(false)} /> : null}
 
       {errorToast}
     </div>
@@ -267,15 +295,18 @@ function AbwDayEditor({ ctx, ds, api, userIds, onClose }: { ctx: Ctx; ds: string
 }
 
 /* ---------- Zeitraum (period) editor ---------- */
-function AbwRangeModal({ data, api, userIds, prefill, onClose }: {
+function AbwRangeModal({ data, api, userIds, initialTargets, prefill, onClose }: {
   data: AbsenceState
   api: Api
   userIds: string[]
+  // Preselected people — the active person filter, so "Zeitraum" while viewing only
+  // one person doesn't silently book the other one too. Everyone stays pickable.
+  initialTargets: string[]
   prefill: { von: string; bis: string } | null
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const [targets, setTargets] = useState<string[]>(userIds.slice())
+  const [targets, setTargets] = useState<string[]>(initialTargets.slice())
   const [type, setType] = useState<AbsenceType | null>('URLAUB')
   const [von, setVon] = useState(prefill?.von ?? C.ymd(new Date()))
   const [bis, setBis] = useState(prefill?.bis ?? C.ymd(new Date()))
