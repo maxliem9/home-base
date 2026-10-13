@@ -17,6 +17,7 @@ import com.homebase.android.data.repository.TimeRepository
 import com.homebase.android.data.repository.TodoRepository
 import com.homebase.android.data.repository.isUnauthorized
 import com.homebase.android.data.abwesenheit.AbsenceSnapshot
+import com.homebase.android.data.abwesenheit.AbsenceViewPrefs
 import com.homebase.android.data.aufgaben.TodoSnapshot
 import com.homebase.android.data.recipes.RecipesSnapshot
 import com.homebase.android.data.time.TimeSnapshot
@@ -234,6 +235,7 @@ class AppContainer(context: Context) {
     )
 
     /** Durable "last-known planner snapshot" cache for the Familienkalender (#520). */
+    val absenceViewPrefs: AbsenceViewPrefs = AbsenceViewPrefs(context)
     val absenceSnapshotStore: SnapshotStore<AbsenceSnapshot> = SharedPrefsSnapshotStore(
         context = context,
         adapter = moshi.adapter(AbsenceSnapshot::class.java),

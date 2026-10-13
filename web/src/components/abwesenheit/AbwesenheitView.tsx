@@ -33,7 +33,7 @@ const ddmm = (ds?: string | null): string => {
 // Person filter ("only Max's vacations"): a per-viewer convenience, so plain localStorage
 // (guarded — private mode / blocked storage just falls back to "all").
 const FILTER_KEY = 'homebase_absence_person_filter'
-const ALL = 'all'
+const ALL = '__all__' // sentinel outside the username space
 const readFilter = (): string => {
   try { return localStorage.getItem(FILTER_KEY) ?? ALL } catch { return ALL }
 }

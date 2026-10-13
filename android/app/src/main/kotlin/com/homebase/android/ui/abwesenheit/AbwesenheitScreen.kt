@@ -35,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,10 +109,9 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
     var showRange by remember { mutableStateOf(false) }
     var rangePrefill by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    // Person filter: null = everyone, else only that person's days/summary. A stale id
-    // (user no longer in the household) falls back to everyone.
-    var personFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    val visibleIds = personFilter?.takeIf { it in userIds }?.let { listOf(it) } ?: userIds
+    // Person filter (persisted in the VM): null = everyone, else only that person's days/summary.
+    // A stale id (user no longer in the household) falls back to everyone.
+    val visibleIds = state.personFilter?.takeIf { it in userIds }?.let { listOf(it) } ?: userIds
 
     // Per-user avatar-hue overrides (Teil von #100): a chosen colour wins over the derived person
     // hue, so the calendar matches the avatars. Keyed into remember so it recolours on load.
@@ -152,7 +150,7 @@ fun AbwesenheitScreen(viewModel: AbsenceViewModel, onOpenDrawer: () -> Unit) {
                 HbSegmented(
                     options = filterOptions.map { it?.let { uid -> displayName(uid) } ?: stringResource(R.string.absence_filter_all) },
                     selectedIndex = filterOptions.indexOf(visibleIds.singleOrNull()),
-                    onSelect = { personFilter = filterOptions[it] },
+                    onSelect = { viewModel.setPersonFilter(filterOptions[it]) },
                     modifier = Modifier.padding(horizontal = 18.dp),
                 )
             }

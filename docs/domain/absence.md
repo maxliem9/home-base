@@ -30,9 +30,10 @@ berechnet.
 
 - **Personen-Filter (Ansicht):** „Alle | <Person> …" im Kopf des Planers (Web + Android) blendet
   Summenkarte(n), Jahres-/Monatsraster, Legende und Tageseditor auf eine Person ein — reine
-  Client-Ansicht, kein API-Feld. Der Zeitraum-Dialog wählt die gefilterte Person vor (beide
+  Client-Ansicht, kein API-Feld. Der Zeitraum-Dialog wählt die gefilterte Person vor (alle
   bleiben anwählbar); Einstellungen bleiben haushaltsweit. Persistenz pro Gerät: Web
-  `localStorage['homebase_absence_person_filter']`, Android `rememberSaveable`. Unbekannte
+  `localStorage['homebase_absence_person_filter']`, Android `AbsenceViewPrefs` (SharedPreferences, über den
+  `AbsenceViewModel`). Unbekannte
   (veraltete) User-ID ⇒ Fallback auf „Alle".
 
 ## Termine/Events (#434)

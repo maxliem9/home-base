@@ -12,7 +12,7 @@
 .abw-yearnav .hb-iconbtn { width: 30px; height: 30px; border-radius: 999px; }
 
 /* ---------- summary cards ---------- */
-.abw-sumgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--gap); margin-bottom: 18px; }
+.abw-sumgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--gap); margin-bottom: 18px; }
 .abw-sumcard { padding: 18px 20px; display: flex; flex-direction: column; gap: 13px; }
 .abw-sumcard__head { display: flex; align-items: center; gap: 11px; }
 .abw-sumcard__id { min-width: 0; flex: 1; }

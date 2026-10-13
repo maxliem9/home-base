@@ -644,7 +644,7 @@ class MainActivity : AppCompatActivity() {
     private fun absenceFactory(token: String) = object : ViewModelProvider.Factory {
         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
             @Suppress("UNCHECKED_CAST")
-            return AbsenceViewModel(container.absenceRepository, token, snapshotStore = container.absenceSnapshotStore, errorText = container.errorText) as T
+            return AbsenceViewModel(container.absenceRepository, token, snapshotStore = container.absenceSnapshotStore, errorText = container.errorText, viewPrefs = container.absenceViewPrefs) as T
         }
     }
 
