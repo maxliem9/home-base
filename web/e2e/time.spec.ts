@@ -206,6 +206,23 @@ test.describe('Time tracking', () => {
     await expect(card.locator('.hb-weektarget__proj', { hasText: 'Arbeit' })).toContainText('-40:00')
   })
 
+  test('highlights overtime above the weekly target', async ({ page }) => {
+    // 2 h recorded this week against a 1 h Wochensoll → 1 h overtime
+    const now = new Date().toISOString()
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true })])
+      .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', startedAt: now, stoppedAt: now, durationSeconds: 7200 })])
+    await openTime(page, mock)
+
+    const card = page.locator('.hb-weektargets')
+    await expect(card).toContainText('2:00 / 1:00')
+    // the overtime is a filled badge, not the quiet "noch …" text …
+    await expect(card.locator('.hb-weektarget__overbadge')).toHaveText('+1:00 Überstunden')
+    // … and gets its own bar segment next to the soll part
+    await expect(card.locator('.hb-weekbar__seg--over')).toBeVisible()
+  })
+
   test('configures a weekly target through the Wochensoll editor (in settings)', async ({ page }) => {
     await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
     const body = page.locator('.hb-settings-body')
@@ -243,18 +260,21 @@ test.describe('Time tracking', () => {
     await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
 
-    // schedule a new period from 1 Sep 2026 — it is seeded from the current 40h
+    // schedule a new period from 1 Sep NEXT year — always in the future, so the summary keeps
+    // showing the current 40h (a hard-coded date turned into a past period over time, #644);
+    // it is seeded from the current 40h
+    const future = `${new Date().getFullYear() + 1}-09-01`
     const postPromise = page.waitForRequest(
       (r) => r.url().includes('/time/targets/max/periods') && r.method() === 'POST',
     )
     await body.getByRole('button', { name: 'Neuer Zeitraum' }).click()
     const modal = page.locator('.hb-modal')
-    await modal.getByLabel('Gültig ab').fill('2026-09-01')
+    await modal.getByLabel('Gültig ab').fill(future)
     await modal.getByRole('button', { name: 'Neuer Zeitraum' }).click()
-    expect((await postPromise).postDataJSON()).toEqual({ validFrom: '2026-09-01' })
+    expect((await postPromise).postDataJSON()).toEqual({ validFrom: future })
     // still in the editor, now on the new period
     await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
-    await expect(body.getByRole('combobox').first()).toHaveValue('2026-09-01')
+    await expect(body.getByRole('combobox').first()).toHaveValue(future)
 
     // the grid now edits that period (seeded to 40h) — lower it to 32h
     await expect(body.getByLabel('Std/Woche Arbeit Max')).toHaveValue('40')
@@ -264,7 +284,7 @@ test.describe('Time tracking', () => {
     )
     await body.getByRole('button', { name: 'Speichern' }).click()
     // the PUT carries the period start so the change lands in the new period only
-    expect((await putPromise).postDataJSON()).toEqual({ weeklyHours: 32, validFrom: '2026-09-01' })
+    expect((await putPromise).postDataJSON()).toEqual({ weeklyHours: 32, validFrom: future })
 
     // overview summary: still 40h now, with the 32h change noted as scheduled
     await expect(body).toContainText('40 Std/Woche')
@@ -661,5 +681,32 @@ test.describe('Time tracking', () => {
     await expect(week).toContainText('1.–7. Juni')
     await expect(week).not.toContainText('8.–14. Juni')
     await expect(week.locator('.hb-weekrow__ms')).toContainText('2 Std 0 Min')
+  })
+
+  test('per-week list marks overtime against the target in force that week', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      // 1 h/week until June 7th, raised to 3 h/week from Mon June 8th (effective-dated period)
+      .seedTargets([
+        workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true }),
+        workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 3, isDefault: true, validFrom: '2026-06-08' }),
+      ])
+      // 2 h in each week
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
+        timeEntry({ id: 'e2', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T10:00:00Z', durationSeconds: 7200 }),
+      ])
+    await openTime(page, mock)
+
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
+
+    // old 1 h target → 1 h overtime, red segment + sub-line
+    const early = page.locator('.hb-weekrow', { hasText: '1.–7. Juni' })
+    await expect(early.locator('.hb-weekrow__over')).toHaveText('+1 Std 0 Min Überstunden')
+    await expect(early.locator('.hb-weekbar__seg--over')).toHaveCount(1)
+    // new 3 h target → 2 h is under target, no overtime
+    const later = page.locator('.hb-weekrow', { hasText: '8.–14. Juni' })
+    await expect(later.locator('.hb-weekrow__over')).toHaveCount(0)
+    await expect(later.locator('.hb-weekbar__seg--over')).toHaveCount(0)
   })
 })

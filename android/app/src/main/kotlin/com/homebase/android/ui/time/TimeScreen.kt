@@ -45,7 +45,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.pluralStringResource
@@ -53,6 +55,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -370,6 +375,7 @@ fun TimeScreen(
                 project = detailProject,
                 entries = entriesByProject[detailProject.id].orEmpty(),
                 credits = state.credits,
+                targets = state.targets,
                 isRunning = state.running?.projectId == detailProject.id,
                 onDelete = { requestDelete(it) },
                 onEdit = { requestEdit(it) },
@@ -714,10 +720,14 @@ private fun WeekTargetsCard(
 @Composable
 private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, ProjectDto>) {
     val done = u.weekRecordedSeconds + u.weekCreditedSeconds
-    val frac = if (u.weekTargetSeconds > 0) (done.toFloat() / u.weekTargetSeconds.toFloat()).coerceIn(0f, 1f) else 0f
-    val weekOver = u.weekRemainingSeconds < 0
+    // above target the bar rescales to the Ist and the overtime gets its own accent segment
+    val bar = weekBarSplit(done, u.weekTargetSeconds)
+    // badge + bar segment share one value; ignore sub-minute overtime so the badge never
+    // reads "+0:00" (forecast target/remaining can differ by rounding seconds)
+    val weekOver = bar.overSeconds >= 30
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // head: avatar + name + "22:00 / 42:00" + "noch 20:00"/"+1:30"
+        // head: avatar + name + "22:00 / 42:00" + "noch 20:00"; the overtime badge sits on its
+        // own line under the bar so the name keeps its room on narrow phones
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HbAvatar(u.userId, size = 24.dp)
             Text(
@@ -733,12 +743,13 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink,
             )
-            Text(
-                if (weekOver) stringResource(R.string.time_week_over, Format.hoursMinutes(-u.weekRemainingSeconds))
-                else stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds)),
-                style = HbType.meta.copy(fontWeight = if (weekOver) FontWeight.SemiBold else FontWeight.Normal),
-                color = if (weekOver) Hb.accentInk else Hb.ink3,
-            )
+            if (!weekOver) {
+                Text(
+                    stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds.coerceAtLeast(0))),
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                )
+            }
         }
         // progress bar (.hb-weekbar)
         Box(
@@ -748,16 +759,45 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 .clip(HbPill)
                 .background(Hb.surface2, HbPill),
         ) {
-            if (frac > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(frac)
-                        .fillMaxHeight()
-                        .clip(HbPill)
-                        // week-bar segment honours the per-user avatar-hue override (Teil von #100)
-                        .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
-                )
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (bar.baseFraction > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(bar.baseFraction)
+                            .fillMaxHeight()
+                            .clip(HbPill)
+                            // week-bar segment honours the per-user avatar-hue override (Teil von #100)
+                            .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
+                    )
+                }
+                if (weekOver) {
+                    // overtime segment — fills the rest of the rescaled bar; red stripes so it
+                    // reads apart from any user hue (web: .hb-weekbar__seg--over)
+                    val stripes = overtimeStripes()
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .widthIn(min = 4.dp)
+                            .fillMaxHeight()
+                            .clip(HbPill)
+                            .background(stripes),
+                    )
+                }
             }
+        }
+        if (weekOver) {
+            // weekly target exceeded: a filled badge instead of the quiet delta text
+            Text(
+                stringResource(R.string.time_week_over, Format.hoursMinutes(bar.overSeconds)),
+                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                // the tested over-badge pair (light 0.5 on 0.93, dark 0.82 on 0.36) — white on
+                // Hb.danger falls below 4.5:1, esp. in dark mode
+                color = Hb.overInk,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(Hb.overBg, HbPill)
+                    .padding(horizontal = 9.dp, vertical = 2.dp),
+            )
         }
         // today's redistributed target + credits
         val todayLine = when {
@@ -1817,6 +1857,7 @@ private fun ProjectDetailSheet(
     project: ProjectDto,
     entries: List<TimeEntryDto>,
     credits: List<TimeCreditDto>,
+    targets: List<WorkTargetDto>,
     isRunning: Boolean,
     onDelete: (TimeEntryDto) -> Unit,
     onEdit: (TimeEntryDto) -> Unit,
@@ -1927,7 +1968,11 @@ private fun ProjectDetailSheet(
             Text(stringResource(R.string.time_per_week).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 weeks.forEach { week ->
-                    WeekRow(week = week, busiest = busiestWeek, today = today)
+                    // overtime per person against the target in force that week (periods, #31)
+                    val overByUser = week.byUser.associate { (uid, secs) ->
+                        uid to projectWeekOvertime(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
+                    }
+                    WeekRow(week = week, busiest = busiestWeek, today = today, overByUser = overByUser)
                 }
             }
         }
@@ -1968,7 +2013,7 @@ private fun FactTile(value: String, label: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
+private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser: Map<String, Long>) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         // head: label (+ range) + total
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1996,16 +2041,30 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
             val scale = if (busiest > 0) week.totalSeconds.toFloat() / busiest.toFloat() else 0f
             week.byUser.forEach { (userId, seconds) ->
                 if (seconds > 0 && week.totalSeconds > 0) {
-                    val frac = (seconds.toFloat() / week.totalSeconds.toFloat()) * scale
-                    Box(
-                        Modifier
-                            .weight(frac.coerceAtLeast(0.0001f))
-                            .widthIn(min = 4.dp) // mirrors .hb-weekbar__seg min-width
-                            .fillMaxHeight()
-                            .clip(HbPill)
-                            // week-bar segment honours the per-user avatar-hue override (Teil von #100)
-                            .background(Hb.userColor(userId, LocalAvatarHues.current[userId])),
-                    )
+                    val over = overByUser[userId] ?: 0L
+                    val perSecond = scale / week.totalSeconds.toFloat()
+                    if (seconds > over) {
+                        Box(
+                            Modifier
+                                .weight(((seconds - over) * perSecond).coerceAtLeast(0.0001f))
+                                .widthIn(min = 4.dp) // mirrors .hb-weekbar__seg min-width
+                                .fillMaxHeight()
+                                .clip(HbPill)
+                                // week-bar segment honours the per-user avatar-hue override (Teil von #100)
+                                .background(Hb.userColor(userId, LocalAvatarHues.current[userId])),
+                        )
+                    }
+                    if (over > 0) {
+                        // the part above the weekly target — red stripes (web: .hb-weekbar__seg--over)
+                        Box(
+                            Modifier
+                                .weight((over * perSecond).coerceAtLeast(0.0001f))
+                                .widthIn(min = 4.dp)
+                                .fillMaxHeight()
+                                .clip(HbPill)
+                                .background(overtimeStripes()),
+                        )
+                    }
                 }
             }
             // remaining space so shorter weeks don't fill the whole bar
@@ -2019,8 +2078,35 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate) {
             if (week.count > 0) " " + stringResource(R.string.time_credited, credited)
             else stringResource(R.string.time_credited_only, credited)
         } else ""
-        Text(entriesText + creditedText, style = HbType.small, color = Hb.ink3)
+        val weekOver = overByUser.values.sum()
+        val overText = if (weekOver > 0) stringResource(R.string.time_week_over, Format.durationLong(weekOver)) else ""
+        val overColor = Hb.danger
+        // one annotated Text so the red part wraps with the rest on narrow sheets
+        Text(
+            buildAnnotatedString {
+                append(entriesText + creditedText)
+                if (overText.isNotEmpty()) {
+                    if (length > 0) append(" · ")
+                    withStyle(SpanStyle(color = overColor, fontWeight = FontWeight.SemiBold)) { append(overText) }
+                }
+            },
+            style = HbType.small,
+            color = Hb.ink3,
+        )
     }
+}
+
+/** Red diagonal stripes for the overtime part of a week bar (Wochensoll card + Pro Woche). */
+@Composable
+private fun overtimeStripes(): Brush {
+    val strong = Hb.danger
+    val soft = Hb.danger.copy(alpha = 0.72f)
+    return Brush.linearGradient(
+        0f to strong, 0.5f to strong, 0.5f to soft, 1f to soft,
+        start = Offset.Zero,
+        end = Offset(14f, 14f),
+        tileMode = TileMode.Repeated,
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -2,13 +2,13 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'rea
 import { useTranslation } from 'react-i18next'
 import { API_BASE, authFetch, errorCode, notifyTransportError, safeFetch } from '../api'
 import { errorText } from '../i18n'
-import { Project, TimeCredit, TimeEntry, TimeForecast, User, UserForecast } from '../types'
+import { Project, TimeCredit, TimeEntry, TimeForecast, User, UserForecast, WorkTarget } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { liveSecondsSinceSnapshot } from './worktarget'
+import { liveSecondsSinceSnapshot, projectWeekOvertime, weekBarSplit } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -109,6 +109,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
   // per-week breakdown folds these in so past weeks show sick/vacation/holiday hours the
   // same way the live Wochenbilanz credits the current week. Non-critical read.
   const [credits, setCredits] = useState<TimeCredit[]>([])
+  // Wochensoll periods (all of them) — the Projekt-Detail per-week list compares each past
+  // week against the target in force *then* to show its overtime. Non-critical read.
+  const [targets, setTargets] = useState<WorkTarget[]>([])
   // Pending cross-person action: both users may manage each other's entries and
   // timers, but anything touching the partner's data confirms first — via a custom
   // ConfirmDialog, never window.confirm() (#125/#129).
@@ -153,6 +156,13 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
     }
   }, [onLogout, token])
 
+  const fetchTargets = useCallback(async () => {
+    const result = await safeFetch(token, `${API_BASE}/time/targets`)
+    if (!result.ok || !result.res.ok) return
+    // non-critical: a bad body must not reject fetchAll's Promise.all (projects/entries)
+    try { setTargets(await result.res.json()) } catch { /* keep previous targets */ }
+  }, [token])
+
   const fetchAll = useCallback(async () => {
     try {
       const [pResult, eResult, uResult] = await Promise.all([
@@ -160,6 +170,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         safeFetch(token, `${API_BASE}/time/entries`),
         safeFetch(token, `${API_BASE}/users`),
         fetchForecast(),
+        fetchTargets(),
       ])
       // a transport reject on either core read → fire the global toast once, keep existing data
       if (!pResult.ok || !eResult.ok) {
@@ -242,7 +253,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
         fetchForecast()
       } else if (msg.type === 'TARGET_UPDATED') {
         // a target change shifts the forecast (credits, daily target) the tracker shows
+        // and the per-week overtime in the project detail
         fetchForecast()
+        fetchTargets()
       }
     } catch {
       // ignore malformed frames
@@ -563,6 +576,7 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
           project={detailLive}
           entries={entries}
           credits={credits}
+          targets={targets}
           projectsById={projectsById}
           onDelete={requestDelete}
           onEdit={requestEdit}
@@ -839,7 +853,11 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   const done = u.weekRecordedSeconds + u.weekCreditedSeconds + liveExtraSeconds
   const weekRemaining = u.weekRemainingSeconds - liveExtraSeconds
   const todayRemaining = u.todayRemainingSeconds - liveExtraSeconds
-  const pct = u.weekTargetSeconds > 0 ? Math.min(100, (done / u.weekTargetSeconds) * 100) : 0
+  // above target the bar rescales to the Ist and the overtime gets its own accent segment
+  const bar = weekBarSplit(done, u.weekTargetSeconds)
+  // badge + bar segment share one value; ignore sub-minute overtime so the filled badge
+  // never reads "+0:00" (forecast target/remaining can differ by rounding seconds)
+  const isOver = bar.overSeconds >= 30
   const hue = userMeta(u.userId)?.hue ?? 150
   const todayLine = todayRemaining >= 60
     ? t('time.todayLeft', { time: hm(todayRemaining) })
@@ -854,14 +872,21 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
         <Avatar user={u.userId} size={24} />
         <span className="hb-weektarget__name">{userMeta(u.userId)?.name ?? u.userId}</span>
         <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
-        <span className={`hb-weektarget__delta${weekRemaining < 0 ? ' is-over' : ''}`}>
-          {weekRemaining < 0
-            ? t('time.weekOver', { time: hm(-weekRemaining) })
-            : t('time.weekLeft', { time: hm(weekRemaining) })}
+        <span className={isOver ? 'hb-weektarget__overbadge' : 'hb-weektarget__delta'}>
+          {isOver
+            ? t('time.weekOver', { time: hm(bar.overSeconds) })
+            : t('time.weekLeft', { time: hm(Math.max(0, weekRemaining)) })}
         </span>
       </div>
       <div className="hb-weekbar">
-        <span className="hb-weekbar__seg" style={{ width: `${pct}%`, background: `oklch(0.62 0.1 ${hue})` }} />
+        {bar.basePct > 0 && <span className="hb-weekbar__seg" style={{ width: `${bar.basePct}%`, background: `oklch(0.62 0.1 ${hue})` }} />}
+        {isOver && (
+          <span
+            className="hb-weekbar__seg hb-weekbar__seg--over"
+            style={{ width: `${bar.overPct}%` }}
+            title={t('time.weekOver', { time: hm(bar.overSeconds) })}
+          />
+        )}
       </div>
       <div className="hb-muted" style={{ fontSize: 13 }}>
         {todayLine}
@@ -1027,12 +1052,15 @@ interface WeekBucket {
   // absence/holiday hours credited to this project that week (subset of `seconds`)
   credited: number
   byUser: Record<string, number>
+  // credited part of byUser — overtime only counts this project's share of a credit
+  creditedByUser: Record<string, number>
 }
 
-function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEdit, onSplit, onBack }: {
+function ProjectDetail({ project, entries, credits, targets, projectsById, onDelete, onEdit, onSplit, onBack }: {
   project: Project
   entries: TimeEntry[]
   credits: TimeCredit[]
+  targets: WorkTarget[]
   projectsById: Record<string, Project>
   onDelete: (entry: TimeEntry) => void
   onEdit: (entry: TimeEntry) => void
@@ -1080,7 +1108,7 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
     let w = weekMap.get(k)
     if (!w) {
       const { label, range } = weekLabel(e.startedAt)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
       weekMap.set(k, w)
     }
     w.seconds += e.durationSeconds ?? 0
@@ -1095,12 +1123,13 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
     let w = weekMap.get(k)
     if (!w) {
       const { label, range } = weekLabel(iso)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
       weekMap.set(k, w)
     }
     w.seconds += c.seconds
     w.credited += c.seconds
     w.byUser[c.userId] = (w.byUser[c.userId] ?? 0) + c.seconds
+    w.creditedByUser[c.userId] = (w.creditedByUser[c.userId] ?? 0) + c.seconds
   }
   // Newest week first — credit-only weeks were appended out of order above.
   const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
@@ -1147,7 +1176,14 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
           <>
             <div className="hb-sectionlabel hb-detail-h">{t('time.perWeek')}</div>
             <div className="hb-weeklist">
-              {weeks.map((w) => (
+              {weeks.map((w) => {
+                // overtime per person against the target in force that week (periods, #31)
+                const overByUser: Record<string, number> = {}
+                for (const uid of userIds) {
+                  overByUser[uid] = projectWeekOvertime(targets, uid, project.id, w.key, w.byUser[uid] ?? 0, w.creditedByUser[uid] ?? 0)
+                }
+                const weekOver = userIds.reduce((s, uid) => s + overByUser[uid], 0)
+                return (
                 <div key={w.key} className="hb-weekrow">
                   <div className="hb-weekrow__head">
                     <span className="hb-weekrow__label">{w.label ?? w.range}</span>
@@ -1155,24 +1191,41 @@ function ProjectDetail({ project, entries, credits, projectsById, onDelete, onEd
                     <span className="hb-weekrow__ms hb-mono">{fmtDurationShort(w.seconds)}</span>
                   </div>
                   <div className="hb-weekbar">
-                    {userIds.map((uid) =>
-                      w.byUser[uid] ? (
-                        <span
-                          key={uid}
-                          className="hb-weekbar__seg"
-                          style={{ width: `${(w.byUser[uid] / maxWeekSeconds) * 100}%`, background: `oklch(0.62 0.1 ${userMeta(uid)?.hue ?? 150})` }}
-                          title={`${userMeta(uid)?.name ?? uid}: ${fmtDurationShort(w.byUser[uid])}`}
-                        />
-                      ) : null,
-                    )}
+                    {userIds.map((uid) => {
+                      const secs = w.byUser[uid] ?? 0
+                      if (!secs) return null
+                      const over = overByUser[uid]
+                      const name = userMeta(uid)?.name ?? uid
+                      return (
+                        <Fragment key={uid}>
+                          {secs > over && (
+                            <span
+                              className="hb-weekbar__seg"
+                              style={{ width: `${((secs - over) / maxWeekSeconds) * 100}%`, background: `oklch(0.62 0.1 ${userMeta(uid)?.hue ?? 150})` }}
+                              title={`${name}: ${fmtDurationShort(secs)}`}
+                            />
+                          )}
+                          {over > 0 && (
+                            <span
+                              className="hb-weekbar__seg hb-weekbar__seg--over"
+                              style={{ width: `${(over / maxWeekSeconds) * 100}%` }}
+                              title={`${name}: ${t('time.weekOver', { time: fmtDurationShort(over) })}`}
+                            />
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </div>
                   <div className="hb-weekrow__sub">
                     {w.count > 0 && `${w.count} ${w.count === 1 ? t('time.entryOne') : t('time.entryMany')}`}
                     {w.count > 0 && w.credited > 0 && ' · '}
                     {w.credited > 0 && `${fmtDurationShort(w.credited)} ${t('time.creditedShort')}`}
+                    {weekOver > 0 && (w.count > 0 || w.credited > 0) && ' · '}
+                    {weekOver > 0 && <span className="hb-weekrow__over">{t('time.weekOver', { time: fmtDurationShort(weekOver) })}</span>}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             <div className="hb-sectionlabel hb-detail-h">{t('time.allEntries')}</div>

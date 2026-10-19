@@ -1,3 +1,5 @@
+import { BASE_TARGET_PERIOD, type WorkTarget } from '../types'
+
 // Pure math behind the Dashboard "Wochensoll" peek and TimeView's WeekBalance.
 // Extracted so the double-count guard from #531 lives in one unit-tested place and the
 // two live-ticking surfaces can't silently drift apart again (the drift *was* #531).
@@ -41,4 +43,81 @@ export function worktargetFigures(
   const pct = Math.min(100, Math.round((weekDone / f.weekTargetSeconds) * 100))
   const todayLeft = f.todayTargetSeconds - (f.todayRecordedSeconds + liveSeconds)
   return { weekDone, pct, todayLeft }
+}
+
+export interface WeekBarSplit {
+  /** width of the soll part (user colour) in percent of the bar */
+  basePct: number
+  /** width of the overtime part (accent colour) in percent of the bar; 0 while under target */
+  overPct: number
+  /** seconds above the weekly target; 0 while under target */
+  overSeconds: number
+}
+
+/**
+ * Splits the week bar into soll + overtime. Under target the bar fills toward 100 % as
+ * before; above target the bar is rescaled to the Ist so the overtime shows as its own
+ * segment instead of being swallowed by a capped 100 % bar.
+ */
+export function weekBarSplit(doneSeconds: number, targetSeconds: number): WeekBarSplit {
+  const done = Math.max(0, doneSeconds)
+  if (targetSeconds <= 0) return { basePct: 0, overPct: 0, overSeconds: 0 }
+  if (done <= targetSeconds) return { basePct: (done / targetSeconds) * 100, overPct: 0, overSeconds: 0 }
+  const overSeconds = done - targetSeconds
+  const basePct = (targetSeconds / done) * 100
+  return { basePct, overPct: 100 - basePct, overSeconds }
+}
+
+/**
+ * Weekly target (seconds) of one person on one project for the week starting `weekStart`
+ * (YYYY-MM-DD, a Monday) — taken from the period in force then: the person's latest
+ * `validFrom` ≤ weekStart, like the backend forecast/credits. A project without a row in
+ * that period (or a week before the person's first period) has no target → 0.
+ */
+export function weeklyTargetSeconds(targets: WorkTarget[], userId: string, projectId: string, weekStart: string): number {
+  const row = periodRows(targets, userId, weekStart).find((t) => t.projectId === projectId)
+  return row ? Math.round(row.weeklyHours * 3600) : 0
+}
+
+/** The person's target rows of the period in force for the week starting `weekStart`. */
+function periodRows(targets: WorkTarget[], userId: string, weekStart: string): WorkTarget[] {
+  const mine = targets.filter((t) => t.userId === userId)
+  const period = mine
+    .map((t) => t.validFrom ?? BASE_TARGET_PERIOD)
+    .filter((p) => p <= weekStart)
+    .sort()
+    .pop()
+  return period ? mine.filter((t) => (t.validFrom ?? BASE_TARGET_PERIOD) === period) : []
+}
+
+/**
+ * Overtime of one person on one project in one week, against that week's project target.
+ * Absence/holiday credits are booked by the backend from the person's TOTAL weekly target
+ * (all projects) onto the default project (TimeCredits.kt) — so only this project's share of
+ * `creditedSeconds` counts toward it; the rest stands in for the other projects' hours and
+ * must not show up as overtime (a vacation week would otherwise read "+5 h" on p1 for a
+ * 40 h p1 + 5 h p2 split).
+ */
+export function projectWeekOvertime(
+  targets: WorkTarget[], userId: string, projectId: string, weekStart: string,
+  seconds: number, creditedSeconds: number,
+): number {
+  const rows = periodRows(targets, userId, weekStart)
+  const row = rows.find((t) => t.projectId === projectId)
+  const target = row ? row.weeklyHours * 3600 : 0
+  if (target <= 0) return 0
+  const total = rows.reduce((s, t) => s + t.weeklyHours * 3600, 0)
+  const foreignCredit = creditedSeconds * (1 - target / total)
+  return overtimeSeconds(seconds - foreignCredit, target)
+}
+
+/**
+ * Seconds above the weekly target; 0 without a target (no soll → no overtime) and for
+ * sub-minute excess (< 30 s), which would only render as "+0 Min." — same threshold as the
+ * Wochensoll card's badge.
+ */
+export function overtimeSeconds(seconds: number, targetSeconds: number): number {
+  if (targetSeconds <= 0) return 0
+  const over = seconds - targetSeconds
+  return over >= 30 ? over : 0
 }

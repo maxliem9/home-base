@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, overtimeSeconds, projectWeekOvertime, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
+import type { WorkTarget } from '../types'
 
 describe('liveSecondsSinceSnapshot', () => {
   const forecastAt = 1_000_000
@@ -67,5 +68,94 @@ describe('worktargetFigures', () => {
   it('reports todayLeft ≤ 0 once today’s target is reached', () => {
     const f = worktargetFigures({ ...forecast, todayRecordedSeconds: 8 * 3600 }, 0)
     expect(f.todayLeft).toBeLessThanOrEqual(0)
+  })
+})
+
+describe('weekBarSplit', () => {
+  const h = 3600
+
+  it('fills toward the target without an overtime segment while under target', () => {
+    expect(weekBarSplit(20 * h, 40 * h)).toEqual({ basePct: 50, overPct: 0, overSeconds: 0 })
+  })
+
+  it('is exactly full with no overtime at the target', () => {
+    expect(weekBarSplit(40 * h, 40 * h)).toEqual({ basePct: 100, overPct: 0, overSeconds: 0 })
+  })
+
+  it('rescales to the Ist and splits off the overtime above target', () => {
+    // 50 h on a 40 h week → soll 80 %, overtime 20 % (10 h)
+    const s = weekBarSplit(50 * h, 40 * h)
+    expect(s.basePct).toBeCloseTo(80)
+    expect(s.overPct).toBeCloseTo(20)
+    expect(s.overSeconds).toBe(10 * h)
+  })
+
+  it('is empty without a target and never negative', () => {
+    expect(weekBarSplit(5 * h, 0)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
+    expect(weekBarSplit(-60, 40 * h)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
+  })
+})
+
+describe('weeklyTargetSeconds', () => {
+  const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
+  // 40 h base period, reduced to 32 h from 1 Sep 2026; chen has her own 20 h
+  const targets = [
+    tgt({}),
+    tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false }),
+    tgt({ weeklyHours: 32, validFrom: '2026-09-01' }),
+    tgt({ userId: 'chen', weeklyHours: 20 }),
+  ]
+
+  it('uses the base period for weeks before a change', () => {
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-24')).toBe(40 * 3600)
+  })
+
+  it('uses the new period from the week whose Monday is on/after validFrom', () => {
+    // week of Mon 31 Aug still starts before 1 Sep → old value
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-31')).toBe(40 * 3600)
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-09-07')).toBe(32 * 3600)
+  })
+
+  it('is 0 for a project missing from the period in force, and per person', () => {
+    // p2 only exists in the base period — the September period has no row for it
+    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-08-24')).toBe(5 * 3600)
+    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-09-07')).toBe(0)
+    expect(weeklyTargetSeconds(targets, 'chen', 'p1', '2026-09-07')).toBe(20 * 3600)
+    expect(weeklyTargetSeconds(targets, 'nobody', 'p1', '2026-09-07')).toBe(0)
+  })
+})
+
+describe('overtimeSeconds', () => {
+  it('is the excess above target, never negative, and 0 without a target', () => {
+    expect(overtimeSeconds(45 * 3600, 40 * 3600)).toBe(5 * 3600)
+    expect(overtimeSeconds(30 * 3600, 40 * 3600)).toBe(0)
+    expect(overtimeSeconds(30 * 3600, 0)).toBe(0)
+    expect(overtimeSeconds(40 * 3600 + 20, 40 * 3600)).toBe(0)
+  })
+})
+
+describe('projectWeekOvertime', () => {
+  const h = 3600
+  const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
+  const twoProjects = [tgt({}), tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false })]
+  const wk = '2026-08-24'
+
+  it('a full vacation week (credited from the 45 h total onto p1) is no overtime', () => {
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 45 * h, 45 * h)).toBe(0)
+  })
+
+  it('a sick day plus normal work only counts p1\'s share of the credit', () => {
+    // 4 days × 8 h worked on p1 + 1 credited day (45/5 = 9 h) → p1 share of the credit 8 h → 40 h, no overtime
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 32 * h + 9 * h, 9 * h)).toBe(0)
+    // one extra hour worked → 1 h overtime
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 33 * h + 9 * h, 9 * h)).toBe(1 * h)
+  })
+
+  it('with a single project the credit counts in full', () => {
+    expect(projectWeekOvertime([tgt({})], 'max', 'p1', wk, 42 * h, 8 * h)).toBe(2 * h)
+  })
+
+  it('is 0 for a project without a target', () => {
+    expect(projectWeekOvertime(twoProjects, 'max', 'p3', wk, 50 * h, 0)).toBe(0)
   })
 })

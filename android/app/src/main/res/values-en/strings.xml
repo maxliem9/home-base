@@ -386,7 +386,7 @@
     <string name="confirm_start_partner_timer">Start timer for %1$s?</string>
     <string name="time_weektargets_title">Weekly target</string>
     <string name="time_week_remaining">%1$s left</string>
-    <string name="time_week_over">+%1$s</string>
+    <string name="time_week_over">+%1$s overtime</string>
     <string name="time_today_remaining">%1$s left today</string>
     <string name="time_today_over">%1$s over target today</string>
     <string name="time_today_reached">Daily target reached</string>

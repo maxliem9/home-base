@@ -5,6 +5,7 @@ import com.homebase.android.R
 import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.util.Format
 import java.time.DayOfWeek
 import java.time.Instant
@@ -14,6 +15,7 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------
 // Pure, unit-testable time math for the Zeiterfassung screen: live ticking of
@@ -50,6 +52,70 @@ fun UserForecastDto.withLiveExtra(extraSeconds: Long, liveProjectId: String?): U
             } else p
         },
     )
+}
+
+/** Week bar split into soll + overtime (fractions of the bar width, 0–1). */
+data class WeekBarSplit(val baseFraction: Float, val overFraction: Float, val overSeconds: Long)
+
+/**
+ * Splits the Wochensoll bar: under target it fills toward the target as before; above
+ * target it rescales to the Ist so the overtime gets its own segment instead of being
+ * swallowed by a capped 100 % bar. Mirrors web `weekBarSplit` (worktarget.ts).
+ */
+fun weekBarSplit(doneSeconds: Long, targetSeconds: Long): WeekBarSplit {
+    val done = doneSeconds.coerceAtLeast(0)
+    if (targetSeconds <= 0) return WeekBarSplit(0f, 0f, 0)
+    if (done <= targetSeconds) return WeekBarSplit(done.toFloat() / targetSeconds, 0f, 0)
+    val base = targetSeconds.toFloat() / done
+    return WeekBarSplit(base, 1f - base, done - targetSeconds)
+}
+
+/**
+ * Weekly target (seconds) of [userId] on [projectId] for the week starting [weekStart] —
+ * from the period in force then: the person's latest `validFrom` ≤ weekStart, like the
+ * backend forecast/credits. No row for the project in that period (or a week before the
+ * person's first period) → 0. Mirrors web `weeklyTargetSeconds` (worktarget.ts).
+ */
+fun weeklyTargetSeconds(targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate): Long {
+    val row = periodRows(targets, userId, weekStart).firstOrNull { it.projectId == projectId } ?: return 0
+    return (row.weeklyHours * 3600).roundToLong()
+}
+
+/** The person's target rows of the period in force for the week starting [weekStart]. */
+private fun periodRows(targets: List<WorkTargetDto>, userId: String, weekStart: LocalDate): List<WorkTargetDto> {
+    val ws = weekStart.toString()
+    val mine = targets.filter { it.userId == userId }
+    val period = mine.map { it.validFrom }.filter { it <= ws }.maxOrNull() ?: return emptyList()
+    return mine.filter { it.validFrom == period }
+}
+
+/**
+ * Overtime of one person on one project in one week, against that week's project target.
+ * Credits are booked from the person's TOTAL weekly target (all projects) onto the default
+ * project (backend TimeCredits.kt), so only this project's share of [creditedSeconds] counts
+ * toward it — otherwise a vacation week reads as overtime with a 40 h p1 + 5 h p2 split.
+ * Mirrors web `projectWeekOvertime`.
+ */
+fun projectWeekOvertime(
+    targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate,
+    seconds: Long, creditedSeconds: Long,
+): Long {
+    val rows = periodRows(targets, userId, weekStart)
+    val target = (rows.firstOrNull { it.projectId == projectId }?.weeklyHours ?: 0.0) * 3600
+    if (target <= 0.0) return 0
+    val total = rows.sumOf { it.weeklyHours } * 3600
+    val foreignCredit = creditedSeconds * (1 - target / total)
+    return overtimeSeconds((seconds - foreignCredit).roundToLong(), target.roundToLong())
+}
+
+/**
+ * Seconds above the weekly target; 0 without a target and for sub-minute excess (< 30 s,
+ * would only read "+0 Min."). Mirrors web `overtimeSeconds`.
+ */
+fun overtimeSeconds(seconds: Long, targetSeconds: Long): Long {
+    if (targetSeconds <= 0) return 0
+    val over = seconds - targetSeconds
+    return if (over >= 30) over else 0
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +274,8 @@ data class WeekStat(
     val totalSeconds: Long,
     val count: Int,
     val creditedSeconds: Long = 0,
+    /** credited part of [byUser] — overtime only counts this project's share of a credit */
+    val creditedByUser: Map<String, Long> = emptyMap(),
 )
 
 /**
@@ -227,6 +295,7 @@ fun buildWeekStats(
         var count = 0
         var credited = 0L
         val byUser = LinkedHashMap<String, Long>()
+        val creditedByUser = HashMap<String, Long>()
         fun add(user: String, seconds: Long) { byUser[user] = (byUser[user] ?: 0L) + seconds }
     }
 
@@ -245,6 +314,7 @@ fun buildWeekStats(
         acc.total += c.seconds
         acc.credited += c.seconds
         acc.add(c.userId, c.seconds)
+        acc.creditedByUser[c.userId] = (acc.creditedByUser[c.userId] ?: 0L) + c.seconds
     }
     return byWeek.entries
         .map { (ws, acc) ->
@@ -254,6 +324,7 @@ fun buildWeekStats(
                 totalSeconds = acc.total,
                 count = acc.count,
                 creditedSeconds = acc.credited,
+                creditedByUser = acc.creditedByUser,
             )
         }
         .sortedByDescending { it.weekStart }
