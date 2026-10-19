@@ -684,6 +684,8 @@ test.describe('Time tracking', () => {
   })
 
   test('per-week list marks over- and undertime against the target in force that week', async ({ page }) => {
+    // pin "today" after both June weeks so the later one counts as finished
+    await page.clock.setFixedTime(new Date('2026-07-15T12:00:00'))
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       // 1 h/week until June 7th, raised to 3 h/week from Mon June 8th (effective-dated period)
@@ -714,6 +716,8 @@ test.describe('Time tracking', () => {
   })
 
   test('running Saldo sums over- and undertime from a chosen start date', async ({ page }) => {
+    // pin "today" (mid-July) so the default start and "finished week" are deterministic
+    await page.clock.setFixedTime(new Date('2026-07-15T12:00:00'))
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true })])
@@ -721,6 +725,8 @@ test.describe('Time tracking', () => {
       .seedEntries([
         timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
         timeEntry({ id: 'e2', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T08:30:00Z', durationSeconds: 1800 }),
+        // the partner logs time here too but has no target on this project → no Saldo chip
+        timeEntry({ id: 'e3', userId: 'max', projectId: 'p1', startedAt: '2026-06-04T08:00:00Z', stoppedAt: '2026-06-04T09:00:00Z', durationSeconds: 3600 }),
       ])
     await openTime(page, mock)
     await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
@@ -728,11 +734,12 @@ test.describe('Time tracking', () => {
     const saldo = page.locator('.hb-saldo')
     const from = saldo.getByLabel('Saldo ab')
     // default = 1st of the current month → the June weeks are outside it
-    const now = new Date()
-    await expect(from).toHaveValue(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`)
+    await expect(from).toHaveValue('2026-07-01')
+    await expect(saldo).toContainText('Noch keine Wochen in diesem Zeitraum')
 
     // extend back to June 1st (a Monday) → +1 h − 30 min = +30 min
     await from.fill('2026-06-01')
+    await expect(saldo.locator('.hb-saldo__user')).toHaveCount(1)
     await expect(saldo.locator('.hb-saldo__value')).toHaveText('+30 Min')
     await expect(saldo.locator('.hb-saldo__value')).toHaveClass(/is-over/)
 
@@ -741,5 +748,10 @@ test.describe('Time tracking', () => {
     await expect(saldo).toContainText('zählt ganze Wochen ab Mo. 8. Juni')
     await expect(saldo.locator('.hb-saldo__value')).toHaveText('−30 Min')
     await expect(saldo.locator('.hb-saldo__value')).toHaveClass(/is-under/)
+
+    // a cleared date falls back to the month-start default instead of an empty Saldo
+    await from.fill('')
+    await expect(saldo).toContainText('Noch keine Wochen in diesem Zeitraum')
+    await expect(saldo).toContainText('zählt ganze Wochen ab Mo. 29. Juni')
   })
 })

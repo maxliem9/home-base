@@ -114,6 +114,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.homebase.android.ui.theme.oklch
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import androidx.compose.ui.unit.Dp
 
 // ---------------------------------------------------------------------------
 // Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
@@ -1919,13 +1922,14 @@ private fun ProjectDetailSheet(
     // finished weeks (the running week is still open).
     val weekParts = remember(allWeeks, targets, project.id, thisWeekStart, userWeekCredits) {
         allWeeks.associate { week ->
-            week.weekStart to week.byUser.filter { it.second > 0 }.associate { (uid, secs) ->
+            week.weekStart to week.byUser.filter { it.second > 0 }.mapNotNull { (uid, secs) ->
                 val balance = projectWeekBalance(
                     targets, uid, project.id, week.weekStart, secs,
                     week.creditedByUser[uid] ?: 0L, userWeekCredits[week.weekStart to uid] ?: 0L,
                 )
-                uid to balanceParts(balance, week.weekStart.isBefore(thisWeekStart))
-            }
+                // no target for this person here → nothing to compare (no "±0" Saldo chip either)
+                balance?.let { uid to balanceParts(it, week.weekStart.isBefore(thisWeekStart)) }
+            }.toMap()
         }
     }
     // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
@@ -2078,7 +2082,8 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
         ) {
           // Row gives weighted children an exact width, so a widthIn(min) after weight() is
           // ignored — enforce the 4dp minimum (web: .hb-weekbar__seg min-width) in the weights.
-          val minFrac = 4.dp / maxWidth
+          // guard the first measure pass (0dp) and unbounded width — ∞/NaN weights would crash
+          val minFrac = if (maxWidth > 0.dp && maxWidth != Dp.Infinity) 4.dp / maxWidth else 0.0001f
           var used = 0f
           fun seg(fraction: Float): Float = fraction.coerceAtLeast(minFrac).also { used += it }
           Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -2181,7 +2186,7 @@ private fun BalanceSection(from: LocalDate, onFromChange: (LocalDate) -> Unit, b
         }
         if (fromWeek != from) {
             Text(
-                stringResource(R.string.time_balance_whole_weeks, "%02d.%02d.".format(fromWeek.dayOfMonth, fromWeek.monthValue)),
+                stringResource(R.string.time_balance_whole_weeks, shortDate(fromWeek, Locale.getDefault())),
                 style = HbType.small,
                 color = Hb.ink3,
             )
@@ -2222,6 +2227,10 @@ private fun BalanceSection(from: LocalDate, onFromChange: (LocalDate) -> Unit, b
         }
     }
 }
+
+/** Short localized day + month: "8. Juni" (de) / "Jun 8" (en) — like the web's toLocaleDateString. */
+private fun shortDate(d: LocalDate, locale: Locale): String =
+    d.format(DateTimeFormatter.ofPattern(if (locale.language == Locale.ENGLISH.language) "MMM d" else "d. MMMM", locale))
 
 /** Red diagonal stripes for the overtime part of a week bar (Wochensoll card + Pro Woche). */
 @Composable

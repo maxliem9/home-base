@@ -1166,6 +1166,8 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
           targets, uid, project.id, w.key, secs,
           w.creditedByUser[uid] ?? 0, userWeekCredits.get(`${w.key}|${uid}`) ?? 0,
         )
+        // no target for this person here → nothing to compare (no "±0" Saldo chip either)
+        if (balance === null) continue
         parts[uid] = balanceParts(balance, w.key < currentWeekKey)
       }
       weekParts.set(w.key, parts)

@@ -136,7 +136,7 @@ description?, created_at, updated_at
 - **Minusstunden (Pro Woche):** Abgeschlossene Wochen unter Soll zeigen die fehlenden Stunden als leere,
   gestrichelte Bernstein-Lücke hinter dem Personen-Anteil (Balken skaliert inkl. Lücke) plus „−… Minusstunden".
   Die **laufende** Woche wird nie als „unter Soll" markiert (sie ist noch offen; Überstunden zeigt sie schon).
-  Verglichen werden nur Personen, die in der Woche Zeit auf dem Projekt haben. Helfer: `projectWeekBalance`
+  Verglichen werden nur Personen, die in der Woche Zeit auf dem Projekt **und** dort ein Soll haben (ohne Soll: kein Vergleich, auch kein „±0"-Saldo-Chip). Wochen ganz ohne Zeit/Gutschrift zählen **nicht** als Minusstunden (auch nicht im Saldo). Helfer: `projectWeekBalance`
   (vorzeichenbehaftet) + `balanceParts` (< 30 s = im Soll) in `worktarget.ts` / `TimeMath.kt`.
 - **Saldo (Pro Woche):** Über der Wochenliste steht „Saldo ab [Datum]" — Überstunden minus Minusstunden je
   Person, summiert über **ganze Wochen** ab der Woche, die das Datum enthält (liegt es mitten in der Woche,
