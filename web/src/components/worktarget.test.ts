@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, overtimeSeconds, balanceParts, projectWeekBalance, runningBalance, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, balanceParts, projectWeekBalance, runningBalance, weekBarSplit, worktargetFigures } from './worktarget'
 import type { WorkTarget } from '../types'
+import type { BalanceParts } from './worktarget'
 
 describe('liveSecondsSinceSnapshot', () => {
   const forecastAt = 1_000_000
@@ -96,67 +97,47 @@ describe('weekBarSplit', () => {
   })
 })
 
-describe('weeklyTargetSeconds', () => {
+describe('projectWeekBalance', () => {
+  const h = 3600
   const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
-  // 40 h base period, reduced to 32 h from 1 Sep 2026; chen has her own 20 h
+  // 40 h on p1 (default) + 5 h on p2; reduced to 32 h on p1 (p2 dropped) from 1 Sep 2026
   const targets = [
     tgt({}),
     tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false }),
     tgt({ weeklyHours: 32, validFrom: '2026-09-01' }),
     tgt({ userId: 'chen', weeklyHours: 20 }),
   ]
-
-  it('uses the base period for weeks before a change', () => {
-    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-24')).toBe(40 * 3600)
-  })
-
-  it('uses the new period from the week whose Monday is on/after validFrom', () => {
-    // week of Mon 31 Aug still starts before 1 Sep → old value
-    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-31')).toBe(40 * 3600)
-    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-09-07')).toBe(32 * 3600)
-  })
-
-  it('is 0 for a project missing from the period in force, and per person', () => {
-    // p2 only exists in the base period — the September period has no row for it
-    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-08-24')).toBe(5 * 3600)
-    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-09-07')).toBe(0)
-    expect(weeklyTargetSeconds(targets, 'chen', 'p1', '2026-09-07')).toBe(20 * 3600)
-    expect(weeklyTargetSeconds(targets, 'nobody', 'p1', '2026-09-07')).toBe(0)
-  })
-})
-
-describe('overtimeSeconds', () => {
-  it('is the excess above target, never negative, and 0 without a target', () => {
-    expect(overtimeSeconds(45 * 3600, 40 * 3600)).toBe(5 * 3600)
-    expect(overtimeSeconds(30 * 3600, 40 * 3600)).toBe(0)
-    expect(overtimeSeconds(30 * 3600, 0)).toBe(0)
-    expect(overtimeSeconds(40 * 3600 + 20, 40 * 3600)).toBe(0)
-  })
-})
-
-describe('projectWeekBalance', () => {
-  const h = 3600
-  const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
-  const twoProjects = [tgt({}), tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false })]
   const wk = '2026-08-24'
 
-  it('a full vacation week (credited from the 45 h total onto p1) is exactly on target', () => {
-    expect(projectWeekBalance(twoProjects, 'max', 'p1', wk, 45 * h, 45 * h)).toBe(0)
+  it('uses the period in force for the week (a Monday on/after validFrom)', () => {
+    expect(projectWeekBalance(targets, 'max', 'p1', '2026-08-31', 40 * h, 0, 0)).toBe(0)
+    expect(projectWeekBalance(targets, 'max', 'p1', '2026-09-07', 40 * h, 0, 0)).toBe(8 * h)
+    expect(projectWeekBalance(targets, 'chen', 'p1', '2026-09-07', 20 * h, 0, 0)).toBe(0)
   })
 
-  it('only counts p1\'s share of a credit', () => {
+  it('is null for a project without a row in that period, or an unknown person', () => {
+    expect(projectWeekBalance(targets, 'max', 'p2', '2026-09-07', 50 * h, 0, 0)).toBeNull()
+    expect(projectWeekBalance(targets, 'nobody', 'p1', wk, 50 * h, 0, 0)).toBeNull()
+  })
+
+  it('a full vacation week (45 h credited onto p1) is on target on p1', () => {
+    expect(projectWeekBalance(targets, 'max', 'p1', wk, 45 * h, 45 * h, 45 * h)).toBe(0)
+  })
+
+  it('the default project only counts its share of a credit', () => {
     // 33 h worked + one 9 h credited day → p1 share 8 h → 41 h vs 40 h
-    expect(projectWeekBalance(twoProjects, 'max', 'p1', wk, 42 * h, 9 * h)).toBe(1 * h)
-    // 28 h worked + one credited day → 36 h vs 40 h → 4 h missing
-    expect(projectWeekBalance(twoProjects, 'max', 'p1', wk, 37 * h, 9 * h)).toBe(-4 * h)
+    expect(projectWeekBalance(targets, 'max', 'p1', wk, 42 * h, 9 * h, 9 * h)).toBe(1 * h)
+    // 28 h worked + one credited day → 36 h vs 40 h
+    expect(projectWeekBalance(targets, 'max', 'p1', wk, 37 * h, 9 * h, 9 * h)).toBe(-4 * h)
+  })
+
+  it('a non-default project gets its share of the credit booked on the default project', () => {
+    // sick day: 9 h credited onto p1; on p2 4 h worked + share 9 × 5/45 = 1 h → on target
+    expect(projectWeekBalance(targets, 'max', 'p2', wk, 4 * h, 0, 9 * h)).toBe(0)
   })
 
   it('with a single project the credit counts in full', () => {
-    expect(projectWeekBalance([tgt({})], 'max', 'p1', wk, 42 * h, 8 * h)).toBe(2 * h)
-  })
-
-  it('is null for a project without a target', () => {
-    expect(projectWeekBalance(twoProjects, 'max', 'p3', wk, 50 * h, 0)).toBeNull()
+    expect(projectWeekBalance([tgt({})], 'max', 'p1', wk, 42 * h, 8 * h, 8 * h)).toBe(2 * h)
   })
 })
 
@@ -176,7 +157,7 @@ describe('balanceParts', () => {
 })
 
 describe('runningBalance', () => {
-  const weeks: { key: string; parts: Record<string, { over: number; under: number }> }[] = [
+  const weeks: { key: string; parts: Record<string, BalanceParts> }[] = [
     { key: '2026-10-12', parts: { max: { over: 0, under: 0 } } },
     { key: '2026-10-05', parts: { max: { over: 2 * 3600, under: 0 }, chen: { over: 0, under: 3600 } } },
     { key: '2026-09-28', parts: { max: { over: 0, under: 30 * 60 } } },

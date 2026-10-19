@@ -5,6 +5,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -765,11 +768,15 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 .clip(HbPill)
                 .background(Hb.surface2, HbPill),
         ) {
+          BoxWithConstraints(Modifier.fillMaxSize()) {
+            // keep ≥ 4dp (+ the 2dp gap) for the overtime segment — a weighted child ignores
+            // widthIn(min), so cap the base part instead
+            val base = if (weekOver) bar.baseFraction.coerceAtMost(1f - 6.dp / maxWidth) else bar.baseFraction
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (bar.baseFraction > 0f) {
+                if (base > 0f) {
                     Box(
                         Modifier
-                            .fillMaxWidth(bar.baseFraction)
+                            .fillMaxWidth(base)
                             .fillMaxHeight()
                             .clip(HbPill)
                             // week-bar segment honours the per-user avatar-hue override (Teil von #100)
@@ -783,13 +790,13 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                     Box(
                         Modifier
                             .weight(1f)
-                            .widthIn(min = 4.dp)
                             .fillMaxHeight()
                             .clip(HbPill)
                             .background(stripes),
                     )
                 }
             }
+          }
         }
         if (weekOver) {
             // weekly target exceeded: a filled badge instead of the quiet delta text
@@ -1904,13 +1911,19 @@ private fun ProjectDetailSheet(
     // all weeks feed the running Saldo; the Pro-Woche list shows the newest 6
     val allWeeks = remember(finished, projCredits) { buildWeekStats(finished, projCredits, maxWeeks = Int.MAX_VALUE) }
     val weeks = remember(allWeeks) { allWeeks.take(6) }
+    // ALL of a person's credits per week (any project): credits are booked from the total
+    // target onto the default project, so every project's comparison needs its share of them.
+    val userWeekCredits = remember(credits) { creditsByUserWeek(credits) }
     // Over-/under-target per person and week, against the target in force THAT week (periods,
     // #31). Only people who tracked time that week are compared; missing hours only for
     // finished weeks (the running week is still open).
-    val weekParts = remember(allWeeks, targets, project.id, thisWeekStart) {
+    val weekParts = remember(allWeeks, targets, project.id, thisWeekStart, userWeekCredits) {
         allWeeks.associate { week ->
             week.weekStart to week.byUser.filter { it.second > 0 }.associate { (uid, secs) ->
-                val balance = projectWeekBalance(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
+                val balance = projectWeekBalance(
+                    targets, uid, project.id, week.weekStart, secs,
+                    week.creditedByUser[uid] ?: 0L, userWeekCredits[week.weekStart to uid] ?: 0L,
+                )
                 uid to balanceParts(balance, week.weekStart.isBefore(thisWeekStart))
             }
         }
@@ -2056,14 +2069,19 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
             )
         }
         // bar (.hb-weekbar) — per-user segments scaled so the busiest week fills the bar
-        Row(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .height(12.dp)
                 .clip(HbPill)
                 .background(Hb.surface2, HbPill),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+          // Row gives weighted children an exact width, so a widthIn(min) after weight() is
+          // ignored — enforce the 4dp minimum (web: .hb-weekbar__seg min-width) in the weights.
+          val minFrac = 4.dp / maxWidth
+          var used = 0f
+          fun seg(fraction: Float): Float = fraction.coerceAtLeast(minFrac).also { used += it }
+          Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             // bar content = tracked time + the missing-hours gaps of finished weeks
             val content = week.totalSeconds + weekUnder
             val scale = if (busiest > 0) content.toFloat() / busiest.toFloat() else 0f
@@ -2075,8 +2093,7 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
                     if (seconds > over) {
                         Box(
                             Modifier
-                                .weight(((seconds - over) * perSecond).coerceAtLeast(0.0001f))
-                                .widthIn(min = 4.dp) // mirrors .hb-weekbar__seg min-width
+                                .weight(seg((seconds - over) * perSecond))
                                 .fillMaxHeight()
                                 .clip(HbPill)
                                 // week-bar segment honours the per-user avatar-hue override (Teil von #100)
@@ -2087,8 +2104,7 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
                         // the part above the weekly target — red stripes (web: .hb-weekbar__seg--over)
                         Box(
                             Modifier
-                                .weight((over * perSecond).coerceAtLeast(0.0001f))
-                                .widthIn(min = 4.dp)
+                                .weight(seg(over * perSecond))
                                 .fillMaxHeight()
                                 .clip(HbPill)
                                 .background(overtimeStripes()),
@@ -2099,7 +2115,7 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
                         val dash = Hb.prioMedium
                         Box(
                             Modifier
-                                .weight((under * perSecond).coerceAtLeast(0.0001f))
+                                .weight(seg(under * perSecond))
                                 .fillMaxHeight()
                                 .drawBehind {
                                     val w = 1.5.dp.toPx()
@@ -2117,8 +2133,9 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
                 }
             }
             // remaining space so shorter weeks don't fill the whole bar
-            val remaining = (1f - scale).coerceIn(0f, 1f)
+            val remaining = (1f - used).coerceIn(0f, 1f)
             if (remaining > 0f) Spacer(Modifier.weight(remaining))
+          }
         }
         // entry count + (if any) credited absence/holiday hours — mirrors web's sublabel
         val entriesText = if (week.count > 0) pluralStringResource(R.plurals.time_week_entries, week.count, week.count) else ""
@@ -2153,6 +2170,7 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
 }
 
 /** Running Saldo: "Saldo ab [date]" + one chip per person (red = over, amber = under). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BalanceSection(from: LocalDate, onFromChange: (LocalDate) -> Unit, balance: Map<String, Long>) {
     val fromWeek = from.with(DayOfWeek.MONDAY)
@@ -2172,7 +2190,8 @@ private fun BalanceSection(from: LocalDate, onFromChange: (LocalDate) -> Unit, b
             Text(stringResource(R.string.time_balance_empty), style = HbType.small, color = Hb.ink3)
         } else {
             val underColor = if (Hb.isDark) Hb.prioMedium else oklch(0.5, 0.11, 65.0)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // wraps onto a second line on narrow phones instead of pushing chips off-screen
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 balance.forEach { (userId, b) ->
                     Row(
                         Modifier

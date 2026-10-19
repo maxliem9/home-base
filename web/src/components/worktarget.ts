@@ -69,17 +69,10 @@ export function weekBarSplit(doneSeconds: number, targetSeconds: number): WeekBa
 }
 
 /**
- * Weekly target (seconds) of one person on one project for the week starting `weekStart`
- * (YYYY-MM-DD, a Monday) — taken from the period in force then: the person's latest
- * `validFrom` ≤ weekStart, like the backend forecast/credits. A project without a row in
- * that period (or a week before the person's first period) has no target → 0.
+ * The person's target rows of the period in force for the week starting `weekStart`
+ * (YYYY-MM-DD, a Monday): their latest `validFrom` ≤ weekStart, like the backend
+ * forecast/credits. Empty for a week before the person's first period.
  */
-export function weeklyTargetSeconds(targets: WorkTarget[], userId: string, projectId: string, weekStart: string): number {
-  const row = periodRows(targets, userId, weekStart).find((t) => t.projectId === projectId)
-  return row ? Math.round(row.weeklyHours * 3600) : 0
-}
-
-/** The person's target rows of the period in force for the week starting `weekStart`. */
 function periodRows(targets: WorkTarget[], userId: string, weekStart: string): WorkTarget[] {
   const mine = targets.filter((t) => t.userId === userId)
   const period = mine
@@ -93,47 +86,41 @@ function periodRows(targets: WorkTarget[], userId: string, weekStart: string): W
 /**
  * Balance of one person on one project in one week against that week's project target:
  * positive = overtime, negative = hours missing; `null` without a target (nothing to compare).
+ *
  * Absence/holiday credits are booked by the backend from the person's TOTAL weekly target
- * (all projects) onto the default project (TimeCredits.kt) — so only this project's share of
- * `creditedSeconds` counts toward it; the rest stands in for the other projects' hours and
- * must not show up as overtime (a vacation week would otherwise read "+5 h" on p1 for a
- * 40 h p1 + 5 h p2 split).
+ * (all projects) onto the default project (TimeCredits.kt). So every project counts its
+ * share `soll_p / Σsoll` of ALL the person's credits that week (`userCreditedSeconds`) in
+ * place of whatever landed on it (`projectCreditedSeconds`): the default project doesn't
+ * read a vacation week as "+5 h" for a 40 h + 5 h split, and the 5 h project doesn't read a
+ * sick day as minus hours.
  */
 export function projectWeekBalance(
   targets: WorkTarget[], userId: string, projectId: string, weekStart: string,
-  seconds: number, creditedSeconds: number,
+  seconds: number, projectCreditedSeconds: number, userCreditedSeconds: number,
 ): number | null {
   const rows = periodRows(targets, userId, weekStart)
   const row = rows.find((t) => t.projectId === projectId)
   const target = row ? row.weeklyHours * 3600 : 0
   if (target <= 0) return null
   const total = rows.reduce((s, t) => s + t.weeklyHours * 3600, 0)
-  const foreignCredit = creditedSeconds * (1 - target / total)
-  return Math.round(seconds - foreignCredit - target)
+  const effective = seconds - projectCreditedSeconds + userCreditedSeconds * (target / total)
+  return Math.round(effective - target)
 }
+
+/** Displayable overtime / missing hours of one person in one week (seconds, both ≥ 0). */
+export interface BalanceParts { over: number; under: number }
 
 /**
  * Splits a week balance into displayable overtime / missing hours; sub-minute differences
  * (< 30 s) count as on target, like the Wochensoll card. Missing hours only for finished
  * weeks — the running week is still open, not "under".
  */
-export function balanceParts(balance: number | null, weekFinished: boolean): { over: number; under: number } {
+export function balanceParts(balance: number | null, weekFinished: boolean): BalanceParts {
   if (balance === null) return { over: 0, under: 0 }
   return {
     over: balance >= 30 ? balance : 0,
     under: weekFinished && balance <= -30 ? -balance : 0,
   }
-}
-
-/**
- * Seconds above the weekly target; 0 without a target (no soll → no overtime) and for
- * sub-minute excess (< 30 s), which would only render as "+0 Min." — same threshold as the
- * Wochensoll card's badge.
- */
-export function overtimeSeconds(seconds: number, targetSeconds: number): number {
-  if (targetSeconds <= 0) return 0
-  const over = seconds - targetSeconds
-  return over >= 30 ? over : 0
 }
 
 /**
@@ -144,7 +131,7 @@ export function overtimeSeconds(seconds: number, targetSeconds: number): number 
  * (running week: overtime only).
  */
 export function runningBalance(
-  weeks: { key: string; parts: Record<string, { over: number; under: number }> }[],
+  weeks: { key: string; parts: Record<string, BalanceParts> }[],
   fromWeekKey: string,
 ): Record<string, number> {
   const out: Record<string, number> = {}
