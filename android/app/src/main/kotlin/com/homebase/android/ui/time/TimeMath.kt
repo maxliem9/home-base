@@ -90,22 +90,37 @@ private fun periodRows(targets: List<WorkTargetDto>, userId: String, weekStart: 
 }
 
 /**
- * Overtime of one person on one project in one week, against that week's project target.
- * Credits are booked from the person's TOTAL weekly target (all projects) onto the default
+ * Balance of one person on one project in one week against that week's project target:
+ * positive = overtime, negative = hours missing; `null` without a target. Credits are booked from the person's TOTAL weekly target (all projects) onto the default
  * project (backend TimeCredits.kt), so only this project's share of [creditedSeconds] counts
  * toward it — otherwise a vacation week reads as overtime with a 40 h p1 + 5 h p2 split.
- * Mirrors web `projectWeekOvertime`.
+ * Mirrors web `projectWeekBalance`.
  */
-fun projectWeekOvertime(
+fun projectWeekBalance(
     targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate,
     seconds: Long, creditedSeconds: Long,
-): Long {
+): Long? {
     val rows = periodRows(targets, userId, weekStart)
     val target = (rows.firstOrNull { it.projectId == projectId }?.weeklyHours ?: 0.0) * 3600
-    if (target <= 0.0) return 0
+    if (target <= 0.0) return null
     val total = rows.sumOf { it.weeklyHours } * 3600
     val foreignCredit = creditedSeconds * (1 - target / total)
-    return overtimeSeconds((seconds - foreignCredit).roundToLong(), target.roundToLong())
+    return (seconds - foreignCredit - target).roundToLong()
+}
+
+/** Displayable overtime / missing hours of one person in one week (seconds, both ≥ 0). */
+data class BalanceParts(val over: Long = 0, val under: Long = 0)
+
+/**
+ * Splits a week balance; sub-minute differences (< 30 s) count as on target. Missing hours
+ * only for finished weeks — the running week is still open. Mirrors web `balanceParts`.
+ */
+fun balanceParts(balance: Long?, weekFinished: Boolean): BalanceParts {
+    if (balance == null) return BalanceParts()
+    return BalanceParts(
+        over = if (balance >= 30) balance else 0,
+        under = if (weekFinished && balance <= -30) -balance else 0,
+    )
 }
 
 /**

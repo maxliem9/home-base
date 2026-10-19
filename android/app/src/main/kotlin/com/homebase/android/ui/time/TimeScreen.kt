@@ -105,6 +105,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.math.roundToLong
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import com.homebase.android.ui.theme.oklch
 
 // ---------------------------------------------------------------------------
 // Time tracking (Zeiterfassung) — running timer, projects grid, recent entries,
@@ -1896,7 +1902,19 @@ private fun ProjectDetailSheet(
 
     // Weekly aggregation: Monday -> (per-user seconds, entry count, credited).
     val weeks = remember(finished, projCredits) { buildWeekStats(finished, projCredits) }
-    val busiestWeek = weeks.maxOfOrNull { it.totalSeconds } ?: 0L
+    // Over-/under-target per person and week, against the target in force THAT week (periods,
+    // #31). Only people who tracked time that week are compared; missing hours only for
+    // finished weeks (the running week is still open).
+    val weekParts = remember(weeks, targets, project.id, thisWeekStart) {
+        weeks.associate { week ->
+            week.weekStart to week.byUser.filter { it.second > 0 }.associate { (uid, secs) ->
+                val balance = projectWeekBalance(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
+                uid to balanceParts(balance, week.weekStart.isBefore(thisWeekStart))
+            }
+        }
+    }
+    // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
+    val busiestWeek = weeks.maxOfOrNull { w -> w.totalSeconds + (weekParts[w.weekStart]?.values?.sumOf { it.under } ?: 0L) } ?: 0L
 
     val projectColor = Format.parseColor(project.color)
 
@@ -1968,11 +1986,7 @@ private fun ProjectDetailSheet(
             Text(stringResource(R.string.time_per_week).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 weeks.forEach { week ->
-                    // overtime per person against the target in force that week (periods, #31)
-                    val overByUser = week.byUser.associate { (uid, secs) ->
-                        uid to projectWeekOvertime(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
-                    }
-                    WeekRow(week = week, busiest = busiestWeek, today = today, overByUser = overByUser)
+                    WeekRow(week = week, busiest = busiestWeek, today = today, parts = weekParts[week.weekStart].orEmpty())
                 }
             }
         }
@@ -2013,7 +2027,8 @@ private fun FactTile(value: String, label: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser: Map<String, Long>) {
+private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<String, BalanceParts>) {
+    val weekUnder = parts.values.sumOf { it.under }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         // head: label (+ range) + total
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2038,11 +2053,14 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser:
                 .background(Hb.surface2, HbPill),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            val scale = if (busiest > 0) week.totalSeconds.toFloat() / busiest.toFloat() else 0f
+            // bar content = tracked time + the missing-hours gaps of finished weeks
+            val content = week.totalSeconds + weekUnder
+            val scale = if (busiest > 0) content.toFloat() / busiest.toFloat() else 0f
             week.byUser.forEach { (userId, seconds) ->
-                if (seconds > 0 && week.totalSeconds > 0) {
-                    val over = overByUser[userId] ?: 0L
-                    val perSecond = scale / week.totalSeconds.toFloat()
+                if (seconds > 0 && content > 0) {
+                    val over = parts[userId]?.over ?: 0L
+                    val under = parts[userId]?.under ?: 0L
+                    val perSecond = scale / content.toFloat()
                     if (seconds > over) {
                         Box(
                             Modifier
@@ -2065,6 +2083,26 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser:
                                 .background(overtimeStripes()),
                         )
                     }
+                    if (under > 0) {
+                        // hours missing to the target — an empty dashed gap (web: .hb-weekbar__seg--under)
+                        val dash = Hb.prioMedium
+                        Box(
+                            Modifier
+                                .weight((under * perSecond).coerceAtLeast(0.0001f))
+                                .fillMaxHeight()
+                                .drawBehind {
+                                    val w = 1.5.dp.toPx()
+                                    drawRoundRect(color = dash.copy(alpha = 0.16f), cornerRadius = CornerRadius(size.height / 2))
+                                    drawRoundRect(
+                                        color = dash,
+                                        topLeft = Offset(w / 2, w / 2),
+                                        size = Size(size.width - w, size.height - w),
+                                        cornerRadius = CornerRadius(size.height / 2),
+                                        style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))),
+                                    )
+                                },
+                        )
+                    }
                 }
             }
             // remaining space so shorter weeks don't fill the whole bar
@@ -2078,9 +2116,12 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser:
             if (week.count > 0) " " + stringResource(R.string.time_credited, credited)
             else stringResource(R.string.time_credited_only, credited)
         } else ""
-        val weekOver = overByUser.values.sum()
+        val weekOver = parts.values.sumOf { it.over }
         val overText = if (weekOver > 0) stringResource(R.string.time_week_over, Format.durationLong(weekOver)) else ""
         val overColor = Hb.danger
+        val underText = if (weekUnder > 0) stringResource(R.string.time_week_under, Format.durationLong(weekUnder)) else ""
+        // amber, darker in light mode for legible text (web: --undertime-ink)
+        val underColor = if (Hb.isDark) Hb.prioMedium else oklch(0.5, 0.11, 65.0)
         // one annotated Text so the red part wraps with the rest on narrow sheets
         Text(
             buildAnnotatedString {
@@ -2088,6 +2129,10 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser:
                 if (overText.isNotEmpty()) {
                     if (length > 0) append(" · ")
                     withStyle(SpanStyle(color = overColor, fontWeight = FontWeight.SemiBold)) { append(overText) }
+                }
+                if (underText.isNotEmpty()) {
+                    if (length > 0) append(" · ")
+                    withStyle(SpanStyle(color = underColor, fontWeight = FontWeight.SemiBold)) { append(underText) }
                 }
             },
             style = HbType.small,

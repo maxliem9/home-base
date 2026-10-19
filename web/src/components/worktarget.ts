@@ -91,24 +91,38 @@ function periodRows(targets: WorkTarget[], userId: string, weekStart: string): W
 }
 
 /**
- * Overtime of one person on one project in one week, against that week's project target.
+ * Balance of one person on one project in one week against that week's project target:
+ * positive = overtime, negative = hours missing; `null` without a target (nothing to compare).
  * Absence/holiday credits are booked by the backend from the person's TOTAL weekly target
  * (all projects) onto the default project (TimeCredits.kt) — so only this project's share of
  * `creditedSeconds` counts toward it; the rest stands in for the other projects' hours and
  * must not show up as overtime (a vacation week would otherwise read "+5 h" on p1 for a
  * 40 h p1 + 5 h p2 split).
  */
-export function projectWeekOvertime(
+export function projectWeekBalance(
   targets: WorkTarget[], userId: string, projectId: string, weekStart: string,
   seconds: number, creditedSeconds: number,
-): number {
+): number | null {
   const rows = periodRows(targets, userId, weekStart)
   const row = rows.find((t) => t.projectId === projectId)
   const target = row ? row.weeklyHours * 3600 : 0
-  if (target <= 0) return 0
+  if (target <= 0) return null
   const total = rows.reduce((s, t) => s + t.weeklyHours * 3600, 0)
   const foreignCredit = creditedSeconds * (1 - target / total)
-  return overtimeSeconds(seconds - foreignCredit, target)
+  return Math.round(seconds - foreignCredit - target)
+}
+
+/**
+ * Splits a week balance into displayable overtime / missing hours; sub-minute differences
+ * (< 30 s) count as on target, like the Wochensoll card. Missing hours only for finished
+ * weeks — the running week is still open, not "under".
+ */
+export function balanceParts(balance: number | null, weekFinished: boolean): { over: number; under: number } {
+  if (balance === null) return { over: 0, under: 0 }
+  return {
+    over: balance >= 30 ? balance : 0,
+    under: weekFinished && balance <= -30 ? -balance : 0,
+  }
 }
 
 /**

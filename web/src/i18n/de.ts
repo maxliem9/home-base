@@ -648,6 +648,7 @@ export const de = {
     periodScheduled: 'ab {date}: {hours} Std./Woche',
     weekLeft: 'noch {time}', // remaining hours toward the weekly target
     weekOver: '+{time} Überstunden', // weekly target exceeded
+    weekUnder: '−{time} Minusstunden', // finished week below its target
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"

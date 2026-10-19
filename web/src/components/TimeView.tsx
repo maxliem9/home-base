@@ -8,7 +8,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { liveSecondsSinceSnapshot, projectWeekOvertime, weekBarSplit } from './worktarget'
+import { balanceParts, liveSecondsSinceSnapshot, projectWeekBalance, weekBarSplit } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -1133,8 +1133,26 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
   }
   // Newest week first — credit-only weeks were appended out of order above.
   const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
-  const maxWeekSeconds = Math.max(...weeks.map((w) => w.seconds), 1)
-  const thisWeekSeconds = weekMap.get(weekKey(new Date().toISOString()))?.seconds ?? 0
+  const currentWeekKey = weekKey(new Date().toISOString())
+  const thisWeekSeconds = weekMap.get(currentWeekKey)?.seconds ?? 0
+  // Over-/under-target per person and week, against the target in force THAT week (periods,
+  // #31). Only people who tracked time on this project that week are compared; missing hours
+  // only for finished weeks (the running week is still open).
+  const weekParts = new Map<string, Record<string, { over: number; under: number }>>()
+  for (const w of weeks) {
+    const parts: Record<string, { over: number; under: number }> = {}
+    for (const uid of userIds) {
+      if (!w.byUser[uid]) continue
+      const balance = projectWeekBalance(targets, uid, project.id, w.key, w.byUser[uid], w.creditedByUser[uid] ?? 0)
+      parts[uid] = balanceParts(balance, w.key < currentWeekKey)
+    }
+    weekParts.set(w.key, parts)
+  }
+  // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
+  const maxWeekSeconds = Math.max(
+    ...weeks.map((w) => w.seconds + Object.values(weekParts.get(w.key) ?? {}).reduce((s, p) => s + p.under, 0)),
+    1,
+  )
 
   return (
     <>
@@ -1177,12 +1195,9 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
             <div className="hb-sectionlabel hb-detail-h">{t('time.perWeek')}</div>
             <div className="hb-weeklist">
               {weeks.map((w) => {
-                // overtime per person against the target in force that week (periods, #31)
-                const overByUser: Record<string, number> = {}
-                for (const uid of userIds) {
-                  overByUser[uid] = projectWeekOvertime(targets, uid, project.id, w.key, w.byUser[uid] ?? 0, w.creditedByUser[uid] ?? 0)
-                }
-                const weekOver = userIds.reduce((s, uid) => s + overByUser[uid], 0)
+                const parts = weekParts.get(w.key) ?? {}
+                const weekOver = Object.values(parts).reduce((s, p) => s + p.over, 0)
+                const weekUnder = Object.values(parts).reduce((s, p) => s + p.under, 0)
                 return (
                 <div key={w.key} className="hb-weekrow">
                   <div className="hb-weekrow__head">
@@ -1194,7 +1209,7 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                     {userIds.map((uid) => {
                       const secs = w.byUser[uid] ?? 0
                       if (!secs) return null
-                      const over = overByUser[uid]
+                      const { over, under } = parts[uid] ?? { over: 0, under: 0 }
                       const name = userMeta(uid)?.name ?? uid
                       return (
                         <Fragment key={uid}>
@@ -1212,6 +1227,14 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                               title={`${name}: ${t('time.weekOver', { time: fmtDurationShort(over) })}`}
                             />
                           )}
+                          {under > 0 && (
+                            // the hours missing to the target: an empty, dashed gap after the person's part
+                            <span
+                              className="hb-weekbar__seg hb-weekbar__seg--under"
+                              style={{ width: `${(under / maxWeekSeconds) * 100}%` }}
+                              title={`${name}: ${t('time.weekUnder', { time: fmtDurationShort(under) })}`}
+                            />
+                          )}
                         </Fragment>
                       )
                     })}
@@ -1222,6 +1245,8 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                     {w.credited > 0 && `${fmtDurationShort(w.credited)} ${t('time.creditedShort')}`}
                     {weekOver > 0 && (w.count > 0 || w.credited > 0) && ' · '}
                     {weekOver > 0 && <span className="hb-weekrow__over">{t('time.weekOver', { time: fmtDurationShort(weekOver) })}</span>}
+                    {weekUnder > 0 && (w.count > 0 || w.credited > 0 || weekOver > 0) && ' · '}
+                    {weekUnder > 0 && <span className="hb-weekrow__under">{t('time.weekUnder', { time: fmtDurationShort(weekUnder) })}</span>}
                   </div>
                 </div>
                 )
