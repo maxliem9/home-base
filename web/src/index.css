@@ -814,13 +814,13 @@ button.hb-savestatus.is-pending:hover { text-decoration: underline; }
 
 /* Wochensoll & Forecast (#31) */
 .hb-weektarget { display: flex; flex-direction: column; gap: 8px; }
-.hb-weektarget__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.hb-weektarget__name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hb-weektarget__nums { font-weight: 600; font-variant-numeric: tabular-nums; }
+.hb-weektarget__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.hb-weektarget__name { font-weight: 600; flex: 1 1 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-weektarget__nums { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hb-weektarget__delta { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hb-weektarget__delta.is-over { color: var(--accent-ink); font-weight: 600; }
 /* weekly target exceeded: a filled badge instead of the quiet delta text */
-.hb-weektarget__overbadge { font-size: 13px; font-weight: 600; color: var(--on-accent); background: var(--accent); padding: 2px 9px; border-radius: 999px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hb-weektarget__overbadge { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--on-accent); background: var(--accent); padding: 2px 9px; border-radius: 999px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hb-weektarget__projects { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
 .hb-weektarget__proj { display: flex; align-items: center; gap: 9px; font-size: 13.5px; padding: 2px 0; min-width: 0; }
 .hb-weektarget__projname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

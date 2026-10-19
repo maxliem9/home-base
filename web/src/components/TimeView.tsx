@@ -841,6 +841,9 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   const todayRemaining = u.todayRemainingSeconds - liveExtraSeconds
   // above target the bar rescales to the Ist and the overtime gets its own accent segment
   const bar = weekBarSplit(done, u.weekTargetSeconds)
+  // badge + bar segment share one value; ignore sub-minute overtime so the filled badge
+  // never reads "+0:00" (forecast target/remaining can differ by rounding seconds)
+  const isOver = bar.overSeconds >= 30
   const hue = userMeta(u.userId)?.hue ?? 150
   const todayLine = todayRemaining >= 60
     ? t('time.todayLeft', { time: hm(todayRemaining) })
@@ -855,15 +858,15 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
         <Avatar user={u.userId} size={24} />
         <span className="hb-weektarget__name">{userMeta(u.userId)?.name ?? u.userId}</span>
         <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
-        <span className={weekRemaining < 0 ? 'hb-weektarget__overbadge' : 'hb-weektarget__delta'}>
-          {weekRemaining < 0
-            ? t('time.weekOver', { time: hm(-weekRemaining) })
-            : t('time.weekLeft', { time: hm(weekRemaining) })}
+        <span className={isOver ? 'hb-weektarget__overbadge' : 'hb-weektarget__delta'}>
+          {isOver
+            ? t('time.weekOver', { time: hm(bar.overSeconds) })
+            : t('time.weekLeft', { time: hm(Math.max(0, weekRemaining)) })}
         </span>
       </div>
       <div className="hb-weekbar">
         {bar.basePct > 0 && <span className="hb-weekbar__seg" style={{ width: `${bar.basePct}%`, background: `oklch(0.62 0.1 ${hue})` }} />}
-        {bar.overPct > 0 && (
+        {isOver && (
           <span
             className="hb-weekbar__seg hb-weekbar__seg--over"
             style={{ width: `${bar.overPct}%` }}

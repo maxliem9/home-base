@@ -45,7 +45,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.pluralStringResource
@@ -716,9 +718,12 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
     val done = u.weekRecordedSeconds + u.weekCreditedSeconds
     // above target the bar rescales to the Ist and the overtime gets its own accent segment
     val bar = weekBarSplit(done, u.weekTargetSeconds)
-    val weekOver = u.weekRemainingSeconds < 0
+    // badge + bar segment share one value; ignore sub-minute overtime so the badge never
+    // reads "+0:00" (forecast target/remaining can differ by rounding seconds)
+    val weekOver = bar.overSeconds >= 30
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // head: avatar + name + "22:00 / 42:00" + "noch 20:00"/"+1:30"
+        // head: avatar + name + "22:00 / 42:00" + "noch 20:00"; the overtime badge sits on its
+        // own line under the bar so the name keeps its room on narrow phones
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HbAvatar(u.userId, size = 24.dp)
             Text(
@@ -734,20 +739,9 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink,
             )
-            if (weekOver) {
-                // weekly target exceeded: a filled badge instead of the quiet delta text
+            if (!weekOver) {
                 Text(
-                    stringResource(R.string.time_week_over, Format.hoursMinutes(-u.weekRemainingSeconds)),
-                    style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
-                    color = Hb.onAccent,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .background(Hb.accent, HbPill)
-                        .padding(horizontal = 9.dp, vertical = 2.dp),
-                )
-            } else {
-                Text(
-                    stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds)),
+                    stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds.coerceAtLeast(0))),
                     style = HbType.meta,
                     color = Hb.ink3,
                 )
@@ -772,17 +766,37 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                             .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
                     )
                 }
-                if (bar.overFraction > 0f) {
-                    // overtime segment — fills the rest of the rescaled bar
+                if (weekOver) {
+                    // overtime segment — fills the rest of the rescaled bar; striped so it reads
+                    // apart from a user hue close to the clay accent (web: .hb-weekbar__seg--over)
+                    val stripes = Brush.linearGradient(
+                        0f to Hb.accent, 0.5f to Hb.accent, 0.5f to Hb.accentStrong, 1f to Hb.accentStrong,
+                        start = Offset.Zero,
+                        end = Offset(14f, 14f),
+                        tileMode = TileMode.Repeated,
+                    )
                     Box(
                         Modifier
                             .weight(1f)
+                            .widthIn(min = 4.dp)
                             .fillMaxHeight()
                             .clip(HbPill)
-                            .background(Hb.accent),
+                            .background(stripes),
                     )
                 }
             }
+        }
+        if (weekOver) {
+            // weekly target exceeded: a filled badge instead of the quiet delta text
+            Text(
+                stringResource(R.string.time_week_over, Format.hoursMinutes(bar.overSeconds)),
+                style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                color = Hb.onAccent,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(Hb.accent, HbPill)
+                    .padding(horizontal = 9.dp, vertical = 2.dp),
+            )
         }
         // today's redistributed target + credits
         val todayLine = when {

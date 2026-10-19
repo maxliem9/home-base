@@ -380,6 +380,10 @@ class TimeMathTest {
         assertEquals(0f, under.overFraction, 0f)
         assertEquals(0L, under.overSeconds)
 
+        val exact = weekBarSplit(40 * h, 40 * h)
+        assertEquals(1f, exact.baseFraction, 0f)
+        assertEquals(0L, exact.overSeconds)
+
         // 50 h on a 40 h week → soll 80 %, overtime 20 % (10 h)
         val over = weekBarSplit(50 * h, 40 * h)
         assertEquals(0.8f, over.baseFraction, 1e-4f)
