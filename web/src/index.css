@@ -47,12 +47,17 @@
   --overtime: oklch(0.57 0.17 27);
   --overtime-strong: oklch(0.49 0.16 27);
   --overtime-ink: oklch(0.5 0.16 27);
+  /* hours missing to the Wochensoll (Pro-Woche gap + sub-line) */
+  --undertime: oklch(0.66 0.13 70);
+  --undertime-ink: oklch(0.5 0.11 65);
 }
 
 [data-theme="dark"] {
   --overtime: oklch(0.66 0.16 27);
   --overtime-strong: oklch(0.58 0.15 27);
   --overtime-ink: oklch(0.78 0.12 27);
+  --undertime: oklch(0.72 0.12 75);
+  --undertime-ink: oklch(0.8 0.11 75);
   --paper: oklch(0.2 0.014 152);
   --surface: oklch(0.248 0.016 152);
   --surface-2: oklch(0.29 0.018 152);
@@ -892,6 +897,9 @@ button.hb-savestatus.is-pending:hover { text-decoration: underline; }
 /* overtime part of a week bar (Wochensoll card + Pro-Woche list) — striped red so it reads apart from any user hue */
 .hb-weekbar__seg--over { background: repeating-linear-gradient(-45deg, var(--overtime) 0 5px, var(--overtime-strong) 5px 10px); }
 .hb-weekrow__over { color: var(--overtime-ink); font-weight: 600; }
+/* missing hours: an empty dashed gap (nothing was worked there) in amber */
+.hb-weekbar__seg--under { box-sizing: border-box; background: color-mix(in oklch, var(--undertime) 16%, transparent); border: 1.5px dashed var(--undertime); }
+.hb-weekrow__under { color: var(--undertime-ink); font-weight: 600; }
 .hb-weekrow__sub { font-size: 12px; color: var(--ink-3); }
 
 /* ---------- Rezepte ---------- */

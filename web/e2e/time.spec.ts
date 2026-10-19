@@ -683,7 +683,7 @@ test.describe('Time tracking', () => {
     await expect(week.locator('.hb-weekrow__ms')).toContainText('2 Std 0 Min')
   })
 
-  test('per-week list marks overtime against the target in force that week', async ({ page }) => {
+  test('per-week list marks over- and undertime against the target in force that week', async ({ page }) => {
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       // 1 h/week until June 7th, raised to 3 h/week from Mon June 8th (effective-dated period)
@@ -704,9 +704,12 @@ test.describe('Time tracking', () => {
     const early = page.locator('.hb-weekrow', { hasText: '1.–7. Juni' })
     await expect(early.locator('.hb-weekrow__over')).toHaveText('+1 Std 0 Min Überstunden')
     await expect(early.locator('.hb-weekbar__seg--over')).toHaveCount(1)
-    // new 3 h target → 2 h is under target, no overtime
+    await expect(early.locator('.hb-weekrow__under')).toHaveCount(0)
+    // new 3 h target → 2 h is 1 h short: no overtime, a dashed gap + "Minusstunden"
     const later = page.locator('.hb-weekrow', { hasText: '8.–14. Juni' })
     await expect(later.locator('.hb-weekrow__over')).toHaveCount(0)
     await expect(later.locator('.hb-weekbar__seg--over')).toHaveCount(0)
+    await expect(later.locator('.hb-weekrow__under')).toHaveText('−1 Std 0 Min Minusstunden')
+    await expect(later.locator('.hb-weekbar__seg--under')).toHaveCount(1)
   })
 })

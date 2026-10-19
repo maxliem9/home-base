@@ -649,6 +649,7 @@ export const en: Messages = {
     periodScheduled: 'from {date}: {hours} h/week',
     weekLeft: '{time} left', // remaining hours toward the weekly target
     weekOver: '+{time} overtime', // weekly target exceeded
+    weekUnder: '−{time} under target', // finished week below its target
     todayLeft: '{time} left today',
     todayOver: '{time} over target today',
     credited: 'credited', // rendered as "{time} credited"

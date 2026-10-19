@@ -13,7 +13,9 @@ import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.weekBarSplit
 import com.homebase.android.ui.time.overtimeSeconds
-import com.homebase.android.ui.time.projectWeekOvertime
+import com.homebase.android.ui.time.projectWeekBalance
+import com.homebase.android.ui.time.balanceParts
+import com.homebase.android.ui.time.BalanceParts
 import com.homebase.android.ui.time.weeklyTargetSeconds
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.time.withLiveExtra
@@ -420,19 +422,32 @@ class TimeMathTest {
     }
 
     @Test
-    fun `projectWeekOvertime only counts the project's share of credits`() {
+    fun `projectWeekBalance only counts the project's share of credits`() {
         val h = 3_600L
         val wk = LocalDate.of(2026, 8, 24)
         val two = listOf(
             WorkTargetDto(userId = "max", projectId = "p1", weeklyHours = 40.0, isDefault = true),
             WorkTargetDto(userId = "max", projectId = "p2", weeklyHours = 5.0, isDefault = false),
         )
-        // full vacation week: 45 h credited onto p1 → no overtime
-        assertEquals(0L, projectWeekOvertime(two, "max", "p1", wk, 45 * h, 45 * h))
+        // full vacation week: 45 h credited onto p1 → exactly on target
+        assertEquals(0L, projectWeekBalance(two, "max", "p1", wk, 45 * h, 45 * h))
         // 33 h worked + one 9 h credited day → p1 share 8 h → 41 h vs 40 h
-        assertEquals(1 * h, projectWeekOvertime(two, "max", "p1", wk, 42 * h, 9 * h))
+        assertEquals(1 * h, projectWeekBalance(two, "max", "p1", wk, 42 * h, 9 * h))
+        // 28 h worked + one credited day → 36 h vs 40 h
+        assertEquals(-4 * h, projectWeekBalance(two, "max", "p1", wk, 37 * h, 9 * h))
         // single project: credit counts in full
-        assertEquals(2 * h, projectWeekOvertime(two.take(1), "max", "p1", wk, 42 * h, 8 * h))
-        assertEquals(0L, projectWeekOvertime(two, "max", "p3", wk, 50 * h, 0))
+        assertEquals(2 * h, projectWeekBalance(two.take(1), "max", "p1", wk, 42 * h, 8 * h))
+        assertEquals(null, projectWeekBalance(two, "max", "p3", wk, 50 * h, 0))
+    }
+
+    @Test
+    fun `balanceParts splits with a dead zone and never flags the running week as under`() {
+        assertEquals(BalanceParts(over = 3_600), balanceParts(3_600, true))
+        assertEquals(BalanceParts(under = 3_600), balanceParts(-3_600, true))
+        assertEquals(BalanceParts(), balanceParts(20, true))
+        assertEquals(BalanceParts(), balanceParts(-20, true))
+        assertEquals(BalanceParts(), balanceParts(null, true))
+        assertEquals(BalanceParts(), balanceParts(-3_600, false))
+        assertEquals(BalanceParts(over = 3_600), balanceParts(3_600, false))
     }
 }
