@@ -260,18 +260,21 @@ test.describe('Time tracking', () => {
     await body.getByRole('button', { name: 'Wochensoll bearbeiten' }).click()
     await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
 
-    // schedule a new period from 1 Sep 2026 — it is seeded from the current 40h
+    // schedule a new period from 1 Sep NEXT year — always in the future, so the summary keeps
+    // showing the current 40h (a hard-coded date turned into a past period over time, #644);
+    // it is seeded from the current 40h
+    const future = `${new Date().getFullYear() + 1}-09-01`
     const postPromise = page.waitForRequest(
       (r) => r.url().includes('/time/targets/max/periods') && r.method() === 'POST',
     )
     await body.getByRole('button', { name: 'Neuer Zeitraum' }).click()
     const modal = page.locator('.hb-modal')
-    await modal.getByLabel('Gültig ab').fill('2026-09-01')
+    await modal.getByLabel('Gültig ab').fill(future)
     await modal.getByRole('button', { name: 'Neuer Zeitraum' }).click()
-    expect((await postPromise).postDataJSON()).toEqual({ validFrom: '2026-09-01' })
+    expect((await postPromise).postDataJSON()).toEqual({ validFrom: future })
     // still in the editor, now on the new period
     await expect(body.getByRole('heading', { name: 'Wochensoll konfigurieren' })).toBeVisible()
-    await expect(body.getByRole('combobox').first()).toHaveValue('2026-09-01')
+    await expect(body.getByRole('combobox').first()).toHaveValue(future)
 
     // the grid now edits that period (seeded to 40h) — lower it to 32h
     await expect(body.getByLabel('Std/Woche Arbeit Max')).toHaveValue('40')
@@ -281,7 +284,7 @@ test.describe('Time tracking', () => {
     )
     await body.getByRole('button', { name: 'Speichern' }).click()
     // the PUT carries the period start so the change lands in the new period only
-    expect((await putPromise).postDataJSON()).toEqual({ weeklyHours: 32, validFrom: '2026-09-01' })
+    expect((await putPromise).postDataJSON()).toEqual({ weeklyHours: 32, validFrom: future })
 
     // overview summary: still 40h now, with the 32h change noted as scheduled
     await expect(body).toContainText('40 Std/Woche')
