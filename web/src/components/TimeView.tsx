@@ -8,7 +8,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { balanceParts, liveSecondsSinceSnapshot, projectWeekBalance, weekBarSplit } from './worktarget'
+import { balanceParts, liveSecondsSinceSnapshot, projectWeekBalance, runningBalance, weekBarSplit } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -1067,7 +1067,12 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
   onSplit: (entry: TimeEntry) => void
   onBack: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // Saldo start (#…): defaults to the 1st of the current month, extendable via the date picker
+  const [balanceFrom, setBalanceFrom] = useState(() => {
+    const now = new Date()
+    return dayKey(new Date(now.getFullYear(), now.getMonth(), 1))
+  })
   const projEntries = useMemo(
     () =>
       entries
@@ -1148,6 +1153,16 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
     }
     weekParts.set(w.key, parts)
   }
+  // Running Saldo over whole weeks from the week containing `balanceFrom` (noon-local so the
+  // date lands in the right week regardless of zone). Hidden when the project has no target.
+  const hasTarget = targets.some((x) => x.projectId === project.id && x.weeklyHours > 0)
+  const balanceWeekKey = /^\d{4}-\d{2}-\d{2}$/.test(balanceFrom) ? weekKey(`${balanceFrom}T12:00:00`) : null
+  const balance = balanceWeekKey
+    ? runningBalance(weeks.map((w) => ({ key: w.key, parts: weekParts.get(w.key) ?? {} })), balanceWeekKey)
+    : {}
+  const balanceUsers = userIds.filter((uid) => uid in balance)
+  const fmtDay = (key: string) =>
+    new Date(`${key}T12:00:00`).toLocaleDateString(i18n.language, { day: 'numeric', month: 'short' })
   // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
   const maxWeekSeconds = Math.max(
     ...weeks.map((w) => w.seconds + Object.values(weekParts.get(w.key) ?? {}).reduce((s, p) => s + p.under, 0)),
@@ -1193,6 +1208,34 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
         ) : (
           <>
             <div className="hb-sectionlabel hb-detail-h">{t('time.perWeek')}</div>
+            {hasTarget && (
+              <div className="hb-saldo">
+                <label className="hb-saldo__from">
+                  <span>{t('time.balanceFrom')}</span>
+                  <TextInput type="date" value={balanceFrom} onChange={setBalanceFrom} className="hb-saldo__date" />
+                </label>
+                {balanceWeekKey && balanceWeekKey !== balanceFrom && (
+                  <span className="hb-saldo__hint">{t('time.balanceWholeWeeks', { date: fmtDay(balanceWeekKey) })}</span>
+                )}
+                <div className="hb-detail-users">
+                  {balanceUsers.length === 0 ? (
+                    <span className="hb-saldo__hint">{t('time.balanceEmpty')}</span>
+                  ) : balanceUsers.map((uid) => {
+                    const b = balance[uid]
+                    const cls = b >= 30 ? ' is-over' : b <= -30 ? ' is-under' : ''
+                    return (
+                      <div key={uid} className="hb-detail-user hb-saldo__user">
+                        <Avatar user={uid} size={26} />
+                        <span className="hb-detail-user__name">{userMeta(uid)?.name ?? uid}</span>
+                        <span className={`hb-mono hb-saldo__value${cls}`}>
+                          {b >= 30 ? `+${fmtDurationShort(b)}` : b <= -30 ? `−${fmtDurationShort(-b)}` : '±0'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <div className="hb-weeklist">
               {weeks.map((w) => {
                 const parts = weekParts.get(w.key) ?? {}

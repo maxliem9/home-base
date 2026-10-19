@@ -460,6 +460,9 @@
     <string name="time_fact_entries">Entries</string>
     <string name="time_fact_avg">avg / entry</string>
     <string name="time_per_week">Per week</string>
+    <string name="time_balance_from">Balance since</string>
+    <string name="time_balance_whole_weeks">counts whole weeks from Mon %1$s</string>
+    <string name="time_balance_empty">No weeks in this range yet</string>
     <string name="time_all_entries">All entries</string>
     <string name="time_this_week">This week</string>
     <string name="time_last_week">Last week</string>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, overtimeSeconds, balanceParts, projectWeekBalance, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, overtimeSeconds, balanceParts, projectWeekBalance, runningBalance, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
 import type { WorkTarget } from '../types'
 
 describe('liveSecondsSinceSnapshot', () => {
@@ -172,5 +172,23 @@ describe('balanceParts', () => {
   it('never flags the running week as under target, but does show its overtime', () => {
     expect(balanceParts(-3600, false)).toEqual({ over: 0, under: 0 })
     expect(balanceParts(3600, false)).toEqual({ over: 3600, under: 0 })
+  })
+})
+
+describe('runningBalance', () => {
+  const weeks: { key: string; parts: Record<string, { over: number; under: number }> }[] = [
+    { key: '2026-10-12', parts: { max: { over: 0, under: 0 } } },
+    { key: '2026-10-05', parts: { max: { over: 2 * 3600, under: 0 }, chen: { over: 0, under: 3600 } } },
+    { key: '2026-09-28', parts: { max: { over: 0, under: 30 * 60 } } },
+    { key: '2026-09-21', parts: { max: { over: 5 * 3600, under: 0 } } },
+  ]
+
+  it('sums overtime minus missing hours per person from the start week on', () => {
+    expect(runningBalance(weeks, '2026-09-28')).toEqual({ max: 1.5 * 3600, chen: -3600 })
+  })
+
+  it('a later start leaves earlier weeks out; people without parts are absent', () => {
+    expect(runningBalance(weeks, '2026-10-12')).toEqual({ max: 0 })
+    expect(runningBalance(weeks, '2026-11-02')).toEqual({})
   })
 })

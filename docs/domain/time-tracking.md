@@ -136,6 +136,13 @@ description?, created_at, updated_at
   Die **laufende** Woche wird nie als „unter Soll" markiert (sie ist noch offen; Überstunden zeigt sie schon).
   Verglichen werden nur Personen, die in der Woche Zeit auf dem Projekt haben. Helfer: `projectWeekBalance`
   (vorzeichenbehaftet) + `balanceParts` (< 30 s = im Soll) in `worktarget.ts` / `TimeMath.kt`.
+- **Saldo (Pro Woche):** Über der Wochenliste steht „Saldo ab [Datum]" — Überstunden minus Minusstunden je
+  Person, summiert über **ganze Wochen** ab der Woche, die das Datum enthält (liegt es mitten in der Woche,
+  zeigt ein Hinweis den gezählten Montag; eine halbe Woche wird nie gegen ein volles Soll gerechnet). Default =
+  1. des laufenden Monats, per Datepicker beliebig weiter zurück; der Wert ist bewusst nur View-State (nicht
+  gespeichert). Gleiche Regeln wie die Wochenzeilen (Projekt-Soll, Gutschrift-Anteil, laufende Woche nur
+  Überstunden). Nur sichtbar, wenn das Projekt irgendein Soll hat. Helfer `runningBalance` (Web `worktarget.ts`,
+  Android `TimeMath.kt`); Android rechnet dafür über alle Wochen, die Liste zeigt weiter die neuesten 6.
 
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim
