@@ -118,6 +118,10 @@ description?, created_at, updated_at
   Tages- + Wochensaldo statt Gesamtsumme — vom aktuellen Tag/Woche, sonst Fallback
   auf den letzten aktiven Tag bzw. die letzte aktive Woche (#59). Android analog:
   Live-Tick + Kachel-Saldi in `ui/time` (TimeMath.kt, #64).
+- **Überstunden sichtbar machen:** Liegt das Wochen-Ist über dem Soll, skaliert der Balken der
+  Wochensoll-Karte auf das Ist um — der Soll-Anteil bleibt in Nutzerfarbe, die Überstunden bekommen ein
+  eigenes Akzent-Segment — und statt „+h:mm" steht ein gefülltes Badge „+h:mm Überstunden". Die Aufteilung
+  liegt geteilt/testbar in `weekBarSplit` (Web `worktarget.ts`, Android `TimeMath.kt`).
 
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim

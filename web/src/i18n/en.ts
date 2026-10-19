@@ -648,7 +648,7 @@ export const en: Messages = {
     periodDeleteConfirm: 'The period from {date} will be removed; the affected weeks revert to the previous value.',
     periodScheduled: 'from {date}: {hours} h/week',
     weekLeft: '{time} left', // remaining hours toward the weekly target
-    weekOver: '+{time}', // weekly target exceeded
+    weekOver: '+{time} overtime', // weekly target exceeded
     todayLeft: '{time} left today',
     todayOver: '{time} over target today',
     credited: 'credited', // rendered as "{time} credited"

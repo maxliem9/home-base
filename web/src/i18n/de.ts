@@ -647,7 +647,7 @@ export const de = {
     periodDeleteConfirm: 'Der Zeitraum ab {date} wird entfernt; die betroffenen Wochen nutzen wieder den vorherigen Wert.',
     periodScheduled: 'ab {date}: {hours} Std./Woche',
     weekLeft: 'noch {time}', // remaining hours toward the weekly target
-    weekOver: '+{time}', // weekly target exceeded
+    weekOver: '+{time} Überstunden', // weekly target exceeded
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"

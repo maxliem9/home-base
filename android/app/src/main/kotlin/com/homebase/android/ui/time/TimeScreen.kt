@@ -714,7 +714,8 @@ private fun WeekTargetsCard(
 @Composable
 private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, ProjectDto>) {
     val done = u.weekRecordedSeconds + u.weekCreditedSeconds
-    val frac = if (u.weekTargetSeconds > 0) (done.toFloat() / u.weekTargetSeconds.toFloat()).coerceIn(0f, 1f) else 0f
+    // above target the bar rescales to the Ist and the overtime gets its own accent segment
+    val bar = weekBarSplit(done, u.weekTargetSeconds)
     val weekOver = u.weekRemainingSeconds < 0
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // head: avatar + name + "22:00 / 42:00" + "noch 20:00"/"+1:30"
@@ -733,12 +734,24 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 style = HbType.mono.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
                 color = Hb.ink,
             )
-            Text(
-                if (weekOver) stringResource(R.string.time_week_over, Format.hoursMinutes(-u.weekRemainingSeconds))
-                else stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds)),
-                style = HbType.meta.copy(fontWeight = if (weekOver) FontWeight.SemiBold else FontWeight.Normal),
-                color = if (weekOver) Hb.accentInk else Hb.ink3,
-            )
+            if (weekOver) {
+                // weekly target exceeded: a filled badge instead of the quiet delta text
+                Text(
+                    stringResource(R.string.time_week_over, Format.hoursMinutes(-u.weekRemainingSeconds)),
+                    style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
+                    color = Hb.onAccent,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .background(Hb.accent, HbPill)
+                        .padding(horizontal = 9.dp, vertical = 2.dp),
+                )
+            } else {
+                Text(
+                    stringResource(R.string.time_week_remaining, Format.hoursMinutes(u.weekRemainingSeconds)),
+                    style = HbType.meta,
+                    color = Hb.ink3,
+                )
+            }
         }
         // progress bar (.hb-weekbar)
         Box(
@@ -748,15 +761,27 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
                 .clip(HbPill)
                 .background(Hb.surface2, HbPill),
         ) {
-            if (frac > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(frac)
-                        .fillMaxHeight()
-                        .clip(HbPill)
-                        // week-bar segment honours the per-user avatar-hue override (Teil von #100)
-                        .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
-                )
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (bar.baseFraction > 0f) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(bar.baseFraction)
+                            .fillMaxHeight()
+                            .clip(HbPill)
+                            // week-bar segment honours the per-user avatar-hue override (Teil von #100)
+                            .background(Hb.userColor(u.userId, LocalAvatarHues.current[u.userId])),
+                    )
+                }
+                if (bar.overFraction > 0f) {
+                    // overtime segment — fills the rest of the rescaled bar
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(HbPill)
+                            .background(Hb.accent),
+                    )
+                }
             }
         }
         // today's redistributed target + credits

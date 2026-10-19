@@ -206,6 +206,23 @@ test.describe('Time tracking', () => {
     await expect(card.locator('.hb-weektarget__proj', { hasText: 'Arbeit' })).toContainText('-40:00')
   })
 
+  test('highlights overtime above the weekly target', async ({ page }) => {
+    // 2 h recorded this week against a 1 h Wochensoll → 1 h overtime
+    const now = new Date().toISOString()
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true })])
+      .seedEntries([timeEntry({ id: 'e1', projectId: 'p1', startedAt: now, stoppedAt: now, durationSeconds: 7200 })])
+    await openTime(page, mock)
+
+    const card = page.locator('.hb-weektargets')
+    await expect(card).toContainText('2:00 / 1:00')
+    // the overtime is a filled badge, not the quiet "noch …" text …
+    await expect(card.locator('.hb-weektarget__overbadge')).toHaveText('+1:00 Überstunden')
+    // … and gets its own bar segment next to the soll part
+    await expect(card.locator('.hb-weekbar__seg--over')).toBeVisible()
+  })
+
   test('configures a weekly target through the Wochensoll editor (in settings)', async ({ page }) => {
     await openTimeSettings(page, new MockApi().seedProjects([ARBEIT]))
     const body = page.locator('.hb-settings-body')

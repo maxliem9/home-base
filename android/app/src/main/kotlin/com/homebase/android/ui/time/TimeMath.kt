@@ -52,6 +52,22 @@ fun UserForecastDto.withLiveExtra(extraSeconds: Long, liveProjectId: String?): U
     )
 }
 
+/** Week bar split into soll + overtime (fractions of the bar width, 0–1). */
+data class WeekBarSplit(val baseFraction: Float, val overFraction: Float, val overSeconds: Long)
+
+/**
+ * Splits the Wochensoll bar: under target it fills toward the target as before; above
+ * target it rescales to the Ist so the overtime gets its own segment instead of being
+ * swallowed by a capped 100 % bar. Mirrors web `weekBarSplit` (worktarget.ts).
+ */
+fun weekBarSplit(doneSeconds: Long, targetSeconds: Long): WeekBarSplit {
+    val done = doneSeconds.coerceAtLeast(0)
+    if (targetSeconds <= 0) return WeekBarSplit(0f, 0f, 0)
+    if (done <= targetSeconds) return WeekBarSplit(done.toFloat() / targetSeconds, 0f, 0)
+    val base = targetSeconds.toFloat() / done
+    return WeekBarSplit(base, 1f - base, done - targetSeconds)
+}
+
 // ---------------------------------------------------------------------------
 // Project-card day/week saldo (#64) — web reference: projectStats memo
 // ---------------------------------------------------------------------------

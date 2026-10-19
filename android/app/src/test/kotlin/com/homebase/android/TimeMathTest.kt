@@ -11,6 +11,7 @@ import com.homebase.android.ui.time.checkSplit
 import com.homebase.android.ui.time.defaultSplitAt
 import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
+import com.homebase.android.ui.time.weekBarSplit
 import com.homebase.android.ui.time.withLiveExtra
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -369,5 +370,23 @@ class TimeMathTest {
         assertEquals(7_200L, weeks[0].totalSeconds)
         assertEquals(0L, weeks[0].creditedSeconds)
         assertEquals(1, weeks[0].count)
+    }
+
+    @Test
+    fun `weekBarSplit fills toward the target and splits off overtime above it`() {
+        val h = 3_600L
+        val under = weekBarSplit(20 * h, 40 * h)
+        assertEquals(0.5f, under.baseFraction, 1e-4f)
+        assertEquals(0f, under.overFraction, 0f)
+        assertEquals(0L, under.overSeconds)
+
+        // 50 h on a 40 h week → soll 80 %, overtime 20 % (10 h)
+        val over = weekBarSplit(50 * h, 40 * h)
+        assertEquals(0.8f, over.baseFraction, 1e-4f)
+        assertEquals(0.2f, over.overFraction, 1e-4f)
+        assertEquals(10 * h, over.overSeconds)
+
+        assertEquals(0f, weekBarSplit(5 * h, 0).baseFraction, 0f)
+        assertEquals(0f, weekBarSplit(-60, 40 * h).baseFraction, 0f)
     }
 }

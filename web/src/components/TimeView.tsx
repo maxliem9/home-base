@@ -8,7 +8,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { liveSecondsSinceSnapshot } from './worktarget'
+import { liveSecondsSinceSnapshot, weekBarSplit } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -839,7 +839,8 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
   const done = u.weekRecordedSeconds + u.weekCreditedSeconds + liveExtraSeconds
   const weekRemaining = u.weekRemainingSeconds - liveExtraSeconds
   const todayRemaining = u.todayRemainingSeconds - liveExtraSeconds
-  const pct = u.weekTargetSeconds > 0 ? Math.min(100, (done / u.weekTargetSeconds) * 100) : 0
+  // above target the bar rescales to the Ist and the overtime gets its own accent segment
+  const bar = weekBarSplit(done, u.weekTargetSeconds)
   const hue = userMeta(u.userId)?.hue ?? 150
   const todayLine = todayRemaining >= 60
     ? t('time.todayLeft', { time: hm(todayRemaining) })
@@ -854,14 +855,21 @@ function WeekBalance({ forecast, projectsById, liveExtraSeconds = 0, liveProject
         <Avatar user={u.userId} size={24} />
         <span className="hb-weektarget__name">{userMeta(u.userId)?.name ?? u.userId}</span>
         <span className="hb-mono hb-weektarget__nums">{hm(done)} / {hm(u.weekTargetSeconds)}</span>
-        <span className={`hb-weektarget__delta${weekRemaining < 0 ? ' is-over' : ''}`}>
+        <span className={weekRemaining < 0 ? 'hb-weektarget__overbadge' : 'hb-weektarget__delta'}>
           {weekRemaining < 0
             ? t('time.weekOver', { time: hm(-weekRemaining) })
             : t('time.weekLeft', { time: hm(weekRemaining) })}
         </span>
       </div>
       <div className="hb-weekbar">
-        <span className="hb-weekbar__seg" style={{ width: `${pct}%`, background: `oklch(0.62 0.1 ${hue})` }} />
+        {bar.basePct > 0 && <span className="hb-weekbar__seg" style={{ width: `${bar.basePct}%`, background: `oklch(0.62 0.1 ${hue})` }} />}
+        {bar.overPct > 0 && (
+          <span
+            className="hb-weekbar__seg hb-weekbar__seg--over"
+            style={{ width: `${bar.overPct}%` }}
+            title={t('time.weekOver', { time: hm(bar.overSeconds) })}
+          />
+        )}
       </div>
       <div className="hb-muted" style={{ fontSize: 13 }}>
         {todayLine}

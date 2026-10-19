@@ -398,7 +398,7 @@
     <string name="confirm_start_partner_timer">Timer für %1$s starten?</string>
     <string name="time_weektargets_title">Wochensoll</string>
     <string name="time_week_remaining">noch %1$s</string>
-    <string name="time_week_over">+%1$s</string>
+    <string name="time_week_over">+%1$s Überstunden</string>
     <string name="time_today_remaining">Heute noch %1$s</string>
     <string name="time_today_over">Heute %1$s über Soll</string>
     <string name="time_today_reached">Tagessoll erreicht</string>

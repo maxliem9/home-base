@@ -42,3 +42,26 @@ export function worktargetFigures(
   const todayLeft = f.todayTargetSeconds - (f.todayRecordedSeconds + liveSeconds)
   return { weekDone, pct, todayLeft }
 }
+
+export interface WeekBarSplit {
+  /** width of the soll part (user colour) in percent of the bar */
+  basePct: number
+  /** width of the overtime part (accent colour) in percent of the bar; 0 while under target */
+  overPct: number
+  /** seconds above the weekly target; 0 while under target */
+  overSeconds: number
+}
+
+/**
+ * Splits the week bar into soll + overtime. Under target the bar fills toward 100 % as
+ * before; above target the bar is rescaled to the Ist so the overtime shows as its own
+ * segment instead of being swallowed by a capped 100 % bar.
+ */
+export function weekBarSplit(doneSeconds: number, targetSeconds: number): WeekBarSplit {
+  const done = Math.max(0, doneSeconds)
+  if (targetSeconds <= 0) return { basePct: 0, overPct: 0, overSeconds: 0 }
+  if (done <= targetSeconds) return { basePct: (done / targetSeconds) * 100, overPct: 0, overSeconds: 0 }
+  const overSeconds = done - targetSeconds
+  const basePct = (targetSeconds / done) * 100
+  return { basePct, overPct: 100 - basePct, overSeconds }
+}

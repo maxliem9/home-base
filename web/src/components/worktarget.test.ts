@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, weekBarSplit, worktargetFigures } from './worktarget'
 
 describe('liveSecondsSinceSnapshot', () => {
   const forecastAt = 1_000_000
@@ -67,5 +67,30 @@ describe('worktargetFigures', () => {
   it('reports todayLeft ≤ 0 once today’s target is reached', () => {
     const f = worktargetFigures({ ...forecast, todayRecordedSeconds: 8 * 3600 }, 0)
     expect(f.todayLeft).toBeLessThanOrEqual(0)
+  })
+})
+
+describe('weekBarSplit', () => {
+  const h = 3600
+
+  it('fills toward the target without an overtime segment while under target', () => {
+    expect(weekBarSplit(20 * h, 40 * h)).toEqual({ basePct: 50, overPct: 0, overSeconds: 0 })
+  })
+
+  it('is exactly full with no overtime at the target', () => {
+    expect(weekBarSplit(40 * h, 40 * h)).toEqual({ basePct: 100, overPct: 0, overSeconds: 0 })
+  })
+
+  it('rescales to the Ist and splits off the overtime above target', () => {
+    // 50 h on a 40 h week → soll 80 %, overtime 20 % (10 h)
+    const s = weekBarSplit(50 * h, 40 * h)
+    expect(s.basePct).toBeCloseTo(80)
+    expect(s.overPct).toBeCloseTo(20)
+    expect(s.overSeconds).toBe(10 * h)
+  })
+
+  it('is empty without a target and never negative', () => {
+    expect(weekBarSplit(5 * h, 0)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
+    expect(weekBarSplit(-60, 40 * h)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
   })
 })
