@@ -399,6 +399,7 @@
     <string name="time_weektargets_title">Wochensoll</string>
     <string name="time_week_remaining">noch %1$s</string>
     <string name="time_week_over">+%1$s Überstunden</string>
+    <string name="time_week_under">−%1$s Minusstunden</string>
     <string name="time_today_remaining">Heute noch %1$s</string>
     <string name="time_today_over">Heute %1$s über Soll</string>
     <string name="time_today_reached">Tagessoll erreicht</string>
@@ -471,6 +472,9 @@
     <string name="time_fact_entries">Einträge</string>
     <string name="time_fact_avg">ø / Eintrag</string>
     <string name="time_per_week">Pro Woche</string>
+    <string name="time_balance_from">Saldo ab</string>
+    <string name="time_balance_whole_weeks">zählt ganze Wochen ab Mo. %1$s</string>
+    <string name="time_balance_empty">Noch keine Wochen in diesem Zeitraum</string>
     <string name="time_all_entries">Alle Einträge</string>
     <string name="time_this_week">Diese Woche</string>
     <string name="time_last_week">Letzte Woche</string>

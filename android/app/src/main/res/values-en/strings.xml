@@ -387,6 +387,7 @@
     <string name="time_weektargets_title">Weekly target</string>
     <string name="time_week_remaining">%1$s left</string>
     <string name="time_week_over">+%1$s overtime</string>
+    <string name="time_week_under">−%1$s under target</string>
     <string name="time_today_remaining">%1$s left today</string>
     <string name="time_today_over">%1$s over target today</string>
     <string name="time_today_reached">Daily target reached</string>
@@ -459,6 +460,9 @@
     <string name="time_fact_entries">Entries</string>
     <string name="time_fact_avg">avg / entry</string>
     <string name="time_per_week">Per week</string>
+    <string name="time_balance_from">Balance since</string>
+    <string name="time_balance_whole_weeks">counts whole weeks from Mon %1$s</string>
+    <string name="time_balance_empty">No weeks in this range yet</string>
     <string name="time_all_entries">All entries</string>
     <string name="time_this_week">This week</string>
     <string name="time_last_week">Last week</string>

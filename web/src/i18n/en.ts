@@ -561,6 +561,9 @@ export const en: Messages = {
     entryMany: 'entries',
     // absence/holiday hours credited to this project that week (sick/vacation/holiday, #31)
     creditedShort: 'credited',
+    balanceFrom: 'Balance since', // running over-/undertime total from a date
+    balanceWholeWeeks: 'counts whole weeks from Mon {date}',
+    balanceEmpty: 'No weeks in this range yet',
     noProjects: 'No projects yet',
     noProjectsHint: 'Create a project in the top right',
     noProjectsConfigHint: 'Create a first project to track time', // shown on the main view's empty state (#86)
@@ -649,6 +652,7 @@ export const en: Messages = {
     periodScheduled: 'from {date}: {hours} h/week',
     weekLeft: '{time} left', // remaining hours toward the weekly target
     weekOver: '+{time} overtime', // weekly target exceeded
+    weekUnder: '−{time} under target', // finished week below its target
     todayLeft: '{time} left today',
     todayOver: '{time} over target today',
     credited: 'credited', // rendered as "{time} credited"

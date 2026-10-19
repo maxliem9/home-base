@@ -126,11 +126,25 @@ description?, created_at, updated_at
   das **in dieser Woche** galt (Periode mit dem letzten `validFrom` ≤ Wochen-Montag, Projekt-Zeile daraus; keine
   Zeile ⇒ kein Soll ⇒ keine Überstunden). Der Anteil über Soll erscheint als rotes Segment im Balken plus
   „+… Überstunden" in der Unterzeile. Dafür laden Web-`TimeView` (`GET /time/targets`, neu geladen bei
-  `TARGET_UPDATED`) und Android (`TimeUiState.targets`) alle Perioden; Helfer `projectWeekOvertime` +
-  `overtimeSeconds` (< 30 s zählt nicht) in `worktarget.ts` / `TimeMath.kt`. Vergleich ist **pro Projekt**
+  `TARGET_UPDATED`) und Android (`TimeUiState.targets`) alle Perioden; Helfer `projectWeekBalance` +
+  `balanceParts` (< 30 s zählt nicht) in `worktarget.ts` / `TimeMath.kt`. Vergleich ist **pro Projekt**
   (Projekt-Soll), nicht die projektübergreifende Wochenbilanz. **Gutschrift-Anteil:** Gutschriften rechnet das
-  Backend aus dem *Gesamt*-Soll aller Projekte und bucht sie aufs Default-Projekt — für die Überstunden zählt nur
-  der Projekt-Anteil (`credited × soll_p / Σsoll`), sonst wäre z. B. eine Urlaubswoche bei 40 h + 5 h „+5 h".
+  Backend aus dem *Gesamt*-Soll aller Projekte und bucht sie aufs Default-Projekt — darum zählt **jedes** Projekt
+  statt der bei ihm gelandeten Gutschrift seinen Anteil `soll_p / Σsoll` an **allen** Gutschriften der Person in
+  der Woche (Web lädt dafür alle Credits, nicht nur die des Projekts). Sonst wäre bei 40 h + 5 h eine Urlaubswoche
+  auf dem Default-Projekt „+5 h" und ein Krankheitstag auf dem 5-h-Projekt „Minusstunden".
+- **Minusstunden (Pro Woche):** Abgeschlossene Wochen unter Soll zeigen die fehlenden Stunden als leere,
+  gestrichelte Bernstein-Lücke hinter dem Personen-Anteil (Balken skaliert inkl. Lücke) plus „−… Minusstunden".
+  Die **laufende** Woche wird nie als „unter Soll" markiert (sie ist noch offen; Überstunden zeigt sie schon).
+  Verglichen werden nur Personen, die in der Woche Zeit auf dem Projekt **und** dort ein Soll haben (ohne Soll: kein Vergleich, auch kein „±0"-Saldo-Chip). Wochen ganz ohne Zeit/Gutschrift zählen **nicht** als Minusstunden (auch nicht im Saldo). Helfer: `projectWeekBalance`
+  (vorzeichenbehaftet) + `balanceParts` (< 30 s = im Soll) in `worktarget.ts` / `TimeMath.kt`.
+- **Saldo (Pro Woche):** Über der Wochenliste steht „Saldo ab [Datum]" — Überstunden minus Minusstunden je
+  Person, summiert über **ganze Wochen** ab der Woche, die das Datum enthält (liegt es mitten in der Woche,
+  zeigt ein Hinweis den gezählten Montag; eine halbe Woche wird nie gegen ein volles Soll gerechnet). Default =
+  1. des laufenden Monats, per Datepicker beliebig weiter zurück; der Wert ist bewusst nur View-State (nicht
+  gespeichert; ein geleertes/unvollständiges Datum fällt auf den Monatsersten zurück). Gleiche Regeln wie die Wochenzeilen (Projekt-Soll, Gutschrift-Anteil, laufende Woche nur
+  Überstunden). Nur sichtbar, wenn das Projekt irgendein Soll hat. Helfer `runningBalance` (Web `worktarget.ts`,
+  Android `TimeMath.kt`); Android rechnet dafür über alle Wochen, die Liste zeigt weiter die neuesten 6.
 
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim

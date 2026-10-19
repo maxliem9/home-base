@@ -683,7 +683,9 @@ test.describe('Time tracking', () => {
     await expect(week.locator('.hb-weekrow__ms')).toContainText('2 Std 0 Min')
   })
 
-  test('per-week list marks overtime against the target in force that week', async ({ page }) => {
+  test('per-week list marks over- and undertime against the target in force that week', async ({ page }) => {
+    // pin "today" after both June weeks so the later one counts as finished
+    await page.clock.setFixedTime(new Date('2026-07-15T12:00:00'))
     const mock = new MockApi()
       .seedProjects([ARBEIT])
       // 1 h/week until June 7th, raised to 3 h/week from Mon June 8th (effective-dated period)
@@ -704,9 +706,52 @@ test.describe('Time tracking', () => {
     const early = page.locator('.hb-weekrow', { hasText: '1.–7. Juni' })
     await expect(early.locator('.hb-weekrow__over')).toHaveText('+1 Std 0 Min Überstunden')
     await expect(early.locator('.hb-weekbar__seg--over')).toHaveCount(1)
-    // new 3 h target → 2 h is under target, no overtime
+    await expect(early.locator('.hb-weekrow__under')).toHaveCount(0)
+    // new 3 h target → 2 h is 1 h short: no overtime, a dashed gap + "Minusstunden"
     const later = page.locator('.hb-weekrow', { hasText: '8.–14. Juni' })
     await expect(later.locator('.hb-weekrow__over')).toHaveCount(0)
     await expect(later.locator('.hb-weekbar__seg--over')).toHaveCount(0)
+    await expect(later.locator('.hb-weekrow__under')).toHaveText('−1 Std 0 Min Minusstunden')
+    await expect(later.locator('.hb-weekbar__seg--under')).toHaveCount(1)
+  })
+
+  test('running Saldo sums over- and undertime from a chosen start date', async ({ page }) => {
+    // pin "today" (mid-July) so the default start and "finished week" are deterministic
+    await page.clock.setFixedTime(new Date('2026-07-15T12:00:00'))
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      .seedTargets([workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true })])
+      // June 1–7: 2 h (+1 h) · June 8–14: 30 min (−30 min)
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
+        timeEntry({ id: 'e2', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T08:30:00Z', durationSeconds: 1800 }),
+        // the partner logs time here too but has no target on this project → no Saldo chip
+        timeEntry({ id: 'e3', userId: 'max', projectId: 'p1', startedAt: '2026-06-04T08:00:00Z', stoppedAt: '2026-06-04T09:00:00Z', durationSeconds: 3600 }),
+      ])
+    await openTime(page, mock)
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
+
+    const saldo = page.locator('.hb-saldo')
+    const from = saldo.getByLabel('Saldo ab')
+    // default = 1st of the current month → the June weeks are outside it
+    await expect(from).toHaveValue('2026-07-01')
+    await expect(saldo).toContainText('Noch keine Wochen in diesem Zeitraum')
+
+    // extend back to June 1st (a Monday) → +1 h − 30 min = +30 min
+    await from.fill('2026-06-01')
+    await expect(saldo.locator('.hb-saldo__user')).toHaveCount(1)
+    await expect(saldo.locator('.hb-saldo__value')).toHaveText('+30 Min')
+    await expect(saldo.locator('.hb-saldo__value')).toHaveClass(/is-over/)
+
+    // a mid-week start counts from that week's Monday → only the −30 min week
+    await from.fill('2026-06-10')
+    await expect(saldo).toContainText('zählt ganze Wochen ab Mo. 8. Juni')
+    await expect(saldo.locator('.hb-saldo__value')).toHaveText('−30 Min')
+    await expect(saldo.locator('.hb-saldo__value')).toHaveClass(/is-under/)
+
+    // a cleared date falls back to the month-start default instead of an empty Saldo
+    await from.fill('')
+    await expect(saldo).toContainText('Noch keine Wochen in diesem Zeitraum')
+    await expect(saldo).toContainText('zählt ganze Wochen ab Mo. 29. Juni')
   })
 })

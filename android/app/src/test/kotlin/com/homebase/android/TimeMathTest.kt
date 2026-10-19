@@ -12,9 +12,11 @@ import com.homebase.android.ui.time.defaultSplitAt
 import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.weekBarSplit
-import com.homebase.android.ui.time.overtimeSeconds
-import com.homebase.android.ui.time.projectWeekOvertime
-import com.homebase.android.ui.time.weeklyTargetSeconds
+import com.homebase.android.ui.time.projectWeekBalance
+import com.homebase.android.ui.time.balanceParts
+import com.homebase.android.ui.time.BalanceParts
+import com.homebase.android.ui.time.runningBalance
+import com.homebase.android.ui.time.creditsByUserWeek
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.time.withLiveExtra
 import java.time.LocalDate
@@ -399,40 +401,60 @@ class TimeMathTest {
     }
 
     @Test
-    fun `weeklyTargetSeconds picks the period in force for the week and the project's row`() {
+    fun `projectWeekBalance uses the period in force and each project's share of all credits`() {
+        val h = 3_600L
+        val wk = LocalDate.of(2026, 8, 24)
         fun tgt(user: String = "max", project: String = "p1", hours: Double = 40.0, from: String = "1970-01-01") =
             WorkTargetDto(userId = user, projectId = project, weeklyHours = hours, isDefault = project == "p1", validFrom = from)
         val targets = listOf(tgt(), tgt(project = "p2", hours = 5.0), tgt(hours = 32.0, from = "2026-09-01"), tgt(user = "chen", hours = 20.0))
-        assertEquals(40L * 3600, weeklyTargetSeconds(targets, "max", "p1", LocalDate.of(2026, 8, 31)))
-        assertEquals(32L * 3600, weeklyTargetSeconds(targets, "max", "p1", LocalDate.of(2026, 9, 7)))
-        assertEquals(5L * 3600, weeklyTargetSeconds(targets, "max", "p2", LocalDate.of(2026, 8, 24)))
-        assertEquals(0L, weeklyTargetSeconds(targets, "max", "p2", LocalDate.of(2026, 9, 7)))
-        assertEquals(20L * 3600, weeklyTargetSeconds(targets, "chen", "p1", LocalDate.of(2026, 9, 7)))
-        assertEquals(0L, weeklyTargetSeconds(targets, "nobody", "p1", LocalDate.of(2026, 9, 7)))
-    }
-
-    @Test
-    fun `overtimeSeconds is the excess above target, ignoring no-target and sub-minute excess`() {
-        assertEquals(5L * 3600, overtimeSeconds(45L * 3600, 40L * 3600))
-        assertEquals(0L, overtimeSeconds(30L * 3600, 40L * 3600))
-        assertEquals(0L, overtimeSeconds(30L * 3600, 0))
-        assertEquals(0L, overtimeSeconds(40L * 3600 + 20, 40L * 3600))
-    }
-
-    @Test
-    fun `projectWeekOvertime only counts the project's share of credits`() {
-        val h = 3_600L
-        val wk = LocalDate.of(2026, 8, 24)
-        val two = listOf(
-            WorkTargetDto(userId = "max", projectId = "p1", weeklyHours = 40.0, isDefault = true),
-            WorkTargetDto(userId = "max", projectId = "p2", weeklyHours = 5.0, isDefault = false),
-        )
-        // full vacation week: 45 h credited onto p1 → no overtime
-        assertEquals(0L, projectWeekOvertime(two, "max", "p1", wk, 45 * h, 45 * h))
+        // period in force: Mon Aug 31 still old 40 h, Sep 7 the new 32 h
+        assertEquals(0L, projectWeekBalance(targets, "max", "p1", LocalDate.of(2026, 8, 31), 40 * h, 0, 0))
+        assertEquals(8 * h, projectWeekBalance(targets, "max", "p1", LocalDate.of(2026, 9, 7), 40 * h, 0, 0))
+        assertEquals(null, projectWeekBalance(targets, "max", "p2", LocalDate.of(2026, 9, 7), 50 * h, 0, 0))
+        assertEquals(null, projectWeekBalance(targets, "nobody", "p1", wk, 50 * h, 0, 0))
+        // full vacation week: 45 h credited onto p1 → on target
+        assertEquals(0L, projectWeekBalance(targets, "max", "p1", wk, 45 * h, 45 * h, 45 * h))
         // 33 h worked + one 9 h credited day → p1 share 8 h → 41 h vs 40 h
-        assertEquals(1 * h, projectWeekOvertime(two, "max", "p1", wk, 42 * h, 9 * h))
-        // single project: credit counts in full
-        assertEquals(2 * h, projectWeekOvertime(two.take(1), "max", "p1", wk, 42 * h, 8 * h))
-        assertEquals(0L, projectWeekOvertime(two, "max", "p3", wk, 50 * h, 0))
+        assertEquals(1 * h, projectWeekBalance(targets, "max", "p1", wk, 42 * h, 9 * h, 9 * h))
+        assertEquals(-4 * h, projectWeekBalance(targets, "max", "p1", wk, 37 * h, 9 * h, 9 * h))
+        // non-default p2: 4 h worked + share 9 × 5/45 = 1 h of the sick day → on target
+        assertEquals(0L, projectWeekBalance(targets, "max", "p2", wk, 4 * h, 0, 9 * h))
+    }
+
+    @Test
+    fun `creditsByUserWeek sums each person's credits per Monday across projects`() {
+        val credits = listOf(
+            TimeCreditDto(userId = "max", date = "2026-08-25", projectId = "p1", seconds = 9 * 3_600L, type = "KRANK"),
+            TimeCreditDto(userId = "max", date = "2026-08-27", projectId = "p1", seconds = 9 * 3_600L, type = "KRANK"),
+            TimeCreditDto(userId = "chen", date = "2026-08-31", projectId = "p1", seconds = 4 * 3_600L, type = "URLAUB"),
+        )
+        val m = creditsByUserWeek(credits)
+        assertEquals(18 * 3_600L, m[LocalDate.of(2026, 8, 24) to "max"])
+        assertEquals(4 * 3_600L, m[LocalDate.of(2026, 8, 31) to "chen"])
+    }
+
+    @Test
+    fun `balanceParts splits with a dead zone and never flags the running week as under`() {
+        assertEquals(BalanceParts(over = 3_600), balanceParts(3_600, true))
+        assertEquals(BalanceParts(under = 3_600), balanceParts(-3_600, true))
+        assertEquals(BalanceParts(), balanceParts(20, true))
+        assertEquals(BalanceParts(), balanceParts(-20, true))
+        assertEquals(BalanceParts(), balanceParts(null, true))
+        assertEquals(BalanceParts(), balanceParts(-3_600, false))
+        assertEquals(BalanceParts(over = 3_600), balanceParts(3_600, false))
+    }
+
+    @Test
+    fun `runningBalance sums whole weeks from the week containing the start date`() {
+        val parts = mapOf(
+            LocalDate.of(2026, 10, 12) to mapOf("max" to BalanceParts()),
+            LocalDate.of(2026, 10, 5) to mapOf("max" to BalanceParts(over = 7_200), "chen" to BalanceParts(under = 3_600)),
+            LocalDate.of(2026, 9, 28) to mapOf("max" to BalanceParts(under = 1_800)),
+            LocalDate.of(2026, 9, 21) to mapOf("max" to BalanceParts(over = 18_000)),
+        )
+        // Oct 1st is a Thursday → counts from Mon Sep 28
+        assertEquals(mapOf("max" to 5_400L, "chen" to -3_600L), runningBalance(parts, LocalDate.of(2026, 10, 1)))
+        assertEquals(mapOf("max" to 0L), runningBalance(parts, LocalDate.of(2026, 10, 12)))
+        assertEquals(emptyMap<String, Long>(), runningBalance(parts, LocalDate.of(2026, 11, 2)))
     }
 }

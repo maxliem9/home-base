@@ -71,17 +71,9 @@ fun weekBarSplit(doneSeconds: Long, targetSeconds: Long): WeekBarSplit {
 }
 
 /**
- * Weekly target (seconds) of [userId] on [projectId] for the week starting [weekStart] —
- * from the period in force then: the person's latest `validFrom` ≤ weekStart, like the
- * backend forecast/credits. No row for the project in that period (or a week before the
- * person's first period) → 0. Mirrors web `weeklyTargetSeconds` (worktarget.ts).
+ * The person's target rows of the period in force for the week starting [weekStart]: their
+ * latest `validFrom` ≤ weekStart, like the backend forecast/credits. Empty before the first.
  */
-fun weeklyTargetSeconds(targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate): Long {
-    val row = periodRows(targets, userId, weekStart).firstOrNull { it.projectId == projectId } ?: return 0
-    return (row.weeklyHours * 3600).roundToLong()
-}
-
-/** The person's target rows of the period in force for the week starting [weekStart]. */
 private fun periodRows(targets: List<WorkTargetDto>, userId: String, weekStart: LocalDate): List<WorkTargetDto> {
     val ws = weekStart.toString()
     val mine = targets.filter { it.userId == userId }
@@ -90,32 +82,66 @@ private fun periodRows(targets: List<WorkTargetDto>, userId: String, weekStart: 
 }
 
 /**
- * Overtime of one person on one project in one week, against that week's project target.
+ * Balance of one person on one project in one week against that week's project target:
+ * positive = overtime, negative = hours missing; `null` without a target.
+ *
  * Credits are booked from the person's TOTAL weekly target (all projects) onto the default
- * project (backend TimeCredits.kt), so only this project's share of [creditedSeconds] counts
- * toward it — otherwise a vacation week reads as overtime with a 40 h p1 + 5 h p2 split.
- * Mirrors web `projectWeekOvertime`.
+ * project (backend TimeCredits.kt), so every project counts its share `soll_p / Σsoll` of ALL
+ * the person's credits that week ([userCreditedSeconds]) in place of what landed on it
+ * ([projectCreditedSeconds]) — no "+5 h" vacation week on the default project, no sick-day
+ * minus hours on the others. Mirrors web `projectWeekBalance`.
  */
-fun projectWeekOvertime(
+fun projectWeekBalance(
     targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate,
-    seconds: Long, creditedSeconds: Long,
-): Long {
+    seconds: Long, projectCreditedSeconds: Long, userCreditedSeconds: Long,
+): Long? {
     val rows = periodRows(targets, userId, weekStart)
     val target = (rows.firstOrNull { it.projectId == projectId }?.weeklyHours ?: 0.0) * 3600
-    if (target <= 0.0) return 0
+    if (target <= 0.0) return null
     val total = rows.sumOf { it.weeklyHours } * 3600
-    val foreignCredit = creditedSeconds * (1 - target / total)
-    return overtimeSeconds((seconds - foreignCredit).roundToLong(), target.roundToLong())
+    val effective = seconds - projectCreditedSeconds + userCreditedSeconds * (target / total)
+    return (effective - target).roundToLong()
+}
+
+/** All of each person's credits per (week Monday, userId), any project. */
+fun creditsByUserWeek(credits: List<TimeCreditDto>): Map<Pair<LocalDate, String>, Long> {
+    val out = HashMap<Pair<LocalDate, String>, Long>()
+    for (c in credits) {
+        val ws = runCatching { LocalDate.parse(c.date) }.getOrNull()?.with(DayOfWeek.MONDAY) ?: continue
+        val k = ws to c.userId
+        out[k] = (out[k] ?: 0L) + c.seconds
+    }
+    return out
+}
+
+/** Displayable overtime / missing hours of one person in one week (seconds, both ≥ 0). */
+data class BalanceParts(val over: Long = 0, val under: Long = 0)
+
+/**
+ * Splits a week balance; sub-minute differences (< 30 s) count as on target. Missing hours
+ * only for finished weeks — the running week is still open. Mirrors web `balanceParts`.
+ */
+fun balanceParts(balance: Long?, weekFinished: Boolean): BalanceParts {
+    if (balance == null) return BalanceParts()
+    return BalanceParts(
+        over = if (balance >= 30) balance else 0,
+        under = if (weekFinished && balance <= -30) -balance else 0,
+    )
 }
 
 /**
- * Seconds above the weekly target; 0 without a target and for sub-minute excess (< 30 s,
- * would only read "+0 Min."). Mirrors web `overtimeSeconds`.
+ * Running balance ("Saldo") per person: overtime minus missing hours over every week whose
+ * Monday is ≥ the Monday of the week containing [from] — whole weeks only, so a half week is
+ * never held against a full week's target. Mirrors web `runningBalance`.
  */
-fun overtimeSeconds(seconds: Long, targetSeconds: Long): Long {
-    if (targetSeconds <= 0) return 0
-    val over = seconds - targetSeconds
-    return if (over >= 30) over else 0
+fun runningBalance(weekParts: Map<LocalDate, Map<String, BalanceParts>>, from: LocalDate): Map<String, Long> {
+    val fromWeek = from.with(DayOfWeek.MONDAY)
+    val out = LinkedHashMap<String, Long>()
+    for ((weekStart, parts) in weekParts) {
+        if (weekStart.isBefore(fromWeek)) continue
+        for ((uid, p) in parts) out[uid] = (out[uid] ?: 0L) + p.over - p.under
+    }
+    return out
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { liveSecondsSinceSnapshot, projectWeekOvertime, weekBarSplit } from './worktarget'
+import { balanceParts, liveSecondsSinceSnapshot, projectWeekBalance, runningBalance, weekBarSplit, type BalanceParts as BalancePartsT } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -29,6 +29,12 @@ function elapsedSeconds(startedAt: string, nowMs: number): number {
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** YYYY-MM-DD of the 1st of the current month — the Saldo's default start. */
+function monthStartKey(): string {
+  const now = new Date()
+  return dayKey(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
 /** Compact "h:mm" for soll/ist figures (e.g. 38:00, 7:30). Negative input is clamped. */
@@ -1067,7 +1073,9 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
   onSplit: (entry: TimeEntry) => void
   onBack: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // Saldo start: defaults to the 1st of the current month, extendable via the date picker
+  const [balanceFrom, setBalanceFrom] = useState(monthStartKey)
   const projEntries = useMemo(
     () =>
       entries
@@ -1091,50 +1099,99 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
   // Ø per entry stays recorded-only — credits have no entry to average over.
   const avgSeconds = projEntries.length ? recordedTotal / projEntries.length : 0
 
-  // per-user totals (recorded + credited)
-  const byUser: Record<string, number> = {}
-  for (const e of projEntries) byUser[e.userId] = (byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
-  for (const c of projCredits) byUser[c.userId] = (byUser[c.userId] ?? 0) + c.seconds
+  const currentWeekKey = weekKey(new Date().toISOString())
+
+  // Per-user totals and the per-week figures (bars, over-/undertime). Memoized: TimeView
+  // re-renders every second while a timer runs, and this only changes with the data.
+  const { byUser, weeks, thisWeekSeconds, weekParts, maxWeekSeconds } = useMemo(() => {
+    // per-user totals (recorded + credited)
+    const byUser: Record<string, number> = {}
+    for (const e of projEntries) byUser[e.userId] = (byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
+    for (const c of projCredits) byUser[c.userId] = (byUser[c.userId] ?? 0) + c.seconds
+
+    // per-week summary (entries are newest-first → weeks newest-first; credit-only weeks
+    // are appended, so the list is re-sorted by week key below)
+    const weekMap = new Map<string, WeekBucket>()
+    for (const e of projEntries) {
+      // Bucket by START date — matches Android (buildWeekStats), backend forecast and
+      // CSV export, all of which attribute by started_at (#541). A shift that starts
+      // Sun 23:00 and stops Mon 01:00 counts in the Sunday-start week on every client.
+      const k = weekKey(e.startedAt)
+      let w = weekMap.get(k)
+      if (!w) {
+        const { label, range } = weekLabel(e.startedAt)
+        w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
+        weekMap.set(k, w)
+      }
+      w.seconds += e.durationSeconds ?? 0
+      w.count += 1
+      w.byUser[e.userId] = (w.byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
+    }
+    // Fold each credit into its week (noon-local so the date lands in the right week
+    // regardless of zone), creating a bucket for weeks that were entirely absent.
+    for (const c of projCredits) {
+      const iso = `${c.date}T12:00:00`
+      const k = weekKey(iso)
+      let w = weekMap.get(k)
+      if (!w) {
+        const { label, range } = weekLabel(iso)
+        w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
+        weekMap.set(k, w)
+      }
+      w.seconds += c.seconds
+      w.credited += c.seconds
+      w.byUser[c.userId] = (w.byUser[c.userId] ?? 0) + c.seconds
+      w.creditedByUser[c.userId] = (w.creditedByUser[c.userId] ?? 0) + c.seconds
+    }
+    // Newest week first — credit-only weeks were appended out of order above.
+    const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
+
+    // ALL of a person's credits per week (any project): credits are booked from the total
+    // target onto the default project, so every project's comparison needs its share of them.
+    const userWeekCredits = new Map<string, number>()
+    for (const c of credits) {
+      const k = `${weekKey(`${c.date}T12:00:00`)}|${c.userId}`
+      userWeekCredits.set(k, (userWeekCredits.get(k) ?? 0) + c.seconds)
+    }
+
+    // Over-/under-target per person and week, against the target in force THAT week (periods,
+    // #31). Only people who tracked time on this project that week are compared; missing hours
+    // only for finished weeks (the running week is still open).
+    const weekParts = new Map<string, Record<string, BalancePartsT>>()
+    for (const w of weeks) {
+      const parts: Record<string, BalancePartsT> = {}
+      for (const [uid, secs] of Object.entries(w.byUser)) {
+        if (!secs) continue
+        const balance = projectWeekBalance(
+          targets, uid, project.id, w.key, secs,
+          w.creditedByUser[uid] ?? 0, userWeekCredits.get(`${w.key}|${uid}`) ?? 0,
+        )
+        // no target for this person here → nothing to compare (no "±0" Saldo chip either)
+        if (balance === null) continue
+        parts[uid] = balanceParts(balance, w.key < currentWeekKey)
+      }
+      weekParts.set(w.key, parts)
+    }
+    // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
+    const maxWeekSeconds = Math.max(
+      ...weeks.map((w) => w.seconds + Object.values(weekParts.get(w.key) ?? {}).reduce((s, p) => s + p.under, 0)),
+      1,
+    )
+    return { byUser, weeks, thisWeekSeconds: weekMap.get(currentWeekKey)?.seconds ?? 0, weekParts, maxWeekSeconds }
+    // i18n.language: weekLabel's texts follow the UI language
+  }, [projEntries, projCredits, credits, targets, project.id, currentWeekKey, i18n.language])
   const userIds = Object.keys(byUser)
 
-  // per-week summary (entries are newest-first → weeks newest-first; credit-only weeks
-  // are appended, so the list is re-sorted by week key below)
-  const weekMap = new Map<string, WeekBucket>()
-  for (const e of projEntries) {
-    // Bucket by START date — matches Android (buildWeekStats), backend forecast and
-    // CSV export, all of which attribute by started_at (#541). A shift that starts
-    // Sun 23:00 and stops Mon 01:00 counts in the Sunday-start week on every client.
-    const k = weekKey(e.startedAt)
-    let w = weekMap.get(k)
-    if (!w) {
-      const { label, range } = weekLabel(e.startedAt)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
-      weekMap.set(k, w)
-    }
-    w.seconds += e.durationSeconds ?? 0
-    w.count += 1
-    w.byUser[e.userId] = (w.byUser[e.userId] ?? 0) + (e.durationSeconds ?? 0)
-  }
-  // Fold each credit into its week (noon-local so the date lands in the right week
-  // regardless of zone), creating a bucket for weeks that were entirely absent.
-  for (const c of projCredits) {
-    const iso = `${c.date}T12:00:00`
-    const k = weekKey(iso)
-    let w = weekMap.get(k)
-    if (!w) {
-      const { label, range } = weekLabel(iso)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
-      weekMap.set(k, w)
-    }
-    w.seconds += c.seconds
-    w.credited += c.seconds
-    w.byUser[c.userId] = (w.byUser[c.userId] ?? 0) + c.seconds
-    w.creditedByUser[c.userId] = (w.creditedByUser[c.userId] ?? 0) + c.seconds
-  }
-  // Newest week first — credit-only weeks were appended out of order above.
-  const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
-  const maxWeekSeconds = Math.max(...weeks.map((w) => w.seconds), 1)
-  const thisWeekSeconds = weekMap.get(weekKey(new Date().toISOString()))?.seconds ?? 0
+  // Running Saldo over whole weeks from the week containing the chosen start date (noon-local
+  // so the date lands in the right week regardless of zone). A cleared/partial date input
+  // falls back to the month-start default. Hidden when the project has no target.
+  const hasTarget = targets.some((x) => x.projectId === project.id && x.weeklyHours > 0)
+  const effectiveFrom = /^\d{4}-\d{2}-\d{2}$/.test(balanceFrom) ? balanceFrom : monthStartKey()
+  const balanceWeekKey = weekKey(`${effectiveFrom}T12:00:00`)
+  const balance = runningBalance(weeks.map((w) => ({ key: w.key, parts: weekParts.get(w.key) ?? {} })), balanceWeekKey)
+  const balanceUsers = userIds.filter((uid) => uid in balance)
+  const fmtDay = (key: string) =>
+    new Date(`${key}T12:00:00`).toLocaleDateString(i18n.language, { day: 'numeric', month: 'short' })
 
   return (
     <>
@@ -1175,14 +1232,39 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
         ) : (
           <>
             <div className="hb-sectionlabel hb-detail-h">{t('time.perWeek')}</div>
+            {hasTarget && (
+              <div className="hb-saldo">
+                <label className="hb-saldo__from">
+                  <span>{t('time.balanceFrom')}</span>
+                  <TextInput type="date" value={balanceFrom} onChange={setBalanceFrom} className="hb-saldo__date" />
+                </label>
+                {balanceWeekKey !== effectiveFrom && (
+                  <span className="hb-saldo__hint">{t('time.balanceWholeWeeks', { date: fmtDay(balanceWeekKey) })}</span>
+                )}
+                <div className="hb-detail-users">
+                  {balanceUsers.length === 0 ? (
+                    <span className="hb-saldo__hint">{t('time.balanceEmpty')}</span>
+                  ) : balanceUsers.map((uid) => {
+                    const b = balance[uid]
+                    const cls = b >= 30 ? ' is-over' : b <= -30 ? ' is-under' : ''
+                    return (
+                      <div key={uid} className="hb-detail-user hb-saldo__user">
+                        <Avatar user={uid} size={26} />
+                        <span className="hb-detail-user__name">{userMeta(uid)?.name ?? uid}</span>
+                        <span className={`hb-mono hb-saldo__value${cls}`}>
+                          {b >= 30 ? `+${fmtDurationShort(b)}` : b <= -30 ? `−${fmtDurationShort(-b)}` : '±0'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <div className="hb-weeklist">
               {weeks.map((w) => {
-                // overtime per person against the target in force that week (periods, #31)
-                const overByUser: Record<string, number> = {}
-                for (const uid of userIds) {
-                  overByUser[uid] = projectWeekOvertime(targets, uid, project.id, w.key, w.byUser[uid] ?? 0, w.creditedByUser[uid] ?? 0)
-                }
-                const weekOver = userIds.reduce((s, uid) => s + overByUser[uid], 0)
+                const parts = weekParts.get(w.key) ?? {}
+                const weekOver = Object.values(parts).reduce((s, p) => s + p.over, 0)
+                const weekUnder = Object.values(parts).reduce((s, p) => s + p.under, 0)
                 return (
                 <div key={w.key} className="hb-weekrow">
                   <div className="hb-weekrow__head">
@@ -1194,7 +1276,7 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                     {userIds.map((uid) => {
                       const secs = w.byUser[uid] ?? 0
                       if (!secs) return null
-                      const over = overByUser[uid]
+                      const { over, under } = parts[uid] ?? { over: 0, under: 0 }
                       const name = userMeta(uid)?.name ?? uid
                       return (
                         <Fragment key={uid}>
@@ -1212,6 +1294,14 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                               title={`${name}: ${t('time.weekOver', { time: fmtDurationShort(over) })}`}
                             />
                           )}
+                          {under > 0 && (
+                            // the hours missing to the target: an empty, dashed gap after the person's part
+                            <span
+                              className="hb-weekbar__seg hb-weekbar__seg--under"
+                              style={{ width: `${(under / maxWeekSeconds) * 100}%` }}
+                              title={`${name}: ${t('time.weekUnder', { time: fmtDurationShort(under) })}`}
+                            />
+                          )}
                         </Fragment>
                       )
                     })}
@@ -1222,6 +1312,8 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                     {w.credited > 0 && `${fmtDurationShort(w.credited)} ${t('time.creditedShort')}`}
                     {weekOver > 0 && (w.count > 0 || w.credited > 0) && ' · '}
                     {weekOver > 0 && <span className="hb-weekrow__over">{t('time.weekOver', { time: fmtDurationShort(weekOver) })}</span>}
+                    {weekUnder > 0 && (w.count > 0 || w.credited > 0 || weekOver > 0) && ' · '}
+                    {weekUnder > 0 && <span className="hb-weekrow__under">{t('time.weekUnder', { time: fmtDurationShort(weekUnder) })}</span>}
                   </div>
                 </div>
                 )

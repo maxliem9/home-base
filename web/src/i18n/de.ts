@@ -560,6 +560,9 @@ export const de = {
     entryMany: 'Einträge',
     // absence/holiday hours credited to this project that week (Krank/Urlaub/Feiertag, #31)
     creditedShort: 'gutgeschrieben',
+    balanceFrom: 'Saldo ab', // running over-/undertime total from a date
+    balanceWholeWeeks: 'zählt ganze Wochen ab Mo. {date}',
+    balanceEmpty: 'Noch keine Wochen in diesem Zeitraum',
     noProjects: 'Noch keine Projekte',
     noProjectsHint: 'Lege oben rechts ein Projekt an',
     noProjectsConfigHint: 'Lege ein erstes Projekt an, um die Zeit zu erfassen', // shown on the main view's empty state (#86)
@@ -648,6 +651,7 @@ export const de = {
     periodScheduled: 'ab {date}: {hours} Std./Woche',
     weekLeft: 'noch {time}', // remaining hours toward the weekly target
     weekOver: '+{time} Überstunden', // weekly target exceeded
+    weekUnder: '−{time} Minusstunden', // finished week below its target
     todayLeft: 'Heute noch {time}',
     todayOver: 'Heute {time} über Soll',
     credited: 'gutgeschrieben', // rendered as "{time} gutgeschrieben"
