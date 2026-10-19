@@ -75,15 +75,40 @@ export function weekBarSplit(doneSeconds: number, targetSeconds: number): WeekBa
  * that period (or a week before the person's first period) has no target → 0.
  */
 export function weeklyTargetSeconds(targets: WorkTarget[], userId: string, projectId: string, weekStart: string): number {
+  const row = periodRows(targets, userId, weekStart).find((t) => t.projectId === projectId)
+  return row ? Math.round(row.weeklyHours * 3600) : 0
+}
+
+/** The person's target rows of the period in force for the week starting `weekStart`. */
+function periodRows(targets: WorkTarget[], userId: string, weekStart: string): WorkTarget[] {
   const mine = targets.filter((t) => t.userId === userId)
   const period = mine
     .map((t) => t.validFrom ?? BASE_TARGET_PERIOD)
     .filter((p) => p <= weekStart)
     .sort()
     .pop()
-  if (!period) return 0
-  const row = mine.find((t) => t.projectId === projectId && (t.validFrom ?? BASE_TARGET_PERIOD) === period)
-  return row ? Math.round(row.weeklyHours * 3600) : 0
+  return period ? mine.filter((t) => (t.validFrom ?? BASE_TARGET_PERIOD) === period) : []
+}
+
+/**
+ * Overtime of one person on one project in one week, against that week's project target.
+ * Absence/holiday credits are booked by the backend from the person's TOTAL weekly target
+ * (all projects) onto the default project (TimeCredits.kt) — so only this project's share of
+ * `creditedSeconds` counts toward it; the rest stands in for the other projects' hours and
+ * must not show up as overtime (a vacation week would otherwise read "+5 h" on p1 for a
+ * 40 h p1 + 5 h p2 split).
+ */
+export function projectWeekOvertime(
+  targets: WorkTarget[], userId: string, projectId: string, weekStart: string,
+  seconds: number, creditedSeconds: number,
+): number {
+  const rows = periodRows(targets, userId, weekStart)
+  const row = rows.find((t) => t.projectId === projectId)
+  const target = row ? row.weeklyHours * 3600 : 0
+  if (target <= 0) return 0
+  const total = rows.reduce((s, t) => s + t.weeklyHours * 3600, 0)
+  const foreignCredit = creditedSeconds * (1 - target / total)
+  return overtimeSeconds(seconds - foreignCredit, target)
 }
 
 /**

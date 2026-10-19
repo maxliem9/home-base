@@ -13,6 +13,7 @@ import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.weekBarSplit
 import com.homebase.android.ui.time.overtimeSeconds
+import com.homebase.android.ui.time.projectWeekOvertime
 import com.homebase.android.ui.time.weeklyTargetSeconds
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.time.withLiveExtra
@@ -416,5 +417,22 @@ class TimeMathTest {
         assertEquals(0L, overtimeSeconds(30L * 3600, 40L * 3600))
         assertEquals(0L, overtimeSeconds(30L * 3600, 0))
         assertEquals(0L, overtimeSeconds(40L * 3600 + 20, 40L * 3600))
+    }
+
+    @Test
+    fun `projectWeekOvertime only counts the project's share of credits`() {
+        val h = 3_600L
+        val wk = LocalDate.of(2026, 8, 24)
+        val two = listOf(
+            WorkTargetDto(userId = "max", projectId = "p1", weeklyHours = 40.0, isDefault = true),
+            WorkTargetDto(userId = "max", projectId = "p2", weeklyHours = 5.0, isDefault = false),
+        )
+        // full vacation week: 45 h credited onto p1 → no overtime
+        assertEquals(0L, projectWeekOvertime(two, "max", "p1", wk, 45 * h, 45 * h))
+        // 33 h worked + one 9 h credited day → p1 share 8 h → 41 h vs 40 h
+        assertEquals(1 * h, projectWeekOvertime(two, "max", "p1", wk, 42 * h, 9 * h))
+        // single project: credit counts in full
+        assertEquals(2 * h, projectWeekOvertime(two.take(1), "max", "p1", wk, 42 * h, 8 * h))
+        assertEquals(0L, projectWeekOvertime(two, "max", "p3", wk, 50 * h, 0))
     }
 }

@@ -77,11 +77,35 @@ fun weekBarSplit(doneSeconds: Long, targetSeconds: Long): WeekBarSplit {
  * person's first period) → 0. Mirrors web `weeklyTargetSeconds` (worktarget.ts).
  */
 fun weeklyTargetSeconds(targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate): Long {
+    val row = periodRows(targets, userId, weekStart).firstOrNull { it.projectId == projectId } ?: return 0
+    return (row.weeklyHours * 3600).roundToLong()
+}
+
+/** The person's target rows of the period in force for the week starting [weekStart]. */
+private fun periodRows(targets: List<WorkTargetDto>, userId: String, weekStart: LocalDate): List<WorkTargetDto> {
     val ws = weekStart.toString()
     val mine = targets.filter { it.userId == userId }
-    val period = mine.map { it.validFrom }.filter { it <= ws }.maxOrNull() ?: return 0
-    val row = mine.firstOrNull { it.projectId == projectId && it.validFrom == period } ?: return 0
-    return (row.weeklyHours * 3600).roundToLong()
+    val period = mine.map { it.validFrom }.filter { it <= ws }.maxOrNull() ?: return emptyList()
+    return mine.filter { it.validFrom == period }
+}
+
+/**
+ * Overtime of one person on one project in one week, against that week's project target.
+ * Credits are booked from the person's TOTAL weekly target (all projects) onto the default
+ * project (backend TimeCredits.kt), so only this project's share of [creditedSeconds] counts
+ * toward it — otherwise a vacation week reads as overtime with a 40 h p1 + 5 h p2 split.
+ * Mirrors web `projectWeekOvertime`.
+ */
+fun projectWeekOvertime(
+    targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate,
+    seconds: Long, creditedSeconds: Long,
+): Long {
+    val rows = periodRows(targets, userId, weekStart)
+    val target = (rows.firstOrNull { it.projectId == projectId }?.weeklyHours ?: 0.0) * 3600
+    if (target <= 0.0) return 0
+    val total = rows.sumOf { it.weeklyHours } * 3600
+    val foreignCredit = creditedSeconds * (1 - target / total)
+    return overtimeSeconds((seconds - foreignCredit).roundToLong(), target.roundToLong())
 }
 
 /**
@@ -250,6 +274,8 @@ data class WeekStat(
     val totalSeconds: Long,
     val count: Int,
     val creditedSeconds: Long = 0,
+    /** credited part of [byUser] — overtime only counts this project's share of a credit */
+    val creditedByUser: Map<String, Long> = emptyMap(),
 )
 
 /**
@@ -269,6 +295,7 @@ fun buildWeekStats(
         var count = 0
         var credited = 0L
         val byUser = LinkedHashMap<String, Long>()
+        val creditedByUser = HashMap<String, Long>()
         fun add(user: String, seconds: Long) { byUser[user] = (byUser[user] ?: 0L) + seconds }
     }
 
@@ -287,6 +314,7 @@ fun buildWeekStats(
         acc.total += c.seconds
         acc.credited += c.seconds
         acc.add(c.userId, c.seconds)
+        acc.creditedByUser[c.userId] = (acc.creditedByUser[c.userId] ?: 0L) + c.seconds
     }
     return byWeek.entries
         .map { (ws, acc) ->
@@ -296,6 +324,7 @@ fun buildWeekStats(
                 totalSeconds = acc.total,
                 count = acc.count,
                 creditedSeconds = acc.credited,
+                creditedByUser = acc.creditedByUser,
             )
         }
         .sortedByDescending { it.weekStart }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, overtimeSeconds, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, overtimeSeconds, projectWeekOvertime, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
 import type { WorkTarget } from '../types'
 
 describe('liveSecondsSinceSnapshot', () => {
@@ -131,5 +131,31 @@ describe('overtimeSeconds', () => {
     expect(overtimeSeconds(30 * 3600, 40 * 3600)).toBe(0)
     expect(overtimeSeconds(30 * 3600, 0)).toBe(0)
     expect(overtimeSeconds(40 * 3600 + 20, 40 * 3600)).toBe(0)
+  })
+})
+
+describe('projectWeekOvertime', () => {
+  const h = 3600
+  const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
+  const twoProjects = [tgt({}), tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false })]
+  const wk = '2026-08-24'
+
+  it('a full vacation week (credited from the 45 h total onto p1) is no overtime', () => {
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 45 * h, 45 * h)).toBe(0)
+  })
+
+  it('a sick day plus normal work only counts p1\'s share of the credit', () => {
+    // 4 days × 8 h worked on p1 + 1 credited day (45/5 = 9 h) → p1 share of the credit 8 h → 40 h, no overtime
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 32 * h + 9 * h, 9 * h)).toBe(0)
+    // one extra hour worked → 1 h overtime
+    expect(projectWeekOvertime(twoProjects, 'max', 'p1', wk, 33 * h + 9 * h, 9 * h)).toBe(1 * h)
+  })
+
+  it('with a single project the credit counts in full', () => {
+    expect(projectWeekOvertime([tgt({})], 'max', 'p1', wk, 42 * h, 8 * h)).toBe(2 * h)
+  })
+
+  it('is 0 for a project without a target', () => {
+    expect(projectWeekOvertime(twoProjects, 'max', 'p3', wk, 50 * h, 0)).toBe(0)
   })
 })

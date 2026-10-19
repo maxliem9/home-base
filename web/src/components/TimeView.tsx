@@ -8,7 +8,7 @@ import { Icon } from '../ui/Icon'
 import { Avatar, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Modal, PageHead, Select, Sheet, TextInput } from '../ui/primitives'
 import { clockTime, dayGroupLabel, fmtClock, fmtDurationShort, parseLocaleNumber, userMeta, usernameFromToken, weekKey, weekLabel } from '../ui/format'
 import { groupByDay } from './timeGrouping'
-import { liveSecondsSinceSnapshot, overtimeSeconds, weekBarSplit, weeklyTargetSeconds } from './worktarget'
+import { liveSecondsSinceSnapshot, projectWeekOvertime, weekBarSplit } from './worktarget'
 
 const WS_SCHEME = window.location.protocol === 'https:' ? 'wss' : 'ws'
 const WS_URL = import.meta.env.VITE_WS_URL_TIME ?? `${WS_SCHEME}://${window.location.host}/api/v1/ws/time`
@@ -158,7 +158,9 @@ export function TimeView({ token, onLogout, onOpenSettings }: TimeViewProps) {
 
   const fetchTargets = useCallback(async () => {
     const result = await safeFetch(token, `${API_BASE}/time/targets`)
-    if (result.ok && result.res.ok) setTargets(await result.res.json())
+    if (!result.ok || !result.res.ok) return
+    // non-critical: a bad body must not reject fetchAll's Promise.all (projects/entries)
+    try { setTargets(await result.res.json()) } catch { /* keep previous targets */ }
   }, [token])
 
   const fetchAll = useCallback(async () => {
@@ -1050,6 +1052,8 @@ interface WeekBucket {
   // absence/holiday hours credited to this project that week (subset of `seconds`)
   credited: number
   byUser: Record<string, number>
+  // credited part of byUser — overtime only counts this project's share of a credit
+  creditedByUser: Record<string, number>
 }
 
 function ProjectDetail({ project, entries, credits, targets, projectsById, onDelete, onEdit, onSplit, onBack }: {
@@ -1104,7 +1108,7 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
     let w = weekMap.get(k)
     if (!w) {
       const { label, range } = weekLabel(e.startedAt)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
       weekMap.set(k, w)
     }
     w.seconds += e.durationSeconds ?? 0
@@ -1119,12 +1123,13 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
     let w = weekMap.get(k)
     if (!w) {
       const { label, range } = weekLabel(iso)
-      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {} }
+      w = { key: k, label, range, seconds: 0, count: 0, credited: 0, byUser: {}, creditedByUser: {} }
       weekMap.set(k, w)
     }
     w.seconds += c.seconds
     w.credited += c.seconds
     w.byUser[c.userId] = (w.byUser[c.userId] ?? 0) + c.seconds
+    w.creditedByUser[c.userId] = (w.creditedByUser[c.userId] ?? 0) + c.seconds
   }
   // Newest week first — credit-only weeks were appended out of order above.
   const weeks = [...weekMap.values()].sort((a, b) => b.key.localeCompare(a.key))
@@ -1175,7 +1180,7 @@ function ProjectDetail({ project, entries, credits, targets, projectsById, onDel
                 // overtime per person against the target in force that week (periods, #31)
                 const overByUser: Record<string, number> = {}
                 for (const uid of userIds) {
-                  overByUser[uid] = overtimeSeconds(w.byUser[uid] ?? 0, weeklyTargetSeconds(targets, uid, project.id, w.key))
+                  overByUser[uid] = projectWeekOvertime(targets, uid, project.id, w.key, w.byUser[uid] ?? 0, w.creditedByUser[uid] ?? 0)
                 }
                 const weekOver = userIds.reduce((s, uid) => s + overByUser[uid], 0)
                 return (

@@ -55,6 +55,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -787,10 +790,12 @@ private fun WeekBalanceBlock(u: UserForecastDto, projectsById: Map<String, Proje
             Text(
                 stringResource(R.string.time_week_over, Format.hoursMinutes(bar.overSeconds)),
                 style = HbType.meta.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White,
+                // the tested over-badge pair (light 0.5 on 0.93, dark 0.82 on 0.36) — white on
+                // Hb.danger falls below 4.5:1, esp. in dark mode
+                color = Hb.overInk,
                 maxLines = 1,
                 modifier = Modifier
-                    .background(Hb.danger, HbPill)
+                    .background(Hb.overBg, HbPill)
                     .padding(horizontal = 9.dp, vertical = 2.dp),
             )
         }
@@ -1965,7 +1970,7 @@ private fun ProjectDetailSheet(
                 weeks.forEach { week ->
                     // overtime per person against the target in force that week (periods, #31)
                     val overByUser = week.byUser.associate { (uid, secs) ->
-                        uid to overtimeSeconds(secs, weeklyTargetSeconds(targets, uid, project.id, week.weekStart))
+                        uid to projectWeekOvertime(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
                     }
                     WeekRow(week = week, busiest = busiestWeek, today = today, overByUser = overByUser)
                 }
@@ -2074,17 +2079,20 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, overByUser:
             else stringResource(R.string.time_credited_only, credited)
         } else ""
         val weekOver = overByUser.values.sum()
-        Row {
-            Text(entriesText + creditedText, style = HbType.small, color = Hb.ink3)
-            if (weekOver > 0) {
-                Text(
-                    (if (entriesText.isNotEmpty() || creditedText.isNotEmpty()) " · " else "") +
-                        stringResource(R.string.time_week_over, Format.durationLong(weekOver)),
-                    style = HbType.small.copy(fontWeight = FontWeight.SemiBold),
-                    color = Hb.danger,
-                )
-            }
-        }
+        val overText = if (weekOver > 0) stringResource(R.string.time_week_over, Format.durationLong(weekOver)) else ""
+        val overColor = Hb.danger
+        // one annotated Text so the red part wraps with the rest on narrow sheets
+        Text(
+            buildAnnotatedString {
+                append(entriesText + creditedText)
+                if (overText.isNotEmpty()) {
+                    if (length > 0) append(" · ")
+                    withStyle(SpanStyle(color = overColor, fontWeight = FontWeight.SemiBold)) { append(overText) }
+                }
+            },
+            style = HbType.small,
+            color = Hb.ink3,
+        )
     }
 }
 

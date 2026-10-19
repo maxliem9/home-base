@@ -126,9 +126,11 @@ description?, created_at, updated_at
   das **in dieser Woche** galt (Periode mit dem letzten `validFrom` ≤ Wochen-Montag, Projekt-Zeile daraus; keine
   Zeile ⇒ kein Soll ⇒ keine Überstunden). Der Anteil über Soll erscheint als rotes Segment im Balken plus
   „+… Überstunden" in der Unterzeile. Dafür laden Web-`TimeView` (`GET /time/targets`, neu geladen bei
-  `TARGET_UPDATED`) und Android (`TimeUiState.targets`) alle Perioden; Helfer `weeklyTargetSeconds` +
+  `TARGET_UPDATED`) und Android (`TimeUiState.targets`) alle Perioden; Helfer `projectWeekOvertime` +
   `overtimeSeconds` (< 30 s zählt nicht) in `worktarget.ts` / `TimeMath.kt`. Vergleich ist **pro Projekt**
-  (Projekt-Soll), nicht die projektübergreifende Wochenbilanz.
+  (Projekt-Soll), nicht die projektübergreifende Wochenbilanz. **Gutschrift-Anteil:** Gutschriften rechnet das
+  Backend aus dem *Gesamt*-Soll aller Projekte und bucht sie aufs Default-Projekt — für die Überstunden zählt nur
+  der Projekt-Anteil (`credited × soll_p / Σsoll`), sonst wäre z. B. eine Urlaubswoche bei 40 h + 5 h „+5 h".
 
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim
