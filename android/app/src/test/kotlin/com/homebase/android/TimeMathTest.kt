@@ -12,6 +12,9 @@ import com.homebase.android.ui.time.defaultSplitAt
 import com.homebase.android.ui.time.liveExtraSeconds
 import com.homebase.android.ui.time.projectCardStats
 import com.homebase.android.ui.time.weekBarSplit
+import com.homebase.android.ui.time.overtimeSeconds
+import com.homebase.android.ui.time.weeklyTargetSeconds
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.time.withLiveExtra
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -392,5 +395,26 @@ class TimeMathTest {
 
         assertEquals(0f, weekBarSplit(5 * h, 0).baseFraction, 0f)
         assertEquals(0f, weekBarSplit(-60, 40 * h).baseFraction, 0f)
+    }
+
+    @Test
+    fun `weeklyTargetSeconds picks the period in force for the week and the project's row`() {
+        fun tgt(user: String = "max", project: String = "p1", hours: Double = 40.0, from: String = "1970-01-01") =
+            WorkTargetDto(userId = user, projectId = project, weeklyHours = hours, isDefault = project == "p1", validFrom = from)
+        val targets = listOf(tgt(), tgt(project = "p2", hours = 5.0), tgt(hours = 32.0, from = "2026-09-01"), tgt(user = "chen", hours = 20.0))
+        assertEquals(40L * 3600, weeklyTargetSeconds(targets, "max", "p1", LocalDate.of(2026, 8, 31)))
+        assertEquals(32L * 3600, weeklyTargetSeconds(targets, "max", "p1", LocalDate.of(2026, 9, 7)))
+        assertEquals(5L * 3600, weeklyTargetSeconds(targets, "max", "p2", LocalDate.of(2026, 8, 24)))
+        assertEquals(0L, weeklyTargetSeconds(targets, "max", "p2", LocalDate.of(2026, 9, 7)))
+        assertEquals(20L * 3600, weeklyTargetSeconds(targets, "chen", "p1", LocalDate.of(2026, 9, 7)))
+        assertEquals(0L, weeklyTargetSeconds(targets, "nobody", "p1", LocalDate.of(2026, 9, 7)))
+    }
+
+    @Test
+    fun `overtimeSeconds is the excess above target, ignoring no-target and sub-minute excess`() {
+        assertEquals(5L * 3600, overtimeSeconds(45L * 3600, 40L * 3600))
+        assertEquals(0L, overtimeSeconds(30L * 3600, 40L * 3600))
+        assertEquals(0L, overtimeSeconds(30L * 3600, 0))
+        assertEquals(0L, overtimeSeconds(40L * 3600 + 20, 40L * 3600))
     }
 }

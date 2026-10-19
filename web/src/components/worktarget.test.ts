@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { liveSecondsSinceSnapshot, weekBarSplit, worktargetFigures } from './worktarget'
+import { liveSecondsSinceSnapshot, overtimeSeconds, weekBarSplit, weeklyTargetSeconds, worktargetFigures } from './worktarget'
+import type { WorkTarget } from '../types'
 
 describe('liveSecondsSinceSnapshot', () => {
   const forecastAt = 1_000_000
@@ -92,5 +93,43 @@ describe('weekBarSplit', () => {
   it('is empty without a target and never negative', () => {
     expect(weekBarSplit(5 * h, 0)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
     expect(weekBarSplit(-60, 40 * h)).toEqual({ basePct: 0, overPct: 0, overSeconds: 0 })
+  })
+})
+
+describe('weeklyTargetSeconds', () => {
+  const tgt = (p: Partial<WorkTarget>): WorkTarget => ({ userId: 'max', projectId: 'p1', weeklyHours: 40, isDefault: true, ...p })
+  // 40 h base period, reduced to 32 h from 1 Sep 2026; chen has her own 20 h
+  const targets = [
+    tgt({}),
+    tgt({ projectId: 'p2', weeklyHours: 5, isDefault: false }),
+    tgt({ weeklyHours: 32, validFrom: '2026-09-01' }),
+    tgt({ userId: 'chen', weeklyHours: 20 }),
+  ]
+
+  it('uses the base period for weeks before a change', () => {
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-24')).toBe(40 * 3600)
+  })
+
+  it('uses the new period from the week whose Monday is on/after validFrom', () => {
+    // week of Mon 31 Aug still starts before 1 Sep → old value
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-08-31')).toBe(40 * 3600)
+    expect(weeklyTargetSeconds(targets, 'max', 'p1', '2026-09-07')).toBe(32 * 3600)
+  })
+
+  it('is 0 for a project missing from the period in force, and per person', () => {
+    // p2 only exists in the base period — the September period has no row for it
+    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-08-24')).toBe(5 * 3600)
+    expect(weeklyTargetSeconds(targets, 'max', 'p2', '2026-09-07')).toBe(0)
+    expect(weeklyTargetSeconds(targets, 'chen', 'p1', '2026-09-07')).toBe(20 * 3600)
+    expect(weeklyTargetSeconds(targets, 'nobody', 'p1', '2026-09-07')).toBe(0)
+  })
+})
+
+describe('overtimeSeconds', () => {
+  it('is the excess above target, never negative, and 0 without a target', () => {
+    expect(overtimeSeconds(45 * 3600, 40 * 3600)).toBe(5 * 3600)
+    expect(overtimeSeconds(30 * 3600, 40 * 3600)).toBe(0)
+    expect(overtimeSeconds(30 * 3600, 0)).toBe(0)
+    expect(overtimeSeconds(40 * 3600 + 20, 40 * 3600)).toBe(0)
   })
 })

@@ -120,8 +120,15 @@ description?, created_at, updated_at
   Live-Tick + Kachel-Saldi in `ui/time` (TimeMath.kt, #64).
 - **Überstunden sichtbar machen:** Liegt das Wochen-Ist über dem Soll, skaliert der Balken der
   Wochensoll-Karte auf das Ist um — der Soll-Anteil bleibt in Nutzerfarbe, die Überstunden bekommen ein
-  eigenes Akzent-Segment — und statt „+h:mm" steht ein gefülltes Badge „+h:mm Überstunden". Die Aufteilung
-  liegt geteilt/testbar in `weekBarSplit` (Web `worktarget.ts`, Android `TimeMath.kt`).
+  eigenes rotes (gestreiftes) Segment — und statt „+h:mm" steht ein gefülltes rotes Badge „+h:mm Überstunden".
+  Die Aufteilung liegt geteilt/testbar in `weekBarSplit` (Web `worktarget.ts`, Android `TimeMath.kt`).
+- **Überstunden-Historie (Projekt-Detail „Pro Woche"):** Jede Woche wird pro Person gegen das Soll verglichen,
+  das **in dieser Woche** galt (Periode mit dem letzten `validFrom` ≤ Wochen-Montag, Projekt-Zeile daraus; keine
+  Zeile ⇒ kein Soll ⇒ keine Überstunden). Der Anteil über Soll erscheint als rotes Segment im Balken plus
+  „+… Überstunden" in der Unterzeile. Dafür laden Web-`TimeView` (`GET /time/targets`, neu geladen bei
+  `TARGET_UPDATED`) und Android (`TimeUiState.targets`) alle Perioden; Helfer `weeklyTargetSeconds` +
+  `overtimeSeconds` (< 30 s zählt nicht) in `worktarget.ts` / `TimeMath.kt`. Vergleich ist **pro Projekt**
+  (Projekt-Soll), nicht die projektübergreifende Wochenbilanz.
 
 ## Offline-Read-Cache (#520)
 Wie beim Einkauf (#517/#518): die zuletzt geladenen Zeit-Daten werden durabel gecacht und beim

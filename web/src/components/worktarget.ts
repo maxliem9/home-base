@@ -1,3 +1,5 @@
+import { BASE_TARGET_PERIOD, type WorkTarget } from '../types'
+
 // Pure math behind the Dashboard "Wochensoll" peek and TimeView's WeekBalance.
 // Extracted so the double-count guard from #531 lives in one unit-tested place and the
 // two live-ticking surfaces can't silently drift apart again (the drift *was* #531).
@@ -64,4 +66,33 @@ export function weekBarSplit(doneSeconds: number, targetSeconds: number): WeekBa
   const overSeconds = done - targetSeconds
   const basePct = (targetSeconds / done) * 100
   return { basePct, overPct: 100 - basePct, overSeconds }
+}
+
+/**
+ * Weekly target (seconds) of one person on one project for the week starting `weekStart`
+ * (YYYY-MM-DD, a Monday) — taken from the period in force then: the person's latest
+ * `validFrom` ≤ weekStart, like the backend forecast/credits. A project without a row in
+ * that period (or a week before the person's first period) has no target → 0.
+ */
+export function weeklyTargetSeconds(targets: WorkTarget[], userId: string, projectId: string, weekStart: string): number {
+  const mine = targets.filter((t) => t.userId === userId)
+  const period = mine
+    .map((t) => t.validFrom ?? BASE_TARGET_PERIOD)
+    .filter((p) => p <= weekStart)
+    .sort()
+    .pop()
+  if (!period) return 0
+  const row = mine.find((t) => t.projectId === projectId && (t.validFrom ?? BASE_TARGET_PERIOD) === period)
+  return row ? Math.round(row.weeklyHours * 3600) : 0
+}
+
+/**
+ * Seconds above the weekly target; 0 without a target (no soll → no overtime) and for
+ * sub-minute excess (< 30 s), which would only render as "+0 Min." — same threshold as the
+ * Wochensoll card's badge.
+ */
+export function overtimeSeconds(seconds: number, targetSeconds: number): number {
+  if (targetSeconds <= 0) return 0
+  const over = seconds - targetSeconds
+  return over >= 30 ? over : 0
 }

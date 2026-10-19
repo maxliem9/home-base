@@ -682,4 +682,31 @@ test.describe('Time tracking', () => {
     await expect(week).not.toContainText('8.–14. Juni')
     await expect(week.locator('.hb-weekrow__ms')).toContainText('2 Std 0 Min')
   })
+
+  test('per-week list marks overtime against the target in force that week', async ({ page }) => {
+    const mock = new MockApi()
+      .seedProjects([ARBEIT])
+      // 1 h/week until June 7th, raised to 3 h/week from Mon June 8th (effective-dated period)
+      .seedTargets([
+        workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 1, isDefault: true }),
+        workTarget({ userId: 'alice', projectId: 'p1', weeklyHours: 3, isDefault: true, validFrom: '2026-06-08' }),
+      ])
+      // 2 h in each week
+      .seedEntries([
+        timeEntry({ id: 'e1', projectId: 'p1', startedAt: '2026-06-03T08:00:00Z', stoppedAt: '2026-06-03T10:00:00Z', durationSeconds: 7200 }),
+        timeEntry({ id: 'e2', projectId: 'p1', startedAt: '2026-06-10T08:00:00Z', stoppedAt: '2026-06-10T10:00:00Z', durationSeconds: 7200 }),
+      ])
+    await openTime(page, mock)
+
+    await page.locator('.hb-projcard', { hasText: 'Arbeit' }).getByRole('button', { name: 'Arbeit', exact: true }).click()
+
+    // old 1 h target → 1 h overtime, red segment + sub-line
+    const early = page.locator('.hb-weekrow', { hasText: '1.–7. Juni' })
+    await expect(early.locator('.hb-weekrow__over')).toHaveText('+1 Std 0 Min Überstunden')
+    await expect(early.locator('.hb-weekbar__seg--over')).toHaveCount(1)
+    // new 3 h target → 2 h is under target, no overtime
+    const later = page.locator('.hb-weekrow', { hasText: '8.–14. Juni' })
+    await expect(later.locator('.hb-weekrow__over')).toHaveCount(0)
+    await expect(later.locator('.hb-weekbar__seg--over')).toHaveCount(0)
+  })
 })

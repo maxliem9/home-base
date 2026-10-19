@@ -5,6 +5,7 @@ import com.homebase.android.R
 import com.homebase.android.data.model.TimeCreditDto
 import com.homebase.android.data.model.TimeEntryDto
 import com.homebase.android.data.model.UserForecastDto
+import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.util.Format
 import java.time.DayOfWeek
 import java.time.Instant
@@ -14,6 +15,7 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------
 // Pure, unit-testable time math for the Zeiterfassung screen: live ticking of
@@ -66,6 +68,30 @@ fun weekBarSplit(doneSeconds: Long, targetSeconds: Long): WeekBarSplit {
     if (done <= targetSeconds) return WeekBarSplit(done.toFloat() / targetSeconds, 0f, 0)
     val base = targetSeconds.toFloat() / done
     return WeekBarSplit(base, 1f - base, done - targetSeconds)
+}
+
+/**
+ * Weekly target (seconds) of [userId] on [projectId] for the week starting [weekStart] —
+ * from the period in force then: the person's latest `validFrom` ≤ weekStart, like the
+ * backend forecast/credits. No row for the project in that period (or a week before the
+ * person's first period) → 0. Mirrors web `weeklyTargetSeconds` (worktarget.ts).
+ */
+fun weeklyTargetSeconds(targets: List<WorkTargetDto>, userId: String, projectId: String, weekStart: LocalDate): Long {
+    val ws = weekStart.toString()
+    val mine = targets.filter { it.userId == userId }
+    val period = mine.map { it.validFrom }.filter { it <= ws }.maxOrNull() ?: return 0
+    val row = mine.firstOrNull { it.projectId == projectId && it.validFrom == period } ?: return 0
+    return (row.weeklyHours * 3600).roundToLong()
+}
+
+/**
+ * Seconds above the weekly target; 0 without a target and for sub-minute excess (< 30 s,
+ * would only read "+0 Min."). Mirrors web `overtimeSeconds`.
+ */
+fun overtimeSeconds(seconds: Long, targetSeconds: Long): Long {
+    if (targetSeconds <= 0) return 0
+    val over = seconds - targetSeconds
+    return if (over >= 30) over else 0
 }
 
 // ---------------------------------------------------------------------------
