@@ -900,6 +900,14 @@ button.hb-savestatus.is-pending:hover { text-decoration: underline; }
 /* missing hours: an empty dashed gap (nothing was worked there) in amber */
 .hb-weekbar__seg--under { box-sizing: border-box; background: color-mix(in oklch, var(--undertime) 16%, transparent); border: 1.5px dashed var(--undertime); }
 .hb-weekrow__under { color: var(--undertime-ink); font-weight: 600; }
+/* running Saldo above the Pro-Woche list */
+.hb-saldo { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.hb-saldo__from { display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.hb-saldo__date { width: auto; max-width: 170px; }
+.hb-saldo__hint { font-size: 12px; color: var(--ink-3); }
+.hb-saldo__value { font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.hb-saldo__value.is-over { color: var(--overtime-ink); }
+.hb-saldo__value.is-under { color: var(--undertime-ink); }
 .hb-weekrow__sub { font-size: 12px; color: var(--ink-3); }
 
 /* ---------- Rezepte ---------- */

@@ -135,3 +135,22 @@ export function overtimeSeconds(seconds: number, targetSeconds: number): number 
   const over = seconds - targetSeconds
   return over >= 30 ? over : 0
 }
+
+/**
+ * Running balance ("Saldo") per person: overtime minus missing hours, summed over every
+ * week whose key (its Monday, YYYY-MM-DD) is ≥ `fromWeekKey`. Whole weeks only — the caller
+ * passes the Monday of the week containing the chosen start date, so a half week is never
+ * held against a full week's target. Uses the same per-week parts as the Pro-Woche list
+ * (running week: overtime only).
+ */
+export function runningBalance(
+  weeks: { key: string; parts: Record<string, { over: number; under: number }> }[],
+  fromWeekKey: string,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const w of weeks) {
+    if (w.key < fromWeekKey) continue
+    for (const [uid, p] of Object.entries(w.parts)) out[uid] = (out[uid] ?? 0) + p.over - p.under
+  }
+  return out
+}

@@ -16,6 +16,7 @@ import com.homebase.android.ui.time.overtimeSeconds
 import com.homebase.android.ui.time.projectWeekBalance
 import com.homebase.android.ui.time.balanceParts
 import com.homebase.android.ui.time.BalanceParts
+import com.homebase.android.ui.time.runningBalance
 import com.homebase.android.ui.time.weeklyTargetSeconds
 import com.homebase.android.data.model.WorkTargetDto
 import com.homebase.android.ui.time.withLiveExtra
@@ -449,5 +450,19 @@ class TimeMathTest {
         assertEquals(BalanceParts(), balanceParts(null, true))
         assertEquals(BalanceParts(), balanceParts(-3_600, false))
         assertEquals(BalanceParts(over = 3_600), balanceParts(3_600, false))
+    }
+
+    @Test
+    fun `runningBalance sums whole weeks from the week containing the start date`() {
+        val parts = mapOf(
+            LocalDate.of(2026, 10, 12) to mapOf("max" to BalanceParts()),
+            LocalDate.of(2026, 10, 5) to mapOf("max" to BalanceParts(over = 7_200), "chen" to BalanceParts(under = 3_600)),
+            LocalDate.of(2026, 9, 28) to mapOf("max" to BalanceParts(under = 1_800)),
+            LocalDate.of(2026, 9, 21) to mapOf("max" to BalanceParts(over = 18_000)),
+        )
+        // Oct 1st is a Thursday → counts from Mon Sep 28
+        assertEquals(mapOf("max" to 5_400L, "chen" to -3_600L), runningBalance(parts, LocalDate.of(2026, 10, 1)))
+        assertEquals(mapOf("max" to 0L), runningBalance(parts, LocalDate.of(2026, 10, 12)))
+        assertEquals(emptyMap<String, Long>(), runningBalance(parts, LocalDate.of(2026, 11, 2)))
     }
 }

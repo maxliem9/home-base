@@ -133,6 +133,21 @@ fun overtimeSeconds(seconds: Long, targetSeconds: Long): Long {
     return if (over >= 30) over else 0
 }
 
+/**
+ * Running balance ("Saldo") per person: overtime minus missing hours over every week whose
+ * Monday is ≥ the Monday of the week containing [from] — whole weeks only, so a half week is
+ * never held against a full week's target. Mirrors web `runningBalance`.
+ */
+fun runningBalance(weekParts: Map<LocalDate, Map<String, BalanceParts>>, from: LocalDate): Map<String, Long> {
+    val fromWeek = from.with(DayOfWeek.MONDAY)
+    val out = LinkedHashMap<String, Long>()
+    for ((weekStart, parts) in weekParts) {
+        if (weekStart.isBefore(fromWeek)) continue
+        for ((uid, p) in parts) out[uid] = (out[uid] ?: 0L) + p.over - p.under
+    }
+    return out
+}
+
 // ---------------------------------------------------------------------------
 // Project-card day/week saldo (#64) — web reference: projectStats memo
 // ---------------------------------------------------------------------------

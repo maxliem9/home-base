@@ -560,6 +560,9 @@ export const de = {
     entryMany: 'Einträge',
     // absence/holiday hours credited to this project that week (Krank/Urlaub/Feiertag, #31)
     creditedShort: 'gutgeschrieben',
+    balanceFrom: 'Saldo ab', // running over-/undertime total from a date
+    balanceWholeWeeks: 'zählt ganze Wochen ab Mo. {date}',
+    balanceEmpty: 'Noch keine Wochen in diesem Zeitraum',
     noProjects: 'Noch keine Projekte',
     noProjectsHint: 'Lege oben rechts ein Projekt an',
     noProjectsConfigHint: 'Lege ein erstes Projekt an, um die Zeit zu erfassen', // shown on the main view's empty state (#86)

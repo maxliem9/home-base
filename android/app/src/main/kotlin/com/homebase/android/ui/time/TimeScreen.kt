@@ -1901,12 +1901,14 @@ private fun ProjectDetailSheet(
     }
 
     // Weekly aggregation: Monday -> (per-user seconds, entry count, credited).
-    val weeks = remember(finished, projCredits) { buildWeekStats(finished, projCredits) }
+    // all weeks feed the running Saldo; the Pro-Woche list shows the newest 6
+    val allWeeks = remember(finished, projCredits) { buildWeekStats(finished, projCredits, maxWeeks = Int.MAX_VALUE) }
+    val weeks = remember(allWeeks) { allWeeks.take(6) }
     // Over-/under-target per person and week, against the target in force THAT week (periods,
     // #31). Only people who tracked time that week are compared; missing hours only for
     // finished weeks (the running week is still open).
-    val weekParts = remember(weeks, targets, project.id, thisWeekStart) {
-        weeks.associate { week ->
+    val weekParts = remember(allWeeks, targets, project.id, thisWeekStart) {
+        allWeeks.associate { week ->
             week.weekStart to week.byUser.filter { it.second > 0 }.associate { (uid, secs) ->
                 val balance = projectWeekBalance(targets, uid, project.id, week.weekStart, secs, week.creditedByUser[uid] ?: 0L)
                 uid to balanceParts(balance, week.weekStart.isBefore(thisWeekStart))
@@ -1915,6 +1917,12 @@ private fun ProjectDetailSheet(
     }
     // the busiest week fills the bar — counting a week's missing-hours gap, so it fits too
     val busiestWeek = weeks.maxOfOrNull { w -> w.totalSeconds + (weekParts[w.weekStart]?.values?.sumOf { it.under } ?: 0L) } ?: 0L
+
+    // Running Saldo from a start date — defaults to the 1st of the current month, extendable
+    // via the date picker. Hidden when the project has no target at all.
+    val hasTarget = remember(targets, project.id) { targets.any { it.projectId == project.id && it.weeklyHours > 0 } }
+    var balanceFrom by remember { mutableStateOf(today.withDayOfMonth(1)) }
+    val balance = remember(weekParts, balanceFrom) { runningBalance(weekParts, balanceFrom) }
 
     val projectColor = Format.parseColor(project.color)
 
@@ -1984,6 +1992,9 @@ private fun ProjectDetailSheet(
         // Pro Woche
         if (weeks.isNotEmpty()) {
             Text(stringResource(R.string.time_per_week).uppercase(), style = HbType.sectionLabel, color = Hb.ink3)
+            if (hasTarget) {
+                BalanceSection(from = balanceFrom, onFromChange = { balanceFrom = it }, balance = balance)
+            }
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 weeks.forEach { week ->
                     WeekRow(week = week, busiest = busiestWeek, today = today, parts = weekParts[week.weekStart].orEmpty())
@@ -2138,6 +2149,58 @@ private fun WeekRow(week: WeekStat, busiest: Long, today: LocalDate, parts: Map<
             style = HbType.small,
             color = Hb.ink3,
         )
+    }
+}
+
+/** Running Saldo: "Saldo ab [date]" + one chip per person (red = over, amber = under). */
+@Composable
+private fun BalanceSection(from: LocalDate, onFromChange: (LocalDate) -> Unit, balance: Map<String, Long>) {
+    val fromWeek = from.with(DayOfWeek.MONDAY)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(R.string.time_balance_from), style = HbType.label.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold), color = Hb.ink2)
+            Box(Modifier.width(150.dp)) { DateField(from, onFromChange) }
+        }
+        if (fromWeek != from) {
+            Text(
+                stringResource(R.string.time_balance_whole_weeks, "%02d.%02d.".format(fromWeek.dayOfMonth, fromWeek.monthValue)),
+                style = HbType.small,
+                color = Hb.ink3,
+            )
+        }
+        if (balance.isEmpty()) {
+            Text(stringResource(R.string.time_balance_empty), style = HbType.small, color = Hb.ink3)
+        } else {
+            val underColor = if (Hb.isDark) Hb.prioMedium else oklch(0.5, 0.11, 65.0)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                balance.forEach { (userId, b) ->
+                    Row(
+                        Modifier
+                            .clip(HbPill)
+                            .background(Hb.surface2, HbPill)
+                            .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        HbAvatar(userId, size = 24.dp)
+                        Text(displayName(userId), style = HbType.label.copy(fontSize = 13.5.sp), color = Hb.ink)
+                        Text(
+                            when {
+                                b >= 30 -> "+" + Format.durationLong(b)
+                                b <= -30 -> "−" + Format.durationLong(-b)
+                                else -> "±0"
+                            },
+                            style = HbType.label.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                            color = when {
+                                b >= 30 -> Hb.danger
+                                b <= -30 -> underColor
+                                else -> Hb.ink3
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
