@@ -42,7 +42,7 @@ homebase/
 | Dashboard / „Heute"-View | [docs/domain/dashboard.md](docs/domain/dashboard.md) |
 | Telegram-Digest, Todo-Erinnerungen, Web Push | [docs/domain/notifications.md](docs/domain/notifications.md) |
 | **env-Variablen** (vollständig, kommentiert) | [`.env.example`](.env.example) — Single Source of Truth |
-| **Deployment**, Docker, DSM/FRITZ!Box, Android-Build, Troubleshooting | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| **Deployment**, Docker, DSM/FRITZ!Box, privater Zugang per Tailscale (ohne Portfreigabe), Android-Build, Troubleshooting | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | **Versionierung** (Auto-Bump je Merge, Conventional-Commit-Regeln, wo die Version herkommt/angezeigt wird) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Abschnitt „Versionierung (#626, #630)" |
 | Security-Invarianten (nginx-Log-Masking, Login-Throttling #8) | [docs/security-invariants.md](docs/security-invariants.md) |
 
