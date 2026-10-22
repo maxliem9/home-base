@@ -23,6 +23,11 @@ Architecture (production):
 The web app and the Android app talk to the **same** backend at
 `https://<your-domain>/api/v1/`. Real-time sync uses WebSockets on the same host.
 
+> **Don't want the NAS on the internet?** [Part 12](#12-alternative-private-access-via-tailscale-no-open-ports) replaces the
+> public path (Parts 4, 5 and 7: DSM reverse proxy, Let's Encrypt, FRITZ!Box port
+> forwarding) with **Tailscale**: private HTTPS for your own devices only, no open
+> ports on the router, no separate VPN.
+
 ---
 
 ## 0. Prerequisites
@@ -166,6 +171,8 @@ TELEGRAM_CHAT_ID=
 
 ## 4. HTTPS via DSM's reverse proxy
 
+> Using Tailscale instead ([Part 12](#12-alternative-private-access-via-tailscale-no-open-ports))? Skip Parts 4, 5 and 7.
+
 DSM terminates HTTPS for you: it obtains/renews the certificate and forwards the
 decrypted traffic to the `web` container. No certificate is mounted into any
 container, and **renewals apply automatically — no restarts**. You can set this
@@ -263,6 +270,9 @@ stack itself only listens on `localhost:3000`.
 ---
 
 ## 7. FRITZ!Box: DynDNS + port forwarding
+
+> Using Tailscale instead ([Part 12](#12-alternative-private-access-via-tailscale-no-open-ports))? Skip this part. No port
+> forwarding needed.
 
 Goal: a stable hostname that points at your home, with ports 80/443 forwarded to
 the NAS. (Menu labels below are the German FRITZ!OS names with English in
@@ -541,3 +551,122 @@ to keep snapshots of both the database and the note images.
 | Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB); or the DSM reverse proxy caps the request body — raise it in the rule's advanced settings (the `web` container itself already allows 12 MB). |
 | Note image upload fails with `AccessDenied` / permission denied | The `uploads` volume is root-owned but the backend runs as uid 10001. Use `scripts/deploy.sh` (it chowns automatically) or run the one-time `chown -R 10001:10001` from Part 6. Backend startup logs warn when `UPLOAD_DIR` isn't writable. |
 | Note images vanish after a rebuild | The `uploads` volume wasn't backed up/restored — images live there, not in the SQL dump (Part 10). |
+
+---
+
+## 12. Alternative: private access via Tailscale (no open ports)
+
+Use this instead of Parts 4, 5 and 7 if the NAS should **not** be reachable from
+the internet. [Tailscale](https://tailscale.com) puts the NAS and your phones and
+laptops into a private WireGuard network (a "tailnet"). Your devices reach
+HomeBase over HTTPS with a real, auto-renewed certificate. The FRITZ!Box needs
+**no port forwarding, no DynDNS and no VPN**: Tailscale traverses NAT on its own
+and falls back to its relay servers when a direct connection isn't possible.
+
+```
+ Phone / Browser ──Tailscale (WireGuard)──> Synology NAS
+   (tailnet member)                            │
+                               tailscale serve  (terminates TLS on :443,
+                                               │   cert for <nas>.<tailnet>.ts.net)
+                                               ▼  http://localhost:3000
+                                       web (nginx :3000) → backend:8080 → db
+```
+
+Nothing in the repo changes. Only `.env`, one command on the NAS, and the
+Android `BASE_URL` differ from the public setup.
+
+### 12a. Tailscale on the NAS
+
+1. **DSM → Package Center** → install **Tailscale** → open it and sign in (this
+   creates your tailnet on first use).
+2. In the [Tailscale admin console](https://login.tailscale.com/admin):
+   - **DNS** tab → enable **MagicDNS** and **HTTPS Certificates**.
+   - **Machines** → the NAS → **⋯ → Disable key expiry**. Otherwise the NAS drops
+     out of the tailnet after 180 days, and with no other way in you can only
+     fix that from home.
+3. Note the NAS's MagicDNS name, e.g. `nas-name.tail1234.ts.net`. This is your new
+   `<your-domain>` everywhere below.
+
+### 12b. Serve HomeBase over HTTPS
+
+SSH into the NAS and run once:
+
+```bash
+sudo tailscale serve --bg --https=443 http://localhost:3000
+```
+
+This fetches the certificate (and renews it automatically), listens on the NAS's
+tailnet address only, and proxies to the `web` container, **WebSockets included**.
+`--bg` makes the config persistent across reboots. Check it with
+`sudo tailscale serve status`.
+
+> If 443 is reported as busy (DSM's own web server), serve on another port, e.g.
+> `--https=8443`, and append `:8443` to the hostname in `DOMAIN` and in the Android
+> `BASE_URL` below.
+
+The DSM reverse-proxy rule and the Let's Encrypt certificate from Part 4 aren't
+used anymore. Delete them, along with the FRITZ!Box port forwards and DynDNS
+entry from Part 7.
+
+### 12c. `.env`
+
+```ini
+# MagicDNS name of the NAS. Pins the CORS origin to https://<DOMAIN>, so the web
+# app's writes fail with 403 until this matches the address in the browser.
+DOMAIN=nas-name.tail1234.ts.net
+
+# tailscale serve + nginx = 2 hops, same as the DSM chain. If both of you get
+# login-throttled at the same time, lower it to 1 (see .env.example).
+TRUSTED_PROXY_COUNT=2
+```
+
+Restart with `sudo ./scripts/deploy.sh` (or `docker compose up -d`).
+
+> `deploy.sh`'s health check curls `https://<DOMAIN>/…` **from the NAS**, and the
+> NAS may not resolve its own MagicDNS name. If the check fails but the app works
+> from your phone, verify locally instead:
+> `curl -fsS http://localhost:3000/api/v1/health`.
+
+### 12d. Clients
+
+- **Every device** (phones, laptops) installs the **Tailscale** app and signs in
+  to the same tailnet. Without it connected, HomeBase is unreachable.
+- **Web:** open `https://nas-name.tail1234.ts.net`. Web Push keeps working (it
+  only needs HTTPS).
+- **Android:** build a new APK pointing at the new hostname (Part 9). In
+  `android/local.properties`:
+
+  ```properties
+  homebase.baseUrl=https://nas-name.tail1234.ts.net/api/v1/
+  ```
+
+  then `./gradlew assembleRelease` and install it over the old app. It's a
+  public Let's Encrypt certificate, so `network_security_config.xml` stays as it is.
+- Outgoing integrations (Telegram digest, Web Push delivery) are unaffected. They
+  only make outbound connections.
+
+### 12e. Optional: replace your router VPN too
+
+Tailscale already is a VPN, so the FRITZ!Box VPN can go if HomeBase was its only
+use. Two NAS settings cover what it used to do (approve each in the admin console
+afterwards):
+
+```bash
+# reach the rest of the home LAN (FRITZ!Box UI, printer, …) over Tailscale
+sudo tailscale set --advertise-routes=192.168.178.0/24   # your LAN subnet
+# route a phone's internet traffic through home (e.g. on public Wi-Fi)
+sudo tailscale set --advertise-exit-node
+```
+
+> **Single point of entry:** with no router VPN, the NAS is the only way in. If it
+> (or its Tailscale) is down, nothing at home is reachable remotely. Keep the
+> FRITZ!Box VPN configured but unused if you want a fallback.
+
+### 12f. Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| Hostname doesn't resolve / times out | Tailscale app not connected on that device, or MagicDNS off (12a). |
+| Browser cert warning on the `ts.net` name | **HTTPS Certificates** not enabled in the admin console (12a); re-run the `serve` command after enabling. |
+| Web app loads, but saving anything returns 403 | `DOMAIN` in `.env` doesn't match the browser's address (incl. a non-443 port), so CORS rejects the origin (12c). |
+| NAS suddenly unreachable after months | Key expiry wasn't disabled for the NAS (12a). Re-authenticate it from home. |
