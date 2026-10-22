@@ -314,7 +314,8 @@ Pick **one**:
 
 ## 8. Verify
 
-From a device **outside** your home network (e.g. phone on mobile data):
+From a device **outside** your home network (e.g. phone on mobile data). With
+Tailscale (Part 12): from any device with the Tailscale app connected.
 
 ```
 https://<your-domain>/api/v1/health      → {"status":"ok"}   (or similar)
@@ -336,25 +337,29 @@ an installable APK. Two paths — pick one.
 
 ### First: point the app at your domain
 
-Edit `android/app/build.gradle.kts` and replace
-`your-dyndns-domain.example.com` with your real domain in **both** the
-`defaultConfig` and `release` `BASE_URL` lines (keep the `/api/v1/` suffix and
-the trailing slash):
+The URL isn't committed. Put it in the gitignored `android/local.properties` (see
+`android/local.properties.example`), with the `/api/v1/` suffix and trailing slash:
 
-```kotlin
-buildConfigField("String", "BASE_URL", "\"https://<your-domain>/api/v1/\"")
+```properties
+homebase.baseUrl=https://<your-domain>/api/v1/
 ```
 
-### Path A — Quick (debug APK, auto-signed)
+Alternatively, export `HOMEBASE_BASE_URL` in the build environment.
 
-Simplest for personal use; no keystore needed. Point the **debug** `BASE_URL`
-(in `buildTypes { debug { ... } }`) at your domain too, then:
+### Path A — Quick (release APK, auto-signed)
+
+Simplest for personal use; no keystore needed. The release build is signed with
+the debug key, so it installs as-is:
 
 ```bash
 cd android
-./gradlew assembleDebug
-# APK: android/app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease
+# APK: android/app/build/outputs/apk/release/app-release.apk
 ```
+
+> Don't use `assembleDebug` for a phone: the debug build is hardwired to
+> `http://10.0.2.2:8080/api/v1/` (emulator + local backend) and ignores
+> `homebase.baseUrl`.
 
 ### Path B — Proper signed release
 
@@ -402,7 +407,7 @@ Smaller, optimized, and what you'd keep installed long-term.
 3. Tap the APK, install, open, and log in with a `SEED_USERS` account.
 
 To update later, bump the [`VERSION`](../VERSION) file in the repo root (see
-[§10a](#10a-versionierung-626) — `versionCode`/`versionName` are derived from it),
+[§10a](#10a-versionierung-626-630) — `versionCode`/`versionName` are derived from it),
 rebuild, and reinstall (same signing key for Path B).
 
 ---
@@ -546,7 +551,7 @@ to keep snapshots of both the database and the note images.
 | Site loads but login fails | `SEED_USERS` not set, or password mismatch. Check `docker compose logs backend` for the seeding line; fix `.env` and `up -d`. |
 | Works at home, not outside | Port forwarding missing/wrong, or **DS-Lite/CGNAT** (Part 7b note). Test the health URL on mobile data. |
 | Real-time sync not updating | WebSocket not enabled on the DSM reverse-proxy rule — add the **WebSocket** custom header (Part 4b) — and confirm you're on HTTPS. |
-| Android app can't connect | `BASE_URL` still the placeholder, missing `/api/v1/` suffix, or you built `assembleDebug` without repointing the debug `BASE_URL` (Path A). |
+| Android app can't connect | `homebase.baseUrl` not set (app still uses the placeholder), missing `/api/v1/` suffix, or you installed an `assembleDebug` APK (hardwired to the emulator, Part 9). |
 | Telegram digest never arrives | `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` empty, wrong chat id, or nothing to report that day (empty digests are skipped by design). |
 | Note image upload fails / HTTP 413 | Image exceeds `MAX_UPLOAD_MB` (default 10 MB); or the DSM reverse proxy caps the request body — raise it in the rule's advanced settings (the `web` container itself already allows 12 MB). |
 | Note image upload fails with `AccessDenied` / permission denied | The `uploads` volume is root-owned but the backend runs as uid 10001. Use `scripts/deploy.sh` (it chowns automatically) or run the one-time `chown -R 10001:10001` from Part 6. Backend startup logs warn when `UPLOAD_DIR` isn't writable. |
@@ -598,7 +603,13 @@ sudo tailscale serve --bg --https=443 http://localhost:3000
 This fetches the certificate (and renews it automatically), listens on the NAS's
 tailnet address only, and proxies to the `web` container, **WebSockets included**.
 `--bg` makes the config persistent across reboots. Check it with
-`sudo tailscale serve status`.
+`sudo tailscale serve status`. If the command first prints a link to enable Serve
+for your tailnet, open it, approve, and run the command again.
+
+> Enabling HTTPS certificates puts the machine and tailnet name
+> (`nas-name.tail1234.ts.net`) into public Certificate Transparency logs. The
+> hostname becomes public, but the service is still unreachable from outside the
+> tailnet. Pick a neutral machine name if that bothers you.
 
 > If 443 is reported as busy (DSM's own web server), serve on another port, e.g.
 > `--https=8443`, and append `:8443` to the hostname in `DOMAIN` and in the Android
@@ -615,24 +626,33 @@ entry from Part 7.
 # app's writes fail with 403 until this matches the address in the browser.
 DOMAIN=nas-name.tail1234.ts.net
 
-# tailscale serve + nginx = 2 hops, same as the DSM chain. If both of you get
-# login-throttled at the same time, lower it to 1 (see .env.example).
+# tailscale serve + nginx = 2 hops, same as the DSM chain. Keep 2.
 TRUSTED_PROXY_COUNT=2
 ```
 
+If both of you get login-throttled at the same time, `tailscale serve` isn't
+passing the device IP in `X-Forwarded-For`, so all logins share one throttle
+bucket. Lowering the value doesn't help: 1 would pick nginx's Docker-gateway
+peer, which is shared too. On a private tailnet that's tolerable; just wait out
+the lockout.
+
 Restart with `sudo ./scripts/deploy.sh` (or `docker compose up -d`).
 
-> `deploy.sh`'s health check curls `https://<DOMAIN>/…` **from the NAS**, and the
-> NAS may not resolve its own MagicDNS name. If the check fails but the app works
-> from your phone, verify locally instead:
-> `curl -fsS http://localhost:3000/api/v1/health`.
+> **Expect `deploy.sh` to end with "health check FAILED".** It curls
+> `https://<DOMAIN>/…` **from the NAS**. By default the Synology Tailscale package
+> runs in userspace-networking mode, so the NAS's own processes can't reach its
+> tailnet address. The containers are fine; `up -d` already ran. Verify locally
+> instead: `curl -fsS http://localhost:3000/api/v1/health`. (Blanking `DOMAIN` to
+> skip the check isn't an option, since it also pins CORS.)
 
 ### 12d. Clients
 
 - **Every device** (phones, laptops) installs the **Tailscale** app and signs in
   to the same tailnet. Without it connected, HomeBase is unreachable.
 - **Web:** open `https://nas-name.tail1234.ts.net`. Web Push keeps working (it
-  only needs HTTPS).
+  only needs HTTPS). Moving from an old public domain is a **new origin**, though:
+  log in again on every device and re-enable push in the settings. Subscriptions
+  for the old origin stay unused in the DB.
 - **Android:** build a new APK pointing at the new hostname (Part 9). In
   `android/local.properties`:
 
@@ -667,6 +687,7 @@ sudo tailscale set --advertise-exit-node
 | Symptom | Likely cause / fix |
 |---|---|
 | Hostname doesn't resolve / times out | Tailscale app not connected on that device, or MagicDNS off (12a). |
+| Resolves on the laptop, not on Android | Android **Private DNS** set to a custom provider bypasses MagicDNS. Set it to *Automatic* or *Off* (Settings → Network → Private DNS). |
 | Browser cert warning on the `ts.net` name | **HTTPS Certificates** not enabled in the admin console (12a); re-run the `serve` command after enabling. |
 | Web app loads, but saving anything returns 403 | `DOMAIN` in `.env` doesn't match the browser's address (incl. a non-443 port), so CORS rejects the origin (12c). |
 | NAS suddenly unreachable after months | Key expiry wasn't disabled for the NAS (12a). Re-authenticate it from home. |
