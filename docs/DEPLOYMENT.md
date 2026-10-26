@@ -145,8 +145,8 @@ TELEGRAM_CHAT_ID=
   are edited in *Einstellungen → Haushalt / Benachrichtigungen* and stored in the
   database (defaults `Mäxchen` / `20:00`). See issue #100.
 - **All other variables** — `IMAGE_TAG`, `UPLOAD_DIR` / `MAX_UPLOAD_MB` (note images),
-  `DOMAIN` (health check + CORS), `TRUSTED_PROXY_COUNT` (login throttling), `RECURRING_TIME`,
-  and the `VAPID_*` web-push keys — carry working defaults and are **documented in full in
+  `DOMAIN` (CORS), `HEALTH_URL` (deploy health check, optional), `TRUSTED_PROXY_COUNT`
+  (login throttling), `RECURRING_TIME`, and the `VAPID_*` web-push keys — carry working defaults and are **documented in full in
   [`.env.example`](../.env.example)**, the single source of truth for env vars. Set them there
   only to change a default.
 
@@ -643,12 +643,11 @@ the lockout.
 
 Restart with `sudo ./scripts/deploy.sh` (or `docker compose up -d`).
 
-> **Expect `deploy.sh` to end with "health check FAILED".** It curls
-> `https://<DOMAIN>/…` **from the NAS**. By default the Synology Tailscale package
-> runs in userspace-networking mode, so the NAS's own processes can't reach its
-> tailnet address. The containers are fine; `up -d` already ran. Verify locally
-> instead: `curl -fsS http://localhost:3000/api/v1/health`. (Blanking `DOMAIN` to
-> skip the check isn't an option, since it also pins CORS.)
+> **`deploy.sh` checks health locally.** It polls `HEALTH_URL`, by default
+> `http://127.0.0.1:3000/api/v1/health` (the web container, ~120s budget). The NAS
+> can't use its own `*.ts.net` name: the Synology Tailscale package doesn't integrate
+> MagicDNS into DSM's resolver, and in userspace-networking mode the NAS's own
+> processes can't reach its tailnet address either. Leave `HEALTH_URL` unset here.
 
 ### 12d. Clients
 

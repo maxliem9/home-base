@@ -25,7 +25,7 @@ read -rsp "Login password for 'max'     (blank = random): " P1; echo
 read -rsp "Login password for 'partner' (blank = random): " P2; echo
 [[ -z "$P2" ]] && P2="$(gen 9)" && echo "  ↳ generated: partner / $P2"
 
-read -rp "Public HTTPS domain for the health check (e.g. homebase.example.com, blank = skip): " DOMAIN
+read -rp "Public HTTPS domain, pins the CORS origin (e.g. homebase.example.com, blank = allow any): " DOMAIN
 DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN%/}"
 
 cat > "$ENV_FILE" <<EOF
@@ -48,9 +48,12 @@ SEED_USERS=max:$P1,partner:$P2
 # Household name (sidebar) and digest time are set in-app (Einstellungen →
 # Haushalt / Benachrichtigungen) and stored in the DB — no env var needed.
 
-# Public HTTPS domain (no scheme / trailing slash) — used by scripts/deploy.sh to
-# verify the deploy via https://<DOMAIN>/api/v1/health.
+# Public HTTPS domain (no scheme / trailing slash) — pins the backend's CORS origin
+# to https://<DOMAIN>.
 DOMAIN=$DOMAIN
+
+# scripts/deploy.sh health check; unset = http://127.0.0.1:3000/api/v1/health.
+#HEALTH_URL=
 
 # Note image uploads
 UPLOAD_DIR=/data/uploads

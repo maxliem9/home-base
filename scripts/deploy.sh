@@ -35,35 +35,35 @@ echo
 docker compose ps
 echo
 
-# Verify the deploy via the public health endpoint. DOMAIN lives in .env (set by
-# scripts/setup-env.sh). Empty/unset → skip with a warning so the script still
-# works for users who haven't configured it.
-# `|| true`: on an existing .env with no DOMAIN= line, grep exits 1 and pipefail +
-# set -e would abort the script *after* `up -d` already ran. We want the empty →
-# skip branch below, so swallow the no-match.
-DOMAIN="$(grep -E '^DOMAIN=' .env 2>/dev/null | head -n1 | cut -d= -f2- || true)"
-DOMAIN="${DOMAIN%/}"   # tolerate a trailing slash
-if [[ -z "$DOMAIN" ]]; then
-  echo "⚠ DOMAIN not set in .env — skipping health check."
-  echo "✓ done. Verify manually:  curl -sk https://<your-domain>/api/v1/health"
-  exit 0
+# Verify the deploy via the health endpoint. Default: the web container's localhost
+# port — the NAS can't reliably reach its own public/tailnet name (the Synology
+# Tailscale package doesn't feed MagicDNS into DSM's resolver, and userspace
+# networking can't hairpin to the tailnet IP). Override with HEALTH_URL in .env (or
+# the environment) to probe the full path incl. TLS/reverse proxy instead.
+# `|| true`: on an .env with no HEALTH_URL= line, grep exits 1 and pipefail + set -e
+# would abort the script *after* `up -d` already ran; the default applies instead.
+if [[ -z "${HEALTH_URL:-}" ]]; then
+  HEALTH_URL="$(grep -E '^HEALTH_URL=' .env 2>/dev/null | head -n1 | cut -d= -f2- || true)"
 fi
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/api/v1/health}"
 
-HEALTH_URL="https://$DOMAIN/api/v1/health"
+ATTEMPTS=40
+INTERVAL=3
 echo "↳ checking health at $HEALTH_URL …"
 # Retry: a cold backend needs time to boot — JVM start + Flyway migrations against
-# the freshly-healthy Postgres, which on a first run can take the better part of a
-# minute. -fsS makes curl fail on HTTP 4xx/5xx; -k tolerates hairpin/SNI quirks
-# (matches the manual hint's -k).
-for i in $(seq 1 20); do
+# the freshly-healthy Postgres (the db healthcheck alone can take up to 30s to turn
+# healthy); on the NAS that can take well over a minute, so allow ~120s.
+# -fsS makes curl fail on HTTP 4xx/5xx; -k tolerates hairpin/SNI quirks if
+# HEALTH_URL points at an https:// name.
+for i in $(seq 1 "$ATTEMPTS"); do
   if curl -fsS -k --max-time 5 "$HEALTH_URL" >/dev/null 2>&1; then
     echo "✓ done. Health check passed ($HEALTH_URL)."
     exit 0
   fi
-  echo "  ↳ attempt $i/20 not ready yet, retrying in 3s…"
-  sleep 3
+  echo "  ↳ attempt $i/$ATTEMPTS not ready yet, retrying in ${INTERVAL}s…"
+  sleep "$INTERVAL"
 done
 
-echo "✗ health check FAILED after 20 attempts (~60s): $HEALTH_URL" >&2
+echo "✗ health check FAILED after $ATTEMPTS attempts (~$((ATTEMPTS * INTERVAL))s): $HEALTH_URL" >&2
 echo "  Inspect with:  docker compose ps  &&  docker compose logs --tail=50 backend" >&2
 exit 1
