@@ -158,7 +158,9 @@ jobs:
     # `changes` job can't silently skip the full push-to-main validation (which would go
     # green with nothing built); on a real cancel the job still stops.
     if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.backend == 'true') }}
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, whose Docker (API 1.54) rejects the old API version
+    # Testcontainers 1.20.x negotiates — every *RouteTest fails at DockerClientProviderStrategy.
+    runs-on: ubuntu-24.04
     # Test-DB-Landschaft (#555): Die ROUTEN-Tests laufen über Testcontainers gegen ein echtes
     # Postgres 16 (der ubuntu-Runner stellt Docker; Testcontainers autodetektiert den Socket) — sie
     # sehen also das echte Flyway-Schema statt einer abweichenden H2. Nur die isolierten Service-/
