@@ -1,3 +1,12 @@
+# Log rotation for every service. Synology's Container Manager defaults to its own "db" log driver
+# (one SQLite DB per container), whose per-line writes kept the NAS HDDs busy around the clock.
+# json-file with rotation caps each container at 3 × 10 MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   backend:
     # Prebuilt by CI and pulled from GHCR (override the tag via IMAGE_TAG in .env).
@@ -13,12 +22,17 @@ services:
       TZ: ${TZ:-Europe/Berlin}
       # note image storage — persisted in the named volume below; back it up with pgdata
       UPLOAD_DIR: /data/uploads
+      # PerfDisableSharedMem: no hsperfdata file in /tmp, which the JVM otherwise rewrites
+      # continuously (jstat counters) — needless disk writes on the NAS. Any JAVA_TOOL_OPTIONS
+      # set in .env is appended.
+      JAVA_TOOL_OPTIONS: "-XX:+PerfDisableSharedMem ${JAVA_TOOL_OPTIONS:-}"
     volumes:
       - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
 
   web:
     # Prebuilt by CI and pulled from GHCR (override the tag via IMAGE_TAG in .env).
@@ -32,6 +46,7 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    logging: *default-logging
 
   db:
     image: postgres:16-alpine
@@ -45,10 +60,16 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d homebase"]
-      interval: 10s
+      # Each probe result is persisted by dockerd (container state on disk), so probe rarely —
+      # but not 5m: the backend waits on service_healthy, and the first probe only runs after
+      # one `interval`, so every db (re)creation would delay the backend by that long. The fix
+      # (`start_interval`) needs Docker Engine >= 25; Synology's Container Manager ships 24.0.2.
+      # Raise to 5m + start_interval: 2s once the NAS engine is >= 25.
+      interval: 30s
       timeout: 5s
-      retries: 5
+      retries: 3
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   pgdata:

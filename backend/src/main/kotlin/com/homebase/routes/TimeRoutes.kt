@@ -5,6 +5,7 @@ import com.homebase.plugins.appJson
 import com.homebase.service.TimeService
 import com.homebase.time.TimeCreditService
 import com.homebase.ws.WsSessionManager
+import com.homebase.ws.listenerWebSocket
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
@@ -52,7 +53,7 @@ fun Route.timeRoutes() {
         }
     }
 
-    webSocket("/ws/time") {
+    listenerWebSocket("/ws/time") {
         WsSessionManager.add(TIME_WS_CHANNEL, this)
         try {
             for (frame in incoming) {
