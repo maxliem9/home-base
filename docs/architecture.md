@@ -98,7 +98,10 @@ Transportwege in fester Prioritätsreihenfolge (`plugins/Authentication.kt`):
 
 1. `Authorization: Bearer …` — REST + Android-WS.
 2. `Sec-WebSocket-Protocol: bearer, <jwt>` — Web-WS-Handshake (Token bleibt aus URL,
-   Access-Logs und Browser-History).
+   Access-Logs und Browser-History). Der Server **muss** `Sec-WebSocket-Protocol: bearer` im 101
+   zurückschicken, sonst bricht der Browser den Handshake ab (Reconnect-Loop alle ~3 s, #649) —
+   WS-Endpunkte daher nur über `syncChannel`/`listenerWebSocket` (`ws/SyncChannel.kt`) registrieren,
+   nie per rohem `webSocket(...)`. Der Ktor-Testclient erzwingt das Echo nicht; `WsAuthTest` prüft es.
 3. `?token=` — letzter Ausweg für Loads, die keine Header setzen können (native Bild-Loads,
    iCal-Feed). Log-Masking-Pflichten dazu → [security-invariants.md](security-invariants.md).
 

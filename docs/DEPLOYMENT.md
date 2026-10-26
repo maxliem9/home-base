@@ -420,7 +420,7 @@ cd /volume1/docker/homebase
 # Update to the latest published images (CI republishes on every merge to main)
 sudo docker compose pull && sudo docker compose up -d
 
-# Logs
+# Logs (CLI only — the Container Manager log tab stays empty with the json-file driver, see below)
 sudo docker compose logs -f backend
 
 # (Cert renewals need no action — DSM's reverse proxy applies them automatically.)
@@ -433,6 +433,11 @@ sudo docker compose exec db pg_dump -U "$DB_USER" homebase > homebase-$(date +%F
 sudo docker run --rm -v homebase_uploads:/data -v "$PWD":/backup alpine \
   tar czf /backup/homebase-uploads-$(date +%F).tar.gz -C /data .
 ```
+
+> **Logs are CLI-only (#649):** `docker-compose.yml` sets the `json-file` log driver (rotated,
+> 3 × 10 MB) for every service instead of Synology's `db` driver, to cut disk I/O. As a result the
+> **Container Manager log tab stays empty** — by design. Read logs over SSH with
+> `sudo docker compose logs -f backend` (or `web`/`db`). The nginx access log only records 4xx/5xx.
 
 Two Docker volumes hold all persistent state and survive restarts/rebuilds:
 - **`pgdata`** — the Postgres database (todos, notes, recipes, time entries, …).

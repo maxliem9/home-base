@@ -1,6 +1,7 @@
 # Log rotation for every service. Synology's Container Manager defaults to its own "db" log driver
 # (one SQLite DB per container), whose per-line writes kept the NAS HDDs busy around the clock.
-# json-file with rotation caps each container at 3 × 10 MB.
+# json-file with rotation caps each container at 3 × 10 MB. Side effect: Container Manager's GUI
+# log tab stays empty — read logs via `sudo docker compose logs` (docs/DEPLOYMENT.md).
 x-logging: &default-logging
   driver: json-file
   options:
@@ -24,7 +25,7 @@ services:
       UPLOAD_DIR: /data/uploads
       # PerfDisableSharedMem: no hsperfdata file in /tmp, which the JVM otherwise rewrites
       # continuously (jstat counters) — needless disk writes on the NAS. Any JAVA_TOOL_OPTIONS
-      # set in .env is appended.
+      # set in .env is appended. Side effect: jps/jstat no longer see the JVM; use jcmd <pid>.
       JAVA_TOOL_OPTIONS: "-XX:+PerfDisableSharedMem ${JAVA_TOOL_OPTIONS:-}"
     volumes:
       - uploads:/data/uploads
