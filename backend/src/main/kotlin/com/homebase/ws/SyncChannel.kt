@@ -18,13 +18,32 @@ import kotlinx.serialization.json.encodeToJsonElement
  * schließt die Session ohnehin, sobald `incoming` endet). `add`/`remove` sind in `finally`
  * gekoppelt, damit die Session-Registry beim Verbindungsende immer aufräumt.
  */
-fun Route.syncChannel(channel: String) = webSocket("/ws/$channel") {
+fun Route.syncChannel(channel: String) = listenerWebSocket("/ws/$channel") {
     WsSessionManager.add(channel, this)
     try {
         for (frame in incoming) if (frame is Frame.Close) break
     } finally {
         WsSessionManager.remove(channel, this)
     }
+}
+
+/** Subprotokoll, in dem der Web-Client das JWT mitschickt (`new WebSocket(url, ["bearer", token])`). */
+const val BEARER_WS_SUBPROTOCOL = "bearer"
+
+/**
+ * Registriert einen WebSocket-Endpunkt doppelt: einmal für Clients, die das JWT als Subprotokoll
+ * schicken (Web), einmal ohne Subprotokoll (Android: `Authorization`-Header).
+ *
+ * Die `protocol`-Variante ist nötig, weil Ktor nur dann `Sec-WebSocket-Protocol: bearer` in die
+ * 101-Antwort schreibt. Fehlt das Echo, obwohl der Client Subprotokolle angefragt hat, bricht der
+ * Browser den Handshake ab (RFC 6455 §4.1) — der Client verbindet sich dann alle 3 s neu, pro
+ * offenem Kanal, rund um die Uhr (Reconnect-Loop im nginx-Access-Log).
+ * Ktors Selektor matcht nur, wenn der Request das Subprotokoll trägt; ohne fällt die Auflösung
+ * auf die zweite Route.
+ */
+fun Route.listenerWebSocket(path: String, handler: suspend DefaultWebSocketServerSession.() -> Unit) {
+    webSocket(path, protocol = BEARER_WS_SUBPROTOCOL, handler = handler)
+    webSocket(path, handler = handler)
 }
 
 /**

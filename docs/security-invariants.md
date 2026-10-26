@@ -11,6 +11,11 @@
 `web/nginx-spa.conf` maskiert `?token=`-Query-Params im Access-Log (`token=***`) und loggt für
 `/api` nur ab Severity `crit` ins Error-Log. Grund: die JWT-Bild-URLs (Android Coil ruft Notizbilder
 mit `?token=<JWT>` ab) dürfen **nie im Klartext in Logfiles** landen. **Diese Regeln nicht entfernen.**
+
+Seit #649 schreibt das Access-Log nur noch **4xx/5xx** (`if=$loggable`, Disk-I/O auf dem NAS); die
+Maskierung bleibt Pflicht, gerade 401er tragen Tokens. Bewusster Trade-off: erfolgreiche Requests
+(auch ein erfolgreicher Login oder die Nutzung eines geleakten Tokens) hinterlassen im Container-Log
+keine Spur mehr — fehlgeschlagene Logins (401/429) schon.
 Das DSM-Reverse-Proxy-Log liegt außerhalb des Repos und loggt URLs ggf. weiterhin — bei Bedarf in DSM
 konfigurieren.
 
