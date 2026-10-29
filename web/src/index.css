@@ -326,6 +326,23 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-row__meta { display: flex; align-items: center; gap: 10px; margin-top: 3px; color: var(--ink-3); font-size: 13px; flex-wrap: wrap; }
 .hb-row__meta .dot-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-3); opacity: 0.5; }
 .hb-row__right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* Zeiteintrag-Zeile (TimeView): Beschreibung kürzt mit Ellipse statt Wort für Wort umzubrechen,
+   die Uhrzeit-Spanne bleibt einzeilig. Wird die Liste schmal (Container-Query — die Karte sitzt
+   je nach Layout in einer Spalte, nicht nur auf Mobile), wandern Avatar/Dauer/Aktionen in eine
+   eigene zweite Zeile, damit die Titel-Spalte nicht auf einen Streifen schrumpft. */
+.hb-list--entries { container-type: inline-size; }
+.hb-entry__title, .hb-entry__desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-entry .hb-row__meta { flex-wrap: nowrap; }
+.hb-entry__time { white-space: nowrap; flex-shrink: 0; }
+.hb-entry__dur { font-weight: 600; min-width: 64px; text-align: right; white-space: nowrap; }
+.hb-entry__actions { display: flex; gap: 2px; }
+@container (max-width: 560px) {
+  .hb-entry { flex-wrap: wrap; row-gap: 4px; }
+  .hb-entry .hb-row__right { flex-basis: 100%; }
+  .hb-entry--dot .hb-row__right { padding-left: 24px; } /* unter den Titel einrücken: Punkt 11px + gap 13px */
+  .hb-entry__dur { min-width: 0; text-align: left; }
+  .hb-entry__actions { margin-left: auto; margin-right: -8px; }
+}
 /* Bare-button wrapper that turns the due badge / assignee avatars into a click target for the
    per-field quick-edit popovers, without adding any chrome of its own (#). */
 .hb-row__chip { display: inline-flex; align-items: center; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 999px; }

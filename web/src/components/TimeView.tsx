@@ -998,22 +998,24 @@ function EntryRow({ entry, project, onDelete, onEdit, onSplit, showProject }: {
   const { t } = useTranslation()
   const noDesc = <span className="hb-muted">{t('time.noDescription')}</span>
   return (
-    <div className="hb-row">
+    <div className={`hb-row hb-entry${showProject ? ' hb-entry--dot' : ''}`}>
       {showProject && <span className="hb-pdot" style={{ background: project?.color ?? 'var(--ink-3)' }} />}
       <div className="hb-row__main">
-        <div className="hb-row__title">{showProject ? (project?.name ?? t('time.project')) : (entry.description || noDesc)}</div>
+        <div className="hb-row__title hb-entry__title">{showProject ? (project?.name ?? t('time.project')) : (entry.description || noDesc)}</div>
         <div className="hb-row__meta">
-          {showProject && (entry.description ? <span>{entry.description}</span> : noDesc)}
+          {showProject && <span className="hb-entry__desc">{entry.description || noDesc}</span>}
           {showProject && <span className="dot-sep" />}
-          <span className="hb-mono">{clockTime(entry.startedAt)}–{entry.stoppedAt ? clockTime(entry.stoppedAt) : ''}</span>
+          <span className="hb-mono hb-entry__time">{clockTime(entry.startedAt)}–{entry.stoppedAt ? clockTime(entry.stoppedAt) : ''}</span>
         </div>
       </div>
       <div className="hb-row__right">
         <Avatar user={entry.userId} size={24} />
-        <span className="hb-mono" style={{ fontWeight: 600, minWidth: 64, textAlign: 'right' }}>{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
-        <IconButton icon="edit" label={t('common.edit')} onClick={() => onEdit(entry)} />
-        <IconButton icon="scissors" label={t('time.split')} onClick={() => onSplit(entry)} />
-        <IconButton icon="trash" label={t('common.delete')} danger onClick={() => onDelete(entry)} />
+        <span className="hb-mono hb-entry__dur">{fmtDurationShort(entry.durationSeconds ?? 0)}</span>
+        <div className="hb-entry__actions">
+          <IconButton icon="edit" label={t('common.edit')} onClick={() => onEdit(entry)} />
+          <IconButton icon="scissors" label={t('time.split')} onClick={() => onSplit(entry)} />
+          <IconButton icon="trash" label={t('common.delete')} danger onClick={() => onDelete(entry)} />
+        </div>
       </div>
     </div>
   )
@@ -1031,7 +1033,7 @@ function DayGroupedList({ entries, projectsById, onDelete, onEdit, onSplit, show
 }) {
   const groups = groupByDay(entries)
   return (
-    <div className="hb-list">
+    <div className="hb-list hb-list--entries">
       {groups.map((g) => (
         <Fragment key={g.key}>
           <div className="hb-daysep">
