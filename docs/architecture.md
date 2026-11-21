@@ -93,7 +93,7 @@ vor der Issue-Migration, im heutigen Tracker nicht auflösbar, siehe `backlog/RE
 
 ## Auth & Token-Transport
 
-JWT (HMAC256, 30 Tage, Claim `username`), zwei feste Nutzer, kein Registration-Flow. Drei
+JWT (HMAC256, **ohne Ablauf** — Sitzung endet nur per Logout, Claim `username`), zwei feste Nutzer, kein Registration-Flow. Drei
 Transportwege in fester Prioritätsreihenfolge (`plugins/Authentication.kt`):
 
 1. `Authorization: Bearer …` — REST + Android-WS.

@@ -8,6 +8,10 @@ import io.ktor.server.testing.*
 import kotlinx.serialization.json.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
+import java.util.Date
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AuthRouteTest {
@@ -25,6 +29,48 @@ class AuthRouteTest {
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertTrue(body.containsKey("token"))
         assertTrue(body["token"]!!.jsonPrimitive.content.isNotBlank())
+    }
+
+    @Test
+    fun `login token has no expiry so the session never times out`() = testApplication {
+        configureTestApplication()
+
+        val response = client.post("/api/v1/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"username":"alice","password":"password123"}""")
+        }
+        val token = Json.parseToJsonElement(response.bodyAsText()).jsonObject["token"]!!.jsonPrimitive.content
+        assertNull(JWT.decode(token).expiresAt)
+    }
+
+    @Test
+    fun `legacy token whose 30-day exp has passed is still accepted`() = testApplication {
+        configureTestApplication()
+
+        // Shape of a token issued before sessions stopped expiring, with its exp long gone.
+        val legacy = JWT.create()
+            .withAudience("homebase-users")
+            .withIssuer("homebase")
+            .withClaim("username", "alice")
+            .withExpiresAt(Date(System.currentTimeMillis() - 365L * 24 * 60 * 60 * 1000))
+            .sign(Algorithm.HMAC256("test-secret-key-for-testing-only"))
+
+        val response = client.get("/api/v1/users") { bearerAuth(legacy) }
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `token signed with a different secret is still rejected`() = testApplication {
+        configureTestApplication()
+
+        val forged = JWT.create()
+            .withAudience("homebase-users")
+            .withIssuer("homebase")
+            .withClaim("username", "alice")
+            .sign(Algorithm.HMAC256("not-the-server-secret"))
+
+        val response = client.get("/api/v1/users") { bearerAuth(forged) }
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
 
     @Test

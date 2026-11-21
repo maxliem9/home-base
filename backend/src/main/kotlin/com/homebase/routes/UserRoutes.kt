@@ -67,7 +67,7 @@ fun Route.userRoutes() {
     // Change the authenticated user's own password (#100). Verifies the current password
     // first, so a stolen-but-unused session can't silently lock the owner out. bcrypt
     // verify/hash run OUTSIDE the transaction (like login) to avoid holding a DB connection
-    // during the deliberately-slow KDF. JWTs are stateless (30-day expiry) and stay valid —
+    // during the deliberately-slow KDF. JWTs are stateless (no expiry) and stay valid —
     // a password change does not revoke existing tokens (acceptable for a 2-user household).
     put("/users/me/password") {
         val req = call.receive<ChangePasswordRequest>()
