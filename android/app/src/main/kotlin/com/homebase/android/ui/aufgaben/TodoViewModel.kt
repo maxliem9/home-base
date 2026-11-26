@@ -281,8 +281,10 @@ internal fun TodoDraft.toCreateRequest(listId: String?): CreateTodoRequest = Cre
  * freq "NONE"). Pure + top-level so it's unit-testable and matches the create mapping field-for-field.
  * [listId] follows the same #265 sentinel: null = list unchanged, "" = move to Inbox, a UUID = move to
  * that list — the editor resolves it against the open-time baseline (#509), so it's null by default.
+ * [currentStatus] is the todo's LIVE status (#627): a DONE todo keeps it (status = null ⇒ unchanged),
+ * otherwise the derived PLANNED/INBOX would make the backend reopen it (doneAt = null).
  */
-internal fun TodoDraft.toUpdateRequest(listId: String? = null): UpdateTodoRequest = UpdateTodoRequest(
+internal fun TodoDraft.toUpdateRequest(listId: String? = null, currentStatus: String? = null): UpdateTodoRequest = UpdateTodoRequest(
     title = title.trim(),
     description = description.ifBlank { "" },
     // list analog of the #265 convention: [] clears all assignees, a non-empty list replaces the set.
@@ -290,7 +292,11 @@ internal fun TodoDraft.toUpdateRequest(listId: String? = null): UpdateTodoReques
     dueDate = dueDate ?: "",
     dueTime = if (dueDate != null) (dueTime ?: "") else "",
     priority = priority ?: "",
-    status = if (assignees.isNotEmpty() || dueDate != null) "PLANNED" else "INBOX",
+    status = when {
+        currentStatus == "DONE" -> null
+        assignees.isNotEmpty() || dueDate != null -> "PLANNED"
+        else -> "INBOX"
+    },
     listId = listId,
     recurrence = recurrence ?: RecurrenceDto("NONE"),
 )
@@ -718,7 +724,9 @@ class TodoViewModel(
             null -> ""
             else -> picked
         }
-        return saveTodo(editor.id, draft.toUpdateRequest(listIdArg)).fold(
+        // #627: status re-read live (like quickEditDue) so editing a DONE todo never reopens it
+        val currentStatus = _uiState.value.todos.firstOrNull { it.id == editor.id }?.status
+        return saveTodo(editor.id, draft.toUpdateRequest(listIdArg, currentStatus)).fold(
             onSuccess = {
                 savedSnapshot = draft
                 // rebase the baseline so a later unrelated auto-save doesn't re-send this move

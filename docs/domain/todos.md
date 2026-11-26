@@ -118,6 +118,10 @@ Save das Schließen des Sheets überlebt (analog `NotesViewModel`): `openTodoEdi
 Das Sheet schiebt pro Feldänderung einen normalisierten `TodoDraft`; ungültige Entwürfe (leerer
 Titel / Wiederholung ohne Fälligkeit) speichern nicht. Status-Chip (Speichert…/Gespeichert) +
 In-Sheet-Fehler; ein fehlgeschlagener Close-Save fällt auf den globalen Toast zurück.
+**Status-Ableitung mit DONE-Guard (#627):** Der Save leitet `PLANNED`/`INBOX` aus Zuständigen/Datum
+ab — außer die Aufgabe ist (live aus dem State gelesen, nicht aus dem Draft) **DONE**: dann wird `status`
+weggelassen ⇒ bleibt erledigt. Gilt identisch für Web `planBody` (`web/src/components/todoPlan.ts`) und
+Android `toUpdateRequest`; spiegelt die Quick-Edits.
 **Neue Todos werden bewusst NICHT auto-angelegt:** das Erstell-Sheet hat „Abbrechen"/„Erstellen"
 (Schließen/Back = verwerfen, nur der Button legt an — `createTodoFromDraft`, sendet **alle** Felder
 inkl. Uhrzeit/Wiederholung). So spawnt ein „Titel tippen und zumachen" kein Geister-Todo. Web-Todos
