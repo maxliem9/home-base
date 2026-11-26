@@ -1101,6 +1101,14 @@ class TodoViewModelTest {
     }
 
     @Test
+    fun `toUpdateRequest keeps a DONE todo DONE`() {
+        // #627: editing a done todo must not send PLANNED/INBOX (the backend would reopen it).
+        assertNull(draft(title = "T", dueDate = "2026-07-10").toUpdateRequest(currentStatus = "DONE").status)
+        assertNull(draft(title = "T").toUpdateRequest(currentStatus = "DONE").status)
+        assertEquals("PLANNED", draft(title = "T", dueDate = "2026-07-10").toUpdateRequest(currentStatus = "INBOX").status)
+    }
+
+    @Test
     fun `toUpdateRequest carries the listId sentinel verbatim`() {
         // #509: null = unchanged, "" = Inbox, UUID = move — the editor resolves it, the mapper just passes it.
         assertNull(draft(title = "T").toUpdateRequest().listId)

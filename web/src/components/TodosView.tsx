@@ -5,6 +5,7 @@ import { API_BASE, errorCode, safeFetch } from '../api'
 import { errorText } from '../i18n'
 import { useErrorToast } from '../ui/ErrorToast'
 import { Todo, TodoList, TodoPriority, Subtask, ListVisibility, RecurrenceFreq } from '../types'
+import { PlanDraft, planBody } from './todoPlan'
 import { useSyncedCollection } from '../hooks/useSyncedCollection'
 import { Icon } from '../ui/Icon'
 import {
@@ -137,52 +138,9 @@ const buildBuckets = (t: TFunction): { key: string; label: string }[] => [
   { key: 'none', label: t('todos.bucketNone') },
 ]
 
-// Compare two assignee sets order-insensitively — so an untouched picker never PUTs
-// `assignees` and can't clobber a concurrent partner change (mirrors the #468/#409 guard).
-const sameAssignees = (a: string[], b: string[]): boolean =>
-  a.length === b.length && [...a].sort().join('\u0000') === [...b].sort().join('\u0000')
-
-interface PlanDraft {
-  id: string
-  title: string
-  description: string
-  assignees: string[]
-  assigneesOriginal: string[] // assignees at open time — only PUT when the set actually changed
-  dueDate: string
-  dueDateOriginal: string // due date at open time — only PUT '' (clear) when it was actually emptied (#468)
-  dueTime: string // "HH:mm" or '' (#429)
-  priority: '' | TodoPriority
-  listId: string // target list; '' = no list / inbox (#69; move between lists #409)
-  listIdOriginal: string // list at open time — only PUT listId on an actual change (#409)
-  recurrenceFreq: '' | RecurrenceFreq // '' = no recurrence
-  recurrenceInterval: number
-}
-
 // Live auto-save in the plan sheet (edits persist automatically ~1s after the last change + on close;
 // parity with the notes editor and the Android edit sheet). Debounce window in ms.
 const PLAN_AUTOSAVE_DELAY = 900
-
-// The PUT body for a plan-sheet save (shared by the debounced save + the flush-on-close).
-// Conflict-avoidance (#265/#406/#409/#468): assignees/dueDate/listId are only sent when they differ
-// from the *Original baseline (rebased after each save), so an untouched field never clobbers a
-// concurrent partner edit; title/description/dueTime/priority/recurrence are always sent.
-function planBody(p: PlanDraft): Record<string, unknown> {
-  return {
-    // an assignee or due date makes it PLANNED; with neither it belongs in the INBOX
-    status: p.assignees.length > 0 || p.dueDate ? 'PLANNED' : 'INBOX',
-    title: p.title.trim(),
-    description: p.description.trim(),
-    assignees: sameAssignees(p.assignees, p.assigneesOriginal) ? undefined : p.assignees,
-    // #468: send '' (clear) only when there actually was a date at open time; a value sets it.
-    dueDate: p.dueDate || (p.dueDateOriginal ? '' : undefined),
-    // a time without a date is meaningless — force-clear it when the date is gone.
-    dueTime: p.dueDate ? p.dueTime : '',
-    priority: p.priority || undefined,
-    listId: p.listId !== p.listIdOriginal ? p.listId : undefined,
-    // freq "NONE" clears any existing rule; otherwise set/replace it
-    recurrence: p.recurrenceFreq ? { freq: p.recurrenceFreq, interval: p.recurrenceInterval } : { freq: 'NONE' },
-  }
-}
 
 // Fingerprint of the *editable* fields (excludes the *Original conflict baselines) — the dirty check
 // so the debounce never fires a redundant save. Assignees are order-insensitive (like sameAssignees).
@@ -543,7 +501,8 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     if (fp === planSavedRef.current) return // not dirty → no redundant save
     planSavingRef.current = true
     setPlanStatus('saving')
-    const ok = await patchTodo(p.id, planBody(p))
+    // #627: re-read the status live (like the quick-edits) so editing a DONE todo never reopens it
+    const ok = await patchTodo(p.id, planBody(p, todos.find((x) => x.id === p.id)?.status))
     planSavingRef.current = false
     if (!ok) return setPlanStatus('error') // toast already shown; keep the sheet open to retry
     planSavedRef.current = fp
