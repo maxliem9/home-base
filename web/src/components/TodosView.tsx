@@ -522,7 +522,9 @@ export function TodosView({ token, onLogout, initialFocus }: TodosViewProps) {
     const stashed = planFlushRef.current
     planFlushRef.current = null
     const now = [planRef.current, stashed].find((d): d is PlanDraft => !!d && d.id === p.id)
-    if (now && planFingerprint(now) !== fp) savePlan(now)
+    // via the ref (not this closure) so the follow-up reads the post-await `todos` — a partner's
+    // mid-PUT DONE must not be reopened by the follow-up save (#627).
+    if (now && planFingerprint(now) !== fp) savePlanRef.current(now)
   }
 
   // Keep a live handle to the latest savePlan closure so the debounce / close (which subscribe only to
