@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -56,6 +59,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.homebase.android.R
@@ -260,6 +264,12 @@ fun HbScreenScaffold(
                 Column(
                     Modifier
                         .fillMaxSize()
+                        // #639: adjustResize + edge-to-edge neither pans nor resizes the window for the
+                        // keyboard, so the scroll viewport shrinks itself and a focused field (Notes
+                        // editor, inline inputs) can be scrolled into view. Deliberately only here, not
+                        // on the outer Box: the FAB stays put (behind the keyboard, as before) instead of
+                        // riding above it over inline fields, and overlay sheets inset themselves.
+                        .imePadding()
                         .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
                 ) {
                     Spacer(Modifier.size(4.dp))
@@ -332,6 +342,14 @@ fun HbBottomSheet(
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
+                // #639 — both BEFORE the height/background so they shrink the slot, not pad the surface:
+                // edge-to-edge means neither the status bar nor the keyboard resizes the window, so the
+                // sheet must stop below the status bar (grip/title/✕ stayed under it in landscape) and
+                // ride above the IME (it drew over the footer + focused field). `full`'s 0.96 is now a
+                // fraction of what's left. imePadding consumes the IME inset, so the footer's own
+                // navigationBarsPadding drops to 0 while the keyboard is up (no double gap).
+                .statusBarsPadding()
+                .imePadding()
                 .fillMaxWidth()
                 .then(if (full) Modifier.fillMaxHeight(0.96f) else Modifier.heightIn(max = 640.dp))
                 .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
@@ -384,6 +402,20 @@ fun HbBottomSheet(
         }
     }
 }
+
+/**
+ * Insets for the screen container that sits ABOVE [HbBottomNav] (MainActivity): consumes the bar's
+ * measured [bottomBar] height, which already includes the navigation-bar inset. So FAB/toast
+ * `navigationBarsPadding()` resolve to ~0 (#239), and a screen sheet's `imePadding()` / the scaffold's
+ * IME padding only add the part of the keyboard that rises above the bar (#639 — consuming just the
+ * nav inset left them floating one bar-height, ≥58dp, above the keyboard).
+ * The PaddingValues overload of `consumeWindowInsets` ADDS to what is already consumed (the
+ * WindowInsets overload takes the per-side max), so chaining a navigationBars consumption before it
+ * would subtract the nav inset twice — hence one or the other, never both. Until the bar is measured
+ * ([bottomBar] == 0) fall back to [navigationBars] (pass `WindowInsets.navigationBars`).
+ */
+fun Modifier.screenAboveBottomBar(navigationBars: WindowInsets, bottomBar: Dp): Modifier =
+    if (bottomBar > 0.dp) consumeWindowInsets(PaddingValues(bottom = bottomBar)) else consumeWindowInsets(navigationBars)
 
 // ---------------------------------------------------------------------------
 // Toast (dark pill, above the FAB)

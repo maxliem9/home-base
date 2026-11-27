@@ -1,6 +1,7 @@
 package com.homebase.android.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,10 +12,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,9 +27,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +41,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -351,7 +362,11 @@ fun HbTextField(
 
 /** [TextFieldValue] overload — same look as above, but exposes the caret/selection so
  *  callers can insert text at the cursor (e.g. the notes editor's image insert). No
- *  password / keyboard-options variant — it's for plain multi-line body text only. */
+ *  password / keyboard-options variant — it's for plain multi-line body text only.
+ *  Multi-line: keeps the caret scrolled into view while typing (#639 — with adjustResize the
+ *  window no longer pans to the cursor, and a growing field in a verticalScroll otherwise lets the
+ *  caret slide under the keyboard; seen in the notes editor). */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HbTextField(
     value: androidx.compose.ui.text.input.TextFieldValue,
@@ -365,11 +380,29 @@ fun HbTextField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val style = (if (mono) HbType.mono.copy(fontSize = 13.5.sp) else HbType.body).copy(color = Hb.ink)
+    val caretInView = remember { BringIntoViewRequester() }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    LaunchedEffect(focused, value.selection, layout) {
+        val l = layout ?: return@LaunchedEffect
+        if (!focused || singleLine) return@LaunchedEffect
+        val caret = l.getCursorRect(value.selection.end.coerceIn(0, l.layoutInput.text.length))
+        // requester sits outside the inner padding ⇒ shift into its coordinates, plus a little air
+        val (padX, padY) = with(density) { 14.dp.toPx() to 12.dp.toPx() }
+        val target = caret.translate(padX, padY).inflate(padY)
+        // Re-request while the keyboard slides in: focus lands before the IME is up, and a field taller
+        // than the shrinking viewport isn't re-scrolled by the container (tap into a long note's lower
+        // lines). The IME height is read only inside the flow, never in composition.
+        snapshotFlow { ime.getBottom(density) }.collect { caretInView.bringIntoView(target) }
+    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
+        onTextLayout = { layout = it },
         modifier = modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(caretInView)
             .clip(HbRadiusSm)
             .background(Hb.surface, HbRadiusSm)
             .border(if (focused) 1.5.dp else 1.dp, if (focused) Hb.accent else Hb.line, HbRadiusSm)

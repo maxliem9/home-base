@@ -25,11 +25,14 @@
         <!-- singleTop: a reminder-notification tap (ReminderWorker's content intent) reaches the
              already-running instance via onNewIntent instead of stacking a second MainActivity —
              otherwise the deep-link would rebuild the whole session behind the visible one. -->
+        <!-- adjustResize (#639): with edge-to-edge the window isn't actually resized, but this makes
+             the IME insets reach Compose on every API level, so HbBottomSheet's imePadding() works. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.HomeBase">
+            android:theme="@style/Theme.HomeBase"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
