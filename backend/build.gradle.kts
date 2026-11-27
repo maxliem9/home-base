@@ -86,7 +86,7 @@ dependencies {
     testImplementation("com.h2database:h2:2.2.224")
     // Testcontainers-Postgres für die Routen-Test-Suite (#555). Ein geteilter Container für die
     // ganze Suite (siehe TestDatabase) — braucht eine laufende Docker-Engine lokal wie in CI.
-    testImplementation("org.testcontainers:postgresql:1.20.4")
+    testImplementation("org.testcontainers:postgresql:1.21.4")
     testImplementation("io.mockk:mockk:1.13.10")
 }
 
