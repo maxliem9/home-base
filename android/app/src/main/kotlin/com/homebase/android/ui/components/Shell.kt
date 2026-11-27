@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -57,6 +59,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.homebase.android.R
@@ -255,7 +258,10 @@ fun HbScreenScaffold(
 ) {
     Column(modifier.fillMaxSize().background(Hb.paper).statusBarsPadding()) {
         appBar()
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // #639: with adjustResize + edge-to-edge the window neither pans nor resizes for the keyboard,
+        // so the content area shrinks itself — a focused field (Notes editor, inline inputs) can then
+        // be scrolled into view instead of ending up under the IME.
+        Box(Modifier.weight(1f).fillMaxWidth().imePadding()) {
             // The scrolling content, shared by both the plain and the pull-to-refresh paths.
             val scrollingContent: @Composable () -> Unit = {
                 Column(
@@ -393,6 +399,19 @@ fun HbBottomSheet(
         }
     }
 }
+
+/**
+ * Insets for the screen container that sits ABOVE [HbBottomNav] (MainActivity): consumes the bar's
+ * measured [bottomBar] height, which already includes the navigation-bar inset. So FAB/toast
+ * `navigationBarsPadding()` resolve to ~0 (#239), and a screen sheet's `imePadding()` / the scaffold's
+ * IME padding only add the part of the keyboard that rises above the bar (#639 — consuming just the
+ * nav inset left them floating one bar-height, ≥58dp, above the keyboard).
+ * Consumption ADDS per side (it is not a max), so this must not be chained with a separate
+ * navigationBars consumption — that subtracts the nav inset twice. Until the bar is measured
+ * ([bottomBar] == 0) fall back to [navigationBars] (pass `WindowInsets.navigationBars`).
+ */
+fun Modifier.screenAboveBottomBar(navigationBars: WindowInsets, bottomBar: Dp): Modifier =
+    if (bottomBar > 0.dp) consumeWindowInsets(PaddingValues(bottom = bottomBar)) else consumeWindowInsets(navigationBars)
 
 // ---------------------------------------------------------------------------
 // Toast (dark pill, above the FAB)

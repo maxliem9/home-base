@@ -22,12 +22,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -42,7 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
@@ -58,6 +60,7 @@ import com.homebase.android.ui.aufgaben.AufgabenScreen
 import com.homebase.android.ui.aufgaben.TodoViewModel
 import com.homebase.android.ui.aufgaben.TodosFocus
 import com.homebase.android.ui.components.HbBottomNav
+import com.homebase.android.ui.components.screenAboveBottomBar
 import com.homebase.android.ui.components.HbDrawerContent
 import com.homebase.android.ui.components.HbMoreSheet
 import com.homebase.android.ui.components.HbRoute
@@ -437,6 +440,8 @@ class MainActivity : AppCompatActivity() {
             // screen takes the remaining height (weight 1) so its content never hides behind
             // the bar; overlays (scrim/drawer/settings/Mehr-sheet) are siblings below and
             // cover the bar too.
+            val density = LocalDensity.current
+            var bottomBarHeight by remember { mutableStateOf(0.dp) }
             Column(Modifier.fillMaxSize()) {
                 // Consume the navigationBars inset for this screen container so the FAB and toast
                 // (HbFab/HbToast inside the active screen) — which each apply navigationBarsPadding()
@@ -444,7 +449,8 @@ class MainActivity : AppCompatActivity() {
                 // floating a full nav-inset too high (a visible gap on every FAB screen + toast).
                 // HbBottomNav is a SIBLING below in this Column, OUTSIDE this Box, so it still
                 // receives the full inset and stays clear of the system navigation bar. (#239 review.)
-                Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) {
+                // #639: consumes the bar's measured height (incl. that inset) — see [screenAboveBottomBar].
+                Box(Modifier.weight(1f).fillMaxWidth().screenAboveBottomBar(WindowInsets.navigationBars, bottomBarHeight)) {
                     when (route) {
                         HbRoute.HEUTE -> HeuteScreen(
                             todoVm = todoVm,
@@ -508,6 +514,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 HbBottomNav(
+                    modifier = Modifier.onSizeChanged { bottomBarHeight = with(density) { it.height.toDp() } },
                     active = route,
                     badges = badges,
                     dots = dots,
