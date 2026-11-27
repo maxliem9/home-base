@@ -423,6 +423,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 .hb-subtask--done .hb-subtask__title { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line); }
 .hb-subtask .hb-row__actions, .hb-subtask .hb-iconbtn { opacity: 0; transition: opacity 0.14s; }
 .hb-subtask:hover .hb-iconbtn { opacity: 1; }
+/* #621: touch has no hover — keep the subtask trash visible there (parity with .hb-row #389 + Android), and reveal it on keyboard focus */
+@media (hover: none) { .hb-subtask .hb-iconbtn { opacity: 1; } }
+.hb-subtask:focus-within .hb-iconbtn { opacity: 1; }
 .hb-subadd { display: flex; align-items: center; gap: 9px; padding-left: 1px; }
 .hb-subadd input { flex: 1; border: none; background: transparent; font-size: 14px; color: var(--ink); font-family: inherit; padding: 4px 0; }
 .hb-subadd input:focus { outline: none; }
