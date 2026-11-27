@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -332,6 +333,14 @@ fun HbBottomSheet(
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
+                // #639 — both BEFORE the height/background so they shrink the slot, not pad the surface:
+                // edge-to-edge means neither the status bar nor the keyboard resizes the window, so the
+                // sheet must stop below the status bar (grip/title/✕ stayed under it in landscape) and
+                // ride above the IME (it drew over the footer + focused field). `full`'s 0.96 is now a
+                // fraction of what's left. imePadding consumes the IME inset, so the footer's own
+                // navigationBarsPadding drops to 0 while the keyboard is up (no double gap).
+                .statusBarsPadding()
+                .imePadding()
                 .fillMaxWidth()
                 .then(if (full) Modifier.fillMaxHeight(0.96f) else Modifier.heightIn(max = 640.dp))
                 .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
