@@ -332,12 +332,19 @@ fun HbTextField(
         // String↔TextFieldValue bridge Compose's own String BasicTextField uses.
         var tfv by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
         val current = tfv.copy(text = value)
-        SideEffect { if (current != tfv) tfv = current }
+        SideEffect {
+            if (current.selection != tfv.selection || current.composition != tfv.composition) tfv = current
+        }
+        // last text reported/received — compared instead of [value] so two IME edits within one frame
+        // that end at the original text (type + backspace) still both reach the caller
+        var lastText by remember(value) { mutableStateOf(value) }
         HbTextField(
             value = current,
             onValueChange = { next ->
                 tfv = next
-                if (next.text != value) onValueChange(next.text)
+                val changed = lastText != next.text
+                lastText = next.text
+                if (changed) onValueChange(next.text)
             },
             modifier = modifier,
             placeholder = placeholder,
