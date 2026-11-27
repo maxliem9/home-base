@@ -818,6 +818,23 @@ test.describe('Subtasks', () => {
   })
 })
 
+// #621: phones have no hover — the subtask trash must be visible there, not stuck at opacity 0.
+// (Playwright's toBeVisible ignores opacity, so assert the computed opacity.)
+test.describe('Subtasks on touch', () => {
+  // desktop-sized viewport so the shared openApp() sidebar nav exists; touch emulation alone flips (hover: none)
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 1280, height: 800 } })
+
+  test('shows the subtask trash without hover', async ({ page }) => {
+    await openApp(page, new MockApi([todo({ id: 't1', title: 'Party', listId: 'l1', subtasks: [subtask({ id: 's1', title: 'Einladen' })] })], [HAUSHALT]))
+    expect(await page.evaluate(() => matchMedia('(hover: none)').matches)).toBe(true)
+
+    const row = page.locator('.hb-todo', { hasText: 'Party' })
+    await row.getByRole('button', { name: 'Unteraufgaben' }).tap()
+    const trash = row.locator('.hb-subtask', { hasText: 'Einladen' }).getByRole('button', { name: 'Löschen' })
+    await expect(trash).toHaveCSS('opacity', '1')
+  })
+})
+
 test.describe('Metadaten', () => {
   test('shows creator + created time in the expanded row; edit line only after an edit', async ({ page }) => {
     const mock = new MockApi(
