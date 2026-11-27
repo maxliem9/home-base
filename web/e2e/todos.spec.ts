@@ -821,7 +821,7 @@ test.describe('Subtasks', () => {
 // #621: phones have no hover — the subtask trash must be visible there, not stuck at opacity 0.
 // (Playwright's toBeVisible ignores opacity, so assert the computed opacity.)
 test.describe('Subtasks on touch', () => {
-  // desktop-sized viewport so the shared openApp() sidebar nav exists; touch emulation alone flips (hover: none)
+  // desktop-sized viewport so the shared openApp() sidebar nav exists; touch + mobile emulation flips (hover: none)
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 1280, height: 800 } })
 
   test('shows the subtask trash without hover', async ({ page }) => {
