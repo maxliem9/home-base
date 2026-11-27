@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -325,6 +326,28 @@ fun HbTextField(
     password: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
+    if (!singleLine && !password) {
+        // #659: multi-line goes through the TextFieldValue overload so it gets the same caret-in-view
+        // handling (#639). Selection is kept locally; the text always comes from [value] — the same
+        // String↔TextFieldValue bridge Compose's own String BasicTextField uses.
+        var tfv by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+        val current = tfv.copy(text = value)
+        SideEffect { if (current != tfv) tfv = current }
+        HbTextField(
+            value = current,
+            onValueChange = { next ->
+                tfv = next
+                if (next.text != value) onValueChange(next.text)
+            },
+            modifier = modifier,
+            placeholder = placeholder,
+            singleLine = false,
+            minLines = minLines,
+            mono = mono,
+            keyboardOptions = keyboardOptions,
+        )
+        return
+    }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val style = (if (mono) HbType.mono.copy(fontSize = 13.5.sp) else HbType.body).copy(color = Hb.ink)
@@ -362,7 +385,8 @@ fun HbTextField(
 
 /** [TextFieldValue] overload — same look as above, but exposes the caret/selection so
  *  callers can insert text at the cursor (e.g. the notes editor's image insert). No
- *  password / keyboard-options variant — it's for plain multi-line body text only.
+ *  password variant — it's for plain multi-line body text; the String overload routes its
+ *  multi-line case through here (#659).
  *  Multi-line: keeps the caret scrolled into view while typing (#639 — with adjustResize the
  *  window no longer pans to the cursor, and a growing field in a verticalScroll otherwise lets the
  *  caret slide under the keyboard; seen in the notes editor). */
@@ -376,6 +400,7 @@ fun HbTextField(
     singleLine: Boolean = true,
     minLines: Int = 1,
     mono: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -410,6 +435,7 @@ fun HbTextField(
         textStyle = style,
         singleLine = singleLine,
         minLines = minLines,
+        keyboardOptions = keyboardOptions,
         cursorBrush = SolidColor(Hb.accent),
         interactionSource = interaction,
         decorationBox = { inner ->
