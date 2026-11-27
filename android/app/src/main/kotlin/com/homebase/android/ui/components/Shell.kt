@@ -258,15 +258,18 @@ fun HbScreenScaffold(
 ) {
     Column(modifier.fillMaxSize().background(Hb.paper).statusBarsPadding()) {
         appBar()
-        // #639: with adjustResize + edge-to-edge the window neither pans nor resizes for the keyboard,
-        // so the content area shrinks itself — a focused field (Notes editor, inline inputs) can then
-        // be scrolled into view instead of ending up under the IME.
-        Box(Modifier.weight(1f).fillMaxWidth().imePadding()) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             // The scrolling content, shared by both the plain and the pull-to-refresh paths.
             val scrollingContent: @Composable () -> Unit = {
                 Column(
                     Modifier
                         .fillMaxSize()
+                        // #639: adjustResize + edge-to-edge neither pans nor resizes the window for the
+                        // keyboard, so the scroll viewport shrinks itself and a focused field (Notes
+                        // editor, inline inputs) can be scrolled into view. Deliberately only here, not
+                        // on the outer Box: the FAB stays put (behind the keyboard, as before) instead of
+                        // riding above it over inline fields, and overlay sheets inset themselves.
+                        .imePadding()
                         .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
                 ) {
                     Spacer(Modifier.size(4.dp))
@@ -406,8 +409,9 @@ fun HbBottomSheet(
  * `navigationBarsPadding()` resolve to ~0 (#239), and a screen sheet's `imePadding()` / the scaffold's
  * IME padding only add the part of the keyboard that rises above the bar (#639 — consuming just the
  * nav inset left them floating one bar-height, ≥58dp, above the keyboard).
- * Consumption ADDS per side (it is not a max), so this must not be chained with a separate
- * navigationBars consumption — that subtracts the nav inset twice. Until the bar is measured
+ * The PaddingValues overload of `consumeWindowInsets` ADDS to what is already consumed (the
+ * WindowInsets overload takes the per-side max), so chaining a navigationBars consumption before it
+ * would subtract the nav inset twice — hence one or the other, never both. Until the bar is measured
  * ([bottomBar] == 0) fall back to [navigationBars] (pass `WindowInsets.navigationBars`).
  */
 fun Modifier.screenAboveBottomBar(navigationBars: WindowInsets, bottomBar: Dp): Modifier =

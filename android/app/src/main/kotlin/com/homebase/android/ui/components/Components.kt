@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -31,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -380,13 +383,18 @@ fun HbTextField(
     val caretInView = remember { BringIntoViewRequester() }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val density = LocalDensity.current
+    val ime = WindowInsets.ime
     LaunchedEffect(focused, value.selection, layout) {
         val l = layout ?: return@LaunchedEffect
         if (!focused || singleLine) return@LaunchedEffect
         val caret = l.getCursorRect(value.selection.end.coerceIn(0, l.layoutInput.text.length))
         // requester sits outside the inner padding ⇒ shift into its coordinates, plus a little air
         val (padX, padY) = with(density) { 14.dp.toPx() to 12.dp.toPx() }
-        caretInView.bringIntoView(caret.translate(padX, padY).inflate(padY))
+        val target = caret.translate(padX, padY).inflate(padY)
+        // Re-request while the keyboard slides in: focus lands before the IME is up, and a field taller
+        // than the shrinking viewport isn't re-scrolled by the container (tap into a long note's lower
+        // lines). The IME height is read only inside the flow, never in composition.
+        snapshotFlow { ime.getBottom(density) }.collect { caretInView.bringIntoView(target) }
     }
     BasicTextField(
         value = value,
