@@ -210,7 +210,7 @@ flowchart TD
 
 ## Schnellstart (lokal)
 
-**Voraussetzungen:** Docker & Docker Compose · JDK 21 (`sdk install java 21-tem`) · Node 20 (`nvm install 20`)
+**Voraussetzungen:** Docker & Docker Compose · JDK 21 (`sdk install java 21-tem`) · Node 24 (`nvm install 24`)
 
 ```bash
 # 1. Umgebungsvariablen anlegen und anpassen (DB_PASSWORD, JWT_SECRET)
