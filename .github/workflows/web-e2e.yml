@@ -16,8 +16,7 @@ permissions:
 
 jobs:
   e2e:
-    # Pinned: ubuntu-latest moved to 26.04, which Playwright 1.60 can't install Chromium on.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: web
