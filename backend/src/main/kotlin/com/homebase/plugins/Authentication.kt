@@ -39,6 +39,11 @@ fun Application.configureAuthentication(config: ApplicationConfig) {
                 JWT.require(Algorithm.HMAC256(secret))
                     .withAudience(audience)
                     .withIssuer(issuer)
+                    // Sessions don't expire (login issues tokens without `exp`). Tokens issued
+                    // before that change still carry a 30-day `exp`; accept them anyway so nobody
+                    // gets bounced to the login screen once more. 100 years ≈ "never", while
+                    // staying far from Instant overflow inside java-jwt's leeway arithmetic.
+                    .acceptExpiresAt(LEGACY_EXP_LEEWAY_SECONDS)
                     .build()
             )
             validate { credential ->
@@ -62,3 +67,5 @@ private fun bearerFromWebSocketProtocol(call: ApplicationCall): HttpAuthHeader? 
     val token = parts.getOrNull(marker + 1)?.takeIf { it.isNotBlank() } ?: return null
     return HttpAuthHeader.Single("Bearer", token)
 }
+
+private const val LEGACY_EXP_LEEWAY_SECONDS = 100L * 365 * 24 * 60 * 60

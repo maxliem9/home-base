@@ -16,7 +16,6 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
-import java.util.*
 
 fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
     post("/auth/login") {
@@ -71,11 +70,12 @@ fun Route.authRoutes(throttler: LoginThrottler, trustedProxyCount: Int) {
         val issuer = config.property("jwt.issuer").getString()
         val audience = config.property("jwt.audience").getString()
 
+        // No `exp` claim: sessions don't time out — a user stays signed in until they log out
+        // explicitly (private 2-user household; an expiring token kept logging the phone out).
         val token = JWT.create()
             .withAudience(audience)
             .withIssuer(issuer)
             .withClaim("username", request.username)
-            .withExpiresAt(Date(System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000))
             .sign(Algorithm.HMAC256(secret))
 
         call.respond(TokenResponse(token))
